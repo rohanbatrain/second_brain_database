@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta" 
+
+
+[project]
+name = "Second-Brain-Database"
+version = "0.0.1"
+authors = [
+  { name="Rohan Batra", email="contact@rohanbatra.in" },
+]
+description = "A python package which holds my second brain database Application."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rohanbatrain/second-brain-database"
+"Bug Tracker" = "https://github.com/rohanbatrain/second-brain-database/issues"
