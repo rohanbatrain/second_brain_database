@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# Custom
+__pycache__/
+*.py[cod]
+.DS_Store
+*.sqlite3
+venv/
+.env
+
+
 # Distribution / packaging
 .Python
 build/
@@ -120,6 +129,7 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
+
 
 # Environments
 .env

@@ -9,7 +9,7 @@ version = "0.0.1"
 authors = [
   { name="Rohan Batra", email="contact@rohanbatra.in" },
 ]
-description = "A python package which holds my second brain database Application."
+description = "A Python package that serves as the foundation for my Second Brain database, designed to store and organize knowledge for easy retrieval through various applications."
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [
