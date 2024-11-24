@@ -1,29 +1,29 @@
-from pymongo import MongoClient
 from datetime import datetime
+from db import sleep
 
-# Replace 'localhost' and '27017' with your server address and port, if different
-client = MongoClient("mongodb://localhost:27017/")
-db = client["rohan"]
-sleep = db["sleep"]
+collection = sleep
 
 
+def check_entry(date=None):
+    date = date or datetime.now().strftime("%Y-%m-%d")
+    if not collection.find_one({"date": date}):
+        create_entry(date)
+        # print(f"Entry created for {date}.")
+        return 0
+    else:
+        # print("Entry for this date already exists.")
+        return 1
+    
 
 def create_entry(date=None):
     """Initializes a new sleep log entry for a given date."""
-    date = date or datetime.now().strftime("%Y-%m-%d")
     entry = {
         "date": date,
         "duration": {},
         "quality": {},
         "environment": {}
     }
-    # Check if entry for this date already exists before insertion
-    if not collection.find_one({"date": date}):
-        collection.insert_one(entry)
-        print(f"Entry created for {date}.")
-    else:
-        print("Entry for this date already exists.")
-
+    collection.insert_one(entry)
     return entry
 
 # Duration Field Updates
@@ -103,3 +103,11 @@ def update_sleep_temperature_preference(date, sleep_temperature_preference):
     print("Sleep temperature preference updated.")
 
 
+# Calling check_entry 
+# if check_entry() == 0:
+#     print(f"Entry created for {date}.")
+# elif check_entry() == 1:
+#     print("Entry for this date already exists.")
+# else:
+#     print("unknown error")
+# Calling update bedtime
