@@ -21,3 +21,6 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/rohanbatrain/second-brain-database"
 "Bug Tracker" = "https://github.com/rohanbatrain/second-brain-database/issues"
+
+[tool.poetry.dependencies]
+todoist-api-python = "^v2.0.0"
