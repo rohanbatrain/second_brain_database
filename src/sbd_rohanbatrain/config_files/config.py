@@ -1,6 +1,8 @@
 # Import the JSON module to work with JSON files
 import json
-from utils import  config_file_path
+from sbd_rohanbatrain.utilities.config_related import config_location
+
+config_file_path =  config_location
 
 # Open the configuration file named "config.json" in read mode
 with open(config_file_path, "r") as config_file:
