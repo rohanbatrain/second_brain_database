@@ -237,3 +237,30 @@ def update_gender(first_name: str, last_name: str, new_gender: str) -> Dict:
 
     updated_entry = collection.find_one({"_id": person_to_update["_id"]})
     return updated_entry
+
+
+# Read Functions (CRUd)
+def delete_entry(first_name: str, last_name: str) -> bool:
+    """
+    Deletes an entry for a person based on their first and last name.
+
+    Args:
+        first_name (str): First name of the person.
+        last_name (str): Last name of the person.
+
+    Returns:
+        bool: True if the entry was deleted, False if no matching entry was found.
+    """
+    # Find the entry based on first and last name
+    result = collection.delete_one({
+        "first_name": first_name,
+        "last_name": last_name
+    })
+
+    # Check if the deletion was successful
+    if result.deleted_count > 0:
+        logger.info(f"Entry deleted for {first_name} {last_name}.")
+        return True
+    else:
+        logger.warning(f"No entry found for {first_name} {last_name}. Deletion failed.")
+        return False

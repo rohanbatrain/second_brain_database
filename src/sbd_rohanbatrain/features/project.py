@@ -72,4 +72,3 @@ def delete_project(project_id):
     return result.deleted_count
 
 
-add_project("test","This is a test")
