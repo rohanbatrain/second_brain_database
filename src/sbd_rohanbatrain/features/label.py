@@ -17,8 +17,14 @@ def add_label(name, color, description=""):
     description (str, optional): A description of the label. Defaults to an empty string.
 
     Returns:
-    str: The ID of the inserted label.
+    str: The ID of the inserted label, or None if a label with the same name already exists.
     """
+    # Check if a label with the same name already exists
+    existing_label = labels_collection.find_one({"name": name})
+    if existing_label:
+        logger.warning(f"Label creation failed: A label with the name '{name}' already exists.")
+        return None  # Return None or raise an error depending on your use case
+    
     label = {
         "name": name,
         "color": color,
@@ -37,6 +43,7 @@ def add_label(name, color, description=""):
     logger.info(f"Label created: {label_id} - Name: {name}, Color: {color}")
     
     return label_id
+
 
 def update_label_name(label_name, new_name):
     """
