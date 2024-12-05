@@ -2,6 +2,7 @@
 import json
 from sbd_rohanbatrain.utilities.config_related import config_location
 
+# Variable Declaration
 config_file_path =  config_location
 
 # Open the configuration file named "config.json" in read mode

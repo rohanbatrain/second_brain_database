@@ -40,4 +40,4 @@ def find_sbd_config(start_path="."):
         logger.warning("'sbd_config.json' not found in the specified path.")
         return "'sbd_config.json' not found."
 
-config_location = find_sbd_config()
+# config_location = find_sbd_config()
