@@ -1,6 +1,7 @@
+from typing import Dict, List, Optional
+from datetime import datetime
+import logging
 from sbd_rohanbatrain.database.db import network_collection
-
-collection = network_collection
 
 # Configure logging
 logging.basicConfig(
@@ -12,10 +13,33 @@ logging.basicConfig(
     ]
 )
 
+collection = network_collection
+
+# Helper function to check for name conflicts
+def check_person_name_conflict(first_name: str, last_name: str) -> List[Dict]:
+    """
+    Helper function to check if a person with the given first and last name exists in the database.
+    It returns the list of matching people or raises errors if no or multiple people are found.
+
+    Args:
+        first_name (str): First name of the person.
+        last_name (str): Last name of the person.
+
+    Returns:
+        list: A list of people matching the first and last name.
+    """
+    people = find_person_by_name(first_name, last_name)
+
+    if len(people) == 0:
+        raise ValueError(f"No person found with name {first_name} {last_name}")
+    
+    if len(people) > 1:
+        raise ValueError(f"Multiple people found with name {first_name} {last_name}. Update aborted.")
+
+    return people
 
 # Creation Functions (cRUD)
 
-## Create a new person entry
 def create_entry(first_name: str, last_name: str, date_of_birth: str, gender: str, date: Optional[str] = None) -> Dict:
     """
     Create a new entry for a person and insert it into MongoDB.
@@ -48,6 +72,13 @@ def create_entry(first_name: str, last_name: str, date_of_birth: str, gender: st
 
 # Read Functions (CrUD)
 
+def find_person_by_name(first_name: str, last_name: str) -> List[Dict]:
+    """
+    Helper function to find a person by first and last name.
+    Returns a list of people matching the name.
+    """
+    return list(collection.find({"first_name": first_name, "last_name": last_name}))
+
 def read_entry(first_name: str, last_name: str) -> Dict:
     """
     Read the entry of a person based on first name and last name.
@@ -59,7 +90,6 @@ def read_entry(first_name: str, last_name: str) -> Dict:
     Returns:
         dict: The found entry or a list of candidates if multiple people match the same name.
     """
-    # Find the person(s) by name
     people = find_person_by_name(first_name, last_name)
     
     if len(people) == 0:
@@ -71,13 +101,6 @@ def read_entry(first_name: str, last_name: str) -> Dict:
     
     # If exactly one person is found, return their details
     return people[0]
-
-def find_person_by_name(first_name: str, last_name: str):
-    """
-    Helper function to find a person by first and last name.
-    Returns a list of people matching the name.
-    """
-    return list(collection.find({"first_name": first_name, "last_name": last_name}))
 
 # Update Functions (CRuD)
 
@@ -91,25 +114,12 @@ def update_first_name(first_name: str, last_name: str, new_first_name: str) -> D
         new_first_name (str): The new first name to set.
 
     Returns:
-        dict: The updated entry.
+        dict: The updated entry, or raises a ValueError if no matching person is found or other error occurs.
     """
-    # Find the person by name
-    people = find_person_by_name(first_name, last_name)
-    
-    if len(people) == 0:
-        raise ValueError(f"No person found with name {first_name} {last_name}")
-    
-    if len(people) > 1:
-        print(f"Multiple people found with name {first_name} {last_name}.")
-        for person in people:
-            print(f"ID: {person['_id']} - {person['first_name']} {person['last_name']}")
-        person_id = input("Please enter the ID of the person to update: ")
-        person_to_update = collection.find_one({"_id": person_id})
-        if not person_to_update:
-            raise ValueError(f"No person found with ID {person_id}")
-    else:
-        person_to_update = people[0]
-    
+    # Use the helper function to handle name conflict check
+    people = check_person_name_conflict(first_name, last_name)
+    person_to_update = people[0]
+
     # Proceed with updating the first name
     result = collection.update_one(
         {"_id": person_to_update["_id"]},
@@ -117,8 +127,11 @@ def update_first_name(first_name: str, last_name: str, new_first_name: str) -> D
     )
 
     updated_entry = collection.find_one({"_id": person_to_update["_id"]})
-    return updated_entry
-
+    
+    if updated_entry:
+        return updated_entry
+    else:
+        raise ValueError(f"Failed to update the first name of {first_name} {last_name}")
 
 def update_last_name(first_name: str, last_name: str, new_last_name: str) -> Dict:
     """
@@ -130,25 +143,12 @@ def update_last_name(first_name: str, last_name: str, new_last_name: str) -> Dic
         new_last_name (str): The new last name to set.
 
     Returns:
-        dict: The updated entry.
+        dict: The updated entry, or raises a ValueError if no matching person is found or other error occurs.
     """
-    # Find the person by name
-    people = find_person_by_name(first_name, last_name)
+    # Use the helper function to handle name conflict check
+    people = check_person_name_conflict(first_name, last_name)
+    person_to_update = people[0]
 
-    if len(people) == 0:
-        raise ValueError(f"No person found with name {first_name} {last_name}")
-    
-    if len(people) > 1:
-        print(f"Multiple people found with name {first_name} {last_name}.")
-        for person in people:
-            print(f"ID: {person['_id']} - {person['first_name']} {person['last_name']}")
-        person_id = input("Please enter the ID of the person to update: ")
-        person_to_update = collection.find_one({"_id": person_id})
-        if not person_to_update:
-            raise ValueError(f"No person found with ID {person_id}")
-    else:
-        person_to_update = people[0]
-    
     # Proceed with updating the last name
     result = collection.update_one(
         {"_id": person_to_update["_id"]},
@@ -156,8 +156,11 @@ def update_last_name(first_name: str, last_name: str, new_last_name: str) -> Dic
     )
 
     updated_entry = collection.find_one({"_id": person_to_update["_id"]})
-    return updated_entry
-
+    
+    if updated_entry:
+        return updated_entry
+    else:
+        raise ValueError(f"Failed to update the last name of {first_name} {last_name}")
 
 def update_date_of_birth(first_name: str, last_name: str, new_dob: str) -> Dict:
     """
@@ -169,27 +172,14 @@ def update_date_of_birth(first_name: str, last_name: str, new_dob: str) -> Dict:
         new_dob (str): The new date of birth to set in 'YYYY-MM-DD' format.
 
     Returns:
-        dict: The updated entry.
+        dict: The updated entry, or raises a ValueError if no matching person is found or other error occurs.
     """
     new_dob_datetime = datetime.strptime(new_dob, "%Y-%m-%d")
 
-    # Find the person by name
-    people = find_person_by_name(first_name, last_name)
-    
-    if len(people) == 0:
-        raise ValueError(f"No person found with name {first_name} {last_name}")
-    
-    if len(people) > 1:
-        print(f"Multiple people found with name {first_name} {last_name}.")
-        for person in people:
-            print(f"ID: {person['_id']} - {person['first_name']} {person['last_name']}")
-        person_id = input("Please enter the ID of the person to update: ")
-        person_to_update = collection.find_one({"_id": person_id})
-        if not person_to_update:
-            raise ValueError(f"No person found with ID {person_id}")
-    else:
-        person_to_update = people[0]
-    
+    # Use the helper function to handle name conflict check
+    people = check_person_name_conflict(first_name, last_name)
+    person_to_update = people[0]
+
     # Proceed with updating the date of birth
     result = collection.update_one(
         {"_id": person_to_update["_id"]},
@@ -197,70 +187,8 @@ def update_date_of_birth(first_name: str, last_name: str, new_dob: str) -> Dict:
     )
 
     updated_entry = collection.find_one({"_id": person_to_update["_id"]})
-    return updated_entry
-
-
-def update_gender(first_name: str, last_name: str, new_gender: str) -> Dict:
-    """
-    Update the gender of a person.
-
-    Args:
-        first_name (str): The first name of the person to be updated.
-        last_name (str): The last name of the person to be updated.
-        new_gender (str): The new gender to set.
-
-    Returns:
-        dict: The updated entry.
-    """
-    # Find the person by name
-    people = find_person_by_name(first_name, last_name)
     
-    if len(people) == 0:
-        raise ValueError(f"No person found with name {first_name} {last_name}")
-    
-    if len(people) > 1:
-        print(f"Multiple people found with name {first_name} {last_name}.")
-        for person in people:
-            print(f"ID: {person['_id']} - {person['first_name']} {person['last_name']}")
-        person_id = input("Please enter the ID of the person to update: ")
-        person_to_update = collection.find_one({"_id": person_id})
-        if not person_to_update:
-            raise ValueError(f"No person found with ID {person_id}")
+    if updated_entry:
+        return updated_entry
     else:
-        person_to_update = people[0]
-    
-    # Proceed with updating the gender
-    result = collection.update_one(
-        {"_id": person_to_update["_id"]},
-        {"$set": {"gender": new_gender}}
-    )
-
-    updated_entry = collection.find_one({"_id": person_to_update["_id"]})
-    return updated_entry
-
-
-# Read Functions (CRUd)
-def delete_entry(first_name: str, last_name: str) -> bool:
-    """
-    Deletes an entry for a person based on their first and last name.
-
-    Args:
-        first_name (str): First name of the person.
-        last_name (str): Last name of the person.
-
-    Returns:
-        bool: True if the entry was deleted, False if no matching entry was found.
-    """
-    # Find the entry based on first and last name
-    result = collection.delete_one({
-        "first_name": first_name,
-        "last_name": last_name
-    })
-
-    # Check if the deletion was successful
-    if result.deleted_count > 0:
-        logger.info(f"Entry deleted for {first_name} {last_name}.")
-        return True
-    else:
-        logger.warning(f"No entry found for {first_name} {last_name}. Deletion failed.")
-        return False
+        raise ValueError(f"Failed to update the date of birth for {first_name} {last_name}")
