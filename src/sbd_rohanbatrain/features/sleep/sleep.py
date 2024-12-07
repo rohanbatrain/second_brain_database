@@ -3,6 +3,7 @@ from sbd_rohanbatrain.database.db import sleep_collection
 
 collection = sleep_collection
 
+
 def check_entry(date=None):
     """
     Checks if a sleep log entry exists for the given date.

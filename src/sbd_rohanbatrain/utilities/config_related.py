@@ -1,43 +1,37 @@
 import os
-import glob
-import logging
 
-# Setup logger with basic configuration
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def find_sbd_config(start_path="."):
+def find_sbd_config(start_path=None):
     """
-    Searches for the 'sbd_config.json' file starting from the specified directory, recursively.
-    
-    This function uses the `glob` module to search for the file in the given directory and all of its subdirectories.
+    Searches for the 'sbd_config.json' file by moving upwards from the specified directory.
     
     Parameters:
-    start_path (str): The directory where the search begins. Default is the current directory (".").
+    start_path (str): The directory where the search begins. Default is the current working directory.
     
     Returns:
-    str: The path to the first found 'sbd_config.json' file, or a message indicating the file was not found.
+    str: The path to the directory containing 'sbd_config.json', or a message indicating the file was not found.
     """
-    
-    # Validate if the given start_path is a valid directory
-    if not os.path.isdir(start_path):
-        logger.error(f"The path {start_path} is not a valid directory.")
-        return f"The path {start_path} is not a valid directory."
+    # Default to the current working directory if no start_path is provided
+    if start_path is None:
+        start_path = os.getcwd()
 
-    # Construct the search pattern
-    search_pattern = os.path.join(start_path, '**', 'sbd_config.json')
-    logger.info(f"Searching for 'sbd_config.json' in: {start_path}")
+    # Loop to traverse upwards through parent directories
+    while True:
+        # Check if the 'sbd_config.json' file exists in the current directory
+        if os.path.isfile(os.path.join(start_path, 'sbd_config.json')):
+            return start_path
 
-    # Use glob to find all matching files recursively
-    config_files = glob.glob(search_pattern, recursive=True)
+        # Move one directory up
+        parent_dir = os.path.dirname(start_path)
 
-    if config_files:
-        # Log the first found file path and return it
-        logger.info(f"Found 'sbd_config.json' at: {config_files[0]}")
-        return config_files[0]
-    else:
-        # Log if the file was not found
-        logger.warning("'sbd_config.json' not found in the specified path.")
-        return "'sbd_config.json' not found."
+        # If we've reached the root, break out of the loop
+        if parent_dir == start_path:
+            break
 
-# config_location = find_sbd_config()
+        start_path = parent_dir
+
+    return "'sbd_config.json' not found."
+
+# Example Usage
+if __name__ == "__main__":
+    config_location = find_sbd_config()
+    print(config_location)
