@@ -1,5 +1,5 @@
 {
     "API_KEY": "your_api_key_here",
-    "MONGO_URL" : "mongodb://localhost:27017/",
+    "MONGO_URL" : "mongodb+srv://harshdeepsinghin:FMfbem852VWLRbS46UmVwVPeksq8HYmI3nx2Qv0xJKXr0RDRqjDa1JkuaSmT@knowledge-base.fg1hx.mongodb.net/",
     "MONGO_DB_NAME" : "rohan"
 }

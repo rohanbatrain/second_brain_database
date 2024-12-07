@@ -121,6 +121,5 @@ def create_unique_name_index():
     collection.create_index(unique_index, unique=True)
 
 # Function calling
-
 ## Ensure the unique index is created when the script is first run
 create_unique_name_index()
