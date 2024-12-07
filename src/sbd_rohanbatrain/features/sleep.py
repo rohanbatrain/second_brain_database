@@ -277,3 +277,4 @@ def update_sleep_temperature_preference(date, sleep_temperature_preference):
     """
     collection.update_one({"date": date}, {"$set": {"sleep_temperature_preference": sleep_temperature_preference}})
     print("Sleep temperature preference updated.")
+ 

@@ -1,13 +1,5 @@
-import logging
 from datetime import datetime
 from decimal import Decimal
-
-# Configure the logging module
-logging.basicConfig(
-    level=logging.INFO,  # Log all INFO and higher level messages
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]  # Output logs to console
-)
 
 def add_expense(
     amount,
@@ -49,12 +41,8 @@ def add_expense(
     Returns:
     - str or ObjectId: The MongoDB document ID of the newly inserted expense.
     """
-    # Log function call with input parameters
-    logging.info(f"Adding expense: {amount} {currency} for {category} - {description}")
-
     # Validate that the amount is positive
     if amount <= 0:
-        logging.error("Invalid amount: Must be greater than zero.")
         raise ValueError("Amount must be greater than zero.")
     
     # If no date is provided, set it to the current date
@@ -67,7 +55,7 @@ def add_expense(
 
     # Prepare the expense data structure
     expense = {
-        'amount': Decimal(amount),  # Store amount as Decimal for precision
+        'amount': amount,  # Store amount as Decimal for precision
         'category': category,
         'description': description,
         'date': date,
@@ -82,20 +70,6 @@ def add_expense(
         'notes': notes  # Optional, defaults to None
     }
 
-    try:
-        # Log database insertion attempt
-        logging.info("Inserting expense into the database...")
-        
-        # Insert the expense into the MongoDB collection and get the inserted document's ID
-        result = expenses_collection.insert_one(expense)
-        
-        # Log successful insertion
-        logging.info(f"Expense added successfully with ID: {result.inserted_id}")
-        
-        # Return the ID of the inserted expense
-        return result.inserted_id
-
-    except Exception as e:
-        # Log any exception that occurs during the insertion
-        logging.error(f"Error inserting expense into database: {e}")
-        raise
+    # Insert the expense into the MongoDB collection and return the inserted document's ID
+    result = expenses_collection.insert_one(expense)
+    return result.inserted_id

@@ -1,17 +1,6 @@
-import logging
 from datetime import datetime
 from sbd_rohanbatrain.database.db import projects_collection
 from bson import ObjectId
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,  # Set the default logging level
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("sbd.logs"),  # Log to a file
-        logging.StreamHandler()  # Also log to the console
-    ]
-)
 
 def add_project(name: str, description: str) -> str:
     """
@@ -30,12 +19,11 @@ def add_project(name: str, description: str) -> str:
         "name": name,
         "description": description,
         "creation_date": creation_date,  # Adding the creation date field
-        "creation_time" : creation_time # Adding the creation time field
+        "creation_time": creation_time  # Adding the creation time field
     }
 
     result = projects_collection.insert_one(project)
     project_id = str(result.inserted_id)
-    logging.info(f"Project added with ID: {project_id}")
     return project_id
 
 
@@ -47,10 +35,6 @@ def view_projects():
         list: A list of dictionaries, each representing a project.
     """
     projects = list(projects_collection.find())
-    if projects:
-        logging.info(f"Fetched {len(projects)} project(s) from the database.")
-    else:
-        logging.warning("No projects found in the database.")
     return projects
 
 
@@ -65,10 +49,4 @@ def delete_project(project_id):
         int: The number of projects deleted (1 if successful, 0 otherwise).
     """
     result = projects_collection.delete_one({"_id": ObjectId(project_id)})
-    if result.deleted_count > 0:
-        logging.info(f"Project with ID {project_id} deleted successfully.")
-    else:
-        logging.error(f"Failed to delete project with ID {project_id}. Project not found.")
     return result.deleted_count
-
-
