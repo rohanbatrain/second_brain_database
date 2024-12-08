@@ -8,7 +8,7 @@ def find_sbd_config(start_path=None):
     start_path (str): The directory where the search begins. Default is the current working directory.
     
     Returns:
-    str: The path to the directory containing 'sbd_config.json', or a message indicating the file was not found.
+    str: The full path to the 'sbd_config.json' file, or a message indicating the file was not found.
     """
     # Default to the current working directory if no start_path is provided
     if start_path is None:
@@ -17,8 +17,9 @@ def find_sbd_config(start_path=None):
     # Loop to traverse upwards through parent directories
     while True:
         # Check if the 'sbd_config.json' file exists in the current directory
-        if os.path.isfile(os.path.join(start_path, 'sbd_config.json')):
-            return start_path
+        file_path = os.path.join(start_path, 'sbd_config.json')
+        if os.path.isfile(file_path):
+            return file_path  # Return the full path including filename
 
         # Move one directory up
         parent_dir = os.path.dirname(start_path)
@@ -32,6 +33,6 @@ def find_sbd_config(start_path=None):
     return "'sbd_config.json' not found."
 
 # Example Usage
-if __name__ == "__main__":
-    config_location = find_sbd_config()
-    print(config_location)
+
+config_location = find_sbd_config() 
+print(config_location)
