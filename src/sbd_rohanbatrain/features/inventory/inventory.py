@@ -15,6 +15,7 @@ def add_new_item_to_inventory(item_name, item_type, date_created=None, time_crea
     - date_modified (str, optional): Date the item was last modified (default: today, format: YYYY-MM-DD).
     - time_modified (str, optional): Time the item was last modified (default: now, format: HH:MM:SS).
     """
+    
     if not item_name:
         raise ValueError("Item name is required.")
     if not item_type:
@@ -42,6 +43,6 @@ def add_new_item_to_inventory(item_name, item_type, date_created=None, time_crea
     print(f"Item added successfully with ID: {result.inserted_id}")
 
 # Example usage
-add_new_item_to_inventory("Router", "Device")
-add_new_item_to_inventory("Pan", "Kitchen Supply")
+
+# add_new_item_to_inventory("Pan", "Kitchen Supply")
 
