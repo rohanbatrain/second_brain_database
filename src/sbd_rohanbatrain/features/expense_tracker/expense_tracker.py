@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from bson.objectid import ObjectId
+from sbd_rohanbatrain.database.db import expense_collection
 
 
 def add_expense(
@@ -75,49 +76,3 @@ def add_expense(
     # Insert the expense into the MongoDB collection and return the inserted document's ID
     result = expenses_collection.insert_one(expense)
     return result.inserted_id
-
-def read_expenses(filters=None):
-    """
-    Retrieve expense records from the system based on optional filters.
-
-    Parameters:
-    - filters (dict, optional): A dictionary of query filters (e.g., {'category': 'Food'}).
-
-    Returns:
-    - list: A list of matching expense records.
-    """
-    # If no filters are provided, default to an empty dictionary (fetch all)
-    if filters is None:
-        filters = {}
-
-    # Query the MongoDB collection
-    results = expenses_collection.find(filters)
-
-    # Convert MongoDB cursor to a list
-    return list(results)
-
-
-def delete_expense(expense_id):
-    """
-    Delete an expense record from the system by its unique identifier.
-
-    Parameters:
-    - expense_id (str): The unique identifier of the expense to delete.
-
-    Returns:
-    - dict: A summary of the delete operation.
-    """
-    # Convert string ID to ObjectId for MongoDB
-    try:
-        expense_object_id = ObjectId(expense_id)
-    except Exception as e:
-        raise ValueError(f"Invalid expense ID: {expense_id}. Error: {e}")
-
-    # Perform the delete operation
-    result = expenses_collection.delete_one({'_id': expense_object_id})
-
-    # Return operation summary
-    return {
-        'deleted_count': result.deleted_count,
-        'expense_id': expense_id
-    }
