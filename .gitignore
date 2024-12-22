@@ -172,3 +172,4 @@ cython_debug/
 #.idea/
 
 sbd_config.json
+.sbd_config.json

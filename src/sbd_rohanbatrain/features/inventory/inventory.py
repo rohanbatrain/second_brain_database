@@ -33,7 +33,7 @@ def add_new_item_to_inventory(item_name, item_type, date_created=None, date_modi
 
     # Insert the document into the MongoDB collection
     result = inventory_collection.insert_one(item_document)
-    print(f"Item added successfully with ID: {result.inserted_id}")
+    return result.inserted_id
 
 # Example usage
 # add_new_item_to_inventory("Pan", "Kitchen Supply")

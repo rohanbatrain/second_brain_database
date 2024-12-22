@@ -14,3 +14,4 @@ with open(config_file_path, "r") as config_file:
 API_KEY = config["API_KEY"]
 MONGO_URL = config["MONGO_URL"]
 MONGO_DB_NAME  = config["MONGO_DB_NAME"]
+TELEGRAM_BOT_TOKEN = config["TELEGRAM_BOT_TOKEN"]

@@ -2,5 +2,6 @@
     "API_KEY": "your_api_key_here",
     "MONGO_URL" : "mongodb://localhost:27017",
     "MONGO_URL_2" : "mongodb://harshdeepsinghin:FMfbem852VWLRbS46UmVwVPeksq8HYmI3nx2Qv0xJKXr0RDRqjDa1JkuaSmT@knowledge-base.fg1hx.mongodb.net/",
-    "MONGO_DB_NAME" : "rohan"
+    "MONGO_DB_NAME" : "rohan",
+    "TELEGRAM_BOT_TOKEN" : "7595725853:AAExGt63ZW_QsZtr7pr_dHlxQkW4ga1zvF8"
 }
