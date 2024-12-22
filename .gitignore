@@ -171,6 +171,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-sbd_config.json
-.sbd_config.json
-sbd_config.json
+sbt_config.json
+*.json
