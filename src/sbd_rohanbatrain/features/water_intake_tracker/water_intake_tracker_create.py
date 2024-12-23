@@ -93,6 +93,10 @@ def log_water_intake(amount):
     return "Water intake logged and goal progress updated successfully"
 
 
+log_water_intake(250)
+
+
+
 # # Example function calls to test it
 # # Test Water Intake Logging with automatic goal tracking
 # print(log_water_intake(amount=500))  # Log water intake without specifying goal frequency
