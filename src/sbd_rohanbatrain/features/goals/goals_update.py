@@ -3,9 +3,9 @@ from datetime import datetime
 from sbd_rohanbatrain.database.db import goals_collection
 
 def update_goal(goal_id, goal_type=None, start_date=None, goal_value=None, 
-                description=None, unit=None, frequency=None, progress=None):
+                description=None, unit=None, frequency=None, progress=None, related_ids=None):
     """
-    Updates an existing goal document in the MongoDB collection.
+    Updates an existing goal document in the MongoDB collection, including related_ids.
 
     Args:
         goal_id (str): The unique identifier (ObjectId) of the goal to be updated.
@@ -16,6 +16,7 @@ def update_goal(goal_id, goal_type=None, start_date=None, goal_value=None,
         unit (str, optional): New unit of measurement for the goal value.
         frequency (str, optional): New frequency of the goal (e.g., 'daily').
         progress (float, optional): New progress value to update.
+        related_ids (dict, optional): Updated related entity IDs (routines, tasks, habits).
 
     Returns:
         ObjectId or None: The updated goal's unique identifier (goal_id) if the update is successful, or None if it fails.
@@ -46,9 +47,14 @@ def update_goal(goal_id, goal_type=None, start_date=None, goal_value=None,
             update_fields["unit"] = unit
         if frequency:
             update_fields["frequency"] = frequency
-        if progress:
-            if isinstance(progress, (int, float)) and progress >= 0:
+        if progress is not None:
+            if isinstance(progress, (int, float)) and 0 <= progress <= 100:
                 update_fields["progress"] = progress
+            else:
+                return None
+        if related_ids:
+            if isinstance(related_ids, dict):
+                update_fields["related_ids"] = related_ids
             else:
                 return None
 
@@ -69,11 +75,8 @@ def update_goal(goal_id, goal_type=None, start_date=None, goal_value=None,
             return None
 
     except Exception as e:
+        print(f"An error occurred: {e}")
         return None
-
-
-from bson import ObjectId
-from sbd_rohanbatrain.database.db import goals_collection
 
 def update_progress(goal_id, progress):
     """
@@ -84,7 +87,7 @@ def update_progress(goal_id, progress):
         progress (float): The new progress value (must be between 0 and 100).
 
     Returns:
-        str: The goal ID if the update is successful, or an error message if it fails.
+        str: A success or error message.
 
     Example:
         update_progress("634f8bda24fdbb91cf72f98b", 50)

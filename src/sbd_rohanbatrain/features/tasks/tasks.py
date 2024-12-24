@@ -1,26 +1,43 @@
 from bson.objectid import ObjectId
 from datetime import datetime
-from sbd_rohanbatrain.database.db import tasks_collection
+from sbd_rohanbatrain.database.db import tasks_collection, routine_collection
+from sbd_rohanbatrain.features.routines.routine_create import create_routine_entry
 
-
-# Create a new task
-def create_task(title, description, due_date, priority, parent_task=None, dependencies=[], task_reference_id=None):
+def create_task(title, description, due_date, priority, parent_task=None, dependencies=[], task_reference_id=None, is_routine=False, frequency=None):
     """
-    Creates a new task in the collection.
+    Creates a new task and associates it with a routine if specified.
 
     Args:
-        title (str): Title of the task
-        description (str): Description of the task
-        due_date (datetime): Due date of the task
-        priority (int): Task priority (1-5 scale)
-        parent_task (str): Parent task ID if this is a subtask (default: None)
-        dependencies (list): List of task dependencies (default: empty list)
-        task_reference_id (str): Reference ID for the related task/entity (e.g., habit, project, etc.) (default: None)
+        title (str): The title or name of the task.
+        description (str): A brief description of the task.
+        due_date (datetime): The due date of the task.
+        priority (int): The priority of the task on a scale from 1 (lowest) to 5 (highest).
+        parent_task (str, optional): The ID of the parent task if this task is a subtask. Default is None.
+        dependencies (list, optional): A list of task IDs that are dependencies for this task. Default is an empty list.
+        task_reference_id (dict, optional): A dictionary containing references to related entities such as habit, routine, or goal. Default is None.
+        is_routine (bool, optional): A flag to indicate whether the task is part of a routine. Default is False.
+        frequency (str, optional): The frequency of the routine task (e.g., "daily", "weekly"). Only required if `is_routine` is True.
 
     Returns:
-        str: ID of the created task
+        str: The ID of the created task, or None if there was an error.
+    
+    This function creates a new task document in the task collection, and if the task is associated
+    with a routine, a routine entry is created and linked to the task. The task's reference ID is stored
+    as a dictionary with separate fields for habit, routine, and goal.
     """
     try:
+        task_reference = {
+            "habit": [],
+            "routine": [],
+            "goal": []
+        }
+
+        # If the task is a routine, create a routine entry and update the task_reference_id
+        if is_routine and frequency:
+            routine_id = create_routine_entry(task_id=None, frequency=frequency)  # Create routine entry without task initially
+            if routine_id:
+                task_reference["routine"].append(ObjectId(routine_id))  # Add routine reference
+
         task = {
             "title": title,
             "description": description,
@@ -29,146 +46,48 @@ def create_task(title, description, due_date, priority, parent_task=None, depend
             "is_completed": False,
             "parent_task": parent_task,
             "dependencies": [ObjectId(dep) for dep in dependencies],
-            "task_reference_id": ObjectId(task_reference_id) if task_reference_id else None,
+            "task_reference_id": task_reference,  # Store task_reference_id as a dictionary
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
 
+        # Insert the task into the collection
         result = tasks_collection.insert_one(task)
-        return str(result.inserted_id)
+        task_id = str(result.inserted_id)
+
+        # If it was a routine task, update the task_reference_id for the created task
+        if is_routine and frequency:
+            tasks_collection.update_one(
+                {"_id": ObjectId(task_id)},
+                {"$set": {"task_reference_id.routine": [ObjectId(routine_id)]}}  # Link routine to task
+            )
+
+        return task_id
     except Exception as e:
         print(f"Error creating task: {e}")
         return None
 
 
-# Get all tasks (optionally by completion status)
-def get_all_tasks(is_completed=None):
+def create_routine_task(title, description, due_date, priority, parent_task=None, dependencies=[], task_reference_id=None, frequency=None):
     """
-    Retrieves all tasks, optionally filtered by completion status.
+    Creates a task specifically designed as a routine task with a specified frequency.
 
     Args:
-        is_completed (bool): Whether to filter tasks by completion status (default: None)
+        title (str): The title or name of the task.
+        description (str): A brief description of the task.
+        due_date (datetime): The due date of the task.
+        priority (int): The priority of the task on a scale from 1 (lowest) to 5 (highest).
+        parent_task (str, optional): The ID of the parent task if this task is a subtask. Default is None.
+        dependencies (list, optional): A list of task IDs that are dependencies for this task. Default is an empty list.
+        task_reference_id (dict, optional): A dictionary containing references to related entities such as habit, routine, or goal. Default is None.
+        frequency (str, optional): The frequency of the routine task (e.g., "daily", "weekly"). Required to indicate the task is routine.
 
     Returns:
-        list: List of tasks
+        str: The ID of the created routine task, or None if there was an error.
+    
+    This helper function calls the `create_task` function with `is_routine=True` to create a task
+    specifically linked to a routine with a specified frequency.
     """
-    try:
-        if is_completed is None:
-            return list(tasks_collection.find())
-        return list(tasks_collection.find({"is_completed": is_completed}))
-    except Exception as e:
-        print(f"Error fetching tasks: {e}")
-        return []
-
-
-# Get a task by ID
-def get_task_by_id(task_id):
-    """
-    Retrieves a task by its ID.
-
-    Args:
-        task_id (str): ID of the task
-
-    Returns:
-        dict: The task document
-    """
-    try:
-        return tasks_collection.find_one({"_id": ObjectId(task_id)})
-    except Exception as e:
-        print(f"Error fetching task by ID: {e}")
-        return None
-
-
-# Update a task
-def update_task(task_id, title=None, description=None, due_date=None, priority=None, is_completed=None, dependencies=None, task_reference_id=None):
-    """
-    Updates the specified task with new details.
-
-    Args:
-        task_id (str): ID of the task to update
-        title (str): Updated title (default: None)
-        description (str): Updated description (default: None)
-        due_date (datetime): Updated due date (default: None)
-        priority (int): Updated priority (default: None)
-        is_completed (bool): Updated completion status (default: None)
-        dependencies (list): Updated task dependencies (default: None)
-        task_reference_id (str): Updated reference ID for related task/entity (default: None)
-
-    Returns:
-        bool: True if the update was successful
-    """
-    try:
-        update_fields = {}
-        if title: update_fields["title"] = title
-        if description: update_fields["description"] = description
-        if due_date: update_fields["due_date"] = due_date
-        if priority: update_fields["priority"] = priority
-        if is_completed is not None: update_fields["is_completed"] = is_completed
-        if dependencies is not None: update_fields["dependencies"] = [ObjectId(dep) for dep in dependencies]
-        if task_reference_id is not None: update_fields["task_reference_id"] = ObjectId(task_reference_id)
-
-        if update_fields:
-            result = tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": update_fields})
-            return result.matched_count > 0
-        return False
-    except Exception as e:
-        print(f"Error updating task: {e}")
-        return False
-
-
-# Delete a task
-def delete_task(task_id):
-    """
-    Deletes a task by ID.
-
-    Args:
-        task_id (str): ID of the task to delete
-
-    Returns:
-        bool: True if the deletion was successful
-    """
-    try:
-        result = tasks_collection.delete_one({"_id": ObjectId(task_id)})
-        return result.deleted_count > 0
-    except Exception as e:
-        print(f"Error deleting task: {e}")
-        return False
-
-
-# Mark task as completed
-def complete_task(task_id):
-    """
-    Marks the task as completed.
-
-    Args:
-        task_id (str): ID of the task to mark as completed
-
-    Returns:
-        bool: True if the task was successfully marked as completed
-    """
-    try:
-        result = tasks_collection.update_one(
-            {"_id": ObjectId(task_id)}, {"$set": {"is_completed": True, "updated_at": datetime.now()}}
-        )
-        return result.matched_count > 0
-    except Exception as e:
-        print(f"Error completing task: {e}")
-        return False
-
-
-# Get tasks by reference ID
-def get_tasks_by_reference_id(reference_id):
-    """
-    Retrieves tasks by their reference ID.
-
-    Args:
-        reference_id (str): The reference ID associated with the task (e.g., habit or event)
-
-    Returns:
-        list: List of tasks related to the given reference ID
-    """
-    try:
-        return list(tasks_collection.find({"task_reference_id": ObjectId(reference_id)}))
-    except Exception as e:
-        print(f"Error fetching tasks by reference ID: {e}")
-        return []
+    return create_task(
+        title, description, due_date, priority, parent_task, dependencies, task_reference_id, is_routine=True, frequency=frequency
+    )
