@@ -1,5 +1,0 @@
-{
-    "API_KEY": "your_api_key_here",
-    "MONGO_URL" : "mongodb://localhost:27017/",
-    "MONGO_DB_NAME" : "rohan"
-}
