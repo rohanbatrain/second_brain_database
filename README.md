@@ -2,7 +2,7 @@
 
 Structure is
 
-- Module : src/sbd_rohanbatrain
+- Module : src/Second_Brain_Database
 
 
 ---

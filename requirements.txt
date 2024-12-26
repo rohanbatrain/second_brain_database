@@ -1,0 +1,4 @@
+flask
+passlib
+pymongo
+PyJWT
