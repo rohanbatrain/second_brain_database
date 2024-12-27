@@ -13,7 +13,7 @@ MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
 MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER")
 
 
-print(JWT_EXPIRY)
+# print(JWT_EXPIRY)
 
 # # Print each value to test
 # print("MONGO_URL:", MONGO_URL)

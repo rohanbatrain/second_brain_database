@@ -14,6 +14,7 @@ class User:
         self.plan = plan
         self.team = team or []  # Default to empty list if no team is provided
 
+
     @classmethod
     def find_by_email(cls, email):
         """Find a user by their email."""
@@ -41,7 +42,21 @@ class User:
             "email": self.email,
             "password_hash": self.password_hash,
             "plan": self.plan,
-            "team": self.team
+            "team": self.team,
+            # "is_admin": self.is_admin
+        }
+        result = users_collection.insert_one(user_data)
+        return self
+
+    def save_admin(self):
+        """Save a new admin to the MongoDB collection."""
+        user_data = {
+            "username": self.username,
+            "email": self.email,
+            "password_hash": self.password_hash,
+            "plan": self.plan,
+            "team": self.team,
+            "is_admin": True
         }
         result = users_collection.insert_one(user_data)
         return self
