@@ -157,3 +157,14 @@ def read_plan(name):
     else:
         return {"status": "error", "message": f"Plan '{name}' not found."}
 
+
+def read_all_plans():
+    """
+    Read all plans from the 'plans' collection in MongoDB.
+
+    Returns:
+        dict: A response indicating the result of the operation.
+    """
+    # Read all plans
+    all_plans = list(plans_collection.find())
+    return {"status": "success", "plans": all_plans}

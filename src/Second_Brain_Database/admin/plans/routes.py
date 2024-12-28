@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from Second_Brain_Database.admin.plans.model import define_new_plan, update_plan
+from Second_Brain_Database.admin.plans.model import define_new_plan, delete_plan, read_all_plans, read_plan, update_plan
 from Second_Brain_Database.utils.decorators.privileged import privileged_only  # Import the decorator
 
 # Initialize the blueprint for plans
@@ -51,6 +51,41 @@ def update_plan_route(user):
         task_limit_per_project, 
         description
     )
+
+    # Return the response based on the result
+    return jsonify(result)
+
+
+# ...existing code...
+
+# Define the protected route for reading all plans
+@plans_bp.route("/read_all_plans", methods=["GET"])
+@privileged_only  # Apply the privileged_only decorator
+def read_all_plans_route(user):
+    # Call the function to read all plans
+    result = read_all_plans()
+
+    # Return the response based on the result
+    return jsonify(result)
+
+# ...existing code...
+
+# Define the protected route for reading an existing plan
+@plans_bp.route("/read_plan/<plan_id>", methods=["GET"])
+@privileged_only  # Apply the privileged_only decorator
+def read_plan_route(user, plan_id):
+    # Call the function to read the plan
+    result = read_plan(plan_id)
+
+    # Return the response based on the result
+    return jsonify(result)
+
+# Define the protected route for deleting an existing plan
+@plans_bp.route("/delete_plan/<plan_id>", methods=["DELETE"])
+@privileged_only  # Apply the privileged_only decorator
+def delete_plan_route(user, plan_id):
+    # Call the function to delete the plan
+    result = delete_plan(plan_id)
 
     # Return the response based on the result
     return jsonify(result)
