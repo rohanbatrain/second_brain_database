@@ -11,19 +11,3 @@ MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS")
 MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
 MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
 MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER")
-
-
-# print(JWT_EXPIRY)
-
-# # Print each value to test
-# print("MONGO_URL:", MONGO_URL)
-# print("MONGO_DB_NAME:", MONGO_DB_NAME)
-# print("SECRET_KEY:", SECRET_KEY)
-# print("JWT_EXPIRY:", JWT_EXPIRY)
-# print("JWT_REFRESH_EXPIRY:", JWT_REFRESH_EXPIRY)
-# print("MAIL_SERVER:", MAIL_SERVER)
-# print("MAIL_PORT:", MAIL_PORT)
-# print("MAIL_USE_TLS:", MAIL_USE_TLS)
-# print("MAIL_USERNAME:", MAIL_USERNAME)
-# print("MAIL_PASSWORD:", MAIL_PASSWORD)
-# print("MAIL_DEFAULT_SENDER:", MAIL_DEFAULT_SENDER)

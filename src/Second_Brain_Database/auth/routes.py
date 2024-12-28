@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
 from Second_Brain_Database.auth.services import create_user, authenticate_user, generate_jwt_token
 from Second_Brain_Database.auth.model import User
-from passlib.hash import bcrypt
 
 auth_bp = Blueprint('auth', __name__)
 

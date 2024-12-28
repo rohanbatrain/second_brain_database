@@ -1,4 +1,5 @@
 flask
 passlib
 pymongo
+flask-cors
 PyJWT
