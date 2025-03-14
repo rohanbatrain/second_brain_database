@@ -29,14 +29,14 @@ def create_user(username, email, password, plan="free", team=None):
     return user
 
 
-def create_admin_user(username, email, password, plan="free", team=None):
+def create_admin_user(username, email, password, plan="free", team=None, role="admin"):
     """Create a new user and store them in the database."""
     if not team:
         team = []  # Default to empty list if no team is provided
     hashed_password = hash_password(password)
     
     # Create a new user instance
-    user = User(username=username, email=email, password_hash=hashed_password, plan=plan, team=team)
+    user = User(username=username, email=email, password_hash=hashed_password, plan=plan, team=team, role=role)
     
     # Save the user in the database (assuming the save method is implemented)
     user.save_admin()
@@ -51,7 +51,8 @@ def generate_jwt_token(user):
         'sub': user.email,  # Using email as subject
         'username': user.username,  # Include username in payload
         'email': user.email,  # Include email in payload
-        'exp': datetime.utcnow() + timedelta(hours=int(JWT_EXPIRY.split('h')[0])),  # Expiry
+        'role' : user.role, 
+        'exp': datetime.now() + timedelta(hours=int(JWT_EXPIRY.split('h')[0])),  # Expiry
     }
 
     # Create the JWT token
@@ -75,3 +76,4 @@ def decode_jwt_token(token):
         return None
     except jwt.InvalidTokenError:
         return None
+

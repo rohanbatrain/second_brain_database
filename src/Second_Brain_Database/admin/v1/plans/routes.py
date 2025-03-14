@@ -1,13 +1,13 @@
 from flask import Blueprint, request, jsonify
-from Second_Brain_Database.admin.plans.model import define_new_plan, delete_plan, read_all_plans, read_plan, update_plan
-from Second_Brain_Database.utils.decorators.privileged import privileged_only  # Import the decorator
+from Second_Brain_Database.admin.v1.plans.model import define_new_plan, delete_plan, read_all_plans, read_plan, update_plan
+from Second_Brain_Database.utils.decorators.privileged import admin_only  # Import the decorator
 
 # Initialize the blueprint for plans
 plans_bp = Blueprint("plans", __name__)
 
 # Define the protected route for creating a new plan
 @plans_bp.route("/create_plan", methods=["POST"])
-@privileged_only  # Apply the privileged_only decorator
+@admin_only  # Apply the admin_only decorator
 def create_plan(user):
     data = request.get_json()
 
@@ -32,7 +32,7 @@ def create_plan(user):
 
 # Define the protected route for updating an existing plan
 @plans_bp.route("/update_plan", methods=["POST"])
-@privileged_only  # Apply the privileged_only decorator
+@admin_only  # Apply the admin_only decorator
 def update_plan_route(user):
     data = request.get_json()
 
@@ -56,11 +56,9 @@ def update_plan_route(user):
     return jsonify(result)
 
 
-# ...existing code...
-
 # Define the protected route for reading all plans
 @plans_bp.route("/read_all_plans", methods=["GET"])
-@privileged_only  # Apply the privileged_only decorator
+@admin_only  # Apply the admin_only decorator
 def read_all_plans_route(user):
     # Call the function to read all plans
     result = read_all_plans()
@@ -68,11 +66,10 @@ def read_all_plans_route(user):
     # Return the response based on the result
     return jsonify(result)
 
-# ...existing code...
 
 # Define the protected route for reading an existing plan
 @plans_bp.route("/read_plan/<plan_id>", methods=["GET"])
-@privileged_only  # Apply the privileged_only decorator
+@admin_only  # Apply the admin_only decorator
 def read_plan_route(user, plan_id):
     # Call the function to read the plan
     result = read_plan(plan_id)
@@ -82,7 +79,7 @@ def read_plan_route(user, plan_id):
 
 # Define the protected route for deleting an existing plan
 @plans_bp.route("/delete_plan/<plan_id>", methods=["DELETE"])
-@privileged_only  # Apply the privileged_only decorator
+@admin_only  # Apply the admin_only decorator
 def delete_plan_route(user, plan_id):
     # Call the function to delete the plan
     result = delete_plan(plan_id)

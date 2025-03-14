@@ -3,3 +3,5 @@ passlib
 pymongo
 flask-cors
 PyJWT
+passlib
+bcrypt

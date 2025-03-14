@@ -40,6 +40,7 @@ def login():
     data = request.get_json()
     email = data.get("email")
     password = data.get("password")
+    # client = data.get("client") # this shall be used in order to analyse which client sends most request.
     
     if not email or not password:
         return jsonify({"status": "error", "message": "Missing required fields"}), 400
@@ -52,4 +53,4 @@ def login():
     # Generate a JWT token
     token = generate_jwt_token(user)  # Ensure this function is implemented correctly
     
-    return jsonify({"status": "success", "message": "Login successful", "token": token}), 200
+    return jsonify({"status": "success", "message": "Login successful", "token": token, "role" : "default"}), 200
