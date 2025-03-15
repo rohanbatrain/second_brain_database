@@ -5,3 +5,5 @@ flask-cors
 PyJWT
 passlib
 bcrypt
+gunicorn
+Second-Brain-Database
