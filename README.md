@@ -7,3 +7,7 @@ Structure is
 
 ---
 
+# Extentions - Vscode
+
+ms-python.black-formatter
+ms-python.flake8

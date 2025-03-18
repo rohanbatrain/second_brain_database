@@ -6,6 +6,7 @@ from Second_Brain_Database.database import db
 # Initialize MongoDB connection
 users_collection = db["users"]  # The users collection
 
+
 class User:
     def __init__(self, username, email, password_hash, plan, team=None, role="default"):
         self.username = username
@@ -15,14 +16,13 @@ class User:
         self.team = team or []  # Default to empty list if no team is provided
         self.role = role
 
-
     @classmethod
     def find_by_email(cls, email):
         """Find a user by their email."""
         user_data = users_collection.find_one({"email": email})
         if user_data:
             # Remove _id before passing to the constructor
-            user_data.pop('_id', None)
+            user_data.pop("_id", None)
             return cls(**user_data)
         return None
 
@@ -32,7 +32,7 @@ class User:
         user_data = users_collection.find_one({"username": username})
         if user_data:
             # Remove _id before passing to the constructor
-            user_data.pop('_id', None)
+            user_data.pop("_id", None)
             return cls(**user_data)
         return None
 
@@ -44,11 +44,10 @@ class User:
             "password_hash": self.password_hash,
             "plan": self.plan,
             "team": self.team,
-            "role" : self.role
+            "role": self.role,
         }
         result = users_collection.insert_one(user_data)
         return self
-
 
         result = users_collection.insert_one(user_data)
         return self
@@ -63,7 +62,7 @@ class User:
         user_data = users_collection.find_one({"_id": ObjectId(user_id)})
         if user_data:
             # Remove _id before passing to the constructor
-            user_data.pop('_id', None)
+            user_data.pop("_id", None)
             return cls(**user_data)
         return None
 
@@ -78,5 +77,3 @@ class User:
     def delete(self):
         """Delete a user from the MongoDB collection."""
         users_collection.delete_one({"email": self.email})
-
- 

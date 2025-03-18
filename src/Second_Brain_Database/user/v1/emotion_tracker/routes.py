@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 
 emotion_bp = Blueprint("emotion_tracker", __name__)
 
+
 # Create an emotion entry
 @emotion_bp.route("/add", methods=["POST"])
 @user_only
@@ -13,22 +14,27 @@ def add_emotion(user):
     emotion_id = create_emotion(data)
     return jsonify({"message": "Emotion entry created", "id": emotion_id}), 201
 
+
 # Read all emotion tracking entries for the authenticated user
 @emotion_bp.route("/get", methods=["GET"])
 @user_only
 def fetch_all_emotions(user):
     emotions = get_all_emotions_by_user(user.username)
-    return jsonify([
-        {
-            "_id": str(emotion["_id"]),
-            "username": emotion["username"],
-            "note_type": emotion["note_type"],
-            "emotion_felt": emotion["emotion_felt"], 
-            "emotion_intensity": emotion["emotion_intensity"],
-            "note": emotion["note"],
-            "timestamp": emotion["timestamp"]
-        } for emotion in emotions
-    ])
+    return jsonify(
+        [
+            {
+                "_id": str(emotion["_id"]),
+                "username": emotion["username"],
+                "note_type": emotion["note_type"],
+                "emotion_felt": emotion["emotion_felt"],
+                "emotion_intensity": emotion["emotion_intensity"],
+                "note": emotion["note"],
+                "timestamp": emotion["timestamp"],
+            }
+            for emotion in emotions
+        ]
+    )
+
 
 # Read a single emotion entry by ID
 @emotion_bp.route("/get/<string:emotion_id>", methods=["GET"])
@@ -36,16 +42,19 @@ def fetch_all_emotions(user):
 def fetch_emotion(user, emotion_id):
     emotion = get_emotion_by_id(emotion_id)
     if emotion:
-        return jsonify({
-            "_id": str(emotion["_id"]),
-            "username": emotion["username"],
-            "note_type": emotion["note_type"],
-            "emotion_felt": emotion["emotion_felt"],
-            "emotion_intensity": emotion["emotion_intensity"],
-            "note": emotion["note"],
-            "timestamp": emotion["timestamp"]
-        })
+        return jsonify(
+            {
+                "_id": str(emotion["_id"]),
+                "username": emotion["username"],
+                "note_type": emotion["note_type"],
+                "emotion_felt": emotion["emotion_felt"],
+                "emotion_intensity": emotion["emotion_intensity"],
+                "note": emotion["note"],
+                "timestamp": emotion["timestamp"],
+            }
+        )
     return jsonify({"error": "Emotion entry not found"}), 404
+
 
 # Update an emotion entry
 @emotion_bp.route("/update/<string:emotion_id>", methods=["PUT"])
@@ -56,6 +65,7 @@ def modify_emotion(user, emotion_id):
     if updated:
         return jsonify({"message": "Emotion entry updated"})
     return jsonify({"error": "Emotion entry not found"}), 404
+
 
 # Delete an emotion entry
 @emotion_bp.route("/delete/<string:emotion_id>", methods=["DELETE"])

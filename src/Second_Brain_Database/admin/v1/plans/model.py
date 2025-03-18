@@ -4,6 +4,7 @@ from Second_Brain_Database.database import db
 # Initialize the plans collection
 plans_collection = db["plans"]
 
+
 def validate_limit(limit, limit_name):
     """
     Validate the limit value.
@@ -16,10 +17,16 @@ def validate_limit(limit, limit_name):
         dict: A response indicating the result of the validation.
     """
     if not isinstance(limit, (int, str)) or (isinstance(limit, int) and limit < 0):
-        return {"status": "error", "message": f"{limit_name} must be a positive integer or 'Unlimited'."}
+        return {
+            "status": "error",
+            "message": f"{limit_name} must be a positive integer or 'Unlimited'.",
+        }
     return {"status": "success"}
 
-def define_new_plan(name, team_limit, project_limit, task_limit_per_project, description=None):
+
+def define_new_plan(
+    name, team_limit, project_limit, task_limit_per_project, description=None
+):
     """
     Define a new plan and add it to the 'plans' collection in MongoDB.
 
@@ -36,8 +43,12 @@ def define_new_plan(name, team_limit, project_limit, task_limit_per_project, des
     # Validate inputs
     if not isinstance(name, str) or not name.strip():
         return {"status": "error", "message": "Plan name must be a non-empty string."}
-    
-    for limit, limit_name in [(team_limit, "Team limit"), (project_limit, "Project limit"), (task_limit_per_project, "Task limit per project")]:
+
+    for limit, limit_name in [
+        (team_limit, "Team limit"),
+        (project_limit, "Project limit"),
+        (task_limit_per_project, "Task limit per project"),
+    ]:
         validation_result = validate_limit(limit, limit_name)
         if validation_result["status"] == "error":
             return validation_result
@@ -53,17 +64,28 @@ def define_new_plan(name, team_limit, project_limit, task_limit_per_project, des
         "team_limit": team_limit,
         "project_limit": project_limit,
         "task_limit_per_project": task_limit_per_project,
-        "description": description or f"{name} Plan"
+        "description": description or f"{name} Plan",
     }
 
     # Insert the new plan into the collection
     result = plans_collection.insert_one(new_plan)
     if result.inserted_id:
-        return {"status": "success", "message": f"Plan '{name}' added successfully.", "plan_id": str(result.inserted_id)}
+        return {
+            "status": "success",
+            "message": f"Plan '{name}' added successfully.",
+            "plan_id": str(result.inserted_id),
+        }
     else:
         return {"status": "error", "message": "Failed to add the plan."}
 
-def update_plan(name, team_limit=None, project_limit=None, task_limit_per_project=None, description=None):
+
+def update_plan(
+    name,
+    team_limit=None,
+    project_limit=None,
+    task_limit_per_project=None,
+    description=None,
+):
     """
     Update an existing plan in the 'plans' collection in MongoDB.
 
@@ -95,7 +117,9 @@ def update_plan(name, team_limit=None, project_limit=None, task_limit_per_projec
         updates["project_limit"] = project_limit
 
     if task_limit_per_project is not None:
-        validation_result = validate_limit(task_limit_per_project, "Task limit per project")
+        validation_result = validate_limit(
+            task_limit_per_project, "Task limit per project"
+        )
         if validation_result["status"] == "error":
             return validation_result
         updates["task_limit_per_project"] = task_limit_per_project
@@ -114,6 +138,7 @@ def update_plan(name, team_limit=None, project_limit=None, task_limit_per_projec
         return {"status": "success", "message": f"Plan '{name}' updated successfully."}
     else:
         return {"status": "error", "message": f"Plan '{name}' not found."}
+
 
 def delete_plan(name):
     """
@@ -135,6 +160,7 @@ def delete_plan(name):
         return {"status": "success", "message": f"Plan '{name}' deleted successfully."}
     else:
         return {"status": "error", "message": f"Plan '{name}' not found."}
+
 
 def read_plan(name):
     """

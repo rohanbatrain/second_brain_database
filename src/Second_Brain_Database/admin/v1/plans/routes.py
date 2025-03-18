@@ -1,9 +1,18 @@
 from flask import Blueprint, request, jsonify
-from Second_Brain_Database.admin.v1.plans.model import define_new_plan, delete_plan, read_all_plans, read_plan, update_plan
-from Second_Brain_Database.utils.decorators.privileged import admin_only  # Import the decorator
+from Second_Brain_Database.admin.v1.plans.model import (
+    define_new_plan,
+    delete_plan,
+    read_all_plans,
+    read_plan,
+    update_plan,
+)
+from Second_Brain_Database.utils.decorators.privileged import (
+    admin_only,
+)  # Import the decorator
 
 # Initialize the blueprint for plans
 plans_bp = Blueprint("plans", __name__)
+
 
 # Define the protected route for creating a new plan
 @plans_bp.route("/create_plan", methods=["POST"])
@@ -20,15 +29,12 @@ def create_plan(user):
 
     # Call the function to define and add the new plan
     result = define_new_plan(
-        name, 
-        team_limit, 
-        project_limit, 
-        task_limit_per_project, 
-        description
+        name, team_limit, project_limit, task_limit_per_project, description
     )
 
     # Return the response based on the result
     return jsonify(result)
+
 
 # Define the protected route for updating an existing plan
 @plans_bp.route("/update_plan", methods=["POST"])
@@ -45,11 +51,7 @@ def update_plan_route(user):
 
     # Call the function to update the plan
     result = update_plan(
-        name, 
-        team_limit, 
-        project_limit, 
-        task_limit_per_project, 
-        description
+        name, team_limit, project_limit, task_limit_per_project, description
     )
 
     # Return the response based on the result
@@ -76,6 +78,7 @@ def read_plan_route(user, plan_id):
 
     # Return the response based on the result
     return jsonify(result)
+
 
 # Define the protected route for deleting an existing plan
 @plans_bp.route("/delete_plan/<plan_id>", methods=["DELETE"])
