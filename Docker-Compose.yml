@@ -11,7 +11,7 @@ services:
 
   flask-api:
     build: .
-    container_name: flask-api
+    container_name: second-brain-database
     ports:
       - "8000:8000"
     environment:
