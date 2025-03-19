@@ -31,7 +31,7 @@ jobs:
       - name: Publish Docker image (docker hub)
         run: |
           docker login -u rohanbatra -p ${{ secrets.DOCKER_HUB_TOKEN }}
-          docker push -t rohanbatra/second-brain-database:latest
+          docker push rohanbatra/second-brain-database:latest
 
       - name: Publish to Github Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
