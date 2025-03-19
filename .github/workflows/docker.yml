@@ -26,7 +26,7 @@ jobs:
 
       - name: Build Docker image (docker hub)
         run: |
-          docker build -t rohanbatra/second-brain-database:latest
+          docker build -t rohanbatra/second-brain-database:latest .
 
       - name: Publish Docker image (docker hub)
         run: |
