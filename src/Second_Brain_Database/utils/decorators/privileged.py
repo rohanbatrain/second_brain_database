@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import request, jsonify
 from functools import wraps
 from Second_Brain_Database.auth.services import decode_jwt_token
 from Second_Brain_Database.auth.model import User
@@ -11,7 +11,8 @@ def admin_only(f):
         token = request.headers.get("Authorization")
         if not token:
             return (
-                jsonify({"status": "unauthorized", "message": "No token provided."}),
+                jsonify({"status": "unauthorized",
+                         "message": "No token provided."}),
                 401,
             )
 
@@ -24,7 +25,10 @@ def admin_only(f):
         if not payload:
             return (
                 jsonify(
-                    {"status": "unauthorized", "message": "Invalid or expired token."}
+                    {
+                        "status": "unauthorized",
+                        "message": "Invalid or expired token."
+                    }
                 ),
                 401,
             )
@@ -54,7 +58,10 @@ def user_only(f):
         token = request.headers.get("Authorization")
         if not token:
             return (
-                jsonify({"status": "unauthorized", "message": "No token provided."}),
+                jsonify({
+                    "status": "unauthorized",
+                    "message": "No token provided."
+                    }),
                 401,
             )
 
@@ -67,7 +74,10 @@ def user_only(f):
         if not payload:
             return (
                 jsonify(
-                    {"status": "unauthorized", "message": "Invalid or expired token."}
+                    {
+                        "status": "unauthorized",
+                        "message": "Invalid or expired token."
+                    }
                 ),
                 401,
             )
@@ -76,7 +86,9 @@ def user_only(f):
         user = User.find_by_email(payload["email"])
         if not user:
             return (
-                jsonify({"status": "unauthorized", "message": "User not found."}),
+                jsonify({
+                    "status": "unauthorized",
+                    "message": "User not found."}),
                 401,
             )
 

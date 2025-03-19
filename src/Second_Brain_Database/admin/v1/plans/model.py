@@ -1,4 +1,3 @@
-from pymongo import MongoClient
 from Second_Brain_Database.database import db
 
 # Initialize the plans collection
@@ -16,10 +15,11 @@ def validate_limit(limit, limit_name):
     Returns:
         dict: A response indicating the result of the validation.
     """
-    if not isinstance(limit, (int, str)) or (isinstance(limit, int) and limit < 0):
+    if not isinstance(limit, (int, str)
+                      ) or (isinstance(limit, int) and limit < 0):
         return {
             "status": "error",
-            "message": f"{limit_name} must be a positive integer or 'Unlimited'.",
+            "message": f"{limit_name} must be a positive int or 'Unlimited'.",
         }
     return {"status": "success"}
 
@@ -31,18 +31,27 @@ def define_new_plan(
     Define a new plan and add it to the 'plans' collection in MongoDB.
 
     Parameters:
-        name (str): The name of the plan (e.g., "Free", "Basic").
-        team_limit (int or str): The maximum number of team members allowed (use "Unlimited" for no limit).
-        project_limit (int or str): The maximum number of projects allowed (use "Unlimited" for no limit).
-        task_limit_per_project (int or str): The maximum number of tasks allowed per project (use "Unlimited" for no limit).
-        description (str, optional): A short description of the plan.
+        name (str):
+            The name of the plan (e.g., "Free", "Basic").
+        team_limit (int or str):
+            The maximum number of team members allowed
+            (use "Unlimited" for no limit).
+        project_limit (int or str):
+            The maximum number of projects allowed
+            (use "Unlimited" for no limit).
+        task_limit_per_project (int or str):
+            The maximum number of tasks allowed
+            per project (use "Unlimited" for no limit).
+        description (str, optional):
+            A short description of the plan.
 
     Returns:
         dict: A response indicating the result of the operation.
     """
     # Validate inputs
     if not isinstance(name, str) or not name.strip():
-        return {"status": "error", "message": "Plan name must be a non-empty string."}
+        return {"status": "error",
+                "message": "Plan name must be a non-empty string."}
 
     for limit, limit_name in [
         (team_limit, "Team limit"),
@@ -90,18 +99,27 @@ def update_plan(
     Update an existing plan in the 'plans' collection in MongoDB.
 
     Parameters:
-        name (str): The name of the plan to update.
-        team_limit (int or str, optional): The maximum number of team members allowed (use "Unlimited" for no limit).
-        project_limit (int or str, optional): The maximum number of projects allowed (use "Unlimited" for no limit).
-        task_limit_per_project (int or str, optional): The maximum number of tasks allowed per project (use "Unlimited" for no limit).
-        description (str, optional): A short description of the plan.
+        name (str):
+            The name of the plan to update.
+        team_limit (int or str, optional):
+            The maximum number of team members allowed
+            (use "Unlimited" for no limit).
+        project_limit (int or str, optional):
+            The maximum number of projects allowed
+            (use "Unlimited" for no limit).
+        task_limit_per_project (int or str, optional):
+            The maximum number of tasks
+            allowed per project (use "Unlimited" for no limit).
+        description (str, optional):
+            A short description of the plan.
 
     Returns:
         dict: A response indicating the result of the operation.
     """
     # Validate inputs
     if not isinstance(name, str) or not name.strip():
-        return {"status": "error", "message": "Plan name must be a non-empty string."}
+        return {"status": "error",
+                "message": "Plan name must be a non-empty string."}
 
     updates = {}
     if team_limit is not None:
@@ -126,7 +144,8 @@ def update_plan(
 
     if description is not None:
         if not isinstance(description, str):
-            return {"status": "error", "message": "Description must be a string."}
+            return {"status": "error",
+                    "message": "Description must be a string."}
         updates["description"] = description
 
     if not updates:
@@ -135,7 +154,8 @@ def update_plan(
     # Update the plan
     result = plans_collection.update_one({"name": name}, {"$set": updates})
     if result.matched_count:
-        return {"status": "success", "message": f"Plan '{name}' updated successfully."}
+        return {"status": "success",
+                "message": f"Plan '{name}' updated successfully."}
     else:
         return {"status": "error", "message": f"Plan '{name}' not found."}
 
@@ -152,12 +172,18 @@ def delete_plan(name):
     """
     # Validate inputs
     if not isinstance(name, str) or not name.strip():
-        return {"status": "error", "message": "Plan name must be a non-empty string."}
+        return {
+            "status": "error",
+            "message": "Plan name must be a non-empty string."
+            }
 
     # Delete the plan
     result = plans_collection.delete_one({"name": name})
     if result.deleted_count:
-        return {"status": "success", "message": f"Plan '{name}' deleted successfully."}
+        return {
+            "status": "success",
+            "message": f"Plan '{name}' deleted successfully."
+            }
     else:
         return {"status": "error", "message": f"Plan '{name}' not found."}
 
@@ -174,7 +200,10 @@ def read_plan(name):
     """
     # Validate inputs
     if not isinstance(name, str) or not name.strip():
-        return {"status": "error", "message": "Plan name must be a non-empty string."}
+        return {
+            "status": "error",
+            "message": "Plan name must be a non-empty string."
+            }
 
     # Read the plan
     plan = plans_collection.find_one({"name": name})

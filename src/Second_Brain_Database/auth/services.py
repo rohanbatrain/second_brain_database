@@ -41,7 +41,12 @@ def create_user(username, email, password, plan="free", team=None):
     return user
 
 
-def create_admin_user(username, email, password, plan="free", team=None, role="admin"):
+def create_admin_user(username,
+                      email,
+                      password,
+                      plan="free",
+                      team=None,
+                      role="admin"):
     """Create a new user and store them in the database."""
     if not team:
         team = []  # Default to empty list if no team is provided

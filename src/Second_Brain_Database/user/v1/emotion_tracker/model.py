@@ -1,8 +1,6 @@
-from pymongo import MongoClient
 from Second_Brain_Database.database import db
 from bson import ObjectId
 from datetime import datetime
-from flask import jsonify
 
 # Initialize the notes collection
 notes_collection = db["notes"]
@@ -12,7 +10,7 @@ notes_collection = db["notes"]
 def create_emotion(data):
     emotion_entry = {
         "username": data.get("username"),
-        "note_type": "emotion_tracking",  # Ensure note_type is always emotion_tracking
+        "note_type": "emotion_tracking",
         "emotion_felt": data.get("emotion_felt"),
         "emotion_intensity": data.get("emotion_intensity"),
         "note": data.get("note"),
@@ -29,7 +27,9 @@ def get_all_emotions():
 
 def get_all_emotions_by_user(username):
     return list(
-        notes_collection.find({"note_type": "emotion_tracking", "username": username})
+        notes_collection.find({
+            "note_type": "emotion_tracking",
+            "username": username})
     )
 
 
