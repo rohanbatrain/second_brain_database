@@ -29,6 +29,13 @@ The project incorporates micro frontends to keep things modular and focused. For
 
 Second Brain Database is **still under active development**. The core functionality is in place, and a beta release is coming soon. Once the beta is ready, I'll provide more details on how you can try it out and contribute to its development.
 
+Docker Pull
+
+```bash
+docker pull rohanbatra/second-brain-database:latest
+```
+
+
 ## 🌍 Open-Source for the Community
 
 I believe in the power of collaboration, so this project is open-source. It’s not just for me—it's for anyone who’s looking for a more adaptable, flexible approach to personal knowledge management. By releasing it to the community, I hope to receive contributions that will make it even better for everyone.
@@ -55,7 +62,3 @@ Let’s build smarter, more adaptable systems for managing our thoughts and data
 - **MongoDB**: For centralized, platform-agnostic data storage.
 - **Flask**: For building the API layer to interact with the database.
 - **Micro Frontends**: Modular frontends for specific tasks and ease of use.
-
----
-
-**#SecondBrainDatabase #OpenSource #Productivity #PersonalKnowledgeManagement #Flask #MongoDB #MicroFrontends #Flexibility**
