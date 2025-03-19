@@ -16,6 +16,7 @@ plans_bp = Blueprint("plans", __name__)
 # Initialize rate limiter for this blueprint
 limiter = Limiter(key_func=get_remote_address)
 
+
 # Define the protected route for creating a new plan
 @plans_bp.route("/create_plan", methods=["POST"])
 @admin_only  # Apply the admin_only decorator

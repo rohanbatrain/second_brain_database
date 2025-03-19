@@ -9,7 +9,7 @@ services:
     ports:
       - "27017:27017"
 
-  flask-api:
+  second-brain-database:
     build: .
     container_name: second-brain-database
     ports:
