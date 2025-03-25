@@ -1,6 +1,4 @@
 from flask import Blueprint, request, jsonify
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from Second_Brain_Database.admin.v1.plans.model import (
     define_new_plan,
     delete_plan,
@@ -13,14 +11,10 @@ from Second_Brain_Database.utils.decorators.privileged import admin_only
 # Initialize the blueprint for plans
 plans_bp = Blueprint("plans", __name__)
 
-# Initialize rate limiter for this blueprint
-limiter = Limiter(key_func=get_remote_address)
-
 
 # Define the protected route for creating a new plan
 @plans_bp.route("/create_plan", methods=["POST"])
 @admin_only  # Apply the admin_only decorator
-@limiter.limit("10 per hour")  # Limit plan creation
 def create_plan(user):
     data = request.get_json()
 
@@ -43,7 +37,6 @@ def create_plan(user):
 # Define the protected route for updating an existing plan
 @plans_bp.route("/update_plan", methods=["POST"])
 @admin_only  # Apply the admin_only decorator
-@limiter.limit("20 per hour")  # Limit plan updates
 def update_plan_route(user):
     data = request.get_json()
 
@@ -66,7 +59,6 @@ def update_plan_route(user):
 # Define the protected route for reading all plans
 @plans_bp.route("/read_all_plans", methods=["GET"])
 @admin_only  # Apply the admin_only decorator
-@limiter.limit("50 per hour")  # Limit plan reads
 def read_all_plans_route(user):
     # Call the function to read all plans
     result = read_all_plans()
@@ -78,7 +70,6 @@ def read_all_plans_route(user):
 # Define the protected route for reading an existing plan
 @plans_bp.route("/read_plan/<plan_id>", methods=["GET"])
 @admin_only  # Apply the admin_only decorator
-@limiter.limit("50 per hour")  # Limit single plan reads
 def read_plan_route(user, plan_id):
     # Call the function to read the plan
     result = read_plan(plan_id)
@@ -90,7 +81,6 @@ def read_plan_route(user, plan_id):
 # Define the protected route for deleting an existing plan
 @plans_bp.route("/delete_plan/<plan_id>", methods=["DELETE"])
 @admin_only  # Apply the admin_only decorator
-@limiter.limit("5 per hour")  # Limit plan deletions
 def delete_plan_route(user, plan_id):
     # Call the function to delete the plan
     result = delete_plan(plan_id)

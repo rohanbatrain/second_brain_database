@@ -1,6 +1,4 @@
 from flask import Blueprint, request, jsonify
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from Second_Brain_Database.auth.services import (
     create_user,
     authenticate_user,
@@ -10,12 +8,8 @@ from Second_Brain_Database.auth.model import User
 
 auth_bp = Blueprint("auth", __name__)
 
-# Initialize rate limiter for this blueprint
-limiter = Limiter(key_func=get_remote_address)
-
 
 @auth_bp.route("/register", methods=["POST"])
-@limiter.limit("5 per minute")  # Limit registration attempts
 def register():
     """Register a new user."""
     data = request.get_json()
@@ -60,7 +54,6 @@ def register():
 
 
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("10 per minute")
 def login():
     """Login a user and return a token."""
     data = request.get_json()
