@@ -31,7 +31,6 @@ def fetch_all_emotions(user):
             {
                 "_id": str(emotion["_id"]),
                 "username": emotion["username"],
-                "note_type": emotion["note_type"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
                 "note": emotion["note"],
@@ -52,7 +51,6 @@ def fetch_emotion(user, emotion_id):
             {
                 "_id": str(emotion["_id"]),
                 "username": emotion["username"],
-                "note_type": emotion["note_type"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
                 "note": emotion["note"],

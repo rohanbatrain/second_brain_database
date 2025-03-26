@@ -3,14 +3,13 @@ from bson import ObjectId
 from datetime import datetime
 
 # Initialize the notes collection
-notes_collection = db["notes"]
+notes_collection = db["emotion_tracker"]
 
 
 # Function to insert a new emotion tracking entry
 def create_emotion(data):
     emotion_entry = {
         "username": data.get("username"),
-        "note_type": "emotion_tracking",
         "emotion_felt": data.get("emotion_felt"),
         "emotion_intensity": data.get("emotion_intensity"),
         "note": data.get("note"),
@@ -28,7 +27,6 @@ def get_all_emotions():
 def get_all_emotions_by_user(username):
     return list(
         notes_collection.find({
-            "note_type": "emotion_tracking",
             "username": username})
     )
 
@@ -36,7 +34,7 @@ def get_all_emotions_by_user(username):
 # Function to get a single emotion tracking entry by ID
 def get_emotion_by_id(emotion_id):
     return notes_collection.find_one(
-        {"_id": ObjectId(emotion_id), "note_type": "emotion_tracking"}
+        {"_id": ObjectId(emotion_id)}
     )
 
 
@@ -46,7 +44,7 @@ def update_emotion(emotion_id, update_data):
         update_data["timestamp"] = datetime.now()
 
     result = notes_collection.update_one(
-        {"_id": ObjectId(emotion_id), "note_type": "emotion_tracking"},
+        {"_id": ObjectId(emotion_id)},
         {"$set": update_data},
     )
     return result.matched_count > 0
@@ -55,6 +53,6 @@ def update_emotion(emotion_id, update_data):
 # Function to delete an emotion tracking entry
 def delete_emotion(emotion_id):
     result = notes_collection.delete_one(
-        {"_id": ObjectId(emotion_id), "note_type": "emotion_tracking"}
+        {"_id": ObjectId(emotion_id)}
     )
     return result.deleted_count > 0

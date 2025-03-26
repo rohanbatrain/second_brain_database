@@ -3,6 +3,7 @@ from flask_cors import CORS
 from Second_Brain_Database.auth.routes import auth_bp
 from Second_Brain_Database.admin.v1.plans.routes import plans_bp
 from Second_Brain_Database.user.v1.emotion_tracker.routes import emotion_bp
+from Second_Brain_Database.user.v1.notes.routes import notes_bp
 
 # Create Flask app
 app = Flask(__name__)
@@ -20,6 +21,8 @@ app.register_blueprint(plans_bp, url_prefix="/admin/v1/plans")
 # v1
 # emotion tracker
 app.register_blueprint(emotion_bp, url_prefix="/user/v1/emotion_tracker/")
+# notes
+app.register_blueprint(notes_bp, url_prefix="/user/v1/notes/")
 
 # Run the application
 if __name__ == "__main__":
