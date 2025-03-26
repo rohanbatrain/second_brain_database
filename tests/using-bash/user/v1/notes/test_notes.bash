@@ -37,6 +37,56 @@ add_note() {
     fi
 }
 
+# Function to add multiple notes and return their IDs
+add_multiple_notes() {
+    local note_ids=()
+    for i in {1..3}; do
+        output=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/add" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $TOKEN" \
+            -d "{
+                \"title\": \"Test Note $i\",
+                \"content\": \"This is test note $i.\"
+            }")
+        response_body=$(echo "$output" | sed '$d')
+        status_code=$(echo "$output" | tail -n1)
+        
+        if [ "$status_code" -eq 201 ]; then
+            note_id=$(echo "$response_body" | jq -r '.id')
+            note_ids+=("$note_id")
+            REPORT+="Adding note $i: Success\n"
+        else
+            REPORT+="Adding note $i: Failed with status $status_code\n"
+        fi
+    done
+    echo "${note_ids[@]}"
+}
+
+# Function to fetch multiple notes by their IDs
+get_notes_by_ids() {
+    local note_ids=("$@")
+    local payload=$(printf '{"note_ids": ["%s"]}' "$(IFS=\",\"; echo "${note_ids[*]}")")
+    response=$(curl -s -X POST "$BASE_URL/get/batch" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $TOKEN" \
+        -d "$payload")
+    
+    if [ -z "$response" ]; then
+        REPORT+="Fetching notes by IDs: Failed (Empty response)\n"
+        echo "Response: (Empty)"
+        return
+    fi
+
+    # Check if the response is a valid JSON array
+    if echo "$response" | jq -e '.[0]' > /dev/null 2>&1; then
+        REPORT+="Fetching notes by IDs: Success\n"
+        echo "Response: $response"
+    else
+        REPORT+="Fetching notes by IDs: Failed (Invalid response format)\n"
+        echo "Response: $response"
+    fi
+}
+
 # Function to get all notes
 get_all_notes() {
     response=$(curl -s -X GET "$BASE_URL/get" \
@@ -129,6 +179,7 @@ while true; do
     echo "6) Delete note"
     echo "7) Show Report"
     echo "8) Run all operations sequentially"
+    echo "9) Add and fetch multiple notes"
     echo "0) Exit"
     read -p "Enter option: " option
     case "$option" in
@@ -172,6 +223,11 @@ while true; do
             delete_note "$NOTE_ID"
             echo -e "\n--- Test Report ---"
             echo -e "$REPORT"
+            ;;
+        9)
+            note_ids=($(add_multiple_notes))
+            echo "Added notes with IDs: ${note_ids[*]}"
+            get_notes_by_ids "${note_ids[@]}"
             ;;
         0)
             exit 0

@@ -54,6 +54,24 @@ def fetch_note_by_id(user, note_id):
         )
     return jsonify({"error": "Note not found"}), 404
 
+# Read multiple notes by an array of IDs
+@notes_bp.route("/get/batch", methods=["POST"])
+@user_only
+def fetch_notes_by_ids(user):
+    note_ids = request.json.get("note_ids", [])
+    notes = [get_note_by_id(note_id) for note_id in note_ids]
+    result = [
+        {
+            "_id": str(note["_id"]),
+            "username": note["username"],
+            "title": note["title"],
+            "content": note["content"],
+            "timestamp": note["timestamp"],
+        }
+        for note in notes if note
+    ]
+    return jsonify(result)
+
 # Update a note
 @notes_bp.route("/update/<string:note_id>", methods=["PUT"])
 @user_only

@@ -33,7 +33,7 @@ def fetch_all_emotions(user):
                 "username": emotion["username"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
-                "note": emotion["note"],
+                "note_ids": emotion["note_ids"],  # Changed to handle multiple note IDs
                 "timestamp": emotion["timestamp"],
             }
             for emotion in emotions
@@ -53,7 +53,7 @@ def fetch_emotion(user, emotion_id):
                 "username": emotion["username"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
-                "note": emotion["note"],
+                "note_ids": emotion["note_ids"],  # Changed to handle multiple note IDs
                 "timestamp": emotion["timestamp"],
             }
         )

@@ -28,7 +28,7 @@ add_emotion() {
             "note_type": "Personal",
             "emotion_felt": "Happy",
             "emotion_intensity": 8,
-            "note": "Had a good day at work"
+            "note_ids": ["12345", "67890"]  # Changed to handle multiple note IDs
         }')
     
     if [ "$response" -eq 201 ]; then

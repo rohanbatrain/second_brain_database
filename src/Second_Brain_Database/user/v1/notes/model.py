@@ -9,7 +9,7 @@ notes_collection = db["notes"]
 def create_note(data):
     note_entry = {
         "username": data.get("username"),
-        "title": data.get("title"),
+        "title": data.get("title") or "Untitled", 
         "content": data.get("content"),
         "timestamp": datetime.now(),
     }
