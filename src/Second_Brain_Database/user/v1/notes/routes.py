@@ -28,10 +28,10 @@ def fetch_all_notes(user):
         [
             {
                 "_id": str(note["_id"]),
-                "username": note["username"],
-                "title": note["title"],
-                "content": note["content"],
-                "timestamp": note["timestamp"],
+                "username": note.get("username", ""),
+                "title": note.get("title", "Untitled"),
+                "content": note.get("content", ""),
+                "timestamp": note.get("timestamp", ""),
             }
             for note in notes
         ]

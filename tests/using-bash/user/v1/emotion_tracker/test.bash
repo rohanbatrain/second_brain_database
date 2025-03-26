@@ -12,6 +12,11 @@ login_user() {
             "email": "testuser@example.com",
             "password": "password123"
         }' | jq -r '.token')  # Assumes the response has a 'token' field
+
+    if [ -z "$TOKEN" ]; then
+        echo "Login failed. Exiting..."
+        exit 1
+    fi
 }
 
 # Function to add a new emotion entry
@@ -27,21 +32,21 @@ add_emotion() {
         }')
     
     if [ "$response" -eq 201 ]; then
-        REPORT+="Adding new emotion: Success\n"
+        REPORT+="[PASS] Add Emotion: Success\n"
     else
-        REPORT+="Adding new emotion: Failed with status $response\n"
+        REPORT+="[FAIL] Add Emotion: Status $response\n"
     fi
 }
 
 # Function to get all emotion entries
 get_all_emotions() {
-    response=$(curl -s -w "%{http_code}" -o /dev/null -X GET "http://localhost:5000/get" \
-        -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlckBleGFtcGxlLmNvbSIsInVzZXJuYW1lIjoidGVzdHVzZXIiLCJlbWFpbCI6InRlc3R1c2VyQGV4YW1wbGUuY29tIiwicm9sZSI6ImRlZmF1bHQiLCJleHAiOjE3NTQ4OTY3MjR9.kv853VPgbw3Rscy14p7X3CQpNctuYxWwzQ_lhSUjlVU")
+    response=$(curl -s -w "%{http_code}" -o /dev/null -X GET "$BASE_URL/get" \
+        -H "Authorization: Bearer $TOKEN")
     
     if [ "$response" -eq 200 ]; then
-        REPORT+="Fetching all emotions: Success\n"
+        REPORT+="[PASS] Get All Emotions: Success\n"
     else
-        REPORT+="Fetching all emotions: Failed with status $response\n"
+        REPORT+="[FAIL] Get All Emotions: Status $response\n"
     fi
 }
 
@@ -85,9 +90,9 @@ delete_emotion() {
         -H "Authorization: Bearer $TOKEN")
     
     if [ "$response" -eq 200 ]; then
-        REPORT+="Deleting emotion with ID $emotion_id: Success\n"
+        REPORT+="[PASS] Delete Emotion ID $emotion_id: Success\n"
     else
-        REPORT+="Deleting emotion with ID $emotion_id: Failed with status $response\n"
+        REPORT+="[FAIL] Delete Emotion ID $emotion_id: Status $response\n"
     fi
 }
 
@@ -103,9 +108,8 @@ add_emotion
 echo "Fetching all emotion entries..."
 get_all_emotions
 
-# Assuming we get an emotion ID from the previous response, for testing, let's use an ID (e.g., "12345")
+# Assuming we get an emotion ID from the previous response, for testing, let's use an ID (e.g., "67d0026b98c4a430351fe59d")
 EMOTION_ID="67d0026b98c4a430351fe59d"
-
 
 # Delete the emotion entry
 echo "Deleting emotion with ID $EMOTION_ID..."
