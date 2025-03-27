@@ -22,13 +22,6 @@ def create_emotion(data):
     result = notes_collection.insert_one(emotion_entry)
     return str(result.inserted_id)
 
-# Function to get all emotion tracking entries
-def get_all_emotions():
-    emotions = list(notes_collection.find())
-    for emotion in emotions:
-        emotion["notes"] = fetch_notes_by_ids(emotion.get("note_ids", []))  # Resolve note_ids to notes
-    return emotions
-
 # Function to get all emotion tracking entries by user
 def get_all_emotions_by_user(username):
     emotions = list(notes_collection.find({"username": username}))

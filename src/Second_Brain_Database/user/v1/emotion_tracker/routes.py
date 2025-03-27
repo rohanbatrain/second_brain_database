@@ -7,7 +7,7 @@ from Second_Brain_Database.user.v1.emotion_tracker.model import (
     update_emotion,
 )
 from Second_Brain_Database.utils.decorators.privileged import user_only
-
+from Second_Brain_Database.user.v1.notes.model import create_note
 emotion_bp = Blueprint("emotion_tracker", __name__)
 
 
@@ -17,8 +17,22 @@ emotion_bp = Blueprint("emotion_tracker", __name__)
 def add_emotion(user):
     data = request.json
     data["username"] = user.username  # Ensure the correct username is stored
-    emotion_id = create_emotion(data)
+    note_data = {
+        "username": data.get("username"),
+        "title": "Emotion Log",
+        "content": data["note"],
+    }
+    note_id = create_note(note_data)
+    emotion_data = {
+        "username": data.get("username"),
+        "emotion_felt": data.get("emotion_felt"),
+        "emotion_intensity": data.get("emotion_intensity"),
+        "note_ids": [note_id],
+
+    }
+    emotion_id = create_emotion(emotion_data)
     return jsonify({"message": "Emotion entry created", "id": emotion_id}), 201
+
 
 
 # Read all emotion tracking entries for the authenticated user
