@@ -10,8 +10,9 @@ from Second_Brain_Database.utils.decorators.privileged import user_only
 
 notes_bp = Blueprint("notes", __name__)
 
+
 # Create a note
-@notes_bp.route("/add", methods=["POST"])
+@notes_bp.route("/basic/add", methods=["POST"])
 @user_only
 def add_note(user):
     data = request.json
@@ -19,8 +20,9 @@ def add_note(user):
     note_id = create_note(data)
     return jsonify({"message": "Note created", "id": note_id}), 201
 
+
 # Read all notes for the authenticated user
-@notes_bp.route("/get", methods=["GET"])
+@notes_bp.route("/basic/get", methods=["GET"])
 @user_only
 def fetch_all_notes(user):
     notes = get_all_notes_by_user(user.username)
@@ -37,8 +39,9 @@ def fetch_all_notes(user):
         ]
     )
 
+
 # Read a single note by ID
-@notes_bp.route("/get/<string:note_id>", methods=["GET"])
+@notes_bp.route("/basic/get/<string:note_id>", methods=["GET"])
 @user_only
 def fetch_note_by_id(user, note_id):
     note = get_note_by_id(note_id)
@@ -54,8 +57,9 @@ def fetch_note_by_id(user, note_id):
         )
     return jsonify({"error": "Note not found"}), 404
 
+
 # Read multiple notes by an array of IDs
-@notes_bp.route("/get/batch", methods=["POST"])
+@notes_bp.route("/basic/get/batch", methods=["POST"])
 @user_only
 def fetch_notes_by_ids(user):
     note_ids = request.json.get("note_ids", [])
@@ -72,8 +76,9 @@ def fetch_notes_by_ids(user):
     ]
     return jsonify(result)
 
+
 # Update a note
-@notes_bp.route("/update/<string:note_id>", methods=["PUT"])
+@notes_bp.route("/basic/update/<string:note_id>", methods=["PUT"])
 @user_only
 def modify_note(user, note_id):
     data = request.json
@@ -82,8 +87,9 @@ def modify_note(user, note_id):
         return jsonify({"message": "Note updated"})
     return jsonify({"error": "Note not found"}), 404
 
+
 # Delete a note
-@notes_bp.route("/delete/<string:note_id>", methods=["DELETE"])
+@notes_bp.route("/basic/delete/<string:note_id>", methods=["DELETE"])
 @user_only
 def remove_note(user, note_id):
     deleted = delete_note(note_id)

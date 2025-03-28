@@ -34,7 +34,6 @@ def add_emotion(user):
     return jsonify({"message": "Emotion entry created", "id": emotion_id}), 201
 
 
-
 # Read all emotion tracking entries for the authenticated user
 @emotion_bp.route("/get", methods=["GET"])
 @user_only
@@ -47,7 +46,7 @@ def fetch_all_emotions(user):
                 "username": emotion["username"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
-                "note_ids": emotion["note_ids"],  # Changed to handle multiple note IDs
+                "note_ids": emotion["note_ids"],
                 "timestamp": emotion["timestamp"],
             }
             for emotion in emotions
@@ -67,7 +66,7 @@ def fetch_emotion(user, emotion_id):
                 "username": emotion["username"],
                 "emotion_felt": emotion["emotion_felt"],
                 "emotion_intensity": emotion["emotion_intensity"],
-                "note_ids": emotion["note_ids"],  # Changed to handle multiple note IDs
+                "note_ids": emotion["note_ids"],
                 "timestamp": emotion["timestamp"],
             }
         )
