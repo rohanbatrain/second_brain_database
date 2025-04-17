@@ -1,24 +1,23 @@
-# Use the official Python image from the Docker Hub
+# Use the official Python image
 FROM python:3.9-slim
 
-# Set the working directory in the container
-WORKDIR .
+# Set the working directory inside the container
+WORKDIR /app
 
-# Copy the requirements file into the container
+# Copy only requirements to leverage Docker cache
 COPY requirements.txt .
 
-# Install the dependencies
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install . 
-
-# Copy the rest of the application code into the container
+# Copy the entire project into the container
 COPY . .
 
+# Install your package (assuming setup.py or pyproject.toml exists)
+RUN pip install .
 
-# Expose the port the app runs on
+# Expose the port
 EXPOSE 5000
 
-
-# Command to run the application
-CMD ["python3" , "/src/Second_Brain_Database/main.py"]
+# Run the app
+CMD ["python3", "-m", "Second_Brain_Database"]
