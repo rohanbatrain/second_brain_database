@@ -21,5 +21,5 @@ EXPOSE 5000
 
 # Run the app
 # CMD ["gunicorn", "--bind", "0.0.0.0:5000", "Second_Brain_Database.main:app"]
-CMD ["python", "-m", "Second_Brain_Database.main"]
-
+# CMD ["python", "-m", "Second_Brain_Database.main"]
+ CMD ["gunicorn",  "main:app"]
