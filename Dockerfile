@@ -20,4 +20,5 @@ RUN pip install .
 EXPOSE 5000
 
 # Run the app
-CMD ["python3", "-m", "Second_Brain_Database"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "Second_Brain_Database.main:app"]
+

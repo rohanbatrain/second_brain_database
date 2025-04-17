@@ -8,20 +8,21 @@ from Second_Brain_Database.auth.routes import auth_bp
 from Second_Brain_Database.admin.v1.plans.routes import plans_bp
 from Second_Brain_Database.user.v1.emotion_tracker.routes import emotion_bp
 from Second_Brain_Database.user.v1.notes.routes import notes_bp
+from Second_Brain_Database.config import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_STORAGE_URI
 
 # Create Flask app
 app = Flask(__name__)
 CORS(app)
 
 # Initialize Redis for tracking abusive IPs
-r = redis.Redis(host="localhost", port=6379, db=0)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
 
 # Initialize Flask-Limiter
 limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=["200 per day", "50 per hour"],
-    storage_uri="redis://localhost:6379",  # Persist rate limits
+    storage_uri=REDIS_STORAGE_URI,  # Use configurable Redis URI
     swallow_errors=True  # Prevent Flask from logging too many limit errors
 )
 
