@@ -1,5 +1,4 @@
-version: '3.8'
-
+version: "3.8"
 services:
   mongo:
     image: mongo:latest
@@ -22,13 +21,14 @@ services:
       - "5000:5000"
     environment:
       - MONGO_URL=mongodb://mongo:27017
-      - MONGO_DB_NAME=second_brain_database
-      - SECRET_KEY=PLEASECHANGEME
-      - JWT_EXPIRY=3600
-      - JWT_REFRESH_EXPIRY=3600
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_STORAGE_URI=redis://redis:6379
+      - MONGO_DB_NAME=${MONGO_DB_NAME}
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_EXPIRY=${JWT_EXPIRY}
+      - JWT_REFRESH_EXPIRY=${JWT_REFRESH_EXPIRY}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_STORAGE_URI=${REDIS_STORAGE_URI}
     depends_on:
       - mongo
       - redis
+

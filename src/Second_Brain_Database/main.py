@@ -72,6 +72,9 @@ limiter.limit("20 per minute")(emotion_bp)
 app.register_blueprint(notes_bp, url_prefix="/user/v1/notes/")
 limiter.limit("15 per minute")(notes_bp)
 
+# Expose the Flask app as `application` for Gunicorn
+application = app
+
 # Run the application
 if __name__ == "__main__":
-    app.run(host="0.0.0.0")
+    application.run(host="0.0.0.0")
