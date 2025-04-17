@@ -1,6 +1,7 @@
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from Second_Brain_Database.database import db
+import bcrypt  # Ensure bcrypt is imported
 
 # Initialize MongoDB connection
 users_collection = db["users"]  # The users collection

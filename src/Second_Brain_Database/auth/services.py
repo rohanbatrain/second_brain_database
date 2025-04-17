@@ -1,4 +1,4 @@
-import bcrypt
+import bcrypt  # Ensure bcrypt is imported
 from datetime import datetime, timedelta
 import jwt
 from Second_Brain_Database.auth.model import User  # Your User model

@@ -1,9 +1,7 @@
 flask
-passlib
 pymongo
 flask-cors
 PyJWT
-passlib
 bcrypt
 gunicorn
 Second-Brain-Database
