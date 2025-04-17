@@ -53,3 +53,21 @@ def delete_emotion(emotion_id):
         {"_id": ObjectId(emotion_id)}
     )
     return result.deleted_count > 0
+
+# Function to append a note ID to an emotion's note_ids array
+def append_note_to_emotion(emotion_id, note_id):
+    """
+    Appends a note ID to the note_ids array of a specific emotion entry.
+
+    Args:
+        emotion_id (str): The ID of the emotion entry.
+        note_id (str): The ID of the note to append.
+
+    Returns:
+        bool: True if the operation was successful, False otherwise.
+    """
+    result = notes_collection.update_one(
+        {"_id": ObjectId(emotion_id)},
+        {"$push": {"note_ids": note_id}}
+    )
+    return result.modified_count > 0
