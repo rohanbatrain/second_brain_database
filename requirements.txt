@@ -8,3 +8,4 @@ bcrypt
 gunicorn
 Second-Brain-Database
 flask-limiter
+redis

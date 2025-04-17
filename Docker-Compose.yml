@@ -9,16 +9,25 @@ services:
     ports:
       - "27017:27017"
 
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+
   second-brain-database:
-    build: .
+    image: rohanbatra/second-brain-database:latest  # or use build: . if needed
     container_name: second-brain-database
     ports:
-      - "8000:8000"
+      - "5000:5000"
     environment:
       - MONGO_URI=${MONGO_URI}
       - MONGO_DB_NAME=${MONGO_DB_NAME}
       - SECRET_KEY=${SECRET_KEY}
       - JWT_EXPIRY=${JWT_EXPIRY}
       - JWT_REFRESH_EXPIRY=${JWT_REFRESH_EXPIRY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       - mongo
+      - redis
