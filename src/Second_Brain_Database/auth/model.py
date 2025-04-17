@@ -1,5 +1,4 @@
 from pymongo import MongoClient
-from passlib.hash import bcrypt
 from bson.objectid import ObjectId
 from Second_Brain_Database.database import db
 
@@ -53,8 +52,8 @@ class User:
         return self
 
     def verify_password(self, password):
-        """Verify a user's password."""
-        return bcrypt.verify(password, self.password_hash)
+        """Verify a user's password using bcrypt."""
+        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
 
     @classmethod
     def find_by_id(cls, user_id):

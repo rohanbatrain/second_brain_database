@@ -1,4 +1,4 @@
-from passlib.context import CryptContext
+import bcrypt
 from datetime import datetime, timedelta
 import jwt
 from Second_Brain_Database.auth.model import User  # Your User model
@@ -7,18 +7,15 @@ from Second_Brain_Database.config import (
     JWT_EXPIRY,
 )  # Configuration file for secret keys
 
-# Initialize Passlib context with bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password):
-    """Hash the user's password using Passlib's bcrypt scheme."""
-    return pwd_context.hash(password)
+    """Hash the user's password using bcrypt."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
 def verify_password(stored_password_hash, password):
-    """Verify the password against the stored hash using Passlib."""
-    return pwd_context.verify(password, stored_password_hash)
+    """Verify the password against the stored hash using bcrypt."""
+    return bcrypt.checkpw(password.encode('utf-8'), stored_password_hash.encode('utf-8'))
 
 
 def create_user(username, email, password, plan="free", team=None):
