@@ -1,4 +1,4 @@
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_from_directory, render_template
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -52,6 +52,44 @@ def slow_down_attackers():
     failed_attempts = int(r.get(f"failed:{ip}") or 0)
     if failed_attempts > 5:  # Delay only if user has failed 5+ times
         time.sleep(2)  # 2-second delay before processing request
+
+@app.route("/")
+def landing_page():
+    """
+    Landing page for the application.
+    """
+    return send_from_directory("./assets", "index.html")
+
+@app.route("/login")
+def login_page():
+    """
+    Serve the login page.
+    """
+    return render_template("login.html")
+
+@app.route("/register")
+def register_page():
+    """
+    Serve the register page.
+    """
+    return render_template("register.html")
+
+# Custom error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template("404.html"), 404
+
+@app.errorhandler(401)
+def unauthorized_error(error):
+    return render_template("401.html"), 401
+
+@app.errorhandler(403)
+def forbidden_error(error):
+    return render_template("403.html"), 403
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    return render_template("500.html"), 500
 
 # Register the authentication blueprint
 app.register_blueprint(auth_bp, url_prefix="/auth")

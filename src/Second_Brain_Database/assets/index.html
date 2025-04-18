@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Second Brain Database • Scalable PKM SaaS & Open Source</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-900 text-gray-100 antialiased">
+  <!-- Header -->
+  <header class="bg-gray-800 text-white py-4 shadow">
+    <div class="container mx-auto px-4 flex flex-wrap justify-between items-center">
+      <h1 class="text-xl font-semibold">Second Brain Database</h1>
+      <nav class="hidden md:flex space-x-4 w-full md:w-auto mt-4 md:mt-0" id="menu">
+        <a href="#features" class="hover:underline block md:inline">Features</a>
+        <a href="#pricing" class="hover:underline block md:inline">Pricing</a>
+        <a href="#selfhost" class="hover:underline block md:inline">Self-Host</a>
+        <a href="#faq" class="hover:underline block md:inline">FAQ</a>
+        <a href="https://github.com/rohanbatrain/second_brain_database" class="hover:underline block md:inline">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="bg-gray-800 py-20 shadow">
+    <div class="container mx-auto px-4 text-center">
+      <h2 class="text-4xl md:text-5xl font-extrabold leading-tight mb-4">Your Second Brain in the Cloud</h2>
+      <p class="text-lg md:text-xl text-gray-300 mb-6">Secure, scalable, and open-source personal knowledge management—engineered for power users and teams alike.</p>
+      <div class="flex flex-wrap justify-center space-x-4">
+        <a href="#pricing" class="px-6 md:px-8 py-2 md:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Start Free Trial</a>
+        <a href="#selfhost" class="px-6 md:px-8 py-2 md:py-3 bg-transparent border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-gray-700 font-medium">Self‑Host for Free</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Overview -->
+  <section class="py-16 px-6 bg-gray-900">
+    <div class="max-w-3xl mx-auto text-center">
+      <h2 class="text-3xl font-bold mb-4">Why Second Brain?</h2>
+      <p class="text-lg text-gray-300">Inspired by modular productivity, Second Brain Database offers unparalleled customization, cross-device syncing, and a thriving open-source community.</p>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="bg-gray-800 py-16" id="features">
+    <div class="max-w-6xl mx-auto px-6"></div>
+      <h2 class="text-2xl md:text-3xl font-bold text-center mb-12">Powerful Features</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-10">
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">🔐</div>
+          <h3 class="text-xl font-semibold">Top-Tier Security</h3>
+          <p class="text-gray-300">SSO, RBAC, end-to-end encryption, audit logging, and compliance support.</p>
+        </div>
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">⚡</div>
+          <h3 class="text-xl font-semibold">Fast Setup</h3>
+          <p class="text-gray-300">Deploy via Docker, Compose, or K8s. Full CI/CD pipeline supported.</p>
+        </div>
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">🧩</div>
+          <h3 class="text-xl font-semibold">Micro Frontends</h3>
+          <p class="text-gray-300">Plug-n-play UIs like Emotion Tracker, Thought Graph, Trust Engine, and more.</p>
+        </div>
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">📈</div>
+          <h3 class="text-xl font-semibold">Rich Analytics</h3>
+          <p class="text-gray-300">Real-time dashboards, visual insights, and progress timelines.</p>
+        </div>
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">🔌</div>
+          <h3 class="text-xl font-semibold">API First</h3>
+          <p class="text-gray-300">Well-documented REST APIs, webhook support, and GraphQL roadmap.</p>
+        </div>
+        <div class="space-y-2 bg-gray-700 backdrop-blur-md p-4 rounded-lg shadow">
+          <div class="text-4xl">💡</div>
+          <h3 class="text-xl font-semibold">Open Source Core</h3>
+          <p class="text-gray-300">MIT-licensed, built in public, and fueled by a thriving dev community.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Plans -->
+  <section class="py-16 bg-gray-900" id="pricing">
+    <div class="max-w-6xl mx-auto px-6 text-center">
+      <h2 class="text-2xl md:text-3xl font-bold mb-8">Simple, Transparent Pricing</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-10">
+        <div class="bg-gray-700 backdrop-blur-md p-6 rounded-lg shadow text-left">
+          <h3 class="text-2xl font-bold mb-2">Free</h3>
+          <p class="text-gray-300 mb-4">Perfect for hobbyists & OSS lovers</p>
+          <ul class="space-y-2 text-sm text-gray-300">
+            <li>✔️ Self-host & core features</li>
+            <li>✔️ Community support</li>
+            <li>✔️ All micro frontends</li>
+          </ul>
+        </div>
+        <div class="bg-blue-600 text-white p-6 rounded-lg shadow text-left">
+          <h3 class="text-2xl font-bold mb-2">Pro</h3>
+          <p class="mb-4">For teams and growing projects</p>
+          <ul class="space-y-2 text-sm">
+            <li>✔️ SaaS hosting + backups</li>
+            <li>✔️ Priority support</li>
+            <li>✔️ Extended analytics & quota limits</li>
+          </ul>
+        </div>
+        <div class="bg-gray-700 backdrop-blur-md p-6 rounded-lg shadow text-left">
+          <h3 class="text-2xl font-bold mb-2">Enterprise</h3>
+          <p class="text-gray-300 mb-4">Full power, custom SLAs</p>
+          <ul class="space-y-2 text-sm text-gray-300">
+            <li>✔️ On-premise or cloud deployment</li>
+            <li>✔️ SSO, RBAC, SCIM</li>
+            <li>✔️ Dedicated account manager</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Self-Hosting Section -->
+  <section class="py-16 px-6 bg-gray-800" id="selfhost">
+    <div class="max-w-4xl mx-auto text-center">
+      <h2 class="text-2xl md:text-3xl font-bold mb-4">Deploy It Yourself</h2>
+      <p class="text-gray-300 mb-6">Deploy on your own infra with full control—no vendor lock-in.</p>
+      <pre class="bg-gray-700 text-white p-4 rounded-lg mb-4 text-left overflow-x-auto text-sm md:text-base">
+# Pull the image
+docker pull rohanbatra/second-brain-database:latest
+# Spin up with Docker Compose
+docker-compose up -d
+      </pre>
+      <a href="https://github.com/rohanbatrain/second_brain_database" class="text-blue-600 underline font-medium">Star us on GitHub</a>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="py-16 bg-gray-900" id="faq">
+    <div class="max-w-4xl mx-auto px-6">
+      <h2 class="text-2xl md:text-3xl font-bold text-center mb-8">FAQs</h2>
+      <div class="space-y-6">
+        <div>
+          <h3 class="font-semibold text-xl">Do I need technical skills to use it?</h3>
+          <p class="text-gray-300">No! Our SaaS version is one-click, while devs can self-host using Docker or Kubernetes.</p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-xl">What integrations are available?</h3>
+          <p class="text-gray-300">Zapier, Notion Import, Markdown Sync, and native GitHub support—with more coming soon.</p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-xl">Can I build my own frontend?</h3>
+          <p class="text-gray-300">Absolutely. Our API-first architecture enables full flexibility.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-gray-800 py-8 text-center text-gray-300 text-sm"></footer>
+    <div class="container mx-auto px-4">
+      <p>&copy; 2025 Rohan Batra • <a href="/docs" class="underline">Documentation</a> • <a href="/license" class="underline">MIT License</a></p>
+      <p>Follow the journey: <a class="underline" href="https://github.com/rohanbatrain">GitHub</a> • Built by 300+ contributors</p>
+    </div>
+  </footer>
+</body>
+
+</html>

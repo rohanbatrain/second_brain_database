@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template
 from Second_Brain_Database.auth.services import (
     create_user,
     authenticate_user,
@@ -9,9 +9,12 @@ from Second_Brain_Database.auth.model import User
 auth_bp = Blueprint("auth", __name__)
 
 
-@auth_bp.route("/register", methods=["POST"])
+@auth_bp.route("/register", methods=["GET", "POST"])
 def register():
     """Register a new user."""
+    if request.method == "GET":
+        return render_template("auth/register.html")  # Render the registration page
+
     data = request.get_json()
 
     # Required fields
@@ -53,9 +56,12 @@ def register():
                     "message": "User created successfully"}), 201
 
 
-@auth_bp.route("/login", methods=["POST"])
+@auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     """Login a user and return a token."""
+    if request.method == "GET":
+        return render_template("auth/login.html")  # Render the login page
+
     data = request.get_json()
     email = data.get("email")
     password = data.get("password")
