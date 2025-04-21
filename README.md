@@ -1,5 +1,8 @@
 # Second Brain Database
 
+![banner](https://github.com/user-attachments/assets/85429929-ac86-4a03-8cd7-4e473d4fd402)
+
+
 **A Centralized Approach to Personal Knowledge Management**
 
 Welcome to the **Second Brain Database**! This project is a culmination of years of learning, experimentation, and refinement in the world of personal knowledge management (PKM). After working with several tools like Notion, Obsidian, Todoist, and others, I've developed a flexible and platform-independent system that centralizes data without tying you to a single tool.
