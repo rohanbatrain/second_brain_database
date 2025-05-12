@@ -6,6 +6,12 @@ from Second_Brain_Database.config import (
     SECRET_KEY,
     JWT_EXPIRY,
 )  # Configuration file for secret keys
+from flask_mail import Message
+from itsdangerous import URLSafeTimedSerializer
+from flask import current_app, request
+from Second_Brain_Database.config import MAIL_DEFAULT_SENDER, SECRET_KEY
+
+serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 
 def hash_password(password):
@@ -98,3 +104,19 @@ def decode_jwt_token(token):
         return None
     except jwt.InvalidTokenError:
         return None
+
+
+def send_verification_email(email):
+    """Send a verification email to the user."""
+    try:
+        token = serializer.dumps(email, salt="email-verification")
+        verification_url = f"{request.url_root}verify-email?token={token}"
+        msg = Message(
+            "Verify Your Email",
+            sender=MAIL_DEFAULT_SENDER,
+            recipients=[email],
+            body=f"Please verify your email by clicking the link: {verification_url}",
+        )
+        mail.send(msg)
+    except Exception as e:
+        current_app.logger.error(f"Failed to send verification email: {e}")
