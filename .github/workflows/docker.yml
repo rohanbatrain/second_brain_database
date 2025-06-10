@@ -19,24 +19,98 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      # Build the Docker image
-      - name: Build Docker image (github)
-        run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/second-brain-database:latest .
+      # Login to Docker Hub before building and pushing (good practice)
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: rohanbatra
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build Docker image (docker hub)
+      # Build and push Docker image to Docker Hub
+      - name: Build and Push Docker image (Docker Hub)
         run: |
           docker build -t rohanbatra/second-brain-database:latest .
-
-      - name: Publish Docker image (docker hub)
-        run: |
-          docker login -u rohanbatra -p ${{ secrets.DOCKER_HUB_TOKEN }}
           docker push rohanbatra/second-brain-database:latest
 
       - name: Publish to Github Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          name: rohanbatrain/second_brain_database/core
+          name: rohanbatrain/second_brain_database
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
+
+
+      - name: Install Docker on remote VPS if not found
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          script: |
+            # Check if Docker is installed
+            if ! command -v docker &> /dev/null
+            then
+                echo "Docker not found, installing..."
+                # Update apt package index
+                sudo apt update -y
+                # Install packages to allow apt to use a repository over HTTPS
+                sudo apt install -y ca-certificates curl gnupg lsb-release
+
+                # Add Docker's official GPG key
+                sudo mkdir -p /etc/apt/keyrings
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+                # Set up the stable repository
+                echo \
+                  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+                # Install Docker Engine
+                sudo apt update -y
+                sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+                # Add the current user (used by SSH action) to the docker group
+                # This ensures subsequent docker commands don't require sudo
+                sudo usermod -aG docker ${{ secrets.VPS_USERNAME }}
+
+                echo "Docker installed successfully. Please note that for group changes to take full effect immediately (without logging out and back in),
+                      subsequent commands within the same SSH session might still require 'sudo docker' or a new SSH connection."
+                echo "Restarting the Docker service to ensure everything is initialized."
+                sudo systemctl start docker
+                sudo systemctl enable docker
+
+            else
+                echo "Docker is already installed."
+            fi
+
+      - name: Update Docker image on remote VPS
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          script: |
+            # The 'usermod -aG docker' command from the previous step requires a re-login
+            # or a new shell to take effect for the current user's group memberships.
+            # Since GitHub Actions runs commands sequentially in the same SSH session,
+            # we might still need to use 'sudo docker' here for the first run after installation.
+            # Alternatively, if you're sure of a fresh session, you might not need sudo.
+            # For robustness, using sudo here is safer if you just installed it in the same run.
+
+            # Stop the currently running container (if any)
+            sudo docker stop second-brain-database || true # '|| true' prevents failure if container doesn't exist
+            sudo docker rm second-brain-database || true  # '|| true' prevents failure if container doesn't exist
+
+            # Pull the new image from Docker Hub (or GHCR if you prefer)
+            sudo docker pull rohanbatra/second-brain-database:latest
+
+            # Run the new container with the updated image
+            # IMPORTANT: For production, you MUST use a Docker Volume for persistent data, especially for databases.
+            # Replace '/path/to/data/inside/container' with the actual path your database uses internally.
+            # Example with a volume:
+            # sudo docker run -d --name second-brain-database -p 80:80 -v second-brain-db-data:/path/to/data/inside/container rohanbatra/second-brain-database:latest
+            sudo docker run -d --name second-brain-database -p 80:80 rohanbatra/second-brain-database:latest
+
+            # Optionally, clean up old images to save space
+            sudo docker system prune -f
