@@ -6,12 +6,19 @@ from Second_Brain_Database.config import (
     SECRET_KEY,
     JWT_EXPIRY,
 )  # Configuration file for secret keys
-from flask_mail import Message
+from flask_mail import Message, Mail
 from itsdangerous import URLSafeTimedSerializer
 from flask import current_app, request
 from Second_Brain_Database.config import MAIL_DEFAULT_SENDER, SECRET_KEY
 
+
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY is not set. Please configure it in the application settings.")
+
 serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+# Initialize the Mail object
+mail = Mail()
 
 
 def hash_password(password):
