@@ -29,15 +29,19 @@ jobs:
       # Build and push Docker image to Docker Hub
       - name: Build and Push Docker image (Docker Hub)
         run: |
-          docker build -t rohanbatra/second-brain-database:latest .
-          docker push rohanbatra/second-brain-database:latest
+          docker build -t rohanbatra/second-brain-database:dev .
+          docker push rohanbatra/second-brain-database:dev
 
       - name: Publish to Github Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          name: rohanbatrain/second_brain_database
+          # The name format for GHCR is owner/repository_name.
+          # github.repository gives you "owner/repo_name".
+          # We append the image name to ensure it's specific.
+          name: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
-
-
+          # You can specify tags here. Using 'latest' and a short SHA for traceability.
+          # tags: "latest,${{ github.sha }}" # Example for multiple tags
+          tags: "dev" # Using 'dev' as per your original request
