@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Base URL of the API
-BASE_URL="http://localhost:5000/auth"
+BASE_URL="http://auth"
 
 # Register a new user
 register_user() {

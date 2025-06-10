@@ -7,3 +7,4 @@ gunicorn
 Second-Brain-Database
 flask-limiter
 redis
+flask_mail
