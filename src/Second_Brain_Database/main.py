@@ -1,4 +1,4 @@
-from flask import Flask, request, abort, send_from_directory, render_template
+from flask import Flask, request, abort
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -58,38 +58,80 @@ def landing_page():
     """
     Landing page for the application.
     """
-    return send_from_directory("./assets", "index.html")
+    return """<html>
+    <head>
+        <title>Welcome to Second Brain Database</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                text-align: center;
+                background-color: #f4f4f9;
+                color: #333;
+                margin: 0;
+                padding: 0;
+            }
+            header {
+                background-color: #6200ea;
+                color: white;
+                padding: 20px 0;
+            }
+            h1 {
+                margin: 0;
+            }
+            p {
+                font-size: 18px;
+            }
+            footer {
+                margin-top: 20px;
+                font-size: 14px;
+                color: #777;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Welcome to Second Brain Database</h1>
+        </header>
+        <main>
+            <p>Your one-stop solution for managing notes, emotions, and plans.</p>
+            <p>Navigate to the login or register page to get started!</p>
+        </main>
+        <footer>
+            <p>&copy; 2023 Second Brain Database. All rights reserved.</p>
+        </footer>
+    </body>
+    </html>"""
 
 @app.route("/login")
 def login_page():
     """
     Serve the login page.
     """
-    return render_template("login.html")
+    return """<html><head><title>Login</title></head><body><h1>Login Page</h1></body></html>"""
 
 @app.route("/register")
 def register_page():
     """
     Serve the register page.
     """
-    return render_template("register.html")
+    return """<html><head><title>Register</title></head><body><h1>Register Page</h1></body></html>"""
 
 # Custom error handlers
 @app.errorhandler(404)
 def not_found_error(error):
-    return render_template("404.html"), 404
+    return """<html><head><title>404 Not Found</title></head><body><h1>404 - Page Not Found</h1></body></html>""", 404
 
 @app.errorhandler(401)
 def unauthorized_error(error):
-    return render_template("401.html"), 401
+    return """<html><head><title>401 Unauthorized</title></head><body><h1>401 - Unauthorized</h1></body></html>""", 401
 
 @app.errorhandler(403)
 def forbidden_error(error):
-    return render_template("403.html"), 403
+    return """<html><head><title>403 Forbidden</title></head><body><h1>403 - Forbidden</h1></body></html>""", 403
 
 @app.errorhandler(500)
 def internal_server_error(error):
-    return render_template("500.html"), 500
+    return """<html><head><title>500 Internal Server Error</title></head><body><h1>500 - Internal Server Error</h1></body></html>""", 500
 
 # Register the authentication blueprint
 app.register_blueprint(auth_bp, url_prefix="/auth")
