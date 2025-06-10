@@ -60,7 +60,6 @@ def get_conf(key, default=None):
         'REDIS_DB': '0',
         'REDIS_STORAGE_URI': 'redis://redis:6379/0',
         'MAIL_DEFAULT_SENDER': 'noreply@rohanbatra.in',
-        'DEBUG': 'false'
     }
     return defaults.get(key, default)
 
@@ -75,4 +74,3 @@ REDIS_HOST = get_conf("REDIS_HOST", "localhost")
 REDIS_PORT = int(get_conf("REDIS_PORT", 6379))
 REDIS_DB = int(get_conf("REDIS_DB", 0))
 REDIS_STORAGE_URI = get_conf("REDIS_STORAGE_URI", f"redis://{REDIS_HOST}:{REDIS_PORT}")
-DEBUG = get_conf("DEBUG", "false").lower() == "true"
