@@ -3,10 +3,10 @@ name: Build, Push Docker Image & Publish to PyPI
 on:
   push:
     branches:
-      - 'v[0-9]+.[0-9]+.[0-9]+'  # Only run on version branches like v0.0.1
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +22,7 @@ jobs:
           username: rohanbatra
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Log in to GHCR
+      - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
@@ -32,14 +32,21 @@ jobs:
       - name: Extract version from branch
         id: extract_version
         run: |
-          echo "VERSION=${GITHUB_REF#refs/heads/v}" >> $GITHUB_ENV
+          VERSION=${GITHUB_REF#refs/heads/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Extracted version: $VERSION"
 
-      - name: Build and Push Docker image to Docker Hub
+      - name: Inject version into pyproject.toml
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          echo "Updated version in pyproject.toml to $VERSION"
+
+      - name: Build and push Docker image (Docker Hub)
         run: |
           docker build -t rohanbatra/second-brain-database:${{ env.VERSION }} .
           docker push rohanbatra/second-brain-database:${{ env.VERSION }}
 
-      - name: Push Docker image to GitHub Container Registry (GHCR)
+      - name: Push Docker image to GHCR
         run: |
           docker tag rohanbatra/second-brain-database:${{ env.VERSION }} ghcr.io/rohanbatrain/second_brain_database:${{ env.VERSION }}
           docker push ghcr.io/rohanbatrain/second_brain_database:${{ env.VERSION }}
@@ -49,12 +56,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies for PyPI publishing
-        run: |
-          pip install setuptools wheel twine
+      - name: Install build & twine
+        run: pip install build twine
 
-      - name: Build Python package
-        run: python setup.py sdist bdist_wheel
+      - name: Build Python package from pyproject.toml
+        run: python -m build
 
       - name: Publish package to PyPI
         env:
