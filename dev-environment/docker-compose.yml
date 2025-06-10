@@ -18,17 +18,8 @@ services:
     container_name: second-brain-database
     ports:
       - "5000:5000"
-    environment:
-      - MONGO_URL=mongodb://mongo:27017
-      - MONGO_DB_NAME=${MONGO_DB_NAME}
-      - SECRET_KEY=${SECRET_KEY}
-      - JWT_EXPIRY=${JWT_EXPIRY}
-      - JWT_REFRESH_EXPIRY=${JWT_REFRESH_EXPIRY}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_DB=${REDIS_DB}
-      - MT_API=${MT_API}
-      - REDIS_STORAGE_URI=redis://redis:6379/0
+    volumes:
+      - ../../.sbd_config:/root/.config/Second-Brain-Database/.sbd_config:ro
     depends_on:
       - mongo
       - redis
