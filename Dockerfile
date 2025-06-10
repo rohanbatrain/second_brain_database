@@ -8,7 +8,13 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install dependencies
-RUN pip install Second_Brain_Database
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire project into the container
+COPY . .
+
+# Install your package (assuming setup.py or pyproject.toml exists)
+RUN pip install .
 
 # Expose the port
 EXPOSE 5000
