@@ -32,14 +32,13 @@ jobs:
           docker build -t rohanbatra/second-brain-database:latest .
           docker push rohanbatra/second-brain-database:latest
 
-      # Build and push Docker image to GitHub Container Registry (GHCR)
-      - name: Build and Push Docker image (GHCR)
-        uses: docker/build-push-action@v4 # Using a more modern action for build and push
+      - name: Publish to Github Registry
+        uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          context: .
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/second-brain-database:latest
-          # Login to GHCR implicitly handled by the action when using GITHUB_TOKEN
+          name: rohanbatrain/second_brain_database
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
 
       # --- New step to update the remote VPS ---
       - name: Update Docker image on remote VPS
