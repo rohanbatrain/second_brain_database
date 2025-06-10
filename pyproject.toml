@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Second_Brain_Database"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
   { name="Rohan Batra", email="contact@rohanbatra.in" },
 ]
