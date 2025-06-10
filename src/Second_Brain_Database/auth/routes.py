@@ -6,7 +6,7 @@ from Second_Brain_Database.auth.services import (
 )
 from Second_Brain_Database.auth.model import User
 from itsdangerous import URLSafeTimedSerializer
-from Second_Brain_Database.config import SECRET_KEY, MT_API
+from Second_Brain_Database.config import SECRET_KEY, MT_API, MAIL_DEFAULT_SENDER, MAIL_SENDER_NAME
 import mailtrap as mt  # Import Mailtrap library
 
 auth_bp = Blueprint("auth", __name__)
@@ -45,11 +45,10 @@ def send_verification_email(email):
         """
 
         mail = mt.Mail(
-            sender=mt.Address(email="noreply@rohanbatra.in", name="Rohan Batra"),
+            sender=mt.Address(email=MAIL_DEFAULT_SENDER, name=MAIL_SENDER_NAME),
             to=[mt.Address(email=email)],
             subject="Verify Your Email",
-            html=html_content,
-            reply_to=mt.Address(email="noreply@rohanbatra.in")
+            html=html_content
         )
 
         client = mt.MailtrapClient(token=MT_API)  # Replace with your Mailtrap API key

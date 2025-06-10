@@ -30,6 +30,7 @@ def load_sbd_config():
         'REDIS_DB': '0',
         'REDIS_STORAGE_URI': 'redis://redis:6379/0',
         'MAIL_DEFAULT_SENDER': 'noreply@rohanbatra.in',
+        'MAIL_SENDER_NAME': 'Rohan Batra',
     }
     if config_file:
         ensure_default_config(config_file, defaults)
@@ -60,6 +61,7 @@ def get_conf(key, default=None):
         'REDIS_DB': '0',
         'REDIS_STORAGE_URI': 'redis://redis:6379/0',
         'MAIL_DEFAULT_SENDER': 'noreply@rohanbatra.in',
+        'MAIL_SENDER_NAME': 'Rohan Batra',
     }
     return defaults.get(key, default)
 
