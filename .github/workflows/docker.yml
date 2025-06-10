@@ -48,3 +48,4 @@ jobs:
 
           # You can also use "buildargs" if your Dockerfile requires them
           # buildargs: "VERSION=1.0"
+
