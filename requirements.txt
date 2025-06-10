@@ -9,3 +9,4 @@ flask-limiter
 redis
 flask_mail
 mailtrap
+requests
