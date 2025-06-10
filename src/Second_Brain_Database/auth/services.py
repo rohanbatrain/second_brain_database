@@ -12,8 +12,6 @@ from flask import current_app, request
 from Second_Brain_Database.config import MAIL_DEFAULT_SENDER, SECRET_KEY
 
 
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY is not set. Please configure it in the application settings.")
 
 serializer = URLSafeTimedSerializer(SECRET_KEY)
 
