@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, current_app, url_for
+from flask import Blueprint, jsonify, current_app, url_for, request
 from Second_Brain_Database.auth.services import (
     create_user,
     authenticate_user,

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Second_Brain_Database"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
   { name="Rohan Batra", email="contact@rohanbatra.in" },
 ]
@@ -18,16 +18,21 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+dependencies = [
+"flask",
+"pymongo",
+"flask-cors",
+"PyJWT",
+"bcrypt",
+"gunicorn",
+"flask-limiter",
+"redis",
+"flask_mail",
+"mailtrap",
+"requests",
+]
 
 
 [project.urls]
 "Homepage" = "https://github.com/rohanbatrain/second-brain-database"
 "Bug Tracker" = "https://github.com/rohanbatrain/second-brain-database/issues"
-
-[tool.poetry.dependencies]
-flask = "^3.1.0"
-pymongo = "^4.11.2"
-flask-cors = "^5.0.1"
-pyjwt = "^2.10.1"
-bcrypt = "^4.3.0"
-gunicorn = "^23.0"
