@@ -1,5 +1,10 @@
 name: Build, Push Docker Image & Publish to PyPI
 
+permissions:
+  contents: read
+  packages: write
+  secrets: read
+
 on:
   push:
     branches:
