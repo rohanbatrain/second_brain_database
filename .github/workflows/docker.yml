@@ -19,24 +19,47 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      # Build the Docker image
-      - name: Build Docker image (github)
-        run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/second-brain-database:latest .
+      # Login to Docker Hub before building and pushing (good practice)
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: rohanbatra
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build Docker image (docker hub)
+      # Build and push Docker image to Docker Hub
+      - name: Build and Push Docker image (Docker Hub)
         run: |
           docker build -t rohanbatra/second-brain-database:latest .
-
-      - name: Publish Docker image (docker hub)
-        run: |
-          docker login -u rohanbatra -p ${{ secrets.DOCKER_HUB_TOKEN }}
           docker push rohanbatra/second-brain-database:latest
 
-      - name: Publish to Github Registry
-        uses: elgohr/Publish-Docker-Github-Action@v5
+      # Build and push Docker image to GitHub Container Registry (GHCR)
+      - name: Build and Push Docker image (GHCR)
+        uses: docker/build-push-action@v4 # Using a more modern action for build and push
         with:
-          name: rohanbatrain/second_brain_database/core
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          registry: ghcr.io
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/second-brain-database:latest
+          # Login to GHCR implicitly handled by the action when using GITHUB_TOKEN
+
+      # --- New step to update the remote VPS ---
+      - name: Update Docker image on remote VPS
+        uses: appleboy/ssh-action@v0.1.10 # Action to execute commands over SSH
+        with:
+          host: ${{ secrets.VPS_HOST }} # Your VPS IP address or hostname
+          username: ${{ secrets.VPS_USERNAME }} # Your SSH username on the VPS
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }} # SSH private key for authentication
+          script: |
+
+            # Stop the currently running container (if any)
+            docker stop second-brain-database || true # '|| true' prevents failure if container doesn't exist
+            docker rm second-brain-database || true   # '|| true' prevents failure if container doesn't exist
+
+            # Pull the new image from Docker Hub (or GHCR if you prefer)
+            docker pull rohanbatra/second-brain-database:latest
+
+            # Run the new container with the updated image
+            # Make sure to include all necessary options for your container (ports, volumes, etc.)
+            docker run -d --name second-brain-database -p 80:80 rohanbatra/second-brain-database:latest
+
+            # Optionally, clean up old images to save space
+            docker system prune -f
