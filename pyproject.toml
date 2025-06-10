@@ -29,7 +29,7 @@ dependencies = [
 "redis",
 "flask_mail",
 "mailtrap",
-"requests",
+"python-dotenv",
 ]
 
 
