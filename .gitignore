@@ -139,6 +139,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.sbd_config
 
 # Spyder project settings
 .spyderproject
@@ -175,3 +176,4 @@ sbt_config.json
 *.json
 *.sbd_config
 .sbd_config
+*sbd_*
