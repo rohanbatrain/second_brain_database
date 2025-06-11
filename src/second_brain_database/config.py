@@ -151,3 +151,21 @@ REDIS_HOST = get_conf("REDIS_HOST", "localhost")
 REDIS_PORT = int(get_conf("REDIS_PORT", 6379))
 REDIS_DB = int(get_conf("REDIS_DB", 0))
 REDIS_STORAGE_URI = get_conf("REDIS_STORAGE_URI", f"redis://{REDIS_HOST}:{REDIS_PORT}")
+
+def printenv_config():
+    """
+    Print the effective configuration values from config, environment, and defaults.
+    """
+    print("\n[ENV/CONFIG] Effective configuration values:")
+    for key in [
+        'MONGO_URL', 'MONGO_DB_NAME', 'SECRET_KEY', 'JWT_EXPIRY', 'JWT_REFRESH_EXPIRY',
+        'MAIL_DEFAULT_SENDER', 'MAIL_SENDER_NAME', 'MT_API',
+        'REDIS_HOST', 'REDIS_PORT', 'REDIS_DB', 'REDIS_STORAGE_URI']:
+        value = sbd_config.get(key) or os.getenv(key) or defaults.get(key)
+        source = (
+            "(from config)" if key in sbd_config else
+            "(from env)" if os.getenv(key) else
+            "(from default)"
+        )
+        print(f"{key} = {value}   {source}")
+    print()

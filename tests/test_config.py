@@ -6,7 +6,7 @@ Unit tests for configuration utilities in Second Brain Database.
 Dependencies:
     - pytest
     - unittest.mock
-    - Second_Brain_Database.config
+    - second_brain_database.config
 
 Author: Rohan Batra
 Date: 2025-06-11
@@ -22,6 +22,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import sys
 import importlib
+import io
+from contextlib import redirect_stdout
 
 import second_brain_database.config as config_mod
 
@@ -462,12 +464,13 @@ def test_config_module_top_level(monkeypatch, tmp_path):
     import sys
     monkeypatch.delenv('IN_DOCKER', raising=False)
     monkeypatch.setenv('HOME', str(tmp_path))
-    sys.modules.pop('Second_Brain_Database.config', None)
+    sys.modules.pop('second_brain_database.config', None)
     monkeypatch.setattr('builtins.print', lambda *a, **k: None)
     monkeypatch.setattr('pathlib.Path.exists', lambda self: False)
-    monkeypatch.setattr('Second_Brain_Database.config.ensure_default_config', lambda *a, **k: None)
-    monkeypatch.setattr('Second_Brain_Database.config.printenv_config', lambda: None)
-    importlib.import_module('Second_Brain_Database.config')
+    monkeypatch.setattr('second_brain_database.config.ensure_default_config', lambda *a, **k: None)
+    monkeypatch.setattr('second_brain_database.config.printenv_config', lambda: None)
+    importlib.import_module('second_brain_database.config')
+    config_mod.printenv_config()
 
 def test_config_module_top_level_prints(monkeypatch, tmp_path, capsys):
     """
@@ -477,8 +480,8 @@ def test_config_module_top_level_prints(monkeypatch, tmp_path, capsys):
     import sys
     monkeypatch.delenv('IN_DOCKER', raising=False)
     monkeypatch.setenv('HOME', str(tmp_path))
-    sys.modules.pop('Second_Brain_Database.config', None)
-    importlib.import_module('Second_Brain_Database.config')
+    sys.modules.pop('second_brain_database.config', None)
+    importlib.import_module('second_brain_database.config')
     out = capsys.readouterr().out
     assert "Setting configuration defaults" in out
     assert ("Docker environment detected" in out) or ("Localhost environment detected" in out)
@@ -1488,16 +1491,14 @@ def test_config_module_reimport_behavior(monkeypatch, tmp_path):
     """
     Test behavior when config module is imported multiple times.
     """
-    import sys
-    import importlib
-    if 'Second_Brain_Database.config' in sys.modules:
-        del sys.modules['Second_Brain_Database.config']
+    if 'second_brain_database.config' in sys.modules:
+        del sys.modules['second_brain_database.config']
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.setenv('IN_DOCKER', '0')
-    config1 = importlib.import_module('Second_Brain_Database.config')
+    config1 = importlib.import_module('second_brain_database.config')
     is_docker1 = config1.IS_DOCKER
     monkeypatch.setenv('IN_DOCKER', '1')
-    config2 = importlib.import_module('Second_Brain_Database.config')
+    config2 = importlib.import_module('second_brain_database.config')
     is_docker2 = config2.IS_DOCKER
     assert config1 is config2
     assert is_docker1 == is_docker2
@@ -1540,8 +1541,6 @@ def test_config_system_integration(tmp_path, monkeypatch):
     assert config_mod.get_conf('MONGO_URL') == 'mongodb://prod.example.com:27017'
     assert config_mod.get_conf('MONGO_DB_NAME') == 'prod_database'
     assert config_mod.get_conf('MT_API') is not None
-    import io
-    from contextlib import redirect_stdout
     output = io.StringIO()
     with redirect_stdout(output):
         config_mod.printenv_config()
@@ -1600,14 +1599,14 @@ def test_config_module_top_level_docker(monkeypatch, capsys):
     """
     Cover Docker branch of config.py top-level code without filesystem errors.
     """
-    sys.modules.pop('Second_Brain_Database.config', None)
+    sys.modules.pop('second_brain_database.config', None)
     monkeypatch.setenv('IN_DOCKER', '1')
     monkeypatch.setattr('pathlib.Path.exists', lambda self: False)
     monkeypatch.setattr('pathlib.Path.mkdir', lambda self, parents=True, exist_ok=True: None)
     from unittest.mock import mock_open
     mock_file = mock_open()
     monkeypatch.setattr('builtins.open', mock_file)
-    importlib.import_module('Second_Brain_Database.config')
+    importlib.import_module('second_brain_database.config')
     out = capsys.readouterr().out
     assert "Docker environment detected" in out
 
@@ -1615,10 +1614,10 @@ def test_config_module_top_level_localhost(monkeypatch, capsys, tmp_path):
     """
     Cover localhost branch of config.py top-level code.
     """
-    sys.modules.pop('Second_Brain_Database.config', None)
+    sys.modules.pop('second_brain_database.config', None)
     monkeypatch.delenv('IN_DOCKER', raising=False)
     monkeypatch.setenv('HOME', str(tmp_path))
-    importlib.import_module('Second_Brain_Database.config')
+    importlib.import_module('second_brain_database.config')
     out = capsys.readouterr().out
     assert "Localhost environment detected" in out
 

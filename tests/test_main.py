@@ -6,7 +6,7 @@ Unit tests for the main Flask application routes and error handlers.
 Dependencies:
     - pytest
     - flask
-    - Second_Brain_Database.main
+    - second_brain_database.main
 
 Author: Rohan Batra
 Date: 2025-06-11
@@ -114,7 +114,7 @@ def test_405_handler(client):
     assert resp.status_code == 405
     assert b"Method Not Allowed" in resp.data or b"405" in resp.data
 
-@patch("Second_Brain_Database.main.abort")
+@patch("second_brain_database.main.abort")
 def test_401_handler(mock_abort, client):
     """
     Test 401 handler returns custom error page.
@@ -129,7 +129,7 @@ def test_401_handler(mock_abort, client):
         assert code == 401
         assert "401 - Unauthorized" in resp
 
-@patch("Second_Brain_Database.main.abort")
+@patch("second_brain_database.main.abort")
 def test_403_handler(mock_abort, client):
     """
     Test 403 handler returns custom error page.
@@ -141,7 +141,7 @@ def test_403_handler(mock_abort, client):
     with flask_app.test_request_context():
         pass
 
-@patch("Second_Brain_Database.main.r")
+@patch("second_brain_database.main.r")
 def test_slow_down_attackers_delay(mock_redis, client):
     """
     Test tar-pitting mechanism delays attackers.
@@ -155,7 +155,7 @@ def test_slow_down_attackers_delay(mock_redis, client):
         client.get("/test-tarpit", environ_base={'REMOTE_ADDR': '5.6.7.8'})
         mock_sleep.assert_called_once_with(2)
 
-@patch("Second_Brain_Database.main.r")
+@patch("second_brain_database.main.r")
 def test_track_failed_attempts_blocks(mock_redis, client):
     """
     Test failed attempts tracking and blocking mechanism.
