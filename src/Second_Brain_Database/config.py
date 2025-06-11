@@ -36,7 +36,7 @@ if IS_DOCKER:
         'MONGO_URL': 'mongodb://mongo:27017',
         'MONGO_DB_NAME': 'your_application_db_name',
         'SECRET_KEY': 'your_super_long_and_random_secret_key_here_at_least_32_characters_or_more_for_security',
-        'JWT_EXPIRY': '15m',
+        'JWT_EXPIRY': '1h',
         'JWT_REFRESH_EXPIRY': '7d',
         'MT_API': 'your_third_party_api_key_here',
         'REDIS_HOST': 'redis',

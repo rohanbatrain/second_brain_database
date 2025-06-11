@@ -85,49 +85,73 @@ def landing_page():
     Returns:
         str: HTML content for the landing page.
     """
-    return """<html>
-    <head>
-        <title>Welcome to Second Brain Database</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                text-align: center;
-                background-color: #f4f4f9;
-                color: #333;
-                margin: 0;
-                padding: 0;
-            }
-            header {
-                background-color: #6200ea;
-                color: white;
-                padding: 20px 0;
-            }
-            h1 {
-                margin: 0;
-            }
-            p {
-                font-size: 18px;
-            }
-            footer {
-                margin-top: 20px;
-                font-size: 14px;
-                color: #777;
-            }
-        </style>
-    </head>
-    <body>
-        <header>
-            <h1>Welcome to Second Brain Database</h1>
-        </header>
-        <main>
-            <p>Your one-stop solution for managing notes, emotions, and plans.</p>
-            <p>Navigate to the login or register page to get started!</p>
-        </main>
-        <footer>
-            <p>&copy; 2023 Second Brain Database. All rights reserved.</p>
-        </footer>
-    </body>
-    </html>"""
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Welcome to Second Brain Database</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #0a0a0a;
+    }
+
+    .glass-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      animation: subtleGlow 6s ease-in-out infinite;
+    }
+
+    .glass-bg::before {
+      content: "";
+      position: absolute;
+      inset: -5px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.05));
+      z-index: -1;
+      filter: blur(30px);
+      border-radius: inherit;
+      animation: subtleGlow 8s ease-in-out infinite;
+    }
+
+    @keyframes subtleGlow {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.9; }
+    }
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen text-white">
+
+  <!-- Fullscreen Glass Background -->
+  <div class="glass-bg z-0"></div>
+
+  <!-- Centered Content -->
+  <div class="relative z-10 text-center px-6">
+    <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight">
+      Welcome to<br>Second Brain Database API
+    </h1>
+    <p class="mt-6 text-lg text-white/70">
+      A centralized, elegant engine for personal knowledge management.
+    </p>
+  </div>
+
+</body>
+</html>
+
+"""
 
 @app.route("/login")
 def login_page():

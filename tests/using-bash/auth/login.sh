@@ -5,7 +5,7 @@ login_user() {
     curl -X POST "$BASE_URL/login" \
         -H "Content-Type: application/json" \
         -d '{
-            "email": "testuser@example.com",
+            "email": "test@rohanbatra.in",
             "password": "password123"
         }'
 }
