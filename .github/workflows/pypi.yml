@@ -61,9 +61,17 @@ jobs:
 
       - name: Build Python package from pyproject.toml
         run: python -m build
+      
+      - name: Install test requirements
+        run: pip install pytest pytest-cov
+      
+      - name: Run tests and generate coverage report
+        run: pytest --cov --cov-branch --cov-report=xml
 
       - name: Publish package to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: twine upload dist/*
+
+    
