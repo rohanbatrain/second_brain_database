@@ -1,3 +1,20 @@
+"""
+routes.py
+
+Flask routes for authentication, registration, and email verification.
+
+Dependencies:
+    - Flask
+    - itsdangerous
+    - mailtrap
+    - Second_Brain_Database.auth.services
+    - Second_Brain_Database.auth.model
+    - Second_Brain_Database.config
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
+
 from flask import Blueprint, jsonify, current_app, url_for, request
 from Second_Brain_Database.auth.services import (
     create_user,
@@ -15,7 +32,15 @@ serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 
 def send_verification_email(email):
-    """Helper function to send a verification email with HTML content."""
+    """
+    Helper function to send a verification email with HTML content.
+
+    Args:
+        email (str): The email address to send the verification to.
+
+    Returns:
+        bool: True if the email was sent successfully, False otherwise.
+    """
     try:
         token = serializer.dumps(email, salt="email-verification")
         verification_url = url_for("auth.verify_email", token=token, _external=True)

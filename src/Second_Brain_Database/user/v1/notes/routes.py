@@ -1,4 +1,20 @@
+"""
+routes.py
+
+Flask routes for note management (CRUD) for authenticated users.
+
+Dependencies:
+    - Flask
+    - Second_Brain_Database.user.v1.notes.model
+    - Second_Brain_Database.utils.decorators.privileged
+    - Second_Brain_Database.user.v1.emotion_tracker.model
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
+
 from flask import Blueprint, request, jsonify
+
 from Second_Brain_Database.user.v1.notes.model import (
     create_note,
     delete_note,
@@ -99,7 +115,7 @@ def fetch_all_notes(user):
 # Read a single note by ID
 @notes_bp.route("/basic/get/<string:note_id>", methods=["GET"])
 @user_only
-def fetch_note_by_id(user, note_id):
+def fetch_note_by_id(user, note_id):  # pylint: disable=unused-argument
     """
     Retrieves a single note by its ID for the authenticated user.
 
@@ -126,7 +142,7 @@ def fetch_note_by_id(user, note_id):
 # Read multiple notes by an array of IDs
 @notes_bp.route("/basic/get/batch", methods=["POST"])
 @user_only
-def fetch_notes_by_ids(user):
+def fetch_notes_by_ids(user):  # pylint: disable=unused-argument
     """
     Retrieves multiple notes by their IDs for the authenticated user.
 
@@ -161,7 +177,7 @@ def fetch_notes_by_ids(user):
 # Update a note
 @notes_bp.route("/basic/update/<string:note_id>", methods=["PUT"])
 @user_only
-def modify_note(user, note_id):
+def modify_note(user, note_id):  # pylint: disable=unused-argument
     """
     Updates a note by its ID for the authenticated user.
 
@@ -187,7 +203,7 @@ def modify_note(user, note_id):
 # Delete a note
 @notes_bp.route("/basic/delete/<string:note_id>", methods=["DELETE"])
 @user_only
-def remove_note(user, note_id):
+def remove_note(user, note_id):  # pylint: disable=unused-argument
     """
     Deletes a note by its ID for the authenticated user.
 

@@ -3,15 +3,24 @@ main.py
 
 Flask application entry point for Second Brain Database. Sets up routes, middleware, rate limiting, and error handling.
 
-Logging is used for observability and is compatible with Gunicorn/Uvicorn log handlers.
+Dependencies:
+    - Flask
+    - flask_cors
+    - flask_limiter
+    - redis
+    - logging
+    - Second_Brain_Database.*
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
 """
+import logging
+import time
 from flask import Flask, request, abort
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import redis
-import time
-import logging
 from Second_Brain_Database.auth.routes import auth_bp
 from Second_Brain_Database.admin.v1.plans.routes import plans_bp
 from Second_Brain_Database.user.v1.emotion_tracker.routes import emotion_bp

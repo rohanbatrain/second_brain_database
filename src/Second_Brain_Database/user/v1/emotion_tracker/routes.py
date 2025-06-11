@@ -1,4 +1,20 @@
+"""
+routes.py
+
+Flask routes for emotion tracking (CRUD) for authenticated users.
+
+Dependencies:
+    - Flask
+    - Second_Brain_Database.user.v1.emotion_tracker.model
+    - Second_Brain_Database.utils.decorators.privileged
+    - Second_Brain_Database.user.v1.notes.model
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
+
 from flask import Blueprint, request, jsonify
+
 from Second_Brain_Database.user.v1.emotion_tracker.model import (
     create_emotion,
     delete_emotion,

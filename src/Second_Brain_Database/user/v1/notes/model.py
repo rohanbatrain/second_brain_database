@@ -1,6 +1,20 @@
-from Second_Brain_Database.database import db
+"""
+model.py
+
+Data access and business logic for notes in Second Brain Database.
+
+Dependencies:
+    - Second_Brain_Database.database
+    - bson
+    - datetime
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
+
 from bson import ObjectId
 from datetime import datetime
+from Second_Brain_Database.database import db
 
 # Initialize the notes collection
 notes_collection = db["notes"]
@@ -50,7 +64,7 @@ def get_note_by_id(note_id):
         note_id (str): The ID of the note to retrieve.
 
     Returns:
-        dict or None: The note as a dictionary if found, otherwise None.
+        dict or None: The note document if found, else None.
     """
     return notes_collection.find_one({"_id": ObjectId(note_id)})
 

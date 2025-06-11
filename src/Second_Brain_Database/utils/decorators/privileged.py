@@ -1,11 +1,33 @@
+"""
+privileged.py
+
+This module provides Flask route decorators for enforcing user authentication and authorization (admin-only and user-only access).
+
+Dependencies:
+    - Flask (request, jsonify)
+    - functools.wraps
+    - Second_Brain_Database.auth.services.decode_jwt_token
+    - Second_Brain_Database.auth.model.User
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
 from flask import request, jsonify
 from functools import wraps
 from Second_Brain_Database.auth.services import decode_jwt_token
 from Second_Brain_Database.auth.model import User
 
 
-# Helper function to check if the user is privileged
 def admin_only(f):
+    """
+    Decorator to restrict access to admin users only.
+
+    Args:
+        f (function): The Flask route function to decorate.
+
+    Returns:
+        function: The decorated function that enforces admin-only access.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         token = request.headers.get("Authorization")
@@ -53,6 +75,15 @@ def admin_only(f):
 
 
 def user_only(f):
+    """
+    Decorator to restrict access to authenticated users only.
+
+    Args:
+        f (function): The Flask route function to decorate.
+
+    Returns:
+        function: The decorated function that enforces user authentication.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         token = request.headers.get("Authorization")

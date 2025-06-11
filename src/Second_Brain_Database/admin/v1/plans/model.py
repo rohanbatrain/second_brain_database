@@ -1,3 +1,14 @@
+"""
+model.py
+
+Data access and business logic for admin plan management in Second Brain Database.
+
+Dependencies:
+    - Second_Brain_Database.database
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
 from Second_Brain_Database.database import db
 
 # Initialize the plans collection
@@ -8,7 +19,7 @@ def validate_limit(limit, limit_name):
     """
     Validate the limit value.
 
-    Parameters:
+    Args:
         limit (int or str): The limit value to validate.
         limit_name (str): The name of the limit for error messages.
 
@@ -30,20 +41,12 @@ def define_new_plan(
     """
     Define a new plan and add it to the 'plans' collection in MongoDB.
 
-    Parameters:
-        name (str):
-            The name of the plan (e.g., "Free", "Basic").
-        team_limit (int or str):
-            The maximum number of team members allowed
-            (use "Unlimited" for no limit).
-        project_limit (int or str):
-            The maximum number of projects allowed
-            (use "Unlimited" for no limit).
-        task_limit_per_project (int or str):
-            The maximum number of tasks allowed
-            per project (use "Unlimited" for no limit).
-        description (str, optional):
-            A short description of the plan.
+    Args:
+        name (str): The name of the plan (e.g., "Free", "Basic").
+        team_limit (int or str): The maximum number of team members allowed (use "Unlimited" for no limit).
+        project_limit (int or str): The maximum number of projects allowed (use "Unlimited" for no limit).
+        task_limit_per_project (int or str): The maximum number of tasks allowed per project (use "Unlimited" for no limit).
+        description (str, optional): A short description of the plan.
 
     Returns:
         dict: A response indicating the result of the operation.
@@ -98,20 +101,12 @@ def update_plan(
     """
     Update an existing plan in the 'plans' collection in MongoDB.
 
-    Parameters:
-        name (str):
-            The name of the plan to update.
-        team_limit (int or str, optional):
-            The maximum number of team members allowed
-            (use "Unlimited" for no limit).
-        project_limit (int or str, optional):
-            The maximum number of projects allowed
-            (use "Unlimited" for no limit).
-        task_limit_per_project (int or str, optional):
-            The maximum number of tasks
-            allowed per project (use "Unlimited" for no limit).
-        description (str, optional):
-            A short description of the plan.
+    Args:
+        name (str): The name of the plan to update.
+        team_limit (int or str, optional): The maximum number of team members allowed (use "Unlimited" for no limit).
+        project_limit (int or str, optional): The maximum number of projects allowed (use "Unlimited" for no limit).
+        task_limit_per_project (int or str, optional): The maximum number of tasks allowed per project (use "Unlimited" for no limit).
+        description (str, optional): A short description of the plan.
 
     Returns:
         dict: A response indicating the result of the operation.
@@ -164,7 +159,7 @@ def delete_plan(name):
     """
     Delete an existing plan from the 'plans' collection in MongoDB.
 
-    Parameters:
+    Args:
         name (str): The name of the plan to delete.
 
     Returns:
@@ -192,7 +187,7 @@ def read_plan(name):
     """
     Read an existing plan from the 'plans' collection in MongoDB.
 
-    Parameters:
+    Args:
         name (str): The name of the plan to read.
 
     Returns:

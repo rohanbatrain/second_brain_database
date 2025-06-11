@@ -9,3 +9,7 @@ redis
 flask_mail
 mailtrap
 python-dotenv
+pytest
+codecov
+pylint
+pytest-cov

@@ -1,3 +1,17 @@
+"""
+routes.py
+
+Flask routes for admin plan management (CRUD) for privileged users.
+
+Dependencies:
+    - Flask
+    - Second_Brain_Database.admin.v1.plans.model
+    - Second_Brain_Database.utils.decorators.privileged
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
+"""
+
 from flask import Blueprint, request, jsonify
 from Second_Brain_Database.admin.v1.plans.model import (
     define_new_plan,

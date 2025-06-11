@@ -3,7 +3,13 @@ config.py
 
 Configuration management for Second Brain Database. Handles environment detection (Docker vs. localhost), loads configuration from a user config file, environment variables, or defaults, and exposes configuration values for use throughout the application.
 
-Logging is used for observability and is compatible with Gunicorn/Uvicorn log handlers.
+Dependencies:
+    - os
+    - json
+    - pathlib
+
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
 """
 import os
 import json
@@ -75,7 +81,7 @@ def ensure_default_config(config_file, defaults):
     if not config_file.exists():
         config_file.parent.mkdir(parents=True, exist_ok=True)
         # Store all keys as upper case in JSON
-        with open(config_file, 'w') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:
             json.dump({k.upper(): v for k, v in defaults.items()}, f, indent=2)
         print(f"Created default config file at {config_file}")
 
@@ -89,7 +95,7 @@ def load_sbd_config():
     config = {}
     config_file = None
     if IS_DOCKER:
-        config_file = Path('/root/.config/Second-Brain-Database/.sbd_config.json')
+        config_file = Path('/sbd_user/.config/Second-Brain-Database/.sbd_config.json')
     else:
         home = os.environ.get('HOME')
         if home:
@@ -101,7 +107,7 @@ def load_sbd_config():
             print(f"[CONFIG] Config file not found, using defaults: {config_file}")
         ensure_default_config(config_file, defaults)
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             # Ensure all keys are upper case
             config = {k.upper(): v for k, v in config.items()}
@@ -142,22 +148,3 @@ REDIS_HOST = get_conf("REDIS_HOST", "localhost")
 REDIS_PORT = int(get_conf("REDIS_PORT", 6379))
 REDIS_DB = int(get_conf("REDIS_DB", 0))
 REDIS_STORAGE_URI = get_conf("REDIS_STORAGE_URI", f"redis://{REDIS_HOST}:{REDIS_PORT}")
-
-def printenv_config():
-    """
-    Print all environment variables and config values used by the program.
-    """
-    keys = [
-        'MONGO_URL', 'MONGO_DB_NAME', 'SECRET_KEY', 'JWT_EXPIRY', 'JWT_REFRESH_EXPIRY',
-        'MAIL_DEFAULT_SENDER', 'MAIL_SENDER_NAME', 'MT_API',
-        'REDIS_HOST', 'REDIS_PORT', 'REDIS_DB', 'REDIS_STORAGE_URI'
-    ]
-    print("\n[ENV/CONFIG] Effective configuration values:")
-    for key in keys:
-        val = get_conf(key)
-        env_val = os.environ.get(key)
-        src = 'env' if env_val is not None else ('config' if sbd_config.get(key) is not None else 'default')
-        print(f"{key} = {val}   (from {src})")
-    print()
-
-printenv_config()

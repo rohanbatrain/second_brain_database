@@ -3,10 +3,13 @@ delete_all_mongodb.py
 
 Utility script to delete all documents from every collection in the configured MongoDB database.
 
-Usage:
-    python delete_all_mongodb.py
+Dependencies:
+    - pymongo
+    - Second_Brain_Database.config
+    - logging
 
-WARNING: This will irreversibly delete all data in the database specified in config.py.
+Author: Rohan (refactored by GitHub Copilot)
+Date: 2025-06-11
 """
 import logging
 from pymongo import MongoClient
@@ -18,6 +21,9 @@ logging.basicConfig(level=logging.INFO)
 def delete_all_collections():
     """
     Delete all documents from every collection in the configured MongoDB database.
+
+    Returns:
+        None
     """
     client = MongoClient(MONGO_URL)
     db = client[MONGO_DB_NAME]
