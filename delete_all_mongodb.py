@@ -8,12 +8,12 @@ Dependencies:
     - Second_Brain_Database.config
     - logging
 
-Author: Rohan (refactored by GitHub Copilot)
+Author: Rohan Batra
 Date: 2025-06-11
 """
 import logging
 from pymongo import MongoClient
-from Second_Brain_Database.config import MONGO_URL, MONGO_DB_NAME
+from second_brain_database.config import MONGO_URL, MONGO_DB_NAME
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)

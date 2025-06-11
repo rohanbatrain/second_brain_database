@@ -8,15 +8,15 @@ Dependencies:
     - flask
     - Second_Brain_Database.main
 
-Author: Rohan (refactored by GitHub Copilot)
+Author: Rohan Batra
 Date: 2025-06-11
 """
 import pytest
 from unittest.mock import patch
-from Second_Brain_Database.main import app as flask_app
+from second_brain_database.main import app as flask_app
 
 # Register a dummy route for tar-pitting test before any requests
-from Second_Brain_Database.main import app as real_app
+from second_brain_database.main import app as real_app
 @real_app.route("/test-tarpit")
 def _dummy():
     """
@@ -124,7 +124,7 @@ def test_401_handler(mock_abort, client):
         client (FlaskClient): The Flask test client.
     """
     with flask_app.test_request_context():
-        from Second_Brain_Database.main import unauthorized_error
+        from second_brain_database.main import unauthorized_error
         resp, code = unauthorized_error(Exception())
         assert code == 401
         assert "401 - Unauthorized" in resp
@@ -168,7 +168,7 @@ def test_track_failed_attempts_blocks(mock_redis, client):
     mock_redis.incr.return_value = 11
     mock_redis.setex.return_value = True
     with flask_app.test_request_context():
-        from Second_Brain_Database.main import track_failed_attempts
+        from second_brain_database.main import track_failed_attempts
         class DummyResp:
             status_code = 429
         resp = DummyResp()

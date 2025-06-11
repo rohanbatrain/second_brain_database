@@ -8,7 +8,7 @@ Dependencies:
     - unittest.mock
     - Second_Brain_Database.config
 
-Author: Rohan (refactored by GitHub Copilot)
+Author: Rohan Batra
 Date: 2025-06-11
 """
 
@@ -23,7 +23,7 @@ from unittest.mock import patch, MagicMock
 import sys
 import importlib
 
-import Second_Brain_Database.config as config_mod
+import second_brain_database.config as config_mod
 
 def test_is_docker_env_var(monkeypatch):
     """
