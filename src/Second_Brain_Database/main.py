@@ -4,7 +4,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import redis
 import time
-import os
 from Second_Brain_Database.auth.routes import auth_bp
 from Second_Brain_Database.admin.v1.plans.routes import plans_bp
 from Second_Brain_Database.user.v1.emotion_tracker.routes import emotion_bp
