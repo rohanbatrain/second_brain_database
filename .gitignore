@@ -174,3 +174,4 @@ cython_debug/
 sbt_config.json
 *.json
 *.sbd_config
+.sbd_config
