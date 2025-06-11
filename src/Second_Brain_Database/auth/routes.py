@@ -5,7 +5,7 @@ from Second_Brain_Database.auth.services import (
     generate_jwt_token,
 )
 from Second_Brain_Database.auth.model import User
-from itsdangerous import URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from Second_Brain_Database.config import SECRET_KEY, MT_API, MAIL_DEFAULT_SENDER, MAIL_SENDER_NAME
 import mailtrap as mt  # Import Mailtrap library
 
@@ -55,7 +55,7 @@ def send_verification_email(email):
         client.send(mail)
         return True
     except Exception as e:
-        current_app.logger.error(f"Failed to send verification email: {e}")
+        print(f"Failed to send verification email: {e} - {MT_API}")
         return False
 
 
@@ -119,12 +119,16 @@ def verify_email():
         user = User.find_by_email(email)
         if user:
             user.update(is_verified=True)
+            print("Email verified successfully")
             return jsonify({"status": "success", "message": "Email verified successfully"}), 200
         else:
+            print("User not found")
             return jsonify({"status": "error", "message": "User not found"}), 404
     except SignatureExpired:
+        print("Token expired")
         return jsonify({"status": "error", "message": "Token expired"}), 400
     except BadSignature:
+        print("Invalid token")
         return jsonify({"status": "error", "message": "Invalid token"}), 400
 
 
@@ -135,19 +139,24 @@ def resend_verification():
     email = data.get("email")
 
     if not email:
+        print("Missing email")
         return jsonify({"status": "error", "message": "Missing email"}), 400
 
     user = User.find_by_email(email)
     if not user:
+        print("User not found")
         return jsonify({"status": "error", "message": "User not found"}), 404
 
     if user.is_verified:
+        print("Email already verified")
         return jsonify({"status": "error", "message": "Email already verified"}), 400
 
     # Send verification email using Mailtrap
     if not send_verification_email(email):
+        print("Failed to resend email")
         return jsonify({"status": "error", "message": "Failed to resend email"}), 500
 
+    print("Verification email resent")
     return jsonify({"status": "success", "message": "Verification email resent"}), 200
 
 
@@ -160,22 +169,26 @@ def login():
     # client = data.get("client")
 
     if not email or not password:
+        print("Missing required fields")
         return jsonify({"status": "error",
                         "message": "Missing required fields"}), 400
 
     # Authenticate user by email and password
     user = authenticate_user(email, password)
     if not user:
+        print("Invalid email or password")
         return jsonify({"status": "error",
                         "message": "Invalid email or password"}), 401
 
     # Check if the user's email is verified
     if not user.is_verified:
+        print("Please verify your email")
         return jsonify({"status": "error", "message": "Please verify your email"}), 403
 
     # Generate a JWT token
     token = generate_jwt_token(user)
 
+    print("Login successful")
     return (
         jsonify(
             {

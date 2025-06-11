@@ -19,8 +19,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./.sbd_config:/root/.config/Second-Brain-Database/.sbd_config:ro
+      - ./.sbd_config.json:/root/.config/Second-Brain-Database/.sbd_config.json:ro
     depends_on:
       - mongo
       - redis
-

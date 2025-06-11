@@ -9,7 +9,7 @@ register_user() {
         -H "Content-Type: application/json" \
         -d '{
             "username": "testuser",
-            "email": "testuser@example.com",
+            "email": "test@rohanbatra.in",
             "password": "password123",
             "plan": "free",
             "team": []
