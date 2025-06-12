@@ -74,7 +74,7 @@ jobs:
         run: pylint src/second_brain_database
 
       - name: Installing Second Brain Database
-        run: pip install second-brain-database
+        run: pip install .
     
       - name: Run tests and generate coverage report
         run: pytest --cov --cov-branch --cov-report=xml
