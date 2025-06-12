@@ -130,13 +130,13 @@ if [ -z "${REDIS_STORAGE_URI:-}" ]; then
     validate_input "$REDIS_STORAGE_URI" "Redis Storage URI"
 fi
 if [ -z "${MAIL_DEFAULT_SENDER:-}" ]; then
-    read -p "Enter Mail Default Sender (e.g., noreply@example.com) [Default: noreply@example.com]: " MAIL_DEFAULT_SENDER
-    MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-"noreply@example.com"}
+    read -p "Enter Mail Default Sender (e.g., noreply@rohanbatra.in) [Default: noreply@rohanbatra.in]: " MAIL_DEFAULT_SENDER
+    MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-"noreply@rohanbatra.in"}
     validate_input "$MAIL_DEFAULT_SENDER" "Mail Default Sender"
 fi
 if [ -z "${MAIL_SENDER_NAME:-}" ]; then
-    read -p "Enter Mail Sender Name [Default: App Mailer]: " MAIL_SENDER_NAME
-    MAIL_SENDER_NAME=${MAIL_SENDER_NAME:-"App Mailer"}
+    read -p "Enter Mail Sender Name [Default: Rohan Batra]: " MAIL_SENDER_NAME
+    MAIL_SENDER_NAME=${MAIL_SENDER_NAME:-"Rohan Batra"}
     validate_input "$MAIL_SENDER_NAME" "Mail Sender Name"
 fi
 
