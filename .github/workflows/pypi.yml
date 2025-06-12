@@ -57,14 +57,14 @@ jobs:
           python-version: '3.11'
 
       - name: Install build & twine
-        run: pip install build twine
+        run: pip install build twine pytest pytest-cov pylint
 
       - name: Build Python package from pyproject.toml
         run: python -m build
-      
-      - name: Install test requirements
-        run: pip install pytest pytest-cov
-      
+    
+      - name: Linting 
+        run: pylint
+    
       - name: Run tests and generate coverage report
         run: pytest --cov --cov-branch --cov-report=xml
 
