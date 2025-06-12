@@ -68,7 +68,7 @@ jobs:
 
 
       - name: Install python packages
-      - run: pip install -r requirements.txt
+        run: pip install -r requirements.txt
     
       - name: Linting 
         run: pylint src/second_brain_database
