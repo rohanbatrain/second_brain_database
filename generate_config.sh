@@ -229,7 +229,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Source the updated profile file to apply changes immediately
-if [ -n "$PS1" ]; then
+if [ -n "${PS1:-}" ]; then
     log "Sourcing $PROFILE_FILE to apply changes..."
     source $PROFILE_FILE
     if [ $? -ne 0 ]; then
