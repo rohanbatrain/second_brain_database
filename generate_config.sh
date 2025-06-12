@@ -229,12 +229,14 @@ if [ $? -ne 0 ]; then
 fi
 
 # Source the updated profile file to apply changes immediately
-log "Sourcing $PROFILE_FILE to apply changes..."
-source $PROFILE_FILE
-
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to source $PROFILE_FILE. Please source it manually by running 'source $PROFILE_FILE'." >&2
-    exit 1
+if [ -n "$PS1" ]; then
+    log "Sourcing $PROFILE_FILE to apply changes..."
+    source $PROFILE_FILE
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to source $PROFILE_FILE. Please source it manually by running 'source $PROFILE_FILE'." >&2
+        exit 1
+    fi
+    log "Environment variables have been applied successfully."
+else
+    log "Non-interactive shell detected. Please source $PROFILE_FILE manually to apply changes."
 fi
-
-log "Environment variables have been applied successfully."
