@@ -3,7 +3,6 @@ name: Build, Push Docker Image & Publish to PyPI
 permissions:
   contents: read
   packages: write
-  secrets: read
 
 on:
   push:
@@ -68,7 +67,7 @@ jobs:
         run: python -m build
     
       - name: Linting 
-        run: pylint
+        run: pylint src/second_brain_database
     
       - name: Run tests and generate coverage report
         run: pytest --cov --cov-branch --cov-report=xml
