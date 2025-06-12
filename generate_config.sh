@@ -199,10 +199,11 @@ fi
 
 log ".sbd_config.json has been generated successfully."
 
-# Make environment variables persistent
-PROFILE_FILE="$HOME/.bashrc"
-if [ -n "$ZSH_VERSION" ]; then
+# Determine the profile file to update
+if [ -n "${ZSH_VERSION:-}" ]; then
     PROFILE_FILE="$HOME/.zshrc"
+else
+    PROFILE_FILE="$HOME/.bashrc"
 fi
 
 log "Making environment variables persistent in $PROFILE_FILE..."
