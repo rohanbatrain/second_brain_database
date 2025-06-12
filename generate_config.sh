@@ -81,8 +81,8 @@ if [ -z "${MONGO_URL:-}" ]; then
     validate_input "$MONGO_URL" "MongoDB URL"
 fi
 if [ -z "${MONGO_DB_NAME:-}" ]; then
-    read -p "Enter MongoDB Database Name [Default: app_db]: " MONGO_DB_NAME
-    MONGO_DB_NAME=${MONGO_DB_NAME:-"app_db"}
+    read -p "Enter MongoDB Database Name [Default: Second_Brain_Database]: " MONGO_DB_NAME
+    MONGO_DB_NAME=${MONGO_DB_NAME:-"Second_Brain_Database"}
     validate_input "$MONGO_DB_NAME" "MongoDB Database Name"
 fi
 if [ -z "${SECRET_KEY:-}" ]; then
