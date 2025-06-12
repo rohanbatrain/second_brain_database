@@ -1,5 +1,9 @@
 name: Build, Push Docker Image & Publish to PyPI
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches:
@@ -61,9 +65,16 @@ jobs:
 
       - name: Build Python package from pyproject.toml
         run: python -m build
+
+
+      - name: Install python packages
+        run: pip install -r requirements.txt
     
       - name: Linting 
         run: pylint src/second_brain_database
+
+      - name: Installing Second Brain Database
+        run: pip install .
     
       - name: Run tests and generate coverage report
         run: pytest --cov --cov-branch --cov-report=xml
