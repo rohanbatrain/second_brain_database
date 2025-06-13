@@ -1,5 +1,5 @@
-# Use the official Python image
-FROM python:3.9-slim
+# Use a lightweight base image for production
+FROM python:3.9-slim as base
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -25,8 +25,6 @@ RUN chown -R sbd_user:sbd_user /app
 # Install your package (assuming setup.py or pyproject.toml exists)
 RUN pip install .
 
-RUN pip install second_brain_database
-
 # Switch to the non-root user
 USER sbd_user
 
@@ -36,6 +34,5 @@ ENV HOME=/sbd_user
 # Expose the port
 EXPOSE 5000
 
-# Run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "second_brain_database.main"]
-# CMD ["python", "-m", "Second_Brain_Database.main"]
+# Use Gunicorn for production with optimized settings
+CMD ["gunicorn", "--workers=3", "--threads=2", "--bind", "0.0.0.0:5000", "second_brain_database.main:app"]

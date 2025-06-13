@@ -182,6 +182,16 @@ def register_page():
     return """<html><head><title>Register</title></head>
     <body><h1>Register Page</h1></body></html>"""
 
+@app.route("/health")
+@limiter.limit("1 per 10 seconds")
+def health_check():
+    """
+    Health check route to verify the application is running.
+    Returns:
+        str: JSON response indicating the application status.
+    """
+    return {"status": "ok", "message": "Application is healthy."}, 200
+
 @app.errorhandler(404)
 def not_found_error(error):  # pylint: disable=unused-argument
     """
