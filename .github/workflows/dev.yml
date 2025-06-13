@@ -1,4 +1,4 @@
-name: Build and Push Docker Image to GHCR
+name: Build and Push Docker Dev Image to GHCR
 
 # Trigger the action when pushing to the main branch
 on:
