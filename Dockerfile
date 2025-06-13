@@ -10,6 +10,9 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user and group named sbd_user with home directory
 RUN groupadd -r sbd_user && useradd -r -g sbd_user -d /sbd_user -m sbd_user
 
