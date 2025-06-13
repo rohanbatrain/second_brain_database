@@ -25,6 +25,8 @@ RUN chown -R sbd_user:sbd_user /app
 # Install your package (assuming setup.py or pyproject.toml exists)
 RUN pip install .
 
+RUN pip install second_brain_database
+
 # Switch to the non-root user
 USER sbd_user
 
@@ -35,5 +37,5 @@ ENV HOME=/sbd_user
 EXPOSE 5000
 
 # Run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "Second_Brain_Database.main"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "second_brain_database.main"]
 # CMD ["python", "-m", "Second_Brain_Database.main"]

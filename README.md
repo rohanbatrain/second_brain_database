@@ -35,7 +35,7 @@ Second Brain Database is **still under active development**. The core functional
 Docker Pull
 
 ```bash
-docker pull rohanbatra/second-brain-database:latest
+docker pull rohanbatra/second_brain_database:latest
 ```
 
 

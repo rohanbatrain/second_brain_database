@@ -4,6 +4,7 @@ name: Build and Push Docker Image to GHCR
 on:
   push:
     branches:
+      - dev
       - main
 
 jobs:
@@ -35,7 +36,7 @@ jobs:
       - name: Publish to Github Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          name: rohanbatrain/second_brain_database
+          name: rohanbatrain/second_brain_database/dev
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
