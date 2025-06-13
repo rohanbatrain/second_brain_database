@@ -13,9 +13,9 @@ services:
     ports:
       - "6379:6379"
 
-  second-brain-database:
-    image: rohanbatra/second-brain-database:latest  # or use build: . if needed
-    container_name: second-brain-database
+  second_brain_database:
+    image: rohanbatra/second_brain_database:latest  # or use build: . if needed
+    container_name: second_brain_database
     ports:
       - "5000:5000"
     volumes:

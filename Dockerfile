@@ -25,7 +25,7 @@ RUN chown -R sbd_user:sbd_user /app
 # Install your package (assuming setup.py or pyproject.toml exists)
 RUN pip install .
 
-RUN pip install second-brain-database
+RUN pip install second_brain_database
 
 # Switch to the non-root user
 USER sbd_user

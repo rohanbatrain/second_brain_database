@@ -57,12 +57,12 @@ jobs:
 
       - name: Build and push Docker image (Docker Hub)
         run: |
-          docker build -t rohanbatra/second-brain-database:${{ env.VERSION }} .
-          docker push rohanbatra/second-brain-database:${{ env.VERSION }}
+          docker build -t rohanbatra/second_brain_database:${{ env.VERSION }} .
+          docker push rohanbatra/second_brain_database:${{ env.VERSION }}
 
       - name: Push Docker image to GHCR
         run: |
-          docker tag rohanbatra/second-brain-database:${{ env.VERSION }} ghcr.io/rohanbatrain/second_brain_database:${{ env.VERSION }}
+          docker tag rohanbatra/second_brain_database:${{ env.VERSION }} ghcr.io/rohanbatrain/second_brain_database:${{ env.VERSION }}
           docker push ghcr.io/rohanbatrain/second_brain_database:${{ env.VERSION }}
 
       - name: Set up Python
