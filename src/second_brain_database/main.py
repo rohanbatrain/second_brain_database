@@ -46,18 +46,41 @@ limiter = Limiter(
     swallow_errors=True  # Prevent Flask from logging too many limit errors
 )
 
+# Global whitelist for IPs
+WHITELISTED_IPS = ["127.0.0.1", "localhost"]  # Replace with your list of whitelisted IPs
+
 @app.before_request
 def block_abusive_ips():
     """
     Block requests from IPs that are currently blocked in Redis.
+    Prevent blocking whitelisted IPs.
     Raises:
         403: If the IP is blocked.
     """
-    ip = request.remote_addr
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+
+    if ip in WHITELISTED_IPS:
+        return  # Skip blocking and logging for whitelisted IPs
+
     blocked = r.get(f"blocked:{ip}")
     if blocked:
         print(f"Blocked request from IP: {ip}")
         abort(403, description="You are temporarily blocked.")
+
+@app.before_request
+def slow_down_attackers():
+    """
+    Introduce a delay for IPs with multiple failed attempts (tar-pitting).
+    """
+    ip = request.remote_addr
+
+    if ip in WHITELISTED_IPS:
+        return  # Skip delay for whitelisted IPs
+
+    failed_attempts = int(r.get(f"failed:{ip}") or 0)
+    if failed_attempts > 5:  # Delay only if user has failed 5+ times
+        print(f"Delaying request from IP {ip} due to {failed_attempts} failed attempts.")
+        time.sleep(2)  # 2-second delay before processing request
 
 @app.after_request
 def track_failed_attempts(response):
@@ -68,25 +91,18 @@ def track_failed_attempts(response):
     Returns:
         flask.Response: The response object.
     """
+    ip = request.remote_addr
+
+    if ip in WHITELISTED_IPS:
+        return response  # Skip tracking for whitelisted IPs
+
     if response.status_code == 429:  # Too Many Requests
-        ip = request.remote_addr
         r.incr(f"failed:{ip}")  # Increment failure count
         attempts = int(r.get(f"failed:{ip}") or 0)
         if attempts > 10:  # Block IP after 10 failures
             r.setex(f"blocked:{ip}", 3600, 1)  # Block for 1 hour
             print(f"IP {ip} blocked for 1 hour after {attempts} failures.")
     return response
-
-@app.before_request
-def slow_down_attackers():
-    """
-    Introduce a delay for IPs with multiple failed attempts (tar-pitting).
-    """
-    ip = request.remote_addr
-    failed_attempts = int(r.get(f"failed:{ip}") or 0)
-    if failed_attempts > 5:  # Delay only if user has failed 5+ times
-        print(f"Delaying request from IP {ip} due to {failed_attempts} failed attempts.")
-        time.sleep(2)  # 2-second delay before processing request
 
 @app.route("/")
 def landing_page():
@@ -104,7 +120,7 @@ def landing_page():
   <title>Welcome to Second Brain Database</title>
 
   <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
   <style>
@@ -160,7 +176,6 @@ def landing_page():
 
 </body>
 </html>
-
 """
 
 @app.route("/login")
@@ -232,8 +247,10 @@ def forbidden_error(error):  # pylint: disable=unused-argument
         tuple: HTML content and status code.
     """
     return (
-        """<html><head><title>403 Forbidden</title></head><body><h1>403 - Forbidden</h1>"
-        "</body></html>""",
+        """
+        <html><head><title>403 Forbidden</title></head><body><h1>403 - Forbidden</h1>"
+        "</body></html>
+        """,
         403,
     )
 
