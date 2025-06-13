@@ -4,7 +4,7 @@ name: Build and Push Docker Image to GHCR
 on:
   push:
     branches:
-      - main
+      - dev
 
 jobs:
   build:
@@ -29,13 +29,13 @@ jobs:
       # Build and push Docker image to Docker Hub
       - name: Build and Push Docker image (Docker Hub)
         run: |
-          docker build -t rohanbatra/second-brain-database:latest .
-          docker push rohanbatra/second-brain-database:latest
+          docker build -t rohanbatra/second-brain-database:dev .
+          docker push rohanbatra/second-brain-database:dev
   
       - name: Publish to Github Registry
         uses: elgohr/Publish-Docker-Github-Action@v5
         with:
-          name: rohanbatrain/second_brain_database
+          name: rohanbatrain/second_brain_database/dev
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
