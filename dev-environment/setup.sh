@@ -1,2 +1,2 @@
-docker pull rohanbatra/second-brain-database:dev
+docker pull rohanbatra/second_brain_database:dev
 docker compose up
