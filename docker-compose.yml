@@ -1,25 +1,52 @@
+version: "3.8"
+
 services:
   mongo:
     image: mongo:latest
     container_name: mongo
     environment:
       - MONGO_INITDB_DATABASE=${MONGO_DB_NAME}
-    ports:
-      - "27017:27017"
+    networks:
+      - proxy
+      - default
 
   redis:
     image: redis:latest
     container_name: redis
-    ports:
-      - "6379:6379"
+    networks:
+      - proxy
+      - default
 
   second_brain_database:
-    image: rohanbatra/second_brain_database:latest  # or use build: . if needed
+    image: rohanbatra/second_brain_database:latest
     container_name: second_brain_database
-    ports:
-      - "5000:5000"
     volumes:
       - ./.sbd_config.json:/sbd_user/.config/Second-Brain-Database/.sbd_config.json:ro
     depends_on:
       - mongo
       - redis
+    networks:
+      - proxy
+      - default
+
+  nginx_proxy_manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx_proxy_manager
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    driver: bridge
+
+volumes:
+  npm_data:
+  npm_letsencrypt:
