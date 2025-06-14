@@ -1,5 +1,5 @@
-# Use the official Python image
-FROM python:3.9-slim
+# Use a lightweight base image for production
+FROM python:3.9-slim as base
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -9,6 +9,9 @@ COPY requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user and group named sbd_user with home directory
 RUN groupadd -r sbd_user && useradd -r -g sbd_user -d /sbd_user -m sbd_user
@@ -25,8 +28,6 @@ RUN chown -R sbd_user:sbd_user /app
 # Install your package (assuming setup.py or pyproject.toml exists)
 RUN pip install .
 
-RUN pip install second_brain_database
-
 # Switch to the non-root user
 USER sbd_user
 
@@ -36,6 +37,5 @@ ENV HOME=/sbd_user
 # Expose the port
 EXPOSE 5000
 
-# Run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "second_brain_database.main"]
-# CMD ["python", "-m", "Second_Brain_Database.main"]
+# Use Gunicorn for production with optimized settings
+CMD ["gunicorn", "--workers=3", "--threads=2", "--bind", "0.0.0.0:5000", "second_brain_database.main:app"]
