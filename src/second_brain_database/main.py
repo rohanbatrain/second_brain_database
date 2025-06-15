@@ -22,10 +22,7 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import redis
-from second_brain_database.auth.routes import auth_bp
-from second_brain_database.admin.v1.plans.routes import plans_bp
-from second_brain_database.user.v1.emotion_tracker.routes import emotion_bp
-from second_brain_database.user.v1.notes.routes import notes_bp
+from second_brain_database.routes.auth.routes import auth_bp
 from second_brain_database.config import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_STORAGE_URI
 
 logger = logging.getLogger(__name__)
@@ -273,24 +270,6 @@ def internal_server_error(error):  # pylint: disable=unused-argument
 # Register the authentication blueprint
 app.register_blueprint(auth_bp, url_prefix="/auth")
 limiter.limit("10 per minute")(auth_bp)
-
-# /admin routes
-# v1
-# plans
-app.register_blueprint(plans_bp, url_prefix="/admin/v1/plans")
-limiter.limit("5 per minute")(plans_bp)
-
-# /user routes
-# v1
-# emotion tracker
-app.register_blueprint(emotion_bp, url_prefix="/user/v1/emotion_tracker/")
-limiter.limit("20 per minute")(emotion_bp)
-# notes
-app.register_blueprint(
-    notes_bp,
-    url_prefix="/user/v1/notes/"
-)
-limiter.limit("15 per minute")(notes_bp)
 
 # Expose the Flask app as `application` for Gunicorn
 application = app

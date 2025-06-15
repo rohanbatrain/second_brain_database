@@ -1,7 +1,18 @@
 """
 privileged.py
 
-This module provides Flask route decorators for enforcing user authentication and authorization (admin-only and user-only access).
+This module provides Flask route decor        # Get user from email in the payload
+        user = User.find_by_email(payload["email"])
+        if not user or user.role != "admin":
+            return (
+                jsonify(
+                    {
+                        "status": "forbidden",
+                        "message": "You do not have the required privileges.",
+                    }
+                ),
+                403,
+            )forcing user authentication and authorization (admin-only and user-only access).
 
 Dependencies:
     - Flask (request, jsonify)
@@ -12,10 +23,10 @@ Dependencies:
 Author: Rohan Batra
 Date: 2025-06-11
 """
-from flask import request, jsonify
 from functools import wraps
-from second_brain_database.auth.services import decode_jwt_token
-from second_brain_database.auth.model import User
+from flask import request, jsonify
+from second_brain_database.routes.auth.services import decode_jwt_token
+from second_brain_database.routes.auth.model import User
 
 
 def admin_only(f):
@@ -57,7 +68,7 @@ def admin_only(f):
 
         # Get user from email in the payload
         user = User.find_by_email(payload["email"])
-        if not user or not user.is_admin:
+        if not user or user.role != "admin":
             return (
                 jsonify(
                     {
