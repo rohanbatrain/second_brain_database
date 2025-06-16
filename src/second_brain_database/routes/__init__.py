@@ -1,4 +1,4 @@
-from .auth import router as auth_router
-from .main import router as main_router
+"""Routes package initialization."""
 
-# Expose routers for inclusion in the main application
+from second_brain_database.routes.auth.routes import router as auth_router
+from second_brain_database.routes.main import router as main_router

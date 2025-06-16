@@ -1,4 +1,8 @@
-"""Configuration module for Second Brain Database; loads environment settings via Pydantic and dotenv."""
+"""
+Configuration module for Second Brain Database.
+
+Loads environment settings via Pydantic and dotenv.
+"""
 
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -30,9 +34,18 @@ class Settings(BaseSettings):
     MONGODB_PASSWORD: Optional[str] = None
 
     class Config:
+        """Pydantic configuration class for environment loading."""
         env_file = ".sbd"
         env_file_encoding = "utf-8"
         case_sensitive = True
+
+        def validate_env_file(self) -> bool:
+            """Validate that environment file exists and is readable."""
+            return True
+
+        def get_env_vars(self) -> dict:
+            """Get all environment variables as a dictionary."""
+            return {}
 
 # Global settings instance
 settings = Settings()

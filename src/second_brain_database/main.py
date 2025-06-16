@@ -1,3 +1,9 @@
+"""
+Main application module for Second Brain Database API.
+
+This module sets up the FastAPI application with proper lifespan management,
+database connections, and routing configuration.
+"""
 import logging
 from contextlib import asynccontextmanager
 
@@ -22,7 +28,10 @@ async def lifespan(_app: FastAPI):
         logger.info("Database connection established")
     except Exception as e:
         logger.error("Failed to connect to database: %s", e)
-        raise HTTPException(status_code=503, detail='Service not ready: Database connection failed') from e
+        raise HTTPException(
+            status_code=503,
+            detail='Service not ready: Database connection failed'
+        ) from e
 
     yield
 
