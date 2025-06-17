@@ -140,7 +140,7 @@ class SecurityManager:
                 self.blacklist_duration
             )
             count, abuse_count, status_flag = result
-        except Exception as lua_exc:
+        except (redis.RedisError, redis.ResponseError) as lua_exc:
             self.logger.error("Lua script failed for rate limiting: %s. Falling back to Python logic.", lua_exc)
             # Failsafe: fallback to less efficient Python logic
             count = await redis_conn.incr(key)
