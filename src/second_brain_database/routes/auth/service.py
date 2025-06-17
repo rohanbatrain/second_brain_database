@@ -14,6 +14,7 @@ from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength
 
+logger = logging.getLogger(__name__)
 
 async def register_user(user: UserIn):
     """Register a new user, validate password, and return user doc and verification token."""
@@ -141,14 +142,12 @@ async def change_user_password(current_user: dict, password_request: PasswordCha
 
 async def send_verification_email(email: str, token: str, verification_link: str):
     """Log the verification email and link to the console (no real email sent)."""
-    logger = logging.getLogger(__name__)
     logger.info("Send verification email to %s with token: %s", email, token)
     logger.info("Verification link: %s", verification_link)
 
 
 async def send_password_reset_email(email: str):
     """Log the password reset email and link to the console (no real email sent)."""
-    logger = logging.getLogger(__name__)
     base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
     reset_link = f"{base_url}/auth/reset-password?email={email}&token=FAKE_TOKEN"
     logger.info("Send password reset email to %s", email)
@@ -167,7 +166,6 @@ def create_access_token(data: dict) -> str:
 
 async def get_current_user(token: str) -> dict:
     """Get the current authenticated user from a JWT token."""
-    logger = logging.getLogger(__name__)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

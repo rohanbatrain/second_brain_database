@@ -18,6 +18,7 @@ from second_brain_database.routes.auth.service import (
 from second_brain_database.database import db_manager
 
 logger = logging.getLogger(__name__)
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
 

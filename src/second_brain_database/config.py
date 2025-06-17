@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Rate limiting configuration
-    RATE_LIMIT_REQUESTS: int = 20
+    RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD_SECONDS: int = 60
 
     # Blacklist configuration

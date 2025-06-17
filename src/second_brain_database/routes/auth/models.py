@@ -1,8 +1,9 @@
 """Authentication models for user registration, login, and data validation."""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
-from pydantic import BaseModel, Field, field_validator, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
+import re
 
 def validate_password_strength(password: str) -> bool:
     """
@@ -21,7 +22,6 @@ def validate_password_strength(password: str) -> bool:
     Returns:
         bool: True if password meets all requirements, False otherwise
     """
-    import re
     if len(password) < 8:
         return False
     if not re.search(r"[A-Z]", password):
@@ -55,7 +55,7 @@ class UserIn(BaseModel):
         description="Password must be at least 8 characters"
     )
     plan: Optional[str] = "free"
-    team: Optional[list] = []
+    team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
 
@@ -74,7 +74,6 @@ class UserIn(BaseModel):
         Raises:
             ValueError: If username contains invalid characters
         """
-        import re
         if not re.match(r'^[a-zA-Z0-9_-]+$', v):
             raise ValueError('Username must contain only alphanumeric characters, dashes, and underscores')
         return v.lower()
@@ -105,7 +104,7 @@ class UserOut(BaseModel):
     last_login: Optional[datetime] = None
     is_active: bool = True
     plan: Optional[str] = "free"
-    team: Optional[list] = []
+    team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
 
@@ -124,7 +123,7 @@ class UserInDB(BaseModel):
     failed_login_attempts: int = 0
     last_login: Optional[datetime] = None
     plan: Optional[str] = "free"
-    team: Optional[list] = []
+    team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
 
