@@ -1,15 +1,16 @@
 """Main routes module for the Second Brain Database API."""
 import logging
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Request
 
 from second_brain_database.database import db_manager
+from second_brain_database.security_manager import security_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/")
-async def root():
-    """Root endpoint returning basic API information."""
+async def root(request: Request):
+    await security_manager.check_rate_limit(request, "root", rate_limit_requests=10, rate_limit_period=60)
     return {
         "message": "Second Brain Database API",
         "version": "1.0.0",
@@ -17,8 +18,8 @@ async def root():
     }
 
 @router.get("/health")
-async def health_check():
-    """Health check endpoint to verify API and database connectivity."""
+async def health_check(request: Request):
+    await security_manager.check_rate_limit(request, "health", rate_limit_requests=5, rate_limit_period=30)
     try:
         # Check database connection
         db_healthy = await db_manager.health_check()
@@ -42,13 +43,13 @@ async def health_check():
         ) from e
 
 @router.get("/healthz")
-async def kubernetes_health():
-    """Kubernetes health check endpoint"""
+async def kubernetes_health(request: Request):
+    await security_manager.check_rate_limit(request, "healthz", rate_limit_requests=20, rate_limit_period=60)
     return {"status": "ok"}
 
 @router.get("/ready")
-async def readiness_check():
-    """Readiness check - verifies database connectivity"""
+async def readiness_check(request: Request):
+    await security_manager.check_rate_limit(request, "ready", rate_limit_requests=3, rate_limit_period=30)
     try:
         is_connected = await db_manager.health_check()
         if not is_connected:
@@ -59,6 +60,6 @@ async def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready") from e
 
 @router.get("/live")
-async def liveness_check():
-    """Liveness check - service is alive and responsive"""
+async def liveness_check(request: Request):
+    await security_manager.check_rate_limit(request, "live", rate_limit_requests=15, rate_limit_period=60)
     return {"status": "alive"}

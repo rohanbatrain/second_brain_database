@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     MONGODB_USERNAME: Optional[str] = None
     MONGODB_PASSWORD: Optional[str] = None
 
+    # Redis configuration
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Rate limiting configuration
+    RATE_LIMIT_REQUESTS: int = 20
+    RATE_LIMIT_PERIOD_SECONDS: int = 60
+
+    # Blacklist configuration
+    BLACKLIST_THRESHOLD: int = 10  # Number of violations before blacklisting
+    BLACKLIST_DURATION: int = 60 * 60  # Blacklist for 1 hour (in seconds)
+
     class Config:
         """Pydantic configuration class for environment loading."""
         env_file = ".sbd"

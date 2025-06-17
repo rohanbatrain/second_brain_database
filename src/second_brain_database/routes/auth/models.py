@@ -4,6 +4,36 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, EmailStr
 
+def validate_password_strength(password: str) -> bool:
+    """
+    Validate password strength requirements.
+
+    Password must contain:
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    - At least one special character
+
+    Args:
+        password: The password to validate
+
+    Returns:
+        bool: True if password meets all requirements, False otherwise
+    """
+    import re
+    if len(password) < 8:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"\d", password):
+        return False
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return False
+    return True
+
 class UserIn(BaseModel):
     """
     User input model for registration.
@@ -24,6 +54,10 @@ class UserIn(BaseModel):
         min_length=8,
         description="Password must be at least 8 characters"
     )
+    plan: Optional[str] = "free"
+    team: Optional[list] = []
+    role: Optional[str] = "user"
+    is_verified: bool = False
 
     @field_validator('username')
     @classmethod
@@ -70,6 +104,10 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
     is_active: bool = True
+    plan: Optional[str] = "free"
+    team: Optional[list] = []
+    role: Optional[str] = "user"
+    is_verified: bool = False
 
 class UserInDB(BaseModel):
     """
@@ -85,6 +123,10 @@ class UserInDB(BaseModel):
     is_active: bool = True
     failed_login_attempts: int = 0
     last_login: Optional[datetime] = None
+    plan: Optional[str] = "free"
+    team: Optional[list] = []
+    role: Optional[str] = "user"
+    is_verified: bool = False
 
 class Token(BaseModel):
     """
