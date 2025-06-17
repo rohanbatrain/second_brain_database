@@ -1,13 +1,13 @@
 """
-Security manager for IP rate limiting using Redis.
+Security manager for IP rate limiting and abuse prevention using Redis.
+Provides per-route rate limiting, IP blacklisting, and abuse tracking.
 """
-import asyncio
-from fastapi import Request, HTTPException, status
-from .config import settings
-from .database import db_manager
 import redis.asyncio as redis
+from fastapi import Request, HTTPException, status
+from second_brain_database.config import settings
 
 class SecurityManager:
+    """Manages rate limiting and blacklisting for API endpoints using Redis."""
     def __init__(self):
         self.redis_url = settings.REDIS_URL
         self.rate_limit_requests = settings.RATE_LIMIT_REQUESTS
@@ -17,11 +17,13 @@ class SecurityManager:
         self.BLACKLIST_DURATION = settings.BLACKLIST_DURATION
 
     async def get_redis(self):
+        """Get or create the Redis connection for rate limiting and blacklisting."""
         if self.redis is None:
             self.redis = await redis.from_url(self.redis_url, decode_responses=True)
         return self.redis
 
     def get_client_ip(self, request: Request) -> str:
+        """Extract the client IP address from the request headers or connection info."""
         x_forwarded_for = request.headers.get("x-forwarded-for")
         if x_forwarded_for:
             ip = x_forwarded_for.split(",")[0].strip()
@@ -30,16 +32,19 @@ class SecurityManager:
         return ip
 
     async def is_blacklisted(self, ip: str) -> bool:
+        """Check if the given IP address is currently blacklisted."""
         redis_conn = await self.get_redis()
         return await redis_conn.exists(f"blacklist:{ip}")
 
     async def blacklist_ip(self, ip: str):
+        """Blacklist the given IP address for a configured duration."""
         redis_conn = await self.get_redis()
         await redis_conn.set(f"blacklist:{ip}", 1, ex=self.BLACKLIST_DURATION)
 
     async def check_rate_limit(self, request: Request, action: str = "default", rate_limit_requests: int = None, rate_limit_period: int = None):
         """
         Check rate limit for a given action and IP. Allows per-route customization.
+        Raises HTTPException if the rate limit or blacklist is exceeded.
         """
         redis_conn = await self.get_redis()
         ip = self.get_client_ip(request)

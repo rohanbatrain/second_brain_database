@@ -1,11 +1,22 @@
+"""
+Service layer for authentication and user management.
+Handles registration, login, password change, token creation, and email logging.
+"""
+import logging
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
+
 import bcrypt
-from fastapi import HTTPException, status, Depends
+import jwt
+from fastapi import HTTPException, status
+
+from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength
 
+
 async def register_user(user: UserIn):
+    """Register a new user, validate password, and return user doc and verification token."""
     if not validate_password_strength(user.password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -52,7 +63,9 @@ async def register_user(user: UserIn):
         )
     return user_doc, verification_token
 
+
 async def verify_user_email(token: str):
+    """Verify a user's email using the provided token."""
     user = await db_manager.get_collection("users").find_one({"verification_token": token})
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification token.")
@@ -62,7 +75,9 @@ async def verify_user_email(token: str):
     )
     return user
 
+
 async def login_user(email: str, password: str):
+    """Authenticate a user by email and password, handle lockout and failed attempts."""
     user = await db_manager.get_collection("users").find_one({"email": email})
     if not user:
         raise HTTPException(
@@ -96,7 +111,9 @@ async def login_user(email: str, password: str):
     )
     return user
 
+
 async def change_user_password(current_user: dict, password_request: PasswordChangeRequest):
+    """Change the password for the current user after validating the old password."""
     if not validate_password_strength(password_request.new_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -121,25 +138,25 @@ async def change_user_password(current_user: dict, password_request: PasswordCha
         )
     return True
 
-async def send_verification_email(email: str, token: str):
-    """Placeholder for sending verification email."""
-    import logging
+
+async def send_verification_email(email: str, token: str, verification_link: str):
+    """Log the verification email and link to the console (no real email sent)."""
     logger = logging.getLogger(__name__)
-    # Implement your email sending logic here
-    logger.info(f"Send verification email to {email} with token: {token}")
+    logger.info("Send verification email to %s with token: %s", email, token)
+    logger.info("Verification link: %s", verification_link)
+
 
 async def send_password_reset_email(email: str):
-    """Placeholder for sending password reset email."""
-    import logging
+    """Log the password reset email and link to the console (no real email sent)."""
     logger = logging.getLogger(__name__)
-    # Implement your password reset email logic here
-    logger.info(f"Send password reset email to {email}")
+    base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
+    reset_link = f"{base_url}/auth/reset-password?email={email}&token=FAKE_TOKEN"
+    logger.info("Send password reset email to %s", email)
+    logger.info("Password reset link: %s", reset_link)
+
 
 def create_access_token(data: dict) -> str:
-    """Create JWT access token with expiration."""
-    from second_brain_database.config import settings
-    import jwt
-    from datetime import datetime, timedelta
+    """Create JWT access token with expiration from user data."""
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
@@ -147,13 +164,9 @@ def create_access_token(data: dict) -> str:
     to_encode.update({"exp": expire, "iat": datetime.utcnow()})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
+
 async def get_current_user(token: str) -> dict:
-    """Get current authenticated user from token"""
-    from fastapi import HTTPException, status
-    from second_brain_database.config import settings
-    import jwt
-    from second_brain_database.database import db_manager
-    import logging
+    """Get the current authenticated user from a JWT token."""
     logger = logging.getLogger(__name__)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

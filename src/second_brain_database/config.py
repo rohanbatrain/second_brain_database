@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = True
 
+    # Base URL configuration
+    BASE_URL: str = "http://localhost:8000"
+
     # JWT configuration (loaded from environment)
     SECRET_KEY: str = "your-secret-key-change-this-in-production"
     ALGORITHM: str = "HS256"
