@@ -1,6 +1,7 @@
 # Second Brain Database
 
 ![banner](https://github.com/user-attachments/assets/85429929-ac86-4a03-8cd7-4e473d4fd402)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frohanbatrain%2Fsecond_brain_database.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Frohanbatrain%2Fsecond_brain_database?ref=badge_shield)
 
 
 **A Centralized Approach to Personal Knowledge Management**
@@ -65,3 +66,7 @@ Let’s build smarter, more adaptable systems for managing our thoughts and data
 - **MongoDB**: For centralized, platform-agnostic data storage.
 - **Flask**: For building the API layer to interact with the database.
 - **Micro Frontends**: Modular frontends for specific tasks and ease of use.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frohanbatrain%2Fsecond_brain_database.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Frohanbatrain%2Fsecond_brain_database?ref=badge_large)
