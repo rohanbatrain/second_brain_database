@@ -125,8 +125,11 @@ class SecurityManager:
         key = f"{self.env_prefix}:ratelimit:{action}:{ip}"
         abuse_key = f"{self.env_prefix}:abuse:{ip}"
         blacklist_key = f"{self.env_prefix}:blacklist:{ip}"
-        requests_allowed = rate_limit_requests if rate_limit_requests is not None else self.rate_limit_requests
-        period = rate_limit_period if rate_limit_period is not None else self.rate_limit_period
+        # Use config values from settings if not provided
+        requests_allowed = rate_limit_requests if rate_limit_requests is not None else settings.RATE_LIMIT_REQUESTS
+        period = rate_limit_period if rate_limit_period is not None else settings.RATE_LIMIT_PERIOD_SECONDS
+        blacklist_threshold = settings.BLACKLIST_THRESHOLD
+        blacklist_duration = settings.BLACKLIST_DURATION
         try:
             result = await redis_conn.eval(
                 lua_script,
@@ -136,8 +139,8 @@ class SecurityManager:
                 blacklist_key,
                 requests_allowed,
                 period,
-                self.blacklist_threshold,
-                self.blacklist_duration
+                blacklist_threshold,
+                blacklist_duration
             )
             count, abuse_count, status_flag = result
         except (redis.RedisError, redis.ResponseError) as lua_exc:
@@ -149,9 +152,9 @@ class SecurityManager:
             if count > requests_allowed:
                 abuse_count = await redis_conn.incr(abuse_key)
                 if abuse_count == 1:
-                    await redis_conn.expire(abuse_key, self.blacklist_duration)
-                if abuse_count >= self.blacklist_threshold:
-                    await redis_conn.set(blacklist_key, 1, ex=self.blacklist_duration)
+                    await redis_conn.expire(abuse_key, blacklist_duration)
+                if abuse_count >= blacklist_threshold:
+                    await redis_conn.set(blacklist_key, 1, ex=blacklist_duration)
                     status_flag = 'BLACKLISTED'
                 else:
                     status_flag = 'RATE_LIMITED'

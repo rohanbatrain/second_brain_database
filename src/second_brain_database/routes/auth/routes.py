@@ -6,14 +6,15 @@ password change, and password reset. All business logic is delegated to the serv
 """
 import logging
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from second_brain_database.routes.auth.models import (
-    UserIn, UserOut, Token, PasswordChangeRequest
+    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest
 )
 from second_brain_database.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
-    register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email
+    register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
+    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token
 )
 from second_brain_database.database import db_manager
 
@@ -55,26 +56,27 @@ async def verify_email(token: str):
     return {"message": "Email verified successfully."}
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), request: Request = None):
-    """Authenticate user and return JWT token if credentials and email verification are valid."""
+async def login(
+    login_request: LoginRequest = Body(...),
+    request: Request = None
+):
+    """Authenticate user and return JWT token if credentials and email verification are valid. If 2FA is enabled, require 2FA code."""
     await security_manager.check_rate_limit(request, "login")
     try:
-        user = await login_user(form_data.username, form_data.password)
-        if not user.get("is_verified", False):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email not verified. Please check your inbox for the verification link."
-            )
-        access_token = create_access_token({"sub": user["username"]})
-        return Token(access_token=access_token, token_type="bearer")
-    except HTTPException:
+        user = await login_user(
+            login_request.username,
+            login_request.password,
+            two_fa_code=login_request.two_fa_code,
+            two_fa_method=login_request.two_fa_method
+        )
+        token = create_access_token({"sub": user["username"]})
+        return Token(access_token=token, token_type="bearer")
+    except HTTPException as e:
+        logger.warning("Login failed for user ID: %s", getattr(e, 'user_id', 'unknown'))
         raise
     except Exception as e:
-        logger.error("Login failed for user %s: %s", form_data.username, e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Login failed"
-        ) from e
+        logger.warning("Login failed: %s", str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(current_user: dict = Depends(get_current_user_dep)):
@@ -91,28 +93,27 @@ async def refresh_token(current_user: dict = Depends(get_current_user_dep)):
         ) from e
 
 @router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user_dep)):
-    """Logout user (invalidate token on client side)."""
+async def logout(current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme)):
+    """Logout user (invalidate token on server side)."""
+    blacklist_token(token)
     logger.info("User logged out: %s", current_user["username"])
-    return {"message": "Successfully logged out"}
 
 @router.put("/change-password")
 async def change_password(
     password_request: PasswordChangeRequest,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Change the password for the current authenticated user."""
+    """Change the password for the current authenticated user. Requires recent authentication."""
+    # TODO: Require recent password confirmation or re-login for sensitive actions
     try:
-        await change_user_password(current_user, password_request)
+        result = await change_user_password(current_user, password_request)
         return {"message": "Password changed successfully"}
-    except HTTPException:
+    except HTTPException as e:
+        logger.warning("Password change failed for user ID: %s", current_user.get("username", "unknown"))
         raise
     except Exception as e:
-        logger.error("Password change failed for user %s: %s", current_user["username"], e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Password change failed"
-        ) from e
+        logger.warning("Password change failed: %s", str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/forgot-password")
 async def forgot_password(request: Request, email: str):
@@ -147,3 +148,25 @@ async def resend_verification_email(request: Request, email: str):
     verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
     await send_verification_email(email, verification_token, verification_link)
     return {"message": "If the email exists, a verification email has been sent."}
+
+@router.post("/2fa/setup", response_model=TwoFAStatus)
+async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
+    """Setup a 2FA method for the current user."""
+    # TODO: Require recent password confirmation or re-login for sensitive actions
+    return await setup_2fa(current_user, request)
+
+@router.post("/2fa/verify", response_model=TwoFAStatus)
+async def verify_two_fa(request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep)):
+    """Verify a 2FA code for the current user."""
+    return await verify_2fa(current_user, request)
+
+@router.get("/2fa/status", response_model=TwoFAStatus)
+async def get_two_fa_status(current_user: dict = Depends(get_current_user_dep)):
+    """Get 2FA status for the current user."""
+    return await get_2fa_status(current_user)
+
+@router.post("/2fa/disable", response_model=TwoFAStatus)
+async def disable_two_fa(current_user: dict = Depends(get_current_user_dep)):
+    """Disable all 2FA for the current user."""
+    # TODO: Require recent password confirmation or re-login for sensitive actions
+    return await disable_2fa(current_user)

@@ -1,20 +1,30 @@
 """
 Service layer for authentication and user management.
-Handles registration, login, password change, token creation, and email logging.
+Handles registration, login, password change, token creation, email logging, and 2FA management.
 """
 import logging
 import secrets
-from datetime import datetime, timedelta
-
+import pyotp
 import bcrypt
-import jwt
+import re
+from datetime import datetime, timedelta
 from fastapi import HTTPException, status
+from jose import jwt
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength
+from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
 
 logger = logging.getLogger(__name__)
+
+# Token blacklist (in-memory for demo; use Redis or DB in prod)
+TOKEN_BLACKLIST = set()
+
+def blacklist_token(token: str):
+    TOKEN_BLACKLIST.add(token)
+
+def is_token_blacklisted(token: str) -> bool:
+    return token in TOKEN_BLACKLIST
 
 async def register_user(user: UserIn):
     """Register a new user, validate password, and return user doc and verification token."""
@@ -31,14 +41,10 @@ async def register_user(user: UserIn):
         ]
     })
     if existing_user:
-        if existing_user["username"] == user.username:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already exists"
-            )
+        # Generic error to prevent user enumeration
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already exists"
+            detail="Username or email already exists"
         )
     hashed_pw = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     verification_token = secrets.token_urlsafe(32)
@@ -77,44 +83,49 @@ async def verify_user_email(token: str):
     return user
 
 
-async def login_user(email: str, password: str):
-    """Authenticate a user by email and password, handle lockout and failed attempts."""
-    user = await db_manager.get_collection("users").find_one({"email": email})
+async def login_user(username: str, password: str, two_fa_code: str = None, two_fa_method: str = None):
+    """Authenticate a user by username and password, handle lockout and failed attempts, and check 2FA if enabled."""
+    user = await db_manager.get_collection("users").find_one({"username": username})
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.get("failed_login_attempts", 0) >= 5:
-        raise HTTPException(
-            status_code=status.HTTP_423_LOCKED,
-            detail="Account locked due to too many failed login attempts"
-        )
+        raise HTTPException(status_code=403, detail="Account locked due to too many failed attempts")
     if not user.get("is_active", True):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is inactive"
-        )
+        raise HTTPException(status_code=403, detail="Account is inactive")
+    if not user.get("is_verified", False):
+        raise HTTPException(status_code=403, detail="Email not verified")
     if not bcrypt.checkpw(password.encode('utf-8'), user["hashed_password"].encode('utf-8')):
         await db_manager.get_collection("users").update_one(
-            {"email": email},
+            {"username": username},
             {"$inc": {"failed_login_attempts": 1}}
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    # 2FA check
+    if user.get("two_fa_enabled"):
+        if not two_fa_code or not two_fa_method:
+            raise HTTPException(status_code=401, detail="2FA code and method required")
+        methods = user.get("two_fa_methods", [])
+        if two_fa_method not in methods:
+            raise HTTPException(status_code=401, detail="Invalid 2FA method")
+        if two_fa_method == "totp":
+            secret = user.get("totp_secret")
+            if not secret:
+                raise HTTPException(status_code=401, detail="TOTP not set up")
+            totp = pyotp.TOTP(secret)
+            if not totp.verify(two_fa_code, valid_window=1):
+                raise HTTPException(status_code=401, detail="Invalid TOTP code")
+        else:
+            raise HTTPException(status_code=401, detail="2FA method not implemented")
     await db_manager.get_collection("users").update_one(
-        {"email": email},
+        {"username": username},
         {"$set": {"last_login": datetime.utcnow()}, "$unset": {"failed_login_attempts": ""}}
     )
     return user
 
 
 async def change_user_password(current_user: dict, password_request: PasswordChangeRequest):
-    """Change the password for the current user after validating the old password."""
+    """Change the password for the current user after validating the old password. Should require recent authentication."""
+    # TODO: Enforce recent password confirmation or re-login for sensitive actions
     if not validate_password_strength(password_request.new_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -137,6 +148,10 @@ async def change_user_password(current_user: dict, password_request: PasswordCha
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update password"
         )
+    # Blacklist all tokens for this user (in prod, use Redis or DB)
+    # Optionally, you could store a token version in the user doc and increment it here
+    # For demo, just log
+    logger.info("Password changed for user %s; tokens should be invalidated.", current_user["username"])
     return True
 
 
@@ -155,13 +170,14 @@ async def send_password_reset_email(email: str):
 
 
 def create_access_token(data: dict) -> str:
-    """Create JWT access token with expiration from user data."""
+    """
+    Create a JWT access token with short expiry and required claims.
+    """
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(
-        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub")})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
 
 
 async def get_current_user(token: str) -> dict:
@@ -172,14 +188,18 @@ async def get_current_user(token: str) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        if is_token_blacklisted(token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token is blacklisted",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            logger.warning("Token missing username claim")
             raise credentials_exception
         user = await db_manager.get_collection("users").find_one({"username": username})
         if user is None:
-            logger.warning("User %s not found in database", username)
             raise credentials_exception
         return user
     except jwt.ExpiredSignatureError as exc:
@@ -189,9 +209,49 @@ async def get_current_user(token: str) -> dict:
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-    except jwt.InvalidTokenError as e:
-        logger.warning("Invalid token: %s", e)
-        raise credentials_exception from e
     except Exception as e:
+        from jose.exceptions import JWTError
+        if isinstance(e, JWTError):
+            logger.warning("Invalid token: %s", e)
+            raise credentials_exception from e
         logger.error("Unexpected error validating token: %s", e)
         raise credentials_exception from e
+
+
+async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
+    users = db_manager.get_collection("users")
+    method = request.method
+    if method != "totp":
+        raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
+    secret = pyotp.random_base32()
+    await users.update_one(
+        {"username": current_user["username"]},
+        {"$set": {"two_fa_enabled": True, "totp_secret": secret, "two_fa_methods": ["totp"]}, "$unset": {"email_otp_obj": "", "passkeys": ""}}
+    )
+    user = await users.find_one({"username": current_user["username"]})
+    return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []))
+
+
+async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
+    method = request.method
+    code = request.code
+    if method != "totp":
+        raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
+    secret = current_user.get("totp_secret")
+    if not secret:
+        raise HTTPException(status_code=400, detail="TOTP not set up")
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(status_code=401, detail="Invalid TOTP code")
+    return TwoFAStatus(enabled=current_user.get("two_fa_enabled", False), methods=current_user.get("two_fa_methods", []))
+
+
+async def get_2fa_status(current_user: dict):
+    return TwoFAStatus(enabled=current_user.get("two_fa_enabled", False), methods=current_user.get("two_fa_methods", []))
+
+
+async def disable_2fa(current_user: dict):
+    users = db_manager.get_collection("users")
+    await users.update_one({"username": current_user["username"]}, {"$set": {"two_fa_enabled": False, "two_fa_methods": []}, "$unset": {"totp_secret": "", "email_otp_obj": "", "passkeys": ""}})
+    user = await users.find_one({"username": current_user["username"]})
+    return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []))

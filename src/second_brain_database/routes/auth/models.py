@@ -1,9 +1,8 @@
 """Authentication models for user registration, login, and data validation."""
 from datetime import datetime
 from typing import Optional, List
-
-from pydantic import BaseModel, Field, EmailStr, field_validator
 import re
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 def validate_password_strength(password: str) -> bool:
     """
@@ -63,19 +62,10 @@ class UserIn(BaseModel):
     @classmethod
     def validate_username(cls, v: str) -> str:
         """
-        Validate username contains only alphanumeric characters, dashes, and underscores.
-
-        Args:
-            v: The username to validate
-
-        Returns:
-            str: The validated username in lowercase
-
-        Raises:
-            ValueError: If username contains invalid characters
+        Validate username contains only alphanumeric characters, dashes, and underscores. Unicode is not allowed.
         """
         if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Username must contain only alphanumeric characters, dashes, and underscores')
+            raise ValueError('Username must contain only alphanumeric characters, dashes, and underscores (no Unicode)')
         return v.lower()
 
     @field_validator('email')
@@ -126,6 +116,12 @@ class UserInDB(BaseModel):
     team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
+    # 2FA fields
+    two_fa_enabled: bool = False
+    two_fa_methods: Optional[List[str]] = Field(default_factory=list, description="Enabled 2FA methods: 'totp', 'email', 'passkey'")
+    totp_secret: Optional[str] = None
+    passkeys: Optional[list] = Field(default_factory=list, description="List of registered passkeys (public keys, credential IDs, etc.)")
+    email_otp_secret: Optional[str] = None
 
 class Token(BaseModel):
     """
@@ -157,3 +153,39 @@ class PasswordChangeRequest(BaseModel):
         min_length=8,
         description="New password must be at least 8 characters"
     )
+
+class TwoFASetupRequest(BaseModel):
+    """
+    Two-factor authentication setup request model.
+
+    Specifies the method to enable for 2FA.
+    """
+    method: str  # 'totp', 'email', or 'passkey'
+
+class TwoFAVerifyRequest(BaseModel):
+    """
+    Two-factor authentication verification request model.
+
+    Contains the method and code for verification.
+    """
+    method: str
+    code: str  # For TOTP or email OTP; for passkey, this could be a challenge response
+
+class TwoFAStatus(BaseModel):
+    """
+    Two-factor authentication status response model.
+
+    Indicates whether 2FA is enabled and lists the enabled methods.
+    """
+    enabled: bool
+    methods: Optional[list] = []
+
+class LoginRequest(BaseModel):
+    """
+    Login request model supporting 2FA fields.
+    Accepts username, password, and optional 2FA code/method.
+    """
+    username: str
+    password: str
+    two_fa_code: Optional[str] = None
+    two_fa_method: Optional[str] = None
