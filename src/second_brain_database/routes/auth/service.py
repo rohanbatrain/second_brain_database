@@ -93,7 +93,8 @@ async def register_user(user: UserIn):
         "plan": user.plan,
         "team": user.team,
         "role": user.role,
-        "client_side_encryption": user.client_side_encryption
+        "client_side_encryption": user.client_side_encryption,
+        "registration_app_id": user.registration_app_id
     }
     result = await db_manager.get_collection("users").insert_one(user_doc)
     if not result.inserted_id:

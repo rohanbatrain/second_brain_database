@@ -58,6 +58,7 @@ class UserIn(BaseModel):
     role: Optional[str] = "user"
     is_verified: bool = False
     client_side_encryption: bool = False
+    registration_app_id: str = Field(..., description="App ID used for registration")
 
     @field_validator('username')
     @classmethod
