@@ -23,16 +23,25 @@ async def health_check(request: Request):
     try:
         # Check database connection
         db_healthy = await db_manager.health_check()
+        # Check Redis connection
+        try:
+            redis_conn = await security_manager.get_redis()
+            await redis_conn.ping()
+            redis_healthy = True
+        except Exception as e:
+            logger.error("Redis health check failed: %s", e)
+            redis_healthy = False
 
-        if not db_healthy:
+        if not db_healthy or not redis_healthy:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database connection failed"
+                detail="Database or Redis connection failed"
             )
 
         return {
             "status": "healthy",
-            "database": "connected",
+            "database": "connected" if db_healthy else "disconnected",
+            "redis": "connected" if redis_healthy else "disconnected",
             "api": "running"
         }
     except Exception as e:
