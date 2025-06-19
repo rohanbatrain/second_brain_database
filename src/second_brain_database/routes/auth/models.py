@@ -57,6 +57,7 @@ class UserIn(BaseModel):
     team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
+    client_side_encryption: bool = False
 
     @field_validator('username')
     @classmethod
@@ -189,3 +190,4 @@ class LoginRequest(BaseModel):
     password: str
     two_fa_code: Optional[str] = None
     two_fa_method: Optional[str] = None
+    client_side_encryption: bool = False

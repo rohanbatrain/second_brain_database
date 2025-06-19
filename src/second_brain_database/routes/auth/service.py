@@ -14,6 +14,7 @@ from jose import jwt
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
+from second_brain_database.redis_manager import redis_manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,37 @@ def blacklist_token(token: str):
 
 def is_token_blacklisted(token: str) -> bool:
     return token in TOKEN_BLACKLIST
+
+# Username business logic for username availability and demand tracking using Redis
+async def redis_check_username(username: str) -> bool:
+    redis_conn = await redis_manager.get_redis()
+    key = f"username:exists:{username.lower()}"
+    cached = await redis_conn.get(key)
+    if cached is not None:
+        return cached == "1"
+    # Fallback to DB
+    user = await db_manager.get_collection("users").find_one({"username": username.lower()})
+    exists = user is not None
+    await redis_conn.set(key, "1" if exists else "0", ex=3600)
+    return exists
+
+async def redis_incr_username_demand(username: str):
+    redis_conn = await redis_manager.get_redis()
+    key = f"username:demand:{username.lower()}"
+    await redis_conn.incr(key)
+    await redis_conn.expire(key, 86400)  # 1 day expiry
+
+async def redis_get_top_demanded_usernames(top_n=10):
+    redis_conn = await redis_manager.get_redis()
+    pattern = "username:demand:*"
+    keys = await redis_conn.keys(pattern)
+    result = []
+    for key in keys:
+        count = await redis_conn.get(key)
+        uname = key.split(":", 2)[-1]
+        result.append((uname, int(count)))
+    result.sort(key=lambda x: x[1], reverse=True)
+    return result[:top_n]
 
 async def register_user(user: UserIn):
     """Register a new user, validate password, and return user doc and verification token."""
@@ -60,7 +92,8 @@ async def register_user(user: UserIn):
         "verification_token": verification_token,
         "plan": user.plan,
         "team": user.team,
-        "role": user.role
+        "role": user.role,
+        "client_side_encryption": user.client_side_encryption
     }
     result = await db_manager.get_collection("users").insert_one(user_doc)
     if not result.inserted_id:
@@ -83,7 +116,7 @@ async def verify_user_email(token: str):
     return user
 
 
-async def login_user(username: str, password: str, two_fa_code: str = None, two_fa_method: str = None):
+async def login_user(username: str, password: str, two_fa_code: str = None, two_fa_method: str = None, client_side_encryption: bool = False):
     """Authenticate a user by username and password, handle lockout and failed attempts, and check 2FA if enabled."""
     user = await db_manager.get_collection("users").find_one({"username": username})
     if not user:
@@ -120,6 +153,7 @@ async def login_user(username: str, password: str, two_fa_code: str = None, two_
         {"username": username},
         {"$set": {"last_login": datetime.utcnow()}, "$unset": {"failed_login_attempts": ""}}
     )
+    # Optionally log or use client_side_encryption here
     return user
 
 

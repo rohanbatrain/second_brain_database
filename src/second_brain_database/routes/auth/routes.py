@@ -6,17 +6,20 @@ password change, and password reset. All business logic is delegated to the serv
 """
 import logging
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.responses import JSONResponse
 from second_brain_database.routes.auth.models import (
     UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest
 )
 from second_brain_database.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
-    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token
+    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames
 )
 from second_brain_database.database import db_manager
+from second_brain_database.redis_manager import redis_manager
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +38,12 @@ async def register(user: UserIn, request: Request):
     """Register a new user and send a verification email."""
     await security_manager.check_rate_limit(request, "register")
     try:
-        verification_token = await register_user(user)
+        user_doc, verification_token = await register_user(user)
         # Log the verification email with link
         verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
         await send_verification_email(user.email, verification_token, verification_link)
-        return UserOut(username=user.username, email=user.email)
+        # Return the verification link in the response for testing/demo
+        return {"username": user.username, "email": user.email, "verification_link": verification_link}
     except HTTPException:
         raise
     except Exception as e:
@@ -55,7 +59,7 @@ async def verify_email(token: str):
     await verify_user_email(token)
     return {"message": "Email verified successfully."}
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(
     login_request: LoginRequest = Body(...),
     request: Request = None
@@ -70,7 +74,11 @@ async def login(
             two_fa_method=login_request.two_fa_method
         )
         token = create_access_token({"sub": user["username"]})
-        return Token(access_token=token, token_type="bearer")
+        return JSONResponse({
+            "access_token": token,
+            "token_type": "bearer",
+            "client_side_encryption": user.get("client_side_encryption", False)
+        })
     except HTTPException as e:
         logger.warning("Login failed for user ID: %s", getattr(e, 'user_id', 'unknown'))
         raise
@@ -148,6 +156,19 @@ async def resend_verification_email(request: Request, email: str):
     verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
     await send_verification_email(email, verification_token, verification_link)
     return {"message": "If the email exists, a verification email has been sent."}
+
+@router.get("/check-username")
+async def check_username(username: str = Query(..., min_length=3, max_length=50)):
+    """Check if a username is available (not already taken), using Redis for caching and demand tracking."""
+    await redis_incr_username_demand(username)
+    exists = await redis_check_username(username)
+    return {"username": username, "available": not exists}
+
+@router.get("/username-demand")
+async def username_demand(top_n: int = 10):
+    """Get the most in-demand usernames (most checked), using Redis."""
+    most_demanded = await redis_get_top_demanded_usernames(top_n=top_n)
+    return [{"username": uname, "checks": count} for uname, count in most_demanded]
 
 @router.post("/2fa/setup", response_model=TwoFAStatus)
 async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
