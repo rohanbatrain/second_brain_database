@@ -8,3 +8,4 @@ pylint==3.3.7
 email-validator
 pyotp
 python-jose
+redis

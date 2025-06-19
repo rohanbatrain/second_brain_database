@@ -5,35 +5,23 @@ Provides per-route rate limiting, IP blacklisting, and abuse tracking.
 import logging
 from typing import Optional
 
-import redis.asyncio as redis
 from fastapi import Request, HTTPException, status
 from second_brain_database.config import settings
+from second_brain_database.redis_manager import redis_manager
 
 class SecurityManager:
     """Manages rate limiting and blacklisting for API endpoints using Redis."""
     def __init__(self) -> None:
-        self.redis_url: str = settings.REDIS_URL
         self.rate_limit_requests: int = settings.RATE_LIMIT_REQUESTS
         self.rate_limit_period: int = settings.RATE_LIMIT_PERIOD_SECONDS
-        self._redis: Optional[redis.Redis] = None
         self.blacklist_threshold: int = settings.BLACKLIST_THRESHOLD
         self.blacklist_duration: int = settings.BLACKLIST_DURATION
         self.logger = logging.getLogger(__name__)
-        # Use ENV_PREFIX for multi-environment safety (default to 'dev' if not set)
         self.env_prefix: str = getattr(settings, 'ENV_PREFIX', 'dev')
 
-    async def get_redis(self) -> redis.Redis:
-        """Get or create the Redis connection for rate limiting and blacklisting. Raises HTTPException if Redis is unavailable."""
-        if self._redis is None:
-            try:
-                self._redis = await redis.from_url(self.redis_url, decode_responses=True)
-            except Exception as e:
-                self.logger.error("Failed to connect to Redis: %s", e)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Rate limiting service unavailable. Please try again later."
-                ) from e
-        return self._redis
+    async def get_redis(self):
+        """Proxy to RedisManager's get_redis for backward compatibility."""
+        return await redis_manager.get_redis()
 
     def get_client_ip(self, request: Request) -> str:
         """Extract the client IP address from the request headers or connection info.
@@ -143,7 +131,7 @@ class SecurityManager:
                 blacklist_duration
             )
             count, abuse_count, status_flag = result
-        except (redis.RedisError, redis.ResponseError) as lua_exc:
+        except Exception as lua_exc:  # Use generic Exception, as redis exceptions are handled in redis_manager
             self.logger.error("Lua script failed for rate limiting: %s. Falling back to Python logic.", lua_exc)
             # Failsafe: fallback to less efficient Python logic
             count = await redis_conn.incr(key)
