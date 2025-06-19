@@ -20,6 +20,8 @@ from second_brain_database.routes.auth.service import (
 from second_brain_database.database import db_manager
 from second_brain_database.redis_manager import redis_manager
 import asyncio
+from datetime import datetime
+from second_brain_database.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +73,20 @@ async def login(
             login_request.username,
             login_request.password,
             two_fa_code=login_request.two_fa_code,
-            two_fa_method=login_request.two_fa_method
+            two_fa_method=login_request.two_fa_method,
+            client_side_encryption=login_request.client_side_encryption
         )
+        # Token creation
+        issued_at = int(datetime.utcnow().timestamp())
+        expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = create_access_token({"sub": user["username"]})
         return JSONResponse({
             "access_token": token,
             "token_type": "bearer",
-            "client_side_encryption": user.get("client_side_encryption", False)
+            "client_side_encryption": user.get("client_side_encryption", False),
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "login_app_id": getattr(login_request, "login_app_id", None)
         })
     except HTTPException as e:
         logger.warning("Login failed for user ID: %s", getattr(e, 'user_id', 'unknown'))

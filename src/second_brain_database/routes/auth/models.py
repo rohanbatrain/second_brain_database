@@ -192,3 +192,4 @@ class LoginRequest(BaseModel):
     two_fa_code: Optional[str] = None
     two_fa_method: Optional[str] = None
     client_side_encryption: bool = False
+    login_app_id: Optional[str] = None
