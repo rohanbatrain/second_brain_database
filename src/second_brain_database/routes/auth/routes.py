@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Qu
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
 from second_brain_database.routes.auth.models import (
-    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest
+    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse
 )
 from second_brain_database.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
@@ -28,24 +28,36 @@ logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-def get_current_user_dep(token: str = Depends(oauth2_scheme)):
+async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     """
     Dependency function to retrieve the current authenticated user
     based on the provided OAuth2 token.
     """
-    return get_current_user(token)
+    return await get_current_user(token)
 
 @router.post("/register", response_model=UserOut)
 async def register(user: UserIn, request: Request):
-    """Register a new user and send a verification email."""
+    """Register a new user and return a login-like response payload."""
     await security_manager.check_rate_limit(request, "register")
     try:
         user_doc, verification_token = await register_user(user)
-        # Log the verification email with link
+        # Optionally send verification email (but do not return link)
         verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
-        await send_verification_email(user.email, verification_token, verification_link)
-        # Return the verification link in the response for testing/demo
-        return {"username": user.username, "email": user.email, "verification_link": verification_link}
+        await send_verification_email(user.email, verification_token, verification_link, username=user.username)
+        # Build login-like response
+        issued_at = int(datetime.utcnow().timestamp())
+        expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        token = create_access_token({"sub": user_doc["username"]})
+        is_verified = user_doc.get("is_verified", False)
+        return JSONResponse({
+            "access_token": token,
+            "token_type": "bearer",
+            "client_side_encryption": user_doc.get("client_side_encryption", False),
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "login_app_id": getattr(user, "registration_app_id", None),
+            "is_verified": is_verified
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -179,9 +191,9 @@ async def username_demand(top_n: int = 10):
     most_demanded = await redis_get_top_demanded_usernames(top_n=top_n)
     return [{"username": uname, "checks": count} for uname, count in most_demanded]
 
-@router.post("/2fa/setup", response_model=TwoFAStatus)
+@router.post("/2fa/setup", response_model=TwoFASetupResponse)
 async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
-    """Setup a 2FA method for the current user."""
+    """Setup a 2FA method for the current user and return TOTP secret and provisioning URI."""
     # TODO: Require recent password confirmation or re-login for sensitive actions
     return await setup_2fa(current_user, request)
 
@@ -200,3 +212,8 @@ async def disable_two_fa(current_user: dict = Depends(get_current_user_dep)):
     """Disable all 2FA for the current user."""
     # TODO: Require recent password confirmation or re-login for sensitive actions
     return await disable_2fa(current_user)
+
+@router.get("/is-verified")
+async def is_verified(current_user: dict = Depends(get_current_user_dep)):
+    """Check if the current user's email is verified."""
+    return {"is_verified": current_user.get("is_verified", False)}

@@ -10,11 +10,12 @@ import re
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from jose import jwt
-
+from second_brain_database.routes.auth.models import TwoFASetupResponse
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
 from second_brain_database.redis_manager import redis_manager
+from second_brain_database.managers.email import email_manager
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ async def login_user(username: str, password: str, two_fa_code: str = None, two_
     if user.get("failed_login_attempts", 0) >= 5:
         raise HTTPException(status_code=403, detail="Account locked due to too many failed attempts")
     if not user.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Account is inactive")
+        raise HTTPException(status_code=403, detail="User account is inactive, please contact support to reactivate account.")
     if not user.get("is_verified", False):
         raise HTTPException(status_code=403, detail="Email not verified")
     if not bcrypt.checkpw(password.encode('utf-8'), user["hashed_password"].encode('utf-8')):
@@ -190,10 +191,9 @@ async def change_user_password(current_user: dict, password_request: PasswordCha
     return True
 
 
-async def send_verification_email(email: str, token: str, verification_link: str):
-    """Log the verification email and link to the console (no real email sent)."""
-    logger.info("Send verification email to %s with token: %s", email, token)
-    logger.info("Verification link: %s", verification_link)
+async def send_verification_email(email: str, token: str, verification_link: str, username: str = None):
+    """Send the verification email using the EmailManager (HTML, multi-provider)."""
+    await email_manager.send_verification_email(email, verification_link, username=username)
 
 
 async def send_password_reset_email(email: str):
@@ -264,7 +264,15 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         {"$set": {"two_fa_enabled": True, "totp_secret": secret, "two_fa_methods": ["totp"]}, "$unset": {"email_otp_obj": "", "passkeys": ""}}
     )
     user = await users.find_one({"username": current_user["username"]})
-    return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []))
+    # Build provisioning URI for QR code
+    issuer = getattr(settings, "BASE_URL", "SecondBrain")
+    provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user["username"], issuer_name=issuer)
+    return TwoFASetupResponse(
+        enabled=user.get("two_fa_enabled", False),
+        methods=user.get("two_fa_methods", []),
+        totp_secret=secret,
+        provisioning_uri=provisioning_uri
+    )
 
 
 async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):

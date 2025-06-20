@@ -92,8 +92,8 @@ class UserOut(BaseModel):
     """
     username: str
     email: str
-    created_at: Optional[datetime] = None
-    last_login: Optional[datetime] = None
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="UTC time when the user was created")
+    last_login: Optional[datetime] = Field(default_factory=datetime.utcnow, description="UTC time when the user last logged in")
     is_active: bool = True
     plan: Optional[str] = "free"
     team: Optional[List[str]] = Field(default_factory=list)
@@ -110,20 +110,17 @@ class UserInDB(BaseModel):
     username: str
     email: str
     hashed_password: str
-    created_at: datetime
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="UTC time when the user was created")
     is_active: bool = True
     failed_login_attempts: int = 0
-    last_login: Optional[datetime] = None
+    last_login: Optional[datetime] = Field(default_factory=datetime.utcnow, description="UTC time when the user last logged in")
     plan: Optional[str] = "free"
     team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
-    # 2FA fields
+    # 2FA fields (TOTP only)
     two_fa_enabled: bool = False
-    two_fa_methods: Optional[List[str]] = Field(default_factory=list, description="Enabled 2FA methods: 'totp', 'email', 'passkey'")
     totp_secret: Optional[str] = None
-    passkeys: Optional[list] = Field(default_factory=list, description="List of registered passkeys (public keys, credential IDs, etc.)")
-    email_otp_secret: Optional[str] = None
 
 class Token(BaseModel):
     """
@@ -181,6 +178,15 @@ class TwoFAStatus(BaseModel):
     """
     enabled: bool
     methods: Optional[list] = []
+
+class TwoFASetupResponse(BaseModel):
+    """
+    Response model for 2FA setup, including secret and provisioning URI for TOTP.
+    """
+    enabled: bool
+    methods: Optional[list] = []
+    totp_secret: Optional[str] = None
+    provisioning_uri: Optional[str] = None
 
 class LoginRequest(BaseModel):
     """
