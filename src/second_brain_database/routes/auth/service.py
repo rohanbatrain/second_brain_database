@@ -94,8 +94,7 @@ async def register_user(user: UserIn):
         "plan": user.plan,
         "team": user.team,
         "role": user.role,
-        "client_side_encryption": user.client_side_encryption,
-        "registration_app_id": user.registration_app_id
+        "client_side_encryption": user.client_side_encryption
     }
     result = await db_manager.get_collection("users").insert_one(user_doc)
     if not result.inserted_id:
@@ -118,9 +117,14 @@ async def verify_user_email(token: str):
     return user
 
 
-async def login_user(username: str, password: str, two_fa_code: str = None, two_fa_method: str = None, client_side_encryption: bool = False):
-    """Authenticate a user by username and password, handle lockout and failed attempts, and check 2FA if enabled."""
-    user = await db_manager.get_collection("users").find_one({"username": username})
+async def login_user(username: str = None, email: str = None, password: str = None, two_fa_code: str = None, two_fa_method: str = None, client_side_encryption: bool = False):
+    """Authenticate a user by username or email and password, handle lockout and failed attempts, and check 2FA if enabled."""
+    if username:
+        user = await db_manager.get_collection("users").find_one({"username": username})
+    elif email:
+        user = await db_manager.get_collection("users").find_one({"email": email})
+    else:
+        raise HTTPException(status_code=400, detail="Username or email required")
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.get("failed_login_attempts", 0) >= 5:
@@ -131,7 +135,7 @@ async def login_user(username: str, password: str, two_fa_code: str = None, two_
         raise HTTPException(status_code=403, detail="Email not verified")
     if not bcrypt.checkpw(password.encode('utf-8'), user["hashed_password"].encode('utf-8')):
         await db_manager.get_collection("users").update_one(
-            {"username": username},
+            {"_id": user["_id"]},
             {"$inc": {"failed_login_attempts": 1}}
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -152,7 +156,7 @@ async def login_user(username: str, password: str, two_fa_code: str = None, two_
         else:
             raise HTTPException(status_code=401, detail="2FA method not implemented")
     await db_manager.get_collection("users").update_one(
-        {"username": username},
+        {"_id": user["_id"]},
         {"$set": {"last_login": datetime.utcnow()}, "$unset": {"failed_login_attempts": ""}}
     )
     # Optionally log or use client_side_encryption here

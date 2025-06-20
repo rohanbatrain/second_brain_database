@@ -58,7 +58,6 @@ class UserIn(BaseModel):
     role: Optional[str] = "user"
     is_verified: bool = False
     client_side_encryption: bool = False
-    registration_app_id: str = Field(..., description="App ID used for registration")
 
     @field_validator('username')
     @classmethod
@@ -191,11 +190,45 @@ class TwoFASetupResponse(BaseModel):
 class LoginRequest(BaseModel):
     """
     Login request model supporting 2FA fields.
-    Accepts username, password, and optional 2FA code/method.
+    Accepts either username or email (at least one required), password, and optional 2FA code/method.
     """
-    username: str
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
     password: str
     two_fa_code: Optional[str] = None
     two_fa_method: Optional[str] = None
     client_side_encryption: bool = False
-    login_app_id: Optional[str] = None
+
+    @classmethod
+    @field_validator('*', mode='before')
+    def check_username_or_email(cls, values):
+        if not values.get('username') and not values.get('email'):
+            raise ValueError('Either username or email must be provided for login.')
+        return values
+
+class LoginLog(BaseModel):
+    """
+    Model for logging login attempts.
+    """
+    timestamp: datetime
+    ip_address: str | None = None
+    user_agent: str | None = None
+    username: str
+    email: str | None = None
+    outcome: str  # 'success' or 'failure'
+    reason: str | None = None
+    mfa_status: bool | None = None
+
+class RegistrationLog(BaseModel):
+    """
+    Model for logging registration attempts.
+    """
+    timestamp: datetime
+    ip_address: str | None = None
+    user_agent: str | None = None
+    username: str
+    email: str
+    outcome: str  # 'success' or 'failure:reason'
+    reason: str | None = None
+    plan: str | None = None
+    role: str | None = None
