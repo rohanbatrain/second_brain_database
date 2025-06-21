@@ -131,14 +131,16 @@ async def login_user(username: str = None, email: str = None, password: str = No
         raise HTTPException(status_code=403, detail="Account locked due to too many failed attempts")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="User account is inactive, please contact support to reactivate account.")
-    if not user.get("is_verified", False):
-        raise HTTPException(status_code=403, detail="Email not verified")
+    # Password check first
     if not bcrypt.checkpw(password.encode('utf-8'), user["hashed_password"].encode('utf-8')):
         await db_manager.get_collection("users").update_one(
             {"_id": user["_id"]},
             {"$inc": {"failed_login_attempts": 1}}
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Only after password is correct, check email verification
+    if not user.get("is_verified", False):
+        raise HTTPException(status_code=403, detail="Email not verified")
     # 2FA check
     if user.get("two_fa_enabled"):
         if not two_fa_code or not two_fa_method:
@@ -206,6 +208,32 @@ async def send_password_reset_email(email: str):
     reset_link = f"{base_url}/auth/reset-password?email={email}&token=FAKE_TOKEN"
     logger.info("Send password reset email to %s", email)
     logger.info("Password reset link: %s", reset_link)
+
+
+async def resend_verification_email_service(email: str = None, username: str = None, base_url: str = None):
+    """Resend verification email to a user if not already verified. Accepts email or username."""
+    if not email and not username:
+        raise HTTPException(status_code=400, detail="Email or username required.")
+    user = None
+    if email:
+        user = await db_manager.get_collection("users").find_one({"email": email})
+    elif username:
+        user = await db_manager.get_collection("users").find_one({"username": username})
+    if not user:
+        # Do not reveal if user exists for security
+        return {"message": "If the email or username exists, a verification email has been sent."}
+    if user.get("is_verified", False):
+        return {"message": "Account already verified."}
+    import secrets
+    verification_token = secrets.token_urlsafe(32)
+    await db_manager.get_collection("users").update_one(
+        {"_id": user["_id"]},
+        {"$set": {"verification_token": verification_token}}
+    )
+    verification_link = f"{base_url}auth/verify-email?token={verification_token}"
+    logger.info("Verification link (resend): %s", verification_link)
+    await send_verification_email(user["email"], verification_token, verification_link, username=user.get("username"))
+    return {"message": "If the email or username exists, a verification email has been sent."}
 
 
 def create_access_token(data: dict) -> str:

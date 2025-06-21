@@ -16,7 +16,8 @@ from second_brain_database.routes.auth.models import (
 from second_brain_database.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
-    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames
+    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
+    resend_verification_email_service
 )
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
@@ -42,6 +43,7 @@ async def create_log_indexes():
     await logs.create_index([("timestamp", DESCENDING)])
     await logs.create_index([("outcome", ASCENDING)])
 
+# Rate limit: register: 100 requests per 60 seconds per IP (default)
 @router.post("/register", response_model=UserOut)
 async def register(user: UserIn, request: Request):
     """Register a new user and return a login-like response payload."""
@@ -93,12 +95,29 @@ async def register(user: UserIn, request: Request):
             detail="Registration failed"
         ) from e
 
+# Rate limit: verify-email: 100 requests per 60 seconds per IP (default)
 @router.get("/verify-email")
-async def verify_email(token: str):
-    """Verify user's email using the provided token."""
-    await verify_user_email(token)
+async def verify_email(token: str = None, username: str = None, request: Request = None):
+    """Verify user's email using the provided token or username."""
+    await security_manager.check_rate_limit(request, "verify-email")
+    if not token and not username:
+        raise HTTPException(status_code=400, detail="Token or username required.")
+    if token:
+        await verify_user_email(token)
+        return {"message": "Email verified successfully."}
+    # Securely handle username-based verification
+    user = await db_manager.get_collection("users").find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid username.")
+    if user.get("is_verified", False):
+        return {"message": "Email already verified."}
+    verification_token = user.get("verification_token")
+    if not verification_token:
+        raise HTTPException(status_code=400, detail="No verification token found for this user.")
+    await verify_user_email(verification_token)
     return {"message": "Email verified successfully."}
 
+# Rate limit: login: 100 requests per 60 seconds per IP (default)
 @router.post("/login")
 async def login(
     login_request: LoginRequest = Body(...),
@@ -140,9 +159,33 @@ async def login(
             "token_type": "bearer",
             "client_side_encryption": user.get("client_side_encryption", False),
             "issued_at": issued_at,
-            "expires_at": expires_at
+            "expires_at": expires_at,
+            "is_verified": user.get("is_verified", False),
+            "role": user.get("role", None),
+            "username": user.get("username", None),
+            "email": user.get("email", None)
         })
     except HTTPException as e:
+        # Special handling for 'Email not verified' error
+        if str(e.detail) == "Email not verified":
+            email_resp = login_request.email
+            username_resp = login_request.username
+            # If only username or email was provided, try to fetch missing info from DB
+            if (not email_resp or not username_resp):
+                user_doc = None
+                if login_request.username:
+                    user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
+                elif login_request.email:
+                    user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
+                if user_doc:
+                    if not email_resp:
+                        email_resp = user_doc.get("email")
+                    if not username_resp:
+                        username_resp = user_doc.get("username")
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Email not verified", "email": email_resp, "username": username_resp}
+            )
         login_log.outcome = f"failure:{str(e.detail).replace(' ', '_').lower()}"
         login_log.reason = str(e.detail)
         # Try to get email if possible
@@ -174,9 +217,11 @@ async def login(
         logger.warning("Login failed: %s", str(e))
         raise HTTPException(status_code=500, detail="Internal server error")
 
+# Rate limit: refresh-token: 100 requests per 60 seconds per IP (default)
 @router.post("/refresh", response_model=Token)
-async def refresh_token(current_user: dict = Depends(get_current_user_dep)):
+async def refresh_token(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Refresh access token for authenticated user."""
+    await security_manager.check_rate_limit(request, "refresh-token")
     try:
         access_token = create_access_token({"sub": current_user["username"]})
         logger.info("Token refreshed for user: %s", current_user["username"])
@@ -188,18 +233,23 @@ async def refresh_token(current_user: dict = Depends(get_current_user_dep)):
             detail="Token refresh failed"
         ) from e
 
+# Rate limit: logout: 100 requests per 60 seconds per IP (default)
 @router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme)):
+async def logout(current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme), request: Request = None):
     """Logout user (invalidate token on server side)."""
+    await security_manager.check_rate_limit(request, "logout")
     blacklist_token(token)
     logger.info("User logged out: %s", current_user["username"])
 
+# Rate limit: change-password: 100 requests per 60 seconds per IP (default)
 @router.put("/change-password")
 async def change_password(
     password_request: PasswordChangeRequest,
-    current_user: dict = Depends(get_current_user_dep)
+    current_user: dict = Depends(get_current_user_dep),
+    request: Request = None
 ):
     """Change the password for the current authenticated user. Requires recent authentication."""
+    await security_manager.check_rate_limit(request, "change-password")
     # TODO: Require recent password confirmation or re-login for sensitive actions
     try:
         await change_user_password(current_user, password_request)
@@ -211,6 +261,7 @@ async def change_password(
         logger.warning("Password change failed: %s", str(e))
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
+# Rate limit: forgot-password: 100 requests per 60 seconds per IP (default)
 @router.post("/forgot-password")
 async def forgot_password(request: Request, email: str):
     """Initiate password reset process by sending a reset link to the user's email."""
@@ -225,69 +276,95 @@ async def forgot_password(request: Request, email: str):
             detail="Failed to initiate password reset"
         ) from e
 
+# Rate limit: resend-verification-email: 1 request per 600 seconds per IP
 @router.post("/resend-verification-email")
-async def resend_verification_email(request: Request, email: str):
-    """Resend verification email to a user if not already verified. Heavily rate-limited to prevent abuse."""
-    # Heavier rate limit: 1 request per 10 minutes per IP
-    await security_manager.check_rate_limit(request, "resend-verification-email", rate_limit_requests=1, rate_limit_period=600)
-    user = await db_manager.get_collection("users").find_one({"email": email})
-    if not user:
-        # Do not reveal if user exists for security
-        return {"message": "If the email exists, a verification email has been sent."}
-    if user.get("is_verified", False):
-        return {"message": "Account already verified."}
-    verification_token = secrets.token_urlsafe(32)
-    await db_manager.get_collection("users").update_one(
-        {"email": email},
-        {"$set": {"verification_token": verification_token}}
-    )
-    verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
-    await send_verification_email(email, verification_token, verification_link)
-    return {"message": "If the email exists, a verification email has been sent."}
+async def resend_verification_email(request: Request):
+    """Resend verification email to a user if not already verified. Accepts email or username in JSON body. Heavily rate-limited to prevent abuse."""
+    await security_manager.check_rate_limit(request, "resend-verification-email", rate_limit_requests=50, rate_limit_period=600)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    email = payload.get("email")
+    username = payload.get("username")
+    # Optional: log the received payload for debugging
+    logger.info("/auth/resend-verification-email payload: %s", payload)
+    base_url = str(request.base_url)
+    return await resend_verification_email_service(email=email, username=username, base_url=base_url)
 
+# Rate limit: check-username: 100 requests per 60 seconds per IP (default)
 @router.get("/check-username")
-async def check_username(username: str = Query(..., min_length=3, max_length=50)):
+async def check_username(username: str = Query(..., min_length=3, max_length=50), request: Request = None):
     """Check if a username is available (not already taken), using DB for accuracy and Redis for demand tracking only."""
+    await security_manager.check_rate_limit(request, "check-username")
     await redis_incr_username_demand(username)
     # Always check DB directly for availability
     exists = await db_manager.get_collection("users").find_one({"username": username})
     return {"username": username, "available": not bool(exists)}
 
+# Rate limit: check-email: 100 requests per 60 seconds per IP (default)
 @router.get("/check-email")
-async def check_email(email: str = Query(...)):
+async def check_email(email: str = Query(...), request: Request = None):
     """Check if an email is available (not already taken), using DB directly."""
+    await security_manager.check_rate_limit(request, "check-email")
     exists = await db_manager.get_collection("users").find_one({"email": email})
     return {"email": email, "available": not bool(exists)}
 
+# Rate limit: username-demand: 100 requests per 60 seconds per IP (default)
 @router.get("/username-demand")
-async def username_demand(top_n: int = 10):
+async def username_demand(top_n: int = 10, request: Request = None):
     """Get the most in-demand usernames (most checked), using Redis."""
+    await security_manager.check_rate_limit(request, "username-demand")
     most_demanded = await redis_get_top_demanded_usernames(top_n=top_n)
     return [{"username": uname, "checks": count} for uname, count in most_demanded]
 
+# Rate limit: 2fa-setup: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/setup", response_model=TwoFASetupResponse)
-async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
+async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
     """Setup a 2FA method for the current user and return TOTP secret and provisioning URI."""
+    await security_manager.check_rate_limit(req, "2fa-setup")
     # TODO: Require recent password confirmation or re-login for sensitive actions
     return await setup_2fa(current_user, request)
 
+# Rate limit: 2fa-verify: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/verify", response_model=TwoFAStatus)
-async def verify_two_fa(request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep)):
+async def verify_two_fa(request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
     """Verify a 2FA code for the current user."""
+    await security_manager.check_rate_limit(req, "2fa-verify")
     return await verify_2fa(current_user, request)
 
+# Rate limit: 2fa-status: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/status", response_model=TwoFAStatus)
-async def get_two_fa_status(current_user: dict = Depends(get_current_user_dep)):
+async def get_two_fa_status(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Get 2FA status for the current user."""
+    await security_manager.check_rate_limit(request, "2fa-status")
     return await get_2fa_status(current_user)
 
+# Rate limit: 2fa-disable: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/disable", response_model=TwoFAStatus)
-async def disable_two_fa(current_user: dict = Depends(get_current_user_dep)):
+async def disable_two_fa(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Disable all 2FA for the current user."""
+    await security_manager.check_rate_limit(request, "2fa-disable")
     # TODO: Require recent password confirmation or re-login for sensitive actions
     return await disable_2fa(current_user)
 
+# Rate limit: is-verified: 100 requests per 60 seconds per IP (default)
 @router.get("/is-verified")
-async def is_verified(current_user: dict = Depends(get_current_user_dep)):
+async def is_verified(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Check if the current user's email is verified."""
+    await security_manager.check_rate_limit(request, "is-verified")
     return {"is_verified": current_user.get("is_verified", False)}
+
+# Rate limit: validate-token: 100 requests per 60 seconds per IP (default)
+@router.get("/validate-token")
+async def validate_token(token: str = Depends(oauth2_scheme), request: Request = None):
+    """Validate a JWT access token and return validity status, only if user is verified and has client_side_encryption."""
+    await security_manager.check_rate_limit(request, "validate-token")
+    try:
+        user = await get_current_user(token)
+        if user.get("is_verified", False) and user.get("client_side_encryption", False):
+            return {"token": "valid"}
+        else:
+            return {"token": "invalid"}
+    except Exception:
+        return {"token": "invalid"}

@@ -37,6 +37,16 @@ class SecurityManager:
             ip = request.client.host
         return ip
 
+    def is_trusted_ip(self, ip: str) -> bool:
+        """Return True if the IP is localhost or a trusted range."""
+        # Localhost IPv4 and IPv6
+        if ip in ("127.0.0.1", "::1", "0.0.0.0"):
+            return True
+        # # Cloudflare Tunnel IPv4 range (100.96.0.0/12) or add more as needed
+        # if ip.startswith("100.96.") or ip.startswith("100.97.") or ip.startswith("100.98.") or ip.startswith("100.99."):
+        #     return True
+        return False
+
     async def is_blacklisted(self, ip: str) -> bool:
         """Check if the given IP address is currently blacklisted.
         Args:
@@ -104,6 +114,8 @@ class SecurityManager:
         """
         redis_conn = await self.get_redis()
         ip = self.get_client_ip(request)
+        if self.is_trusted_ip(ip):
+            return  # Allow trusted IPs (localhost, Cloudflare Tunnel)
         if await self.is_blacklisted(ip):
             self.logger.warning("Blocked request from blacklisted IP: %s", ip)
             raise HTTPException(
