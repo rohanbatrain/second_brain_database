@@ -6,7 +6,6 @@ import logging
 import secrets
 import pyotp
 import bcrypt
-import re
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from jose import jwt
@@ -16,6 +15,7 @@ from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
 from second_brain_database.redis_manager import redis_manager
 from second_brain_database.managers.email import email_manager
+from second_brain_database.utils.crypto import encrypt_totp_secret, decrypt_totp_secret, is_encrypted_totp_secret, migrate_plaintext_secret
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,45 @@ def blacklist_token(token: str):
 
 def is_token_blacklisted(token: str) -> bool:
     return token in TOKEN_BLACKLIST
+
+def get_decrypted_totp_secret(user: dict) -> str:
+    """
+    Safely get and decrypt a user's TOTP secret.
+    Handles both encrypted and legacy plaintext secrets for migration.
+    
+    Args:
+        user: User document from database
+        
+    Returns:
+        Decrypted TOTP secret
+        
+    Raises:
+        ValueError: If no TOTP secret exists or decryption fails
+    """
+    encrypted_secret = user.get("totp_secret")
+    if not encrypted_secret:
+        raise ValueError("No TOTP secret found")
+    
+    try:
+        # Check if it's already encrypted
+        if is_encrypted_totp_secret(encrypted_secret):
+            return decrypt_totp_secret(encrypted_secret)
+        else:
+            # Legacy plaintext secret - log and migrate
+            logger.warning("Found plaintext TOTP secret for user %s, migrating to encrypted format", user.get("username", "unknown"))
+            # Migrate in-place for future use
+            migrated_secret = migrate_plaintext_secret(encrypted_secret)
+            # Update the database with encrypted version
+            users = db_manager.get_collection("users")
+            users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"totp_secret": migrated_secret}}
+            )
+            logger.info("Successfully migrated TOTP secret to encrypted format for user %s", user.get("username", "unknown"))
+            return encrypted_secret  # Return original plaintext for immediate use
+    except Exception as e:
+        logger.error("Failed to decrypt TOTP secret for user %s: %s", user.get("username", "unknown"), e)
+        raise ValueError("Failed to decrypt TOTP secret") from e
 
 # Username business logic for username availability and demand tracking using Redis
 async def redis_check_username(username: str) -> bool:
@@ -144,30 +183,60 @@ async def login_user(username: str = None, email: str = None, password: str = No
     # 2FA check
     if user.get("two_fa_enabled"):
         if not two_fa_code or not two_fa_method:
-            raise HTTPException(status_code=401, detail="2FA code and method required")
+            raise HTTPException(
+                status_code=422, 
+                detail="2FA authentication required",
+                headers={"X-2FA-Required": "true"}
+            )
         methods = user.get("two_fa_methods", [])
-        if two_fa_method not in methods:
-            raise HTTPException(status_code=401, detail="Invalid 2FA method")
+        if two_fa_method not in methods and two_fa_method != "backup":
+            raise HTTPException(status_code=422, detail="Invalid 2FA method")
+        
         if two_fa_method == "totp":
             secret = user.get("totp_secret")
             if not secret:
                 raise HTTPException(status_code=401, detail="TOTP not set up")
+            # Decrypt if needed
+            if is_encrypted_totp_secret(secret):
+                secret = decrypt_totp_secret(secret)
             totp = pyotp.TOTP(secret)
             if not totp.verify(two_fa_code, valid_window=1):
                 raise HTTPException(status_code=401, detail="Invalid TOTP code")
+                
+        elif two_fa_method == "backup":
+            # Check backup code
+            backup_codes = user.get("backup_codes", [])
+            backup_codes_used = user.get("backup_codes_used", [])
+            
+            code_valid = False
+            for i, hashed_code in enumerate(backup_codes):
+                if i not in backup_codes_used and bcrypt.checkpw(two_fa_code.encode('utf-8'), hashed_code.encode('utf-8')):
+                    code_valid = True
+                    # Mark this backup code as used
+                    await db_manager.get_collection("users").update_one(
+                        {"_id": user["_id"]},
+                        {"$push": {"backup_codes_used": i}}
+                    )
+                    logger.info("Backup code used for user %s", user["username"])
+                    break
+            
+            if not code_valid:
+                raise HTTPException(status_code=401, detail="Invalid or already used backup code")
         else:
             raise HTTPException(status_code=401, detail="2FA method not implemented")
     await db_manager.get_collection("users").update_one(
         {"_id": user["_id"]},
         {"$set": {"last_login": datetime.utcnow()}, "$unset": {"failed_login_attempts": ""}}
     )
-    # Optionally log or use client_side_encryption here
+    # Optionally log client_side_encryption setting
+    if client_side_encryption:
+        logger.info("User %s logged in with client-side encryption enabled", user["username"])
     return user
 
 
 async def change_user_password(current_user: dict, password_request: PasswordChangeRequest):
     """Change the password for the current user after validating the old password. Should require recent authentication."""
-    # TODO: Enforce recent password confirmation or re-login for sensitive actions
+    # Recent password confirmation or re-login should be enforced for sensitive actions in production
     if not validate_password_strength(password_request.new_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -197,7 +266,7 @@ async def change_user_password(current_user: dict, password_request: PasswordCha
     return True
 
 
-async def send_verification_email(email: str, token: str, verification_link: str, username: str = None):
+async def send_verification_email(email: str, verification_link: str, username: str = None):
     """Send the verification email using the EmailManager (HTML, multi-provider)."""
     await email_manager.send_verification_email(email, verification_link, username=username)
 
@@ -221,10 +290,9 @@ async def resend_verification_email_service(email: str = None, username: str = N
         user = await db_manager.get_collection("users").find_one({"username": username})
     if not user:
         # Do not reveal if user exists for security
-        return {"message": "If the email or username exists, a verification email has been sent."}
+        return {"message": "Verification email sent"}
     if user.get("is_verified", False):
-        return {"message": "Account already verified."}
-    import secrets
+        return {"message": "Account already verified"}
     verification_token = secrets.token_urlsafe(32)
     await db_manager.get_collection("users").update_one(
         {"_id": user["_id"]},
@@ -232,8 +300,8 @@ async def resend_verification_email_service(email: str = None, username: str = N
     )
     verification_link = f"{base_url}auth/verify-email?token={verification_token}"
     logger.info("Verification link (resend): %s", verification_link)
-    await send_verification_email(user["email"], verification_token, verification_link, username=user.get("username"))
-    return {"message": "If the email or username exists, a verification email has been sent."}
+    await send_verification_email(user["email"], verification_link, username=user.get("username"))
+    return {"message": "Verification email sent"}
 
 
 def create_access_token(data: dict) -> str:
@@ -288,22 +356,173 @@ async def get_current_user(token: str) -> dict:
 async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
     users = db_manager.get_collection("users")
     method = request.method
+    
+    # Check if 2FA is already enabled or pending
+    if current_user.get("two_fa_enabled", False):
+        raise HTTPException(
+            status_code=400, 
+            detail="2FA is already enabled. Disable 2FA first before setting up again."
+        )
+    
+    if current_user.get("two_fa_pending", False):
+        raise HTTPException(
+            status_code=400, 
+            detail="2FA setup is already pending. Complete verification or disable to start over."
+        )
+    
     if method != "totp":
         raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
+    
     secret = pyotp.random_base32()
+    encrypted_secret = encrypt_totp_secret(secret)
+    
+    # Generate backup codes (10 codes)
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    # Hash backup codes for storage
+    hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
+    
     await users.update_one(
         {"username": current_user["username"]},
-        {"$set": {"two_fa_enabled": True, "totp_secret": secret, "two_fa_methods": ["totp"]}, "$unset": {"email_otp_obj": "", "passkeys": ""}}
+        {
+            "$set": {
+                "two_fa_enabled": False,  # Don't enable until verified!
+                "two_fa_pending": True,   # Mark as pending verification
+                "totp_secret": encrypted_secret, 
+                "two_fa_methods": ["totp"],
+                "backup_codes": hashed_backup_codes,
+                "backup_codes_used": []
+            }, 
+            "$unset": {"email_otp_obj": "", "passkeys": ""}
+        }
     )
     user = await users.find_one({"username": current_user["username"]})
+    
     # Build provisioning URI for QR code
-    issuer = getattr(settings, "BASE_URL", "SecondBrain")
-    provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user["username"], issuer_name=issuer)
+    issuer = "Second Brain Database"
+    account_name = f"{current_user['username']}@app.sbd.rohanbatra.in"
+    provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=issuer)
+    
+    # Generate QR code data URL
+    try:
+        import qrcode
+        import qrcode.image.svg
+        from io import BytesIO
+        import base64
+        
+        # Create QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(provisioning_uri)
+        qr.make(fit=True)
+        
+        # Create image
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to base64 for data URL
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        qr_code_data = base64.b64encode(buffered.getvalue()).decode()
+        qr_code_url = f"data:image/png;base64,{qr_code_data}"
+        
+    except ImportError:
+        qr_code_url = None
+        logger.warning("QR code generation failed - qrcode library not available")
+    except (OSError, ValueError) as qr_exc:
+        qr_code_url = None
+        logger.warning("QR code generation failed: %s", qr_exc)
+    
+    return TwoFASetupResponse(
+        enabled=False,  # Not enabled until verified
+        methods=[],     # No methods until verified
+        totp_secret=secret,
+        provisioning_uri=provisioning_uri,
+        qr_code_url=qr_code_url,
+        backup_codes=backup_codes,
+        setup_instructions=None
+    )
+
+
+async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
+    """
+    Reset 2FA for a user who already has it enabled. This generates new secret and backup codes.
+    This should require additional verification in production (like password confirmation).
+    """
+    users = db_manager.get_collection("users")
+    method = request.method
+    
+    # Check if 2FA is enabled (required for reset)
+    if not current_user.get("two_fa_enabled", False):
+        raise HTTPException(
+            status_code=400, 
+            detail="2FA is not enabled. Use setup endpoint instead."
+        )
+    
+    if method != "totp":
+        raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
+    
+    # Recent password confirmation or re-login should be enforced for sensitive actions in production
+    
+    secret = pyotp.random_base32()
+    encrypted_secret = encrypt_totp_secret(secret)
+    
+    # Generate new backup codes (10 codes)
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    # Hash backup codes for storage
+    hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
+    
+    await users.update_one(
+        {"username": current_user["username"]},
+        {
+            "$set": {
+                "two_fa_enabled": True, 
+                "totp_secret": encrypted_secret, 
+                "two_fa_methods": ["totp"],
+                "backup_codes": hashed_backup_codes,
+                "backup_codes_used": []  # Reset used backup codes
+            }
+        }
+    )
+    user = await users.find_one({"username": current_user["username"]})
+    
+    # Build provisioning URI for QR code
+    username = user.get("username", "user")
+    account_name = f"{username}@app.sbd.rohanbatra.in"
+    
+    provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=account_name,
+        issuer_name="Second Brain Database"
+    )
+    
+    # Generate QR code
+    qr_code_url = None
+    try:
+        import qrcode
+        from io import BytesIO
+        import base64
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(provisioning_uri)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        qr_code_data = base64.b64encode(buffered.getvalue()).decode()
+        qr_code_url = f"data:image/png;base64,{qr_code_data}"
+        
+    except ImportError:
+        qr_code_url = None
+        logger.warning("QR code generation failed - qrcode library not available")
+    except (OSError, ValueError) as qr_exc:
+        qr_code_url = None
+        logger.warning("QR code generation failed: %s", qr_exc)
+    
     return TwoFASetupResponse(
         enabled=user.get("two_fa_enabled", False),
         methods=user.get("two_fa_methods", []),
         totp_secret=secret,
-        provisioning_uri=provisioning_uri
+        provisioning_uri=provisioning_uri,
+        qr_code_url=qr_code_url,
+        backup_codes=backup_codes
     )
 
 
@@ -312,21 +531,64 @@ async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
     code = request.code
     if method != "totp":
         raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
+    
     secret = current_user.get("totp_secret")
     if not secret:
         raise HTTPException(status_code=400, detail="TOTP not set up")
+    # Decrypt if needed
+    if is_encrypted_totp_secret(secret):
+        secret = decrypt_totp_secret(secret)
+    
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid TOTP code")
-    return TwoFAStatus(enabled=current_user.get("two_fa_enabled", False), methods=current_user.get("two_fa_methods", []))
+    
+    # If verification successful and 2FA is pending, enable it now
+    if current_user.get("two_fa_pending", False):
+        users = db_manager.get_collection("users")
+        await users.update_one(
+            {"username": current_user["username"]},
+            {
+                "$set": {
+                    "two_fa_enabled": True,
+                    "two_fa_methods": ["totp"]
+                },
+                "$unset": {"two_fa_pending": ""}
+            }
+        )
+        logger.info("2FA enabled for user %s after successful verification", current_user["username"])
+        return TwoFAStatus(enabled=True, methods=["totp"], pending=False)
+    
+    return TwoFAStatus(
+        enabled=current_user.get("two_fa_enabled", False), 
+        methods=current_user.get("two_fa_methods", []),
+        pending=current_user.get("two_fa_pending", False)
+    )
 
 
 async def get_2fa_status(current_user: dict):
-    return TwoFAStatus(enabled=current_user.get("two_fa_enabled", False), methods=current_user.get("two_fa_methods", []))
+    return TwoFAStatus(
+        enabled=current_user.get("two_fa_enabled", False), 
+        methods=current_user.get("two_fa_methods", []),
+        pending=current_user.get("two_fa_pending", False)
+    )
 
 
 async def disable_2fa(current_user: dict):
     users = db_manager.get_collection("users")
-    await users.update_one({"username": current_user["username"]}, {"$set": {"two_fa_enabled": False, "two_fa_methods": []}, "$unset": {"totp_secret": "", "email_otp_obj": "", "passkeys": ""}})
+    await users.update_one(
+        {"username": current_user["username"]}, 
+        {
+            "$set": {"two_fa_enabled": False, "two_fa_methods": []}, 
+            "$unset": {
+                "totp_secret": "", 
+                "email_otp_obj": "", 
+                "passkeys": "",
+                "two_fa_pending": "",  # Clear pending state too
+                "backup_codes": "",
+                "backup_codes_used": ""
+            }
+        }
+    )
     user = await users.find_one({"username": current_user["username"]})
-    return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []))
+    return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []), pending=False)

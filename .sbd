@@ -3,7 +3,7 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=false
 
-BASE_URL=http://localhost:8000
+BASE_URL=app.sbd.rohanbatra.in
 
 # MongoDB Configuration
 MONGODB_URL=mongodb://localhost:27017
@@ -19,6 +19,9 @@ MONGODB_SERVER_SELECTION_TIMEOUT=5000
 SECRET_KEY=your-secret-key-change-in-production
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Fernet (symmetric encryption)
+FERNET_KEY=your-fernet-key-change-in-production
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0

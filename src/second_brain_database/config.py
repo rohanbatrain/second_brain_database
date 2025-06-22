@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     BLACKLIST_THRESHOLD: int = 10  # Number of violations before blacklisting
     BLACKLIST_DURATION: int = 60 * 60  # Blacklist for 1 hour (in seconds)
 
+    # Fernet encryption key (for TOTP secret encryption)
+    FERNET_KEY: str = "your-fernet-key-change-in-production"
+
     class Config:
         """Pydantic configuration class for environment loading."""
         env_file = ".sbd"

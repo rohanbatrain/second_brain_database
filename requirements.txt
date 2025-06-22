@@ -9,3 +9,6 @@ email-validator
 pyotp
 python-jose
 redis
+qrcode[pil]
+bcrypt
+cryptography

@@ -5,7 +5,6 @@ Defines API endpoints for user registration, login, email verification, token ma
 password change, and password reset. All business logic is delegated to the service layer.
 """
 import logging
-import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
 from fastapi.security import OAuth2PasswordBearer
@@ -16,12 +15,13 @@ from second_brain_database.routes.auth.models import (
 from second_brain_database.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
-    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
+    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
     resend_verification_email_service
 )
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
 from pymongo import ASCENDING, DESCENDING
+import bcrypt
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +63,12 @@ async def register(user: UserIn, request: Request):
         user_doc, verification_token = await register_user(user)
         # Optionally send verification email (but do not return link)
         verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
-        await send_verification_email(user.email, verification_token, verification_link, username=user.username)
+        await send_verification_email(user.email, verification_link, username=user.username)
         # Build login-like response
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = create_access_token({"sub": user_doc["username"]})
-        is_verified = user_doc.get("is_verified", False)
+        email_verified = user_doc.get("is_verified", False)
         reg_log.outcome = "success"
         reg_log.reason = None
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
@@ -78,7 +78,8 @@ async def register(user: UserIn, request: Request):
             "client_side_encryption": user_doc.get("client_side_encryption", False),
             "issued_at": issued_at,
             "expires_at": expires_at,
-            "is_verified": is_verified
+            "is_verified": email_verified,
+            "two_fa_enabled": False
         })
     except HTTPException as e:
         reg_log.outcome = f"failure:{str(e.detail).replace(' ', '_').lower()}"
@@ -104,18 +105,18 @@ async def verify_email(token: str = None, username: str = None, request: Request
         raise HTTPException(status_code=400, detail="Token or username required.")
     if token:
         await verify_user_email(token)
-        return {"message": "Email verified successfully."}
+        return {"message": "Email verified successfully"}
     # Securely handle username-based verification
     user = await db_manager.get_collection("users").find_one({"username": username})
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid username.")
+        raise HTTPException(status_code=400, detail="Invalid username")
     if user.get("is_verified", False):
-        return {"message": "Email already verified."}
+        return {"message": "Email already verified"}
     verification_token = user.get("verification_token")
     if not verification_token:
         raise HTTPException(status_code=400, detail="No verification token found for this user.")
     await verify_user_email(verification_token)
-    return {"message": "Email verified successfully."}
+    return {"message": "Email verified successfully"}
 
 # Rate limit: login: 100 requests per 60 seconds per IP (default)
 @router.post("/login")
@@ -166,8 +167,27 @@ async def login(
             "email": user.get("email", None)
         })
     except HTTPException as e:
+        # Special handling for '2FA authentication required' error
+        if str(e.detail) == "2FA authentication required":
+            user_doc = None
+            if login_request.username:
+                user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
+            elif login_request.email:
+                user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
+            
+            two_fa_methods = user_doc.get("two_fa_methods", []) if user_doc else []
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": "2FA authentication required", 
+                    "two_fa_required": True,
+                    "available_methods": two_fa_methods + ["backup"],
+                    "username": user_doc.get("username") if user_doc else login_request.username,
+                    "email": user_doc.get("email") if user_doc else login_request.email
+                }
+            )
         # Special handling for 'Email not verified' error
-        if str(e.detail) == "Email not verified":
+        elif str(e.detail) == "Email not verified":
             email_resp = login_request.email
             username_resp = login_request.username
             # If only username or email was provided, try to fetch missing info from DB
@@ -215,7 +235,7 @@ async def login(
             login_log.mfa_status = user_doc.get("two_fa_enabled", False)
         await db_manager.get_collection("logs").insert_one(login_log.model_dump())
         logger.warning("Login failed: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 # Rate limit: refresh-token: 100 requests per 60 seconds per IP (default)
 @router.post("/refresh", response_model=Token)
@@ -250,16 +270,16 @@ async def change_password(
 ):
     """Change the password for the current authenticated user. Requires recent authentication."""
     await security_manager.check_rate_limit(request, "change-password")
-    # TODO: Require recent password confirmation or re-login for sensitive actions
+    # Recent password confirmation or re-login should be required for sensitive actions in production
     try:
         await change_user_password(current_user, password_request)
         return {"message": "Password changed successfully"}
-    except HTTPException as e:
+    except HTTPException:
         logger.warning("Password change failed for user ID: %s", current_user.get("username", "unknown"))
         raise
-    except Exception as e:
-        logger.warning("Password change failed: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    except Exception as password_error:
+        logger.warning("Password change failed: %s", str(password_error))
+        raise HTTPException(status_code=500, detail="Internal server error") from password_error
 
 # Rate limit: forgot-password: 100 requests per 60 seconds per IP (default)
 @router.post("/forgot-password")
@@ -268,7 +288,7 @@ async def forgot_password(request: Request, email: str):
     await security_manager.check_rate_limit(request, "forgot-password")
     try:
         await send_password_reset_email(email)
-        return {"message": "If the email exists, a password reset link has been sent."}
+        return {"message": "Password reset email sent"}
     except Exception as e:
         logger.error("Forgot password failed for email %s: %s", email, e)
         raise HTTPException(
@@ -283,7 +303,7 @@ async def resend_verification_email(request: Request):
     await security_manager.check_rate_limit(request, "resend-verification-email", rate_limit_requests=50, rate_limit_period=600)
     try:
         payload = await request.json()
-    except Exception:
+    except ValueError:
         payload = {}
     email = payload.get("email")
     username = payload.get("username")
@@ -321,9 +341,13 @@ async def username_demand(top_n: int = 10, request: Request = None):
 # Rate limit: 2fa-setup: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/setup", response_model=TwoFASetupResponse)
 async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
-    """Setup a 2FA method for the current user and return TOTP secret and provisioning URI."""
+    """
+    Setup a 2FA method for the current user and return TOTP secret, provisioning URI, QR code image, and backup codes.
+    If a 2FA setup is already pending, returns the existing setup information instead of generating a new one.
+    """
     await security_manager.check_rate_limit(req, "2fa-setup")
-    # TODO: Require recent password confirmation or re-login for sensitive actions
+    # Recent password confirmation or re-login should be required for sensitive actions in production
+    # If setup is already pending, the service will return the existing setup info
     return await setup_2fa(current_user, request)
 
 # Rate limit: 2fa-verify: 100 requests per 60 seconds per IP (default)
@@ -345,7 +369,7 @@ async def get_two_fa_status(current_user: dict = Depends(get_current_user_dep), 
 async def disable_two_fa(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Disable all 2FA for the current user."""
     await security_manager.check_rate_limit(request, "2fa-disable")
-    # TODO: Require recent password confirmation or re-login for sensitive actions
+    # Recent password confirmation or re-login should be required for sensitive actions in production
     return await disable_2fa(current_user)
 
 # Rate limit: is-verified: 100 requests per 60 seconds per IP (default)
@@ -366,5 +390,107 @@ async def validate_token(token: str = Depends(oauth2_scheme), request: Request =
             return {"token": "valid"}
         else:
             return {"token": "invalid"}
-    except Exception:
+    except (HTTPException, ValueError):
         return {"token": "invalid"}
+
+# Rate limit: 2fa-guide: 100 requests per 60 seconds per IP (default)
+@router.get("/2fa/guide")
+async def get_2fa_setup_guide(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+    """Get basic 2FA setup information."""
+    await security_manager.check_rate_limit(request, "2fa-guide")
+    
+    return {
+        "enabled": current_user.get("two_fa_enabled", False),
+        "methods": current_user.get("two_fa_methods", []),
+        "apps": ["Google Authenticator", "Microsoft Authenticator", "Authy", "1Password", "Bitwarden"]
+    }
+
+# Rate limit: security-dashboard: 100 requests per 60 seconds per IP (default)
+@router.get("/security-dashboard")
+async def get_security_dashboard(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+    """Get security status for the current user."""
+    await security_manager.check_rate_limit(request, "security-dashboard")
+    
+    # Calculate security score
+    security_score = 0
+    email_verified = current_user.get("is_verified", False)
+    two_fa_enabled = current_user.get("two_fa_enabled", False)
+    
+    if email_verified:
+        security_score += 20
+    if two_fa_enabled:
+        security_score += 40
+    security_score += 20  # Password strength
+    if current_user.get("last_login"):
+        security_score += 20
+    
+    return {
+        "security_score": security_score,
+        "email_verified": email_verified,
+        "two_fa_enabled": two_fa_enabled,
+        "two_fa_methods": current_user.get("two_fa_methods", []),
+        "client_side_encryption": current_user.get("client_side_encryption", False),
+        "account_active": current_user.get("is_active", True)
+    }
+
+# Rate limit: 2fa-backup-codes: 5 requests per 300 seconds per IP (restricted)
+@router.get("/2fa/backup-codes")
+async def get_backup_codes_status(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+    """Get backup codes status (count remaining, not the actual codes for security)."""
+    await security_manager.check_rate_limit(request, "2fa-backup-codes", rate_limit_requests=5, rate_limit_period=300)
+    
+    if not current_user.get("two_fa_enabled", False):
+        raise HTTPException(status_code=400, detail="2FA is not enabled")
+    
+    backup_codes = current_user.get("backup_codes", [])
+    backup_codes_used = current_user.get("backup_codes_used", [])
+    
+    total_codes = len(backup_codes)
+    used_codes = len(backup_codes_used)
+    remaining_codes = total_codes - used_codes
+    
+    return {
+        "total_codes": total_codes,
+        "used_codes": used_codes,
+        "remaining_codes": remaining_codes
+    }
+
+# Rate limit: 2fa-regenerate-backup: 2 requests per 3600 seconds per IP (very restricted)
+@router.post("/2fa/regenerate-backup-codes")
+async def regenerate_backup_codes(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+    """Regenerate backup codes for 2FA recovery. This invalidates all existing backup codes."""
+    await security_manager.check_rate_limit(request, "2fa-regenerate-backup", rate_limit_requests=2, rate_limit_period=3600)
+    
+    if not current_user.get("two_fa_enabled", False):
+        raise HTTPException(status_code=400, detail="2FA is not enabled")
+    
+    # Generate new backup codes
+    import secrets
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
+    
+    # Update user with new backup codes
+    await db_manager.get_collection("users").update_one(
+        {"username": current_user["username"]},
+        {
+            "$set": {
+                "backup_codes": hashed_backup_codes,
+                "backup_codes_used": []  # Reset used codes
+            }
+        }
+    )
+    
+    logger.info("Backup codes regenerated for user %s", current_user["username"])
+    
+    return {
+        "message": "New backup codes generated successfully",
+        "backup_codes": backup_codes
+    }
+
+# Rate limit: 2fa-reset: 5 requests per 3600 seconds per IP (very restricted)
+@router.post("/2fa/reset", response_model=TwoFASetupResponse)
+async def reset_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
+    """Reset 2FA setup for the current user. This generates new secret, backup codes, provisioning URI, and QR code image, invalidating the old ones."""
+    await security_manager.check_rate_limit(req, "2fa-reset", rate_limit_requests=5, rate_limit_period=3600)
+    # Recent password confirmation or re-login should be required for sensitive actions in production
+    return await reset_2fa(current_user, request)

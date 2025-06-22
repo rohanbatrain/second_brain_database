@@ -120,6 +120,8 @@ class UserInDB(BaseModel):
     # 2FA fields (TOTP only)
     two_fa_enabled: bool = False
     totp_secret: Optional[str] = None
+    backup_codes: Optional[List[str]] = None
+    backup_codes_used: Optional[List[int]] = None
 
 class Token(BaseModel):
     """
@@ -177,6 +179,7 @@ class TwoFAStatus(BaseModel):
     """
     enabled: bool
     methods: Optional[list] = []
+    pending: Optional[bool] = False  # Indicates if setup is pending verification
 
 class TwoFASetupResponse(BaseModel):
     """
@@ -186,6 +189,9 @@ class TwoFASetupResponse(BaseModel):
     methods: Optional[list] = []
     totp_secret: Optional[str] = None
     provisioning_uri: Optional[str] = None
+    qr_code_url: Optional[str] = None
+    backup_codes: Optional[List[str]] = None
+    setup_instructions: Optional[List[str]] = None
 
 class LoginRequest(BaseModel):
     """
