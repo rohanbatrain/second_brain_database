@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes import auth_router, main_router
-from second_brain_database.routes.periodic_2fa_cleanup import periodic_2fa_cleanup
+from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

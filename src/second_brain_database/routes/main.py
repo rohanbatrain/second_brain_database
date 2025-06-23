@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status, Request
 
 from second_brain_database.database import db_manager
-from second_brain_database.security_manager import security_manager
+from second_brain_database.managers.security_manager import security_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
