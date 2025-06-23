@@ -7,6 +7,7 @@ import secrets
 import pyotp
 import bcrypt
 import json
+import hashlib
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from jose import jwt
@@ -328,12 +329,64 @@ async def send_verification_email(email: str, verification_link: str, username: 
     await email_manager.send_verification_email(email, verification_link, username=username)
 
 
-async def send_password_reset_email(email: str):
-    """Log the password reset email and link to the console (no real email sent)."""
+async def send_password_reset_email(email: str, ip=None, user_agent=None, request_time=None, location=None, isp=None):
+    """Send a password reset email with metadata and a real token (hashed in DB)."""
     base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
-    reset_link = f"{base_url}/auth/reset-password?email={email}&token=FAKE_TOKEN"
+    user = await db_manager.get_collection("users").find_one({"email": email})
+    if not user:
+        logger.info("Password reset requested for non-existent email: %s", email)
+        return  # Do not reveal user existence
+    # Generate a secure token and expiry
+    import secrets
+    from datetime import datetime, timedelta
+    reset_token = secrets.token_urlsafe(32)
+    # Hash the token before storing in DB
+    token_hash = hashlib.sha256(reset_token.encode()).hexdigest()
+    expiry = datetime.utcnow() + timedelta(minutes=30)  # 30 min expiry
+    await db_manager.get_collection("users").update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_reset_token": token_hash, "password_reset_token_expiry": expiry.isoformat()}}
+    )
+    reset_link = f"{base_url}/auth/reset-password?token={reset_token}"
+    # Compose metadata section
+    meta = f"""
+    <ul>
+        <li><b>IP Address:</b> {ip or 'Unknown'}</li>
+        <li><b>Location:</b> {location or 'Unknown'}</li>
+        <li><b>Time:</b> {request_time or 'Unknown'}</li>
+        <li><b>Device:</b> {user_agent or 'Unknown'}</li>
+        <li><b>ISP:</b> {isp or 'Unknown'}</li>
+    </ul>
+    """
+    html_content = f"""
+    <html>
+    <body>
+        <h2>Password Reset Requested</h2>
+        <p>We received a request to reset your password.</p>
+        <b>Request details:</b>
+        {meta}
+        <p>If this was <b>you</b>, click the button below to reset your password:</p>
+        <a href='{reset_link}' style='padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:5px;'>Reset Password</a>
+        <p>If this wasn't you, we recommend securing your account.</p>
+    </body>
+    </html>
+    """
     logger.info("Send password reset email to %s", email)
     logger.info("Password reset link: %s", reset_link)
+    logger.info("Password reset metadata: IP=%s, UA=%s, Time=%s, Location=%s, ISP=%s", ip, user_agent, request_time, location, isp)
+    await email_manager._send_via_console(email, "Password Reset Requested", html_content)
+
+async def send_password_reset_notification(email: str):
+    """Send a notification email after successful password reset (console log for now)."""
+    subject = "Your password was reset"
+    html_content = f"""
+    <html><body>
+    <h2>Password Changed</h2>
+    <p>Your password was successfully reset. If this wasn't you, please contact support immediately.</p>
+    </body></html>
+    """
+    logger.info(f"[NOTIFY EMAIL] To: {email}\nSubject: {subject}\nHTML:\n{html_content}")
+    await email_manager._send_via_console(email, subject, html_content)
 
 
 async def resend_verification_email_service(email: str = None, username: str = None, base_url: str = None):
@@ -604,7 +657,7 @@ async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-        qr_code_url = f"data:image/png;base64,{qr_code_data}"
+        qr_code_url = f"data:image/png;base64:{qr_code_data}"
         
     except ImportError:
         qr_code_url = None

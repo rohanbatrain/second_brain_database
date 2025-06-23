@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Qu
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
 from second_brain_database.routes.auth.models import (
-    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog
+    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
+    validate_password_strength
 )
-from second_brain_database.security_manager import security_manager
+from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
     setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service
+    resend_verification_email_service, send_password_reset_notification
 )
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
@@ -283,11 +284,37 @@ async def change_password(
 
 # Rate limit: forgot-password: 100 requests per 60 seconds per IP (default)
 @router.post("/forgot-password")
-async def forgot_password(request: Request, email: str):
+async def forgot_password(request: Request, payload: dict = Body(...)):
     """Initiate password reset process by sending a reset link to the user's email."""
     await security_manager.check_rate_limit(request, "forgot-password")
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
     try:
-        await send_password_reset_email(email)
+        ip = request.client.host
+        user_agent = request.headers.get("user-agent")
+        request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        # Fetch GeoIP info
+        import httpx
+        location = None
+        isp = None
+        try:
+            async with httpx.AsyncClient() as client:
+                geo = await client.get(f"https://ipinfo.io/{ip}/json")
+                geo_data = geo.json()
+                location = f"{geo_data.get('city', '')}, {geo_data.get('country', '')}".strip(', ')
+                isp = geo_data.get('org')
+        except Exception:
+            location = None
+            isp = None
+        await send_password_reset_email(
+            email,
+            ip=ip,
+            user_agent=user_agent,
+            request_time=request_time,
+            location=location,
+            isp=isp
+        )
         return {"message": "Password reset email sent"}
     except Exception as e:
         logger.error("Forgot password failed for email %s: %s", email, e)
@@ -455,11 +482,12 @@ async def get_backup_codes_status(current_user: dict = Depends(get_current_user_
         "remaining_codes": remaining_codes
     }
 
-# Rate limit: 2fa-regenerate-backup: 2 requests per 3600 seconds per IP (very restricted)
+# Rate limit: 2fa-regenerate-backup: 20 requests per 3600 (1hr) seconds per IP (increased for testing)
 @router.post("/2fa/regenerate-backup-codes")
 async def regenerate_backup_codes(current_user: dict = Depends(get_current_user_dep), request: Request = None):
     """Regenerate backup codes for 2FA recovery. This invalidates all existing backup codes."""
-    await security_manager.check_rate_limit(request, "2fa-regenerate-backup", rate_limit_requests=2, rate_limit_period=3600)
+    # Increased rate limit for testing purposes doing it 200 times per hour
+    await security_manager.check_rate_limit(request, "2fa-regenerate-backup", rate_limit_requests=200, rate_limit_period=3600)
     
     if not current_user.get("two_fa_enabled", False):
         raise HTTPException(status_code=400, detail="2FA is not enabled")
@@ -494,3 +522,32 @@ async def reset_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(
     await security_manager.check_rate_limit(req, "2fa-reset", rate_limit_requests=5, rate_limit_period=3600)
     # Recent password confirmation or re-login should be required for sensitive actions in production
     return await reset_2fa(current_user, request)
+
+# Rate limit: reset-password: 100 requests per 60 seconds per IP (default)
+@router.post("/reset-password")
+async def reset_password(request: Request, payload: dict = Body(...)):
+    """Reset the user's password using a valid reset token."""
+    token = payload.get("token")
+    new_password = payload.get("new_password")
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Token and new password are required.")
+    import hashlib
+    user = await db_manager.get_collection("users").find_one({"password_reset_token": hashlib.sha256(token.encode()).hexdigest()})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired token.")
+    expiry = user.get("password_reset_token_expiry")
+    if not expiry or datetime.utcnow() > datetime.fromisoformat(expiry):
+        raise HTTPException(status_code=400, detail="Token has expired.")
+    # Validate password strength
+    if not validate_password_strength(new_password):
+        raise HTTPException(status_code=400, detail="Password does not meet strength requirements.")
+    # Hash and update password
+    hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    await db_manager.get_collection("users").update_one(
+        {"_id": user["_id"]},
+        {"$set": {"hashed_password": hashed_pw}, "$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}}
+    )
+    logger.info("Password reset for user %s", user.get("username", user.get("email")))
+    # Send notification email (console log for now)
+    await send_password_reset_notification(user["email"])
+    return {"message": "Password has been reset successfully."}

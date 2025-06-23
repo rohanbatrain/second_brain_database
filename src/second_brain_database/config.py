@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     FERNET_KEY: str = "your-fernet-key-change-in-production"
 
     # 2FA/Backup code config (loaded from .sbd if present)
-    BACKUP_CODES_PENDING_TIME: int = 600  # 10 minutes by default
+    BACKUP_CODES_PENDING_TIME: int = 300  # 5 minutes
     BACKUP_CODES_CLEANUP_INTERVAL: int = 60  # 60 seconds by default
 
 # Global settings instance
