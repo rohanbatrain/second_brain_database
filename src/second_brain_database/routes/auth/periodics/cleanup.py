@@ -66,11 +66,32 @@ async def periodic_2fa_cleanup():
                 users = db_manager.get_collection("users")
                 cleanup_count = 0
                 
-                async for user in users.find({"two_fa_pending": True}):
+                async for user in users.find({"$or": [
+                    {"two_fa_pending": True},
+                    {"two_fa_enabled": False, "$or": [
+                        {"totp_secret": {"$exists": True, "$ne": None}},
+                        {"backup_codes": {"$exists": True, "$ne": []}},
+                        {"two_fa_pending": {"$exists": True, "$ne": False}}
+                    ]}
+                ]}):
                     try:
-                        cleaned = await clear_2fa_pending_if_expired(user)
-                        if cleaned:
-                            cleanup_count += 1
+                        # If 2FA is enabled, just clear expired pending states
+                        if user.get("two_fa_enabled", False):
+                            cleaned = await clear_2fa_pending_if_expired(user)
+                            if cleaned:
+                                cleanup_count += 1
+                        else:
+                            # If 2FA is disabled but 2FA-related values exist, remove them
+                            update_fields = {}
+                            if user.get("totp_secret"):
+                                update_fields["totp_secret"] = None
+                            if user.get("backup_codes"):
+                                update_fields["backup_codes"] = []
+                            if user.get("two_fa_pending"):
+                                update_fields["two_fa_pending"] = False
+                            if update_fields:
+                                await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+                                cleanup_count += 1
                     except Exception as e:
                         # Log error but continue with other users
                         logger.error("Error cleaning up 2FA for user %s: %s", 

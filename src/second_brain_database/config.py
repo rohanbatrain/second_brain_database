@@ -12,6 +12,12 @@ load_dotenv()
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
+    
+    model_config = {
+        "env_file": ".sbd",
+        "env_file_encoding": "utf-8", 
+        "case_sensitive": True
+    }
 
     # Server configuration (loaded from environment)
     HOST: str = "127.0.0.1"
@@ -53,20 +59,6 @@ class Settings(BaseSettings):
     # 2FA/Backup code config (loaded from .sbd if present)
     BACKUP_CODES_PENDING_TIME: int = 600  # 10 minutes by default
     BACKUP_CODES_CLEANUP_INTERVAL: int = 60  # 60 seconds by default
-
-    class Config:
-        """Pydantic configuration class for environment loading."""
-        env_file = ".sbd"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-
-        def validate_env_file(self) -> bool:
-            """Validate that environment file exists and is readable."""
-            return True
-
-        def get_env_vars(self) -> dict:
-            """Get all environment variables as a dictionary."""
-            return {}
 
 # Global settings instance
 settings = Settings()
