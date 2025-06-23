@@ -6,6 +6,7 @@ database connections, and routing configuration.
 """
 import logging
 from contextlib import asynccontextmanager
+import asyncio
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -13,10 +14,12 @@ from fastapi import FastAPI, HTTPException
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes import auth_router, main_router
+from second_brain_database.routes.periodic_2fa_cleanup import periodic_2fa_cleanup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -33,10 +36,18 @@ async def lifespan(_app: FastAPI):
             detail='Service not ready: Database connection failed'
         ) from e
 
+    # Start periodic 2FA cleanup task
+    cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
+
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     await db_manager.disconnect()
     logger.info("Database connection closed")
 

@@ -6,6 +6,7 @@ import logging
 import secrets
 import pyotp
 import bcrypt
+import json
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from jose import jwt
@@ -97,6 +98,61 @@ async def redis_get_top_demanded_usernames(top_n=10):
         result.append((uname, int(count)))
     result.sort(key=lambda x: x[1], reverse=True)
     return result[:top_n]
+
+# --- Redis helpers for 2FA backup codes ---
+BACKUP_CODES_REDIS_PREFIX = "2fa:backup_codes:"
+BACKUP_CODES_PENDING_TIME = settings.BACKUP_CODES_PENDING_TIME
+
+async def store_backup_codes_temp(username: str, codes: list):
+    redis_conn = await redis_manager.get_redis()
+    key = f"{BACKUP_CODES_REDIS_PREFIX}{username}"
+    await redis_conn.set(key, json.dumps(codes), ex=BACKUP_CODES_PENDING_TIME)
+
+async def get_backup_codes_temp(username: str):
+    redis_conn = await redis_manager.get_redis()
+    key = f"{BACKUP_CODES_REDIS_PREFIX}{username}"
+    val = await redis_conn.get(key)
+    if val:
+        return json.loads(val)
+    return None
+
+async def delete_backup_codes_temp(username: str):
+    redis_conn = await redis_manager.get_redis()
+    key = f"{BACKUP_CODES_REDIS_PREFIX}{username}"
+    await redis_conn.delete(key)
+
+async def clear_2fa_pending_if_expired(user: dict):
+    """
+    If 2FA is pending for more than BACKUP_CODES_PENDING_TIME, clear all 2FA pending state from user.
+    Logs cleanup actions and errors for auditability.
+    """
+    if user.get("two_fa_pending", False):
+        pending_since = user.get("two_fa_pending_since")
+        now = datetime.utcnow()
+        if not pending_since:
+            pending_since = user.get("updatedAt") or user.get("created_at") or now
+        else:
+            pending_since = pending_since if isinstance(pending_since, datetime) else datetime.fromisoformat(pending_since)
+        if (now - pending_since).total_seconds() > BACKUP_CODES_PENDING_TIME:
+            users = db_manager.get_collection("users")
+            await users.update_one(
+                {"_id": user["_id"]},
+                {"$unset": {
+                    "two_fa_pending": "", 
+                    "totp_secret": "", 
+                    "backup_codes": "", 
+                    "backup_codes_used": "", 
+                    "two_fa_pending_since": "",
+                    "two_fa_methods": ""
+                }}
+            )
+            try:
+                await delete_backup_codes_temp(user["username"])
+            except Exception as e:
+                logger.error(f"Failed to delete backup codes from Redis for user {user['username']}: {e}")
+            logger.info(f"Cleared expired 2FA pending state for user {user['username']}")
+            return True
+    return False
 
 async def register_user(user: UserIn):
     """Register a new user, validate password, and return user doc and verification token."""
@@ -364,9 +420,14 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
             detail="2FA is already enabled. Disable 2FA first before setting up again."
         )
 
-    # If setup is already pending, return existing setup info
-    if current_user.get("two_fa_pending", False):
+    # Check for expired pending state and clean up if needed
+    user = await users.find_one({"username": current_user["username"]})
+    cleared = await clear_2fa_pending_if_expired(user)
+    if cleared:
         user = await users.find_one({"username": current_user["username"]})
+
+    # If setup is already pending, return existing setup info (try Redis for backup codes)
+    if user.get("two_fa_pending", False):
         try:
             secret = get_decrypted_totp_secret(user)
         except Exception:
@@ -396,14 +457,16 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         except (OSError, ValueError) as qr_exc:
             qr_code_url = None
             logger.warning("QR code generation failed: %s", qr_exc)
-        # Backup codes: cannot return unhashed codes, so return None or a placeholder
+        backup_codes = await get_backup_codes_temp(user["username"])
+        if not backup_codes:
+            logger.warning(f"No backup codes found in Redis for user {user['username']} during 2FA setup pending state.")
         return TwoFASetupResponse(
             enabled=False,
             methods=[],
             totp_secret=secret,
             provisioning_uri=provisioning_uri,
             qr_code_url=qr_code_url,
-            backup_codes=None  # Cannot recover original codes from hashes
+            backup_codes=backup_codes
         )
 
     if method != "totp":
@@ -416,12 +479,19 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
     backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
     hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
 
+    # Store backup codes in Redis for 10 min
+    try:
+        await store_backup_codes_temp(current_user["username"], backup_codes)
+    except Exception as e:
+        logger.error(f"Failed to store backup codes in Redis for user {current_user['username']}: {e}")
+
     await users.update_one(
         {"username": current_user["username"]},
         {
             "$set": {
                 "two_fa_enabled": False,  # Don't enable until verified!
                 "two_fa_pending": True,   # Mark as pending verification
+                "two_fa_pending_since": datetime.utcnow().isoformat(),
                 "totp_secret": encrypted_secret, 
                 "two_fa_methods": ["totp"],
                 "backup_codes": hashed_backup_codes,
@@ -456,6 +526,7 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         qr_code_url = None
         logger.warning("QR code generation failed: %s", qr_exc)
 
+    # Always return the generated backup_codes on first setup call
     return TwoFASetupResponse(
         enabled=False,  # Not enabled until verified
         methods=[],     # No methods until verified
@@ -552,25 +623,28 @@ async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
 
 
 async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
+    # Check for expired pending state and clean up if needed
+    users = db_manager.get_collection("users")
+    user = await users.find_one({"username": current_user["username"]})
+    cleared = await clear_2fa_pending_if_expired(user)
+    if cleared:
+        raise HTTPException(status_code=400, detail="2FA setup expired. Please set up 2FA again.")
+
     method = request.method
     code = request.code
     if method != "totp":
         raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
-    
     secret = current_user.get("totp_secret")
     if not secret:
         raise HTTPException(status_code=400, detail="TOTP not set up")
     # Decrypt if needed
     if is_encrypted_totp_secret(secret):
         secret = decrypt_totp_secret(secret)
-    
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid TOTP code")
-    
     # If verification successful and 2FA is pending, enable it now
     if current_user.get("two_fa_pending", False):
-        users = db_manager.get_collection("users")
         await users.update_one(
             {"username": current_user["username"]},
             {
@@ -578,12 +652,12 @@ async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
                     "two_fa_enabled": True,
                     "two_fa_methods": ["totp"]
                 },
-                "$unset": {"two_fa_pending": ""}
+                "$unset": {"two_fa_pending": "", "two_fa_pending_since": ""}
             }
         )
+        await delete_backup_codes_temp(current_user["username"])
         logger.info("2FA enabled for user %s after successful verification", current_user["username"])
         return TwoFAStatus(enabled=True, methods=["totp"], pending=False)
-    
     return TwoFAStatus(
         enabled=current_user.get("two_fa_enabled", False), 
         methods=current_user.get("two_fa_methods", []),

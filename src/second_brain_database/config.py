@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Fernet encryption key (for TOTP secret encryption)
     FERNET_KEY: str = "your-fernet-key-change-in-production"
 
+    # 2FA/Backup code config (loaded from .sbd if present)
+    BACKUP_CODES_PENDING_TIME: int = 600  # 10 minutes by default
+    BACKUP_CODES_CLEANUP_INTERVAL: int = 60  # 60 seconds by default
+
     class Config:
         """Pydantic configuration class for environment loading."""
         env_file = ".sbd"
