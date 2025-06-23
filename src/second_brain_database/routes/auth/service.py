@@ -14,8 +14,9 @@ from second_brain_database.routes.auth.models import TwoFASetupResponse
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
-from second_brain_database.redis_manager import redis_manager
+from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.email import email_manager
+from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.utils.crypto import encrypt_totp_secret, decrypt_totp_secret, is_encrypted_totp_secret, migrate_plaintext_secret
 
 logger = logging.getLogger(__name__)
