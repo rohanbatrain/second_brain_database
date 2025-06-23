@@ -356,31 +356,66 @@ async def get_current_user(token: str) -> dict:
 async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
     users = db_manager.get_collection("users")
     method = request.method
-    
-    # Check if 2FA is already enabled or pending
+
+    # Check if 2FA is already enabled
     if current_user.get("two_fa_enabled", False):
         raise HTTPException(
             status_code=400, 
             detail="2FA is already enabled. Disable 2FA first before setting up again."
         )
-    
+
+    # If setup is already pending, return existing setup info
     if current_user.get("two_fa_pending", False):
-        raise HTTPException(
-            status_code=400, 
-            detail="2FA setup is already pending. Complete verification or disable to start over."
+        user = await users.find_one({"username": current_user["username"]})
+        try:
+            secret = get_decrypted_totp_secret(user)
+        except Exception:
+            secret = None
+        issuer = "Second Brain Database"
+        account_name = f"{user['username']}@app.sbd.rohanbatra.in"
+        provisioning_uri = None
+        if secret:
+            provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=issuer)
+        qr_code_url = None
+        try:
+            import qrcode
+            from io import BytesIO
+            import base64
+            if provisioning_uri:
+                qr = qrcode.QRCode(version=1, box_size=10, border=5)
+                qr.add_data(provisioning_uri)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+                buffered = BytesIO()
+                img.save(buffered, format="PNG")
+                qr_code_data = base64.b64encode(buffered.getvalue()).decode()
+                qr_code_url = f"data:image/png;base64,{qr_code_data}"
+        except ImportError:
+            qr_code_url = None
+            logger.warning("QR code generation failed - qrcode library not available")
+        except (OSError, ValueError) as qr_exc:
+            qr_code_url = None
+            logger.warning("QR code generation failed: %s", qr_exc)
+        # Backup codes: cannot return unhashed codes, so return None or a placeholder
+        return TwoFASetupResponse(
+            enabled=False,
+            methods=[],
+            totp_secret=secret,
+            provisioning_uri=provisioning_uri,
+            qr_code_url=qr_code_url,
+            backup_codes=None  # Cannot recover original codes from hashes
         )
-    
+
     if method != "totp":
         raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
-    
+
     secret = pyotp.random_base32()
     encrypted_secret = encrypt_totp_secret(secret)
-    
+
     # Generate backup codes (10 codes)
     backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
-    # Hash backup codes for storage
     hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
-    
+
     await users.update_one(
         {"username": current_user["username"]},
         {
@@ -396,48 +431,38 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         }
     )
     user = await users.find_one({"username": current_user["username"]})
-    
-    # Build provisioning URI for QR code
+
     issuer = "Second Brain Database"
     account_name = f"{current_user['username']}@app.sbd.rohanbatra.in"
     provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=issuer)
-    
-    # Generate QR code data URL
+
     try:
         import qrcode
         import qrcode.image.svg
         from io import BytesIO
         import base64
-        
-        # Create QR code
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(provisioning_uri)
         qr.make(fit=True)
-        
-        # Create image
         img = qr.make_image(fill_color="black", back_color="white")
-        
-        # Convert to base64 for data URL
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         qr_code_data = base64.b64encode(buffered.getvalue()).decode()
         qr_code_url = f"data:image/png;base64,{qr_code_data}"
-        
     except ImportError:
         qr_code_url = None
         logger.warning("QR code generation failed - qrcode library not available")
     except (OSError, ValueError) as qr_exc:
         qr_code_url = None
         logger.warning("QR code generation failed: %s", qr_exc)
-    
+
     return TwoFASetupResponse(
         enabled=False,  # Not enabled until verified
         methods=[],     # No methods until verified
         totp_secret=secret,
         provisioning_uri=provisioning_uri,
         qr_code_url=qr_code_url,
-        backup_codes=backup_codes,
-        setup_instructions=None
+        backup_codes=backup_codes
     )
 
 

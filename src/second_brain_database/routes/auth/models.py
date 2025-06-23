@@ -191,7 +191,6 @@ class TwoFASetupResponse(BaseModel):
     provisioning_uri: Optional[str] = None
     qr_code_url: Optional[str] = None
     backup_codes: Optional[List[str]] = None
-    setup_instructions: Optional[List[str]] = None
 
 class LoginRequest(BaseModel):
     """
