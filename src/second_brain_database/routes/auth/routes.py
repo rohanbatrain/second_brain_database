@@ -344,18 +344,35 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
         abuse_result = await detect_password_reset_abuse(email, ip)
         # If suspicious, require CAPTCHA
         if abuse_result["suspicious"]:
-            from second_brain_database.routes.auth.service import verify_turnstile_captcha
-            if not turnstile_token or not await verify_turnstile_captcha(turnstile_token, remoteip=ip):
-                # Return a response indicating CAPTCHA is required
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": "Suspicious activity detected. CAPTCHA required.",
-                        "captcha_required": True,
-                        "suspicious": True,
-                        "abuse_reasons": abuse_result["reasons"]
-                    }
-                )
+            abuse_msgs = []
+            targeted_abuse = False
+            for reason in abuse_result["reasons"]:
+                if "High volume" in reason:
+                    abuse_msgs.append("Too many password reset requests have been made for this account in a short period. This is a security measure to protect your account.")
+                elif "Many unique IPs" in reason:
+                    abuse_msgs.append("Password reset requests for your account are coming from multiple locations. This could indicate that someone else is trying to reset your password (targeted abuse). If this wasn't you, please secure your account and contact support.")
+                    targeted_abuse = True
+                elif "Pair blocked" in reason:
+                    abuse_msgs.append("Password reset requests from your device are temporarily blocked due to previous abuse. Please try again later or contact support if this is a mistake.")
+                elif "Pair whitelisted" in reason:
+                    abuse_msgs.append("Your device is whitelisted for password resets. If you are having trouble, please contact support.")
+                elif "VPN/proxy" in reason or "abuse/relay" in reason:
+                    abuse_msgs.append("Password reset requests from VPNs, proxies, or relays may be restricted for security reasons.")
+                else:
+                    abuse_msgs.append(reason)
+            detail_msg = " ".join(abuse_msgs)
+            extra_info = ""
+            if targeted_abuse:
+                extra_info = " You may be a victim of targeted abuse. Please review your account security and contact support if you did not initiate these requests."
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": f"Suspicious activity detected. CAPTCHA required. {detail_msg}{extra_info}",
+                    "captcha_required": True,
+                    "suspicious": True,
+                    "abuse_reasons": abuse_result["reasons"]
+                }
+            )
         # Fetch GeoIP info
         import httpx
         location = None
@@ -404,9 +421,55 @@ async def resend_verification_email(request: Request):
         payload = {}
     email = payload.get("email")
     username = payload.get("username")
-    # Optional: log the received payload for debugging
     logger.info("/auth/resend-verification-email payload: %s", payload)
     base_url = str(request.base_url)
+
+    # --- Abuse detection and logging (self-abuse protection) ---
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    # Prefer email for abuse tracking, fallback to username
+    abuse_id = email or username
+    if abuse_id:
+        from second_brain_database.routes.auth.service import log_password_reset_request, detect_password_reset_abuse
+        await log_password_reset_request(abuse_id, ip, user_agent, request_time)
+        # Check if account is suspended
+        user = None
+        if email:
+            user = await db_manager.get_collection("users").find_one({"email": email})
+        elif username:
+            user = await db_manager.get_collection("users").find_one({"username": username})
+        if user and user.get("abuse_suspended", False):
+            raise HTTPException(status_code=403, detail="Account suspended due to repeated abuse. Contact support.")
+        # Check if pair is blocked
+        from second_brain_database.routes.auth.service import is_pair_blocked
+        if await is_pair_blocked(abuse_id, ip):
+            raise HTTPException(status_code=403, detail="Requests from this device are temporarily blocked due to abuse. Try again later.")
+        abuse_result = await detect_password_reset_abuse(abuse_id, ip)
+        if abuse_result["suspicious"]:
+            abuse_msgs = []
+            for reason in abuse_result["reasons"]:
+                if "High volume" in reason:
+                    abuse_msgs.append("Too many requests have been made for this account in a short period. This is a security measure to protect your account.")
+                elif "Many unique IPs" in reason:
+                    abuse_msgs.append("Requests for your account are coming from multiple locations. This could indicate that someone else is trying to abuse this endpoint. If this wasn't you, please secure your account and contact support.")
+                elif "Pair blocked" in reason:
+                    abuse_msgs.append("Requests from your device are temporarily blocked due to previous abuse. Please try again later or contact support if this is a mistake.")
+                elif "Pair whitelisted" in reason:
+                    abuse_msgs.append("Your device is whitelisted for this endpoint. If you are having trouble, please contact support.")
+                elif "VPN/proxy" in reason or "abuse/relay" in reason:
+                    abuse_msgs.append("Requests from VPNs, proxies, or relays may be restricted for security reasons.")
+                else:
+                    abuse_msgs.append(reason)
+            detail_msg = " ".join(abuse_msgs)
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": f"Suspicious activity detected. {detail_msg}",
+                    "suspicious": True,
+                    "abuse_reasons": abuse_result["reasons"]
+                }
+            )
     return await resend_verification_email_service(email=email, username=username, base_url=base_url)
 
 # Rate limit: check-username: 100 requests per 60 seconds per IP (default)
