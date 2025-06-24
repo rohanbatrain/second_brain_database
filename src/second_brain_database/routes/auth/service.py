@@ -1079,6 +1079,16 @@ async def detect_password_reset_abuse(email: str, ip: str) -> dict:
     if len(recent_requests) >= max_requests:
         suspicious = True
         reasons.append(f"High volume: {len(recent_requests)} reset requests in 15 min")
+        # Log self_abuse event in reset_abuse_events (MongoDB)
+        await log_reset_abuse_event(
+            email=email,
+            ip=ip,
+            user_agent=None,
+            event_type="self_abuse",
+            details=f"{len(recent_requests)} reset requests in 15 min",
+            whitelisted=False,
+            action_taken="notified" if suspicious else "none",
+        )
     if len(unique_ips) >= max_unique_ips:
         suspicious = True
         reasons.append(f"Many unique IPs: {len(unique_ips)} for this email in 15 min")
