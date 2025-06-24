@@ -23,13 +23,14 @@ from second_brain_database.routes.auth.models import (
     UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
     validate_password_strength
 )
+# Admin models are now in routes.admin.models
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
     setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, whitelist_reset_pair, block_reset_pair,
-    is_pair_whitelisted, is_pair_blocked
+    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, is_pair_whitelisted, is_pair_blocked
 )
+# Admin service functions are now in routes.admin.service
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
 from pymongo import ASCENDING, DESCENDING
@@ -383,44 +384,9 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
             detail="Failed to initiate password reset"
         ) from e
 
-# --- ADMIN ENDPOINTS FOR WHITELIST/BLOCKLIST MANAGEMENT ---
-@router.get("/admin/list-reset-whitelist")
-async def admin_list_reset_whitelist(current_user: dict = Depends(require_admin)):
-    from second_brain_database.managers.redis_manager import redis_manager
-    redis_conn = await redis_manager.get_redis()
-    members = await redis_conn.smembers("abuse:reset:whitelist")
-    return {"whitelist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
-
-@router.get("/admin/list-reset-blocklist")
-async def admin_list_reset_blocklist(current_user: dict = Depends(require_admin)):
-    from second_brain_database.managers.redis_manager import redis_manager
-    redis_conn = await redis_manager.get_redis()
-    members = await redis_conn.smembers("abuse:reset:blocklist")
-    return {"blocklist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
-
-@router.post("/admin/whitelist-reset-pair")
-async def admin_whitelist_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
-    await whitelist_reset_pair(email, ip)
-    return {"message": f"Whitelisted {email}:{ip}"}
-
-@router.post("/admin/block-reset-pair")
-async def admin_block_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
-    await block_reset_pair(email, ip)
-    return {"message": f"Blocked {email}:{ip}"}
-
-@router.delete("/admin/whitelist-reset-pair")
-async def admin_remove_whitelist_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
-    from second_brain_database.managers.redis_manager import redis_manager
-    redis_conn = await redis_manager.get_redis()
-    await redis_conn.srem("abuse:reset:whitelist", f"{email}:{ip}")
-    return {"message": f"Removed {email}:{ip} from whitelist"}
-
-@router.delete("/admin/block-reset-pair")
-async def admin_remove_block_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
-    from second_brain_database.managers.redis_manager import redis_manager
-    redis_conn = await redis_manager.get_redis()
-    await redis_conn.srem("abuse:reset:blocklist", f"{email}:{ip}")
-    return {"message": f"Removed {email}:{ip} from blocklist"}
+# --- Admin endpoints for password reset abuse management have been moved ---
+# See: second_brain_database.routes.admin.routes
+# All admin logic for whitelist/blocklist and abuse event review is now in the admin module.
 
 # Rate limit: resend-verification-email: 1 request per 600 seconds per IP
 @router.post("/resend-verification-email")

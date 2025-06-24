@@ -124,8 +124,14 @@ class UserInDB(BaseModel):
     backup_codes_used: Optional[List[int]] = None
     reset_blocklist: Optional[list] = Field(default_factory=list)
     reset_whitelist: Optional[list] = Field(default_factory=list)
-    abuse_flags: Optional[dict] = Field(default_factory=dict)
-    abuse_history: Optional[list] = Field(default_factory=list)
+    # The following legacy fields are deprecated and should not be used:
+    # abuse_flags: Optional[dict] = Field(default_factory=dict)
+    # abuse_history: Optional[list] = Field(default_factory=list)
+    #
+    # All abuse events and flags are now tracked in the reset_abuse_events collection (MongoDB)
+    # and managed via admin endpoints and service logic. These fields are retained for backward compatibility only.
+    #
+    # Remove or ignore these fields in new code. Use the new event-based system for all abuse review and escalation.
     """
     ---
     Password reset abuse prevention fields (MongoDB persistence):
@@ -133,38 +139,6 @@ class UserInDB(BaseModel):
       Example: ["127.0.0.1", "203.0.113.5"]
     - reset_whitelist: List of IPs (as strings) currently whitelisted for password reset for this user.
       Example: ["10.0.0.2"]
-    - abuse_flags: Dict mapping IPs to metadata about abuse events for this user.
-      Example:
-        {
-          "127.0.0.1": {
-            "blocked_until": "2025-06-24T12:00:00Z",
-            "reason": "too many reset attempts"
-          },
-          "203.0.113.5": {
-            "blocked_until": "2025-06-25T09:00:00Z",
-            "reason": "VPN/proxy detected"
-          }
-        }
-    - abuse_history: List of abuse events (dicts) for this user, each with timestamp, IP, reason, and optional action (e.g., block, warn, captcha).
-      Example:
-        [
-          {"timestamp": "2025-06-24T12:00:00Z", "ip": "127.0.0.1", "reason": "too many reset attempts", "action": "block"},
-          {"timestamp": "2025-06-25T09:00:00Z", "ip": "203.0.113.5", "reason": "VPN/proxy detected", "action": "warn"}
-        ]
-    ---
-    Repeated Violator Detection (strict):
-    - Instead of just counting unique IPs, we check for multiple abuse events from different IPs within a short time window (e.g., 10 minutes).
-    - If a user triggers abuse events from 3+ different IPs within 10 minutes, and those events overlap in time (simultaneous or near-simultaneous), flag as a repeated/automated violator.
-    - This reduces false positives from mobile/dynamic IPs, but still catches coordinated or automated abuse.
-    - Example MongoDB query to find users with 3+ abuse events from different IPs in the last 10 minutes:
-      db.users.aggregate([
-        { $match: { "abuse_history.timestamp": { $gte: ISODate(new Date(Date.now() - 10*60*1000).toISOString()) } } },
-        { $unwind: "$abuse_history" },
-        { $match: { "abuse_history.timestamp": { $gte: ISODate(new Date(Date.now() - 10*60*1000).toISOString()) } } },
-        { $group: { _id: "$email", unique_ips: { $addToSet: "$abuse_history.ip" }, count: { $sum: 1 } } },
-        { $match: { "unique_ips.2": { $exists: true } } } // users with 3+ unique IPs in window
-      ])
-    - You can also add a backend function to check this logic in Python for real-time detection.
     ---
     To add an event (example mongosh):
       db.users.updateOne({email: "user@example.com"}, {$push: {abuse_history: {timestamp: new Date().toISOString(), ip: "127.0.0.1", reason: "too many reset attempts", action: "block"}}})

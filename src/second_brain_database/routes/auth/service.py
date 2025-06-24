@@ -1230,18 +1230,118 @@ async def log_reset_abuse_event(
     }
     await collection.insert_one(doc)
 
-# TODO: Add admin endpoints to manage password reset whitelist/blocklist
-#   - POST /admin/whitelist-reset-pair {email, ip}
-#   - POST /admin/block-reset-pair {email, ip}
-#   - GET /admin/list-reset-whitelist
-#   - GET /admin/list-reset-blocklist
-#   - DELETE /admin/whitelist-reset-pair {email, ip}
-#   - DELETE /admin/block-reset-pair {email, ip}
+# --- Admin Management Endpoints for Password Reset Abuse ---
+# These functions are intended to be called from admin-only API endpoints (see routes.py).
+# They provide CRUD operations for the password reset whitelist/blocklist (Redis, fast path)
+# and abuse event review (MongoDB, persistent history).
 
-# --- Rate Limiting Tuning ---
-# Password reset endpoints are currently rate-limited via security_manager.check_rate_limit
-#   - Default: 100 requests per 60 seconds per IP (see routes.py)
-#   - Abuse detection thresholds (see detect_password_reset_abuse):
-#       - 8+ reset requests for the same email in 15 min = suspicious
-#       - 4+ unique IPs for the same email in 15 min = suspicious
-#   - These can be tuned as needed for production abuse patterns.
+# --- Whitelist/Blocklist Management (Redis, Fast Path) ---
+async def admin_add_whitelist_pair(email: str, ip: str) -> bool:
+    """
+    Add an (email, ip) pair to the password reset whitelist (Redis, fast path).
+    Returns True if added, False if already present.
+    """
+    redis_conn = await redis_manager.get_redis()
+    result = await redis_conn.sadd(WHITELIST_KEY, f"{email}:{ip}")
+    return bool(result)
+
+async def admin_remove_whitelist_pair(email: str, ip: str) -> bool:
+    """
+    Remove an (email, ip) pair from the password reset whitelist (Redis).
+    Returns True if removed, False if not present.
+    """
+    redis_conn = await redis_manager.get_redis()
+    result = await redis_conn.srem(WHITELIST_KEY, f"{email}:{ip}")
+    return bool(result)
+
+async def admin_list_whitelist_pairs() -> list:
+    """
+    List all (email, ip) pairs currently in the password reset whitelist (Redis).
+    Returns a list of dicts: [{"email": ..., "ip": ...}, ...]
+    """
+    redis_conn = await redis_manager.get_redis()
+    pairs = await redis_conn.smembers(WHITELIST_KEY)
+    result = []
+    for pair in pairs:
+        try:
+            email, ip = pair.split(":", 1)
+            result.append({"email": email, "ip": ip})
+        except Exception:
+            continue
+    return result
+
+async def admin_add_blocklist_pair(email: str, ip: str) -> bool:
+    """
+    Add an (email, ip) pair to the password reset blocklist (Redis, fast path).
+    Returns True if added, False if already present.
+    """
+    redis_conn = await redis_manager.get_redis()
+    result = await redis_conn.sadd(BLOCKLIST_KEY, f"{email}:{ip}")
+    return bool(result)
+
+async def admin_remove_blocklist_pair(email: str, ip: str) -> bool:
+    """
+    Remove an (email, ip) pair from the password reset blocklist (Redis).
+    Returns True if removed, False if not present.
+    """
+    redis_conn = await redis_manager.get_redis()
+    result = await redis_conn.srem(BLOCKLIST_KEY, f"{email}:{ip}")
+    return bool(result)
+
+async def admin_list_blocklist_pairs() -> list:
+    """
+    List all (email, ip) pairs currently in the password reset blocklist (Redis).
+    Returns a list of dicts: [{"email": ..., "ip": ...}, ...]
+    """
+    redis_conn = await redis_manager.get_redis()
+    pairs = await redis_conn.smembers(BLOCKLIST_KEY)
+    result = []
+    for pair in pairs:
+        try:
+            email, ip = pair.split(":", 1)
+            result.append({"email": email, "ip": ip})
+        except Exception:
+            continue
+    return result
+
+# --- Abuse Event Review (MongoDB, Persistent) ---
+async def admin_list_abuse_events(
+    email: str = None,
+    event_type: str = None,
+    resolved: bool = None,
+    limit: int = 100,
+) -> list:
+    """
+    List password reset abuse events for admin review (MongoDB, persistent).
+    Supports filtering by email, event_type ('self_abuse' or 'targeted_abuse'), and resolved status.
+    Returns a list of events sorted by timestamp (most recent first).
+    """
+    collection = db_manager.get_collection("reset_abuse_events")
+    query = {}
+    if email:
+        query["email"] = email
+    if event_type:
+        query["event_type"] = event_type
+    if resolved is not None:
+        query["resolved_by_admin"] = resolved
+    cursor = collection.find(query).sort("timestamp", -1).limit(limit)
+    events = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])  # Convert ObjectId for JSON
+        events.append(doc)
+    return events
+
+async def admin_resolve_abuse_event(event_id: str, notes: str = None) -> bool:
+    """
+    Mark a password reset abuse event as resolved by admin, with optional notes (MongoDB).
+    Returns True if updated, False if not found.
+    """
+    from bson import ObjectId
+    collection = db_manager.get_collection("reset_abuse_events")
+    result = await collection.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$set": {"resolved_by_admin": True, "notes": notes or ""}}
+    )
+    return result.modified_count > 0
+
+# --- End Admin Service Functions ---
