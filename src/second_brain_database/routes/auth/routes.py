@@ -550,16 +550,36 @@ async def is_verified(current_user: dict = Depends(get_current_user_dep), reques
 # Rate limit: validate-token: 100 requests per 60 seconds per IP (default)
 @router.get("/validate-token")
 async def validate_token(token: str = Depends(oauth2_scheme), request: Request = None):
-    """Validate a JWT access token and return validity status, only if user is verified and has client_side_encryption."""
+    """Validate a JWT access token and return user info if valid, matching login response fields (except token)."""
     await security_manager.check_rate_limit(request, "validate-token")
     try:
         user = await get_current_user(token)
-        if user.get("is_verified", False) and user.get("client_side_encryption", False):
-            return {"token": "valid"}
+        if user.get("is_verified", False):
+            # Parse token for issued_at and expires_at
+            from jose import jwt
+            secret_key = getattr(settings, "SECRET_KEY", None)
+            if hasattr(secret_key, "get_secret_value"):
+                secret_key = secret_key.get_secret_value()
+            payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM])
+            issued_at = int(payload.get("iat", 0))
+            expires_at = int(payload.get("exp", 0))
+            return {
+                "access_token": token,
+                # "token_type": "bearer",
+                "client_side_encryption": user.get("client_side_encryption", False),
+                "issued_at": issued_at,
+                "expires_at": expires_at,
+                "is_verified": user.get("is_verified", False),
+                "role": user.get("role", None),
+                "username": user.get("username", None),
+                "email": user.get("email", None)
+            }
         else:
-            return {"token": "invalid"}
-    except (HTTPException, ValueError):
-        return {"token": "invalid"}
+            return {"token": "invalid", "reason": "User is not verified"}
+    except HTTPException as e:
+        return {"token": "invalid", "reason": str(e.detail) if hasattr(e, 'detail') else str(e)}
+    except Exception as e:
+        return {"token": "invalid", "reason": str(e)}
 
 # Rate limit: 2fa-guide: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/guide")
@@ -884,7 +904,11 @@ async def reset_password_page(token: str):
 </body>
 </html>
     '''
-    html = html.replace("__TURNSTILE_SITEKEY__", settings.TURNSTILE_SITEKEY)
+    # Ensure TURNSTILE_SITEKEY is a string
+    sitekey = settings.TURNSTILE_SITEKEY
+    if hasattr(sitekey, "get_secret_value"):
+        sitekey = sitekey.get_secret_value()
+    html = html.replace("__TURNSTILE_SITEKEY__", sitekey)
     return HTMLResponse(content=html)
 
 @router.get("/confirm-reset-abuse", response_class=HTMLResponse)

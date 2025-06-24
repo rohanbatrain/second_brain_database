@@ -23,9 +23,10 @@ class DatabaseManager:
             try:
                 # Build connection string
                 if settings.MONGODB_USERNAME and settings.MONGODB_PASSWORD:
+                    password = settings.MONGODB_PASSWORD.get_secret_value() if hasattr(settings.MONGODB_PASSWORD, "get_secret_value") else settings.MONGODB_PASSWORD
                     connection_string = (
                         f"mongodb://{settings.MONGODB_USERNAME}:"
-                        f"{settings.MONGODB_PASSWORD}@"
+                        f"{password}@"
                         f"{settings.MONGODB_URL.replace('mongodb://', '')}"
                     )
                 else:

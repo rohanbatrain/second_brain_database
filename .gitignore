@@ -178,3 +178,4 @@ sbt_config.json
 .sbd_config
 *sbd_*
 .sbd
+*.sdb*

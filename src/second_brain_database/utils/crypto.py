@@ -15,14 +15,15 @@ def _get_encryption_key() -> bytes:
     Use the FERNET_KEY from settings for Fernet encryption.
     If the key is not already base64-encoded, encode it.
     """
-    key_material = settings.FERNET_KEY.encode('utf-8')
+    key_raw = settings.FERNET_KEY.get_secret_value() if hasattr(settings.FERNET_KEY, "get_secret_value") else settings.FERNET_KEY
+    key_material = key_raw.encode('utf-8')
     # Fernet requires a 32-byte base64-encoded key
     try:
         # Try to decode as base64; if it fails, hash and encode
         decoded = base64.urlsafe_b64decode(key_material)
         if len(decoded) == 32:
             return key_material
-    except Exception:
+    except (base64.binascii.Error, ValueError):
         pass
     # If not valid, hash and encode
     hashed_key = hashlib.sha256(key_material).digest()
@@ -82,8 +83,8 @@ def is_encrypted_totp_secret(secret: str) -> bool:
         # If it succeeds without errors, it's likely encrypted
         decrypt_totp_secret(secret)
         return True
-    except:
-        # If decryption fails, it's likely a plaintext secret
+    except (RuntimeError, ValueError) as e:
+        logger.debug("is_encrypted_totp_secret: decryption failed, treating as plaintext. Error: %s", e)
         return False
 
 def migrate_plaintext_secret(plaintext_secret: str) -> str:
