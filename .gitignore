@@ -177,3 +177,4 @@ sbt_config.json
 *.sbd_config
 .sbd_config
 *sbd_*
+.sbd

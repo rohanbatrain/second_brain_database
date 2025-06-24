@@ -20,6 +20,8 @@ import asyncio
 import json
 import logging
 from second_brain_database.database import db_manager
+from second_brain_database.routes.auth.service import reconcile_blocklist_whitelist
+from second_brain_database.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +52,31 @@ async def sync_password_reset_flags_to_redis():
             await redis_conn.set(f"abuse:reset:flagged:{email}:{ip}", json.dumps(meta), ex=900)
     logger.info("Password reset blocklist/whitelist/abuse_flags sync to Redis complete.")
 
-async def periodic_password_reset_flag_sync(interval=60):
+async def periodic_password_reset_flag_sync(interval=None):
     """
-    Run sync_password_reset_flags_to_redis every `interval` seconds.
+    Run sync_password_reset_flags_to_redis every `interval` seconds (from config if not provided).
     """
+    if interval is None:
+        interval = getattr(settings, "REDIS_FLAG_SYNC_INTERVAL", 60)
     while True:
         try:
             await sync_password_reset_flags_to_redis()
         except Exception as e:
-            logger.error(f"Error syncing password reset flags to Redis: {e}")
+            logger.error("Error syncing password reset flags to Redis: %s", e)
+        await asyncio.sleep(interval)
+
+async def periodic_blocklist_whitelist_reconcile(interval: int = None) -> None:
+    """
+    Periodically reconcile blocklist/whitelist between MongoDB and Redis (two-way sync).
+    Args:
+        interval (int): How often to run the reconciliation, in seconds. Default: from config or 300 (5 min)
+    Returns: None
+    """
+    if interval is None:
+        interval = getattr(settings, "BLOCKLIST_RECONCILE_INTERVAL", 300)
+    while True:
+        try:
+            await reconcile_blocklist_whitelist()
+        except Exception as e:
+            logger.error("Error during blocklist/whitelist reconciliation: %s", e)
         await asyncio.sleep(interval)

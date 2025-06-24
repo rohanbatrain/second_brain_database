@@ -28,7 +28,8 @@ from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
     setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, is_pair_whitelisted, is_pair_blocked
+    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, is_pair_whitelisted, is_pair_blocked,
+    reconcile_blocklist_whitelist
 )
 # Admin service functions are now in routes.admin.service
 from second_brain_database.database import db_manager
@@ -62,6 +63,10 @@ async def create_log_indexes():
     await logs.create_index([("username", ASCENDING)])
     await logs.create_index([("timestamp", DESCENDING)])
     await logs.create_index([("outcome", ASCENDING)])
+
+@router.on_event("startup")
+async def reconcile_blocklist_whitelist_on_startup():
+    await reconcile_blocklist_whitelist()
 
 # Rate limit: register: 100 requests per 60 seconds per IP (default)
 @router.post("/register", response_model=UserOut)

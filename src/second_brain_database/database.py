@@ -103,6 +103,16 @@ class DatabaseManager:
             # Create index on failed_login_attempts for account lockout queries
             await users_collection.create_index("failed_login_attempts")
 
+            # Add index for reset_blocklist and reset_whitelist (for abuse/abuse detection)
+            await users_collection.create_index("reset_blocklist")
+            await users_collection.create_index("reset_whitelist")
+
+            # Add TTL index for password_reset_token_expiry (auto-remove expired tokens)
+            await users_collection.create_index(
+                "password_reset_token_expiry",
+                expireAfterSeconds=0
+            )
+
             logger.info("Database indexes created successfully")
 
         except (ConnectionError, TimeoutError) as e:

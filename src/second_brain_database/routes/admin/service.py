@@ -10,10 +10,14 @@ from second_brain_database.routes.admin.models import AbuseEvent
 
 # --- Whitelist/Blocklist Management ---
 async def admin_add_whitelist_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$addToSet": {"reset_whitelist": ip}})
     redis_conn = await redis_manager.get_redis()
     return await redis_conn.sadd("abuse:reset:whitelist", f"{email}:{ip}")
 
 async def admin_remove_whitelist_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$pull": {"reset_whitelist": ip}})
     redis_conn = await redis_manager.get_redis()
     return await redis_conn.srem("abuse:reset:whitelist", f"{email}:{ip}")
 
@@ -23,10 +27,14 @@ async def admin_list_whitelist_pairs():
     return {"whitelist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
 
 async def admin_add_blocklist_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$addToSet": {"reset_blocklist": ip}})
     redis_conn = await redis_manager.get_redis()
     return await redis_conn.sadd("abuse:reset:blocklist", f"{email}:{ip}")
 
 async def admin_remove_blocklist_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$pull": {"reset_blocklist": ip}})
     redis_conn = await redis_manager.get_redis()
     return await redis_conn.srem("abuse:reset:blocklist", f"{email}:{ip}")
 
@@ -56,9 +64,13 @@ async def admin_resolve_abuse_event(event_id: str, notes: str = None):
 
 # --- Legacy direct pair management (for admin UI compatibility) ---
 async def whitelist_reset_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$addToSet": {"reset_whitelist": ip}})
     redis_conn = await redis_manager.get_redis()
     await redis_conn.sadd("abuse:reset:whitelist", f"{email}:{ip}")
 
 async def block_reset_pair(email: str, ip: str):
+    users = db_manager.get_collection("users")
+    await users.update_one({"email": email}, {"$addToSet": {"reset_blocklist": ip}})
     redis_conn = await redis_manager.get_redis()
     await redis_conn.sadd("abuse:reset:blocklist", f"{email}:{ip}")

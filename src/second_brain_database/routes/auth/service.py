@@ -33,6 +33,13 @@ from second_brain_database.utils.crypto import encrypt_totp_secret, decrypt_totp
 
 logger = logging.getLogger(__name__)
 
+STRICTER_WHITELIST_LIMIT = getattr(settings, "STRICTER_WHITELIST_LIMIT", 3)
+STRICTER_WHITELIST_PERIOD = getattr(settings, "STRICTER_WHITELIST_PERIOD", 86400)  # 24h
+ABUSE_ACTION_TOKEN_EXPIRY = getattr(settings, "ABUSE_ACTION_TOKEN_EXPIRY", 1800)  # 30 min
+ABUSE_ACTION_BLOCK_EXPIRY = getattr(settings, "ABUSE_ACTION_BLOCK_EXPIRY", 86400)  # 24h
+MAX_RESET_REQUESTS = getattr(settings, "MAX_RESET_REQUESTS", 8)
+MAX_RESET_UNIQUE_IPS = getattr(settings, "MAX_RESET_UNIQUE_IPS", 4)
+
 async def blacklist_token(user_id=None, token: str = None):
     """
     Blacklist all tokens for a user (by user_id) or a specific token.
@@ -432,8 +439,8 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
     """
     # --- Stricter rate limit for whitelisted pairs ---
     redis_conn = await redis_manager.get_redis()
-    stricter_limit = 3  # e.g., 3 resets per 24h for whitelisted pairs
-    stricter_period = 86400  # 24 hours in seconds
+    stricter_limit = STRICTER_WHITELIST_LIMIT
+    stricter_period = STRICTER_WHITELIST_PERIOD
     warning_message = ""
     abuse_message = ""
     if ip and await is_pair_whitelisted(email, ip):
@@ -461,7 +468,7 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
                 action_taken="blocked",
             )
             # Escalate to ban if repeated self_abuse (3+ times in a week)
-            if abuse_count >= 3:
+            if abuse_count >= STRICTER_WHITELIST_LIMIT:
                 await db_manager.get_collection("users").update_one(
                     {"email": email},
                     {"$set": {"is_active": False, "abuse_suspended": True, "abuse_suspended_at": datetime.utcnow()}}
@@ -911,7 +918,7 @@ async def log_password_reset_request(email: str, ip: str, user_agent: str, times
     await redis_conn.expire(pair_key, 900)   # 15 min TTL
 
 
-async def generate_abuse_action_token(email: str, ip: str, action: str, expiry_seconds: int = 1800) -> str:
+async def generate_abuse_action_token(email: str, ip: str, action: str, expiry_seconds: int = ABUSE_ACTION_TOKEN_EXPIRY) -> str:
     """
     Generate a secure, single-use, time-limited token for whitelist/block actions.
     Store in Redis with expiry.
@@ -954,8 +961,8 @@ async def notify_user_of_suspicious_reset(email: str, reasons: list, ip: str = N
     subject = "Suspicious Password Reset Attempt Detected"
     reason_list = "<ul>" + "".join(f"<li>{r}</li>" for r in reasons) + "</ul>"
     # Generate secure tokens for whitelist/block actions
-    whitelist_token = await generate_abuse_action_token(email, ip, "whitelist", expiry_seconds=1800)  # 30 min
-    block_token = await generate_abuse_action_token(email, ip, "block", expiry_seconds=86400)  # 24h
+    whitelist_token = await generate_abuse_action_token(email, ip, "whitelist", expiry_seconds=ABUSE_ACTION_TOKEN_EXPIRY)  # 30 min
+    block_token = await generate_abuse_action_token(email, ip, "block", expiry_seconds=ABUSE_ACTION_BLOCK_EXPIRY)  # 24h
     base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
     whitelist_link = f"{base_url}auth/confirm-reset-abuse?token={whitelist_token}"
     block_link = f"{base_url}auth/block-reset-abuse?token={block_token}"
@@ -978,12 +985,12 @@ async def notify_user_of_suspicious_reset(email: str, reasons: list, ip: str = N
         count = await redis_conn.get(key)
         if count is not None:
             count = int(count)
-            stricter_limit = 3
+            stricter_limit = STRICTER_WHITELIST_LIMIT
             if count >= stricter_limit:
                 warning_message = "<b>Warning:</b> You have exceeded the allowed number of password reset requests from this device in 24 hours. Further requests are blocked for 24 hours."
                 abuse_key = f"abuse:reset:whitelist_abuse:{email}:{ip}"
                 abuse_count = await redis_conn.get(abuse_key)
-                if abuse_count is not None and int(abuse_count) >= 3:
+                if abuse_count is not None and int(abuse_count) >= STRICTER_WHITELIST_LIMIT:
                     abuse_message = "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
                 elif count == stricter_limit - 1:
                     warning_message = "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
@@ -1067,8 +1074,8 @@ async def detect_password_reset_abuse(email: str, ip: str) -> dict:
         except Exception:
             continue
     # 3. Thresholds (tune as needed)
-    max_requests = 8  # e.g. 8+ resets in 15 min
-    max_unique_ips = 4  # e.g. 4+ unique IPs in 15 min
+    max_requests = MAX_RESET_REQUESTS  # e.g. 8+ resets in 15 min
+    max_unique_ips = MAX_RESET_UNIQUE_IPS  # e.g. 4+ unique IPs in 15 min
     if len(recent_requests) >= max_requests:
         suspicious = True
         reasons.append(f"High volume: {len(recent_requests)} reset requests in 15 min")
@@ -1344,4 +1351,35 @@ async def admin_resolve_abuse_event(event_id: str, notes: str = None) -> bool:
     )
     return result.modified_count > 0
 
-# --- End Admin Service Functions ---
+async def reconcile_blocklist_whitelist() -> None:
+    """
+    Make MongoDB the source of truth for blocklist/whitelist reconciliation.
+    - Redis will be updated to exactly match MongoDB.
+    - Any (email, ip) pair not present in MongoDB will be removed from Redis.
+    - Deleting from MongoDB will always remove from Redis on the next sync.
+    """
+    from second_brain_database.managers.redis_manager import redis_manager
+    redis_conn = await redis_manager.get_redis()
+    users = db_manager.get_collection("users")
+    changes = {"mongo_to_redis": 0, "redis_removed": 0}
+    for list_type in ["blocklist", "whitelist"]:
+        redis_key = f"abuse:reset:{list_type}"
+        # 1. Build set of all (email, ip) pairs in MongoDB for this list_type
+        mongo_pairs = set()
+        async for user in users.find({f"reset_{list_type}": {"$exists": True, "$ne": []}}):
+            email = user.get("email")
+            for ip in user.get(f"reset_{list_type}", []):
+                mongo_pairs.add(f"{email}:{ip}")
+        # 2. Get all pairs in Redis
+        redis_members = await redis_conn.smembers(redis_key)
+        redis_pairs = set(m.decode() if hasattr(m, 'decode') else m for m in redis_members)
+        # 3. Remove from Redis any pair not in MongoDB
+        for pair in redis_pairs - mongo_pairs:
+            await redis_conn.srem(redis_key, pair)
+            changes["redis_removed"] += 1
+        # 4. Add to Redis any pair in MongoDB not in Redis
+        for pair in mongo_pairs - redis_pairs:
+            await redis_conn.sadd(redis_key, pair)
+            changes["mongo_to_redis"] += 1
+    logger.info(json.dumps({"event": "blocklist_whitelist_reconcile", "changes": changes, "ts": datetime.utcnow().isoformat()}))
+    logger.info("Blocklist/whitelist reconciliation (MongoDB → Redis) complete.")

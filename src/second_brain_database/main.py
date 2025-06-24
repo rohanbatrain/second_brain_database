@@ -15,6 +15,7 @@ from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes import auth_router, main_router
 from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup
+from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,14 +39,21 @@ async def lifespan(_app: FastAPI):
 
     # Start periodic 2FA cleanup task
     cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
+    # Start periodic blocklist/whitelist reconciliation task
+    reconcile_task = asyncio.create_task(periodic_blocklist_whitelist_reconcile())
 
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
     cleanup_task.cancel()
+    reconcile_task.cancel()
     try:
         await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await reconcile_task
     except asyncio.CancelledError:
         pass
     await db_manager.disconnect()

@@ -7,6 +7,7 @@ Loads environment settings via Pydantic and dotenv.
 from typing import Optional
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
+from pydantic import SecretStr, ValidationError, field_validator
 
 load_dotenv()
 
@@ -28,22 +29,22 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8000"
 
     # JWT configuration (loaded from environment)
-    SECRET_KEY: str = "your-secret-key-change-this-in-production"
+    SECRET_KEY: SecretStr  # Must be set in .sbd or environment
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # MongoDB configuration (loaded from environment)
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    MONGODB_DATABASE: str = "second_brain_db"
+    MONGODB_URL: str  # Must be set in .sbd or environment
+    MONGODB_DATABASE: str
     MONGODB_CONNECTION_TIMEOUT: int = 10000
     MONGODB_SERVER_SELECTION_TIMEOUT: int = 5000
 
     # Authentication (optional)
     MONGODB_USERNAME: Optional[str] = None
-    MONGODB_PASSWORD: Optional[str] = None
+    MONGODB_PASSWORD: Optional[SecretStr] = None
 
     # Redis configuration
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str  # Must be set in .sbd or environment
 
     # Rate limiting configuration
     RATE_LIMIT_REQUESTS: int = 100
@@ -58,15 +59,37 @@ class Settings(BaseSettings):
     REPEATED_VIOLATOR_MIN_UNIQUE_IPS: int = 3  # Unique IPs required in window
 
     # Fernet encryption key (for TOTP secret encryption)
-    FERNET_KEY: str = "your-fernet-key-change-in-production"
+    FERNET_KEY: SecretStr  # Must be set in .sbd or environment
 
     # 2FA/Backup code config (loaded from .sbd if present)
     BACKUP_CODES_PENDING_TIME: int = 300  # 5 minutes
     BACKUP_CODES_CLEANUP_INTERVAL: int = 60  # 60 seconds by default
 
     # Cloudflare Turnstile config
-    TURNSTILE_SITEKEY: str = "1x00000000000000000000AA"  # Default, override in .sbd
-    TURNSTILE_SECRET: str = "1x0000000000000000000000000000000AA"  # Default, override in .sbd
+    TURNSTILE_SITEKEY: SecretStr  # Must be set in .sbd or environment
+    TURNSTILE_SECRET: SecretStr  # Must be set in .sbd or environment
+
+    # Password reset abuse/whitelist stricter limits
+    STRICTER_WHITELIST_LIMIT: int = 3  # Max resets per 24h for whitelisted pairs
+    STRICTER_WHITELIST_PERIOD: int = 86400  # 24h in seconds
+    ABUSE_ACTION_TOKEN_EXPIRY: int = 1800  # 30 min (seconds)
+    ABUSE_ACTION_BLOCK_EXPIRY: int = 86400  # 24h (seconds)
+    MAX_RESET_REQUESTS: int = 8  # Max reset requests in 15 min
+    MAX_RESET_UNIQUE_IPS: int = 4  # Max unique IPs in 15 min
+
+    @field_validator("SECRET_KEY", "FERNET_KEY", "TURNSTILE_SITEKEY", "TURNSTILE_SECRET", mode="before")
+    @classmethod
+    def no_hardcoded_secrets(cls, v, info):
+        if not v or "change" in str(v).lower() or "0000" in str(v) or str(v).strip() == "":
+            raise ValueError(f"{info.field_name} must be set via environment or .sbd and not hardcoded!")
+        return v
+
+    @field_validator("MONGODB_URL", "REDIS_URL", mode="before")
+    @classmethod
+    def no_empty_urls(cls, v, info):
+        if not v or str(v).strip() == "":
+            raise ValueError(f"{info.field_name} must be set via environment or .sbd and not empty!")
+        return v
 
 # Global settings instance
 settings = Settings()
