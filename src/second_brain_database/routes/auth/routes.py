@@ -42,17 +42,17 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 admin_api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
 
-# Dummy admin key check (replace with real auth in production)
-def is_admin(api_key: str = Security(admin_api_key_header)):
-    if api_key != getattr(settings, "ADMIN_API_KEY", "changeme"):
-        raise HTTPException(status_code=403, detail="Admin authentication required.")
-
 async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     """
     Dependency function to retrieve the current authenticated user
     based on the provided OAuth2 token.
     """
     return await get_current_user(token)
+
+async def require_admin(current_user: dict = Depends(get_current_user_dep)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    return current_user
 
 @router.on_event("startup")
 async def create_log_indexes():
@@ -385,44 +385,38 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
 
 # --- ADMIN ENDPOINTS FOR WHITELIST/BLOCKLIST MANAGEMENT ---
 @router.get("/admin/list-reset-whitelist")
-async def admin_list_reset_whitelist(api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_list_reset_whitelist(current_user: dict = Depends(require_admin)):
     from second_brain_database.managers.redis_manager import redis_manager
     redis_conn = await redis_manager.get_redis()
     members = await redis_conn.smembers("abuse:reset:whitelist")
     return {"whitelist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
 
 @router.get("/admin/list-reset-blocklist")
-async def admin_list_reset_blocklist(api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_list_reset_blocklist(current_user: dict = Depends(require_admin)):
     from second_brain_database.managers.redis_manager import redis_manager
     redis_conn = await redis_manager.get_redis()
     members = await redis_conn.smembers("abuse:reset:blocklist")
     return {"blocklist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
 
 @router.post("/admin/whitelist-reset-pair")
-async def admin_whitelist_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_whitelist_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
     await whitelist_reset_pair(email, ip)
     return {"message": f"Whitelisted {email}:{ip}"}
 
 @router.post("/admin/block-reset-pair")
-async def admin_block_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_block_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
     await block_reset_pair(email, ip)
     return {"message": f"Blocked {email}:{ip}"}
 
 @router.delete("/admin/whitelist-reset-pair")
-async def admin_remove_whitelist_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_remove_whitelist_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
     from second_brain_database.managers.redis_manager import redis_manager
     redis_conn = await redis_manager.get_redis()
     await redis_conn.srem("abuse:reset:whitelist", f"{email}:{ip}")
     return {"message": f"Removed {email}:{ip} from whitelist"}
 
 @router.delete("/admin/block-reset-pair")
-async def admin_remove_block_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
-    is_admin(api_key)
+async def admin_remove_block_reset_pair(email: str, ip: str, current_user: dict = Depends(require_admin)):
     from second_brain_database.managers.redis_manager import redis_manager
     redis_conn = await redis_manager.get_redis()
     await redis_conn.srem("abuse:reset:blocklist", f"{email}:{ip}")
