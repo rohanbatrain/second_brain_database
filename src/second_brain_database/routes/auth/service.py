@@ -226,8 +226,25 @@ async def register_user(user: UserIn):
     return user_doc, verification_token
 
 
+async def send_welcome_email(email: str, username: str = None):
+    """Send a personalized welcome email after user verifies their email."""
+    subject = "Welcome to Second Brain Database!"
+    display_name = username or "there"
+    html_content = f"""
+    <html><body>
+    <h2>Hey {display_name}, welcome and thank you for verifying your email!</h2>
+    <p>We’re excited to have you join the Second Brain Database community. Your account is now fully active, and you can start exploring all the features we offer to help you organize, secure, and supercharge your knowledge.</p>
+    <p>If you have any questions or need assistance, our team is here to help. Wishing you a productive and inspiring journey with us!</p>
+    <br>
+    <p>Best regards,<br>The Second Brain Database Team</p>
+    </body></html>
+    """
+    logger.info(f"[WELCOME EMAIL] To: {email}\nSubject: {subject}\nHTML:\n{html_content}")
+    await email_manager._send_via_console(email, subject, html_content)
+
+
 async def verify_user_email(token: str):
-    """Verify a user's email using the provided token."""
+    """Verify a user's email using the provided token and send a welcome email."""
     user = await db_manager.get_collection("users").find_one({"verification_token": token})
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification token.")
@@ -235,6 +252,8 @@ async def verify_user_email(token: str):
         {"_id": user["_id"]},
         {"$set": {"is_verified": True}, "$unset": {"verification_token": ""}}
     )
+    # Send welcome email after successful verification
+    await send_welcome_email(user["email"], user.get("username"))
     return user
 
 
