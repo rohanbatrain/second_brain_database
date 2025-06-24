@@ -16,8 +16,8 @@ password change, and password reset. All business logic is delegated to the serv
 """
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query, Security
+from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from second_brain_database.routes.auth.models import (
     UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
@@ -27,7 +27,8 @@ from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
     setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse
+    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, whitelist_reset_pair, block_reset_pair,
+    is_pair_whitelisted, is_pair_blocked
 )
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
@@ -38,6 +39,13 @@ logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+admin_api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
+
+# Dummy admin key check (replace with real auth in production)
+def is_admin(api_key: str = Security(admin_api_key_header)):
+    if api_key != getattr(settings, "ADMIN_API_KEY", "changeme"):
+        raise HTTPException(status_code=403, detail="Admin authentication required.")
 
 async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     """
@@ -319,6 +327,13 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
         request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         # Log the reset request for abuse detection
         await log_password_reset_request(email, ip, user_agent, request_time)
+        # Check if account is suspended
+        user = await db_manager.get_collection("users").find_one({"email": email})
+        if user and user.get("abuse_suspended", False):
+            raise HTTPException(status_code=403, detail="Account suspended due to repeated password reset abuse. Contact support.")
+        # Check if pair is blocked
+        if await is_pair_blocked(email, ip):
+            raise HTTPException(status_code=403, detail="Password reset requests from this device are temporarily blocked due to abuse. Try again later.")
         # Abuse detection logic
         abuse_result = await detect_password_reset_abuse(email, ip)
         # If suspicious, require CAPTCHA
@@ -345,7 +360,8 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
                 geo_data = geo.json()
                 location = f"{geo_data.get('city', '')}, {geo_data.get('country', '')}".strip(', ')
                 isp = geo_data.get('org')
-        except Exception:
+        except httpx.HTTPError as geo_exc:
+            logger.warning("GeoIP lookup failed for IP %s: %s", ip, geo_exc)
             location = None
             isp = None
         await send_password_reset_email(
@@ -357,12 +373,60 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
             isp=isp
         )
         return {"message": "Password reset email sent", "suspicious": abuse_result["suspicious"], "abuse_reasons": abuse_result["reasons"]}
+    except HTTPException as e:
+        logger.warning("Forgot password HTTP error for email %s: %s", email, e.detail)
+        raise
     except Exception as e:
-        logger.error("Forgot password failed for email %s: %s", email, e)
+        logger.error("Forgot password failed for email %s: %s", email, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate password reset"
         ) from e
+
+# --- ADMIN ENDPOINTS FOR WHITELIST/BLOCKLIST MANAGEMENT ---
+@router.get("/admin/list-reset-whitelist")
+async def admin_list_reset_whitelist(api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    from second_brain_database.managers.redis_manager import redis_manager
+    redis_conn = await redis_manager.get_redis()
+    members = await redis_conn.smembers("abuse:reset:whitelist")
+    return {"whitelist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
+
+@router.get("/admin/list-reset-blocklist")
+async def admin_list_reset_blocklist(api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    from second_brain_database.managers.redis_manager import redis_manager
+    redis_conn = await redis_manager.get_redis()
+    members = await redis_conn.smembers("abuse:reset:blocklist")
+    return {"blocklist": [m.decode() if hasattr(m, 'decode') else m for m in members]}
+
+@router.post("/admin/whitelist-reset-pair")
+async def admin_whitelist_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    await whitelist_reset_pair(email, ip)
+    return {"message": f"Whitelisted {email}:{ip}"}
+
+@router.post("/admin/block-reset-pair")
+async def admin_block_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    await block_reset_pair(email, ip)
+    return {"message": f"Blocked {email}:{ip}"}
+
+@router.delete("/admin/whitelist-reset-pair")
+async def admin_remove_whitelist_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    from second_brain_database.managers.redis_manager import redis_manager
+    redis_conn = await redis_manager.get_redis()
+    await redis_conn.srem("abuse:reset:whitelist", f"{email}:{ip}")
+    return {"message": f"Removed {email}:{ip} from whitelist"}
+
+@router.delete("/admin/block-reset-pair")
+async def admin_remove_block_reset_pair(email: str, ip: str, api_key: str = Security(admin_api_key_header)):
+    is_admin(api_key)
+    from second_brain_database.managers.redis_manager import redis_manager
+    redis_conn = await redis_manager.get_redis()
+    await redis_conn.srem("abuse:reset:blocklist", f"{email}:{ip}")
+    return {"message": f"Removed {email}:{ip} from blocklist"}
 
 # Rate limit: resend-verification-email: 1 request per 600 seconds per IP
 @router.post("/resend-verification-email")

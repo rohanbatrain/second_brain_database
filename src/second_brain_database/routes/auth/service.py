@@ -380,11 +380,41 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
         <li><b>ISP:</b> {isp or 'Unknown'}</li>
     </ul>
     """
+    # --- Stricter rate limit for whitelisted pairs ---
+    redis_conn = await redis_manager.get_redis()
+    stricter_limit = 3  # e.g., 3 resets per 24h for whitelisted pairs
+    stricter_period = 86400  # 24 hours in seconds
+    warning_message = ""
+    abuse_message = ""
+    if ip and await is_pair_whitelisted(email, ip):
+        key = f"abuse:reset:whitelist_limit:{email}:{ip}"
+        count = await redis_conn.incr(key)
+        if count == 1:
+            await redis_conn.expire(key, stricter_period)
+        if count > stricter_limit:
+            # Block further resets for 24h
+            await block_reset_pair(email, ip)
+            warning_message = "<b>Warning:</b> You have exceeded the allowed number of password reset requests from this device in 24 hours. Further requests are blocked for 24 hours."
+            # Track abuse for this pair
+            abuse_key = f"abuse:reset:whitelist_abuse:{email}:{ip}"
+            abuse_count = await redis_conn.incr(abuse_key)
+            if abuse_count == 1:
+                await redis_conn.expire(abuse_key, 604800)  # 1 week
+            if abuse_count >= 3:
+                # Suspend account and mark IP for abuse
+                await db_manager.get_collection("users").update_one({"email": email}, {"$set": {"is_active": False, "abuse_suspended": True, "abuse_suspended_at": datetime.utcnow()}})
+                abuse_message = "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
+                # Optionally, add IP to a global abuse set
+                await redis_conn.sadd("abuse:reset:abuse_ips", ip)
+        elif count == stricter_limit:
+            warning_message = "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
     html_content = f"""
     <html>
     <body>
         <h2>Password Reset Requested</h2>
         <p>We received a request to reset your password.</p>
+        {warning_message}
+        {abuse_message}
         <b>Request details:</b>
         {meta}
         <p>If this was <b>you</b>, click the button below to reset your password:</p>
@@ -867,10 +897,30 @@ async def notify_user_of_suspicious_reset(email: str, reasons: list, ip: str = N
         <li><b>ISP:</b> {isp or 'Unknown'}</li>
     </ul>
     """
+    # Add warnings for stricter rate limit and possible suspension
+    redis_conn = await redis_manager.get_redis()
+    warning_message = ""
+    abuse_message = ""
+    if ip and await is_pair_whitelisted(email, ip):
+        key = f"abuse:reset:whitelist_limit:{email}:{ip}"
+        count = await redis_conn.get(key)
+        if count is not None:
+            count = int(count)
+            stricter_limit = 3
+            if count >= stricter_limit:
+                warning_message = "<b>Warning:</b> You have exceeded the allowed number of password reset requests from this device in 24 hours. Further requests are blocked for 24 hours."
+                abuse_key = f"abuse:reset:whitelist_abuse:{email}:{ip}"
+                abuse_count = await redis_conn.get(abuse_key)
+                if abuse_count is not None and int(abuse_count) >= 3:
+                    abuse_message = "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
+                elif count == stricter_limit - 1:
+                    warning_message = "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
     html_content = f"""
     <html><body>
     <h2>Suspicious Password Reset Attempt</h2>
     <p>We detected a suspicious password reset attempt for your account.</p>
+    {warning_message}
+    {abuse_message}
     <b>Details:</b>
     {reason_list}
     <b>Request metadata:</b>
