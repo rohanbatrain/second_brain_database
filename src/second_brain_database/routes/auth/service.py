@@ -412,6 +412,21 @@ async def send_verification_email(email: str, verification_link: str, username: 
 
 async def send_password_reset_email(email: str, ip=None, user_agent=None, request_time=None, location=None, isp=None):
     """Send a password reset email with metadata and a real token (hashed in DB)."""
+    redis_conn = await redis_manager.get_redis()
+    # Individual and combined rate limit keys
+    fp_key = f"forgot_password:{email}"
+    rv_key = f"resend_verification:{email}"
+    combined_key = f"combined_reset_verify:{email}"
+    # Increment all relevant counters
+    fp_count = await redis_conn.incr(fp_key)
+    if fp_count == 1:
+        await redis_conn.expire(fp_key, 60)
+    combined_count = await redis_conn.incr(combined_key)
+    if combined_count == 1:
+        await redis_conn.expire(combined_key, 60)
+    # Check limits: individual and combined
+    if fp_count > 2 or combined_count > 3:
+        return {"message": "Password reset email did not sent"}
     base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
     user = await db_manager.get_collection("users").find_one({"email": email})
     if not user:
@@ -525,6 +540,21 @@ async def resend_verification_email_service(email: str = None, username: str = N
     if not email and not username:
         raise HTTPException(status_code=400, detail="Email or username required.")
     user = None
+    identifier = email or username
+    redis_conn = await redis_manager.get_redis()
+    # Individual and combined rate limit keys
+    rv_key = f"resend_verification:{identifier}"
+    fp_key = f"forgot_password:{identifier}"
+    combined_key = f"combined_reset_verify:{identifier}"
+    rv_count = await redis_conn.incr(rv_key)
+    if rv_count == 1:
+        await redis_conn.expire(rv_key, 60)
+    combined_count = await redis_conn.incr(combined_key)
+    if combined_count == 1:
+        await redis_conn.expire(combined_key, 60)
+    # Check limits: individual and combined
+    if rv_count > 2 or combined_count > 3:
+        return {"message": "Verification email did not sent"}
     if email:
         user = await db_manager.get_collection("users").find_one({"email": email})
     elif username:
@@ -562,7 +592,14 @@ async def create_access_token(data: dict) -> str:
         if user:
             token_version = user.get("token_version", 0)
             to_encode["token_version"] = token_version
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    secret_key = getattr(settings, "SECRET_KEY", None)
+    # If it's a SecretStr, extract the value
+    if hasattr(secret_key, "get_secret_value"):
+        secret_key = secret_key.get_secret_value()
+    if not isinstance(secret_key, (str, bytes)) or not secret_key:
+        logger.error("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
+        raise RuntimeError("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
+    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 
@@ -580,7 +617,13 @@ async def get_current_user(token: str) -> dict:
                 detail="Token is blacklisted",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        secret_key = getattr(settings, "SECRET_KEY", None)
+        if hasattr(secret_key, "get_secret_value"):
+            secret_key = secret_key.get_secret_value()
+        if not isinstance(secret_key, (str, bytes)) or not secret_key:
+            logger.error("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
+            raise credentials_exception
+        payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
         token_version_claim = payload.get("token_version")
         if username is None:
