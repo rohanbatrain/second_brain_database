@@ -60,5 +60,9 @@ class Settings(BaseSettings):
     BACKUP_CODES_PENDING_TIME: int = 300  # 5 minutes
     BACKUP_CODES_CLEANUP_INTERVAL: int = 60  # 60 seconds by default
 
+    # Cloudflare Turnstile config
+    TURNSTILE_SITEKEY: str = "1x00000000000000000000AA"  # Default, override in .sbd
+    TURNSTILE_SECRET: str = "1x0000000000000000000000000000000AA"  # Default, override in .sbd
+
 # Global settings instance
 settings = Settings()

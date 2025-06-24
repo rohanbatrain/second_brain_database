@@ -3,7 +3,7 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=false
 
-BASE_URL=app.sbd.rohanbatra.in
+BASE_URL=dev-app-sbd.rohanbatra.in
 
 # MongoDB Configuration
 MONGODB_URL=mongodb://localhost:27017
@@ -37,3 +37,7 @@ BLACKLIST_DURATION=3600
 # 2FA/Backup code cleanup
 BACKUP_CODES_PENDING_TIME=300
 BACKUP_CODES_CLEANUP_INTERVAL=60
+
+# Cloudflare Turnstile
+TURNSTILE_SITEKEY=0x4AAAAAABiCoZ5mZaTYj4aw
+TURNSTILE_SECRET=0x4AAAAAABiCoRbP-nNK1KOWs6ScVw9hffs

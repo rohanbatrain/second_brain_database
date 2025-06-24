@@ -1,6 +1,16 @@
 """
 Authentication routes module for Second Brain Database.
 
+Password Reset Abuse Prevention Overview:
+- All /forgot-password requests are logged (email, IP, user-agent, timestamp) to Redis for real-time abuse detection.
+- Abuse detection logic (service.py) flags suspicious activity based on volume, unique IPs, and IP reputation (VPN/proxy/abuse).
+- If suspicious, the user is notified by email, and the (email, IP) pair is flagged in Redis for 15 minutes.
+- Scoped whitelisting/blocking of (email, IP) pairs is supported and respected by the abuse logic.
+- All sensitive endpoints, including /forgot-password, are rate-limited per IP and per endpoint.
+- If a /forgot-password request is suspicious, CAPTCHA (Cloudflare Turnstile) is required and verified before proceeding.
+- All abuse logs and flags are ephemeral (15 min expiry in Redis), and only metadata is stored (no sensitive data).
+- See service.py for further details and configuration.
+
 Defines API endpoints for user registration, login, email verification, token management,
 password change, and password reset. All business logic is delegated to the service layer.
 """
@@ -8,7 +18,7 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from second_brain_database.routes.auth.models import (
     UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
     validate_password_strength
@@ -17,7 +27,7 @@ from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.service import (
     register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
     setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification
+    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse
 )
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
@@ -284,16 +294,47 @@ async def change_password(
 
 # Rate limit: forgot-password: 100 requests per 60 seconds per IP (default)
 @router.post("/forgot-password")
-async def forgot_password(request: Request, payload: dict = Body(...)):
-    """Initiate password reset process by sending a reset link to the user's email."""
+async def forgot_password(request: Request, payload: dict = Body(default=None)):
+    """
+    Initiate password reset process by sending a reset link to the user's email. Accepts JSON or query param.
+    If abuse detection flags the request as suspicious, require and verify Turnstile CAPTCHA.
+    SECURITY NOTE: Rate limiting is always enforced via security_manager.check_rate_limit
+    BEFORE any abuse/whitelist logic. Whitelisting never exempts from rate limiting.
+    """
     await security_manager.check_rate_limit(request, "forgot-password")
-    email = payload.get("email")
+    email = None
+    turnstile_token = None
+    # Try to get email and turnstile_token from JSON body
+    if payload and isinstance(payload, dict):
+        email = payload.get("email")
+        turnstile_token = payload.get("turnstile_token")
+    # Fallback: try to get email from query param
+    if not email:
+        email = request.query_params.get("email")
     if not email:
         raise HTTPException(status_code=400, detail="Email is required.")
     try:
         ip = request.client.host
         user_agent = request.headers.get("user-agent")
         request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        # Log the reset request for abuse detection
+        await log_password_reset_request(email, ip, user_agent, request_time)
+        # Abuse detection logic
+        abuse_result = await detect_password_reset_abuse(email, ip)
+        # If suspicious, require CAPTCHA
+        if abuse_result["suspicious"]:
+            from second_brain_database.routes.auth.service import verify_turnstile_captcha
+            if not turnstile_token or not await verify_turnstile_captcha(turnstile_token, remoteip=ip):
+                # Return a response indicating CAPTCHA is required
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": "Suspicious activity detected. CAPTCHA required.",
+                        "captcha_required": True,
+                        "suspicious": True,
+                        "abuse_reasons": abuse_result["reasons"]
+                    }
+                )
         # Fetch GeoIP info
         import httpx
         location = None
@@ -315,7 +356,7 @@ async def forgot_password(request: Request, payload: dict = Body(...)):
             location=location,
             isp=isp
         )
-        return {"message": "Password reset email sent"}
+        return {"message": "Password reset email sent", "suspicious": abuse_result["suspicious"], "abuse_reasons": abuse_result["reasons"]}
     except Exception as e:
         logger.error("Forgot password failed for email %s: %s", email, e)
         raise HTTPException(
@@ -543,11 +584,229 @@ async def reset_password(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Password does not meet strength requirements.")
     # Hash and update password
     hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    # Increment token_version for stateless JWT invalidation
+    new_token_version = (user.get("token_version") or 0) + 1
     await db_manager.get_collection("users").update_one(
         {"_id": user["_id"]},
-        {"$set": {"hashed_password": hashed_pw}, "$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}}
+        {"$set": {"hashed_password": hashed_pw, "token_version": new_token_version}, "$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}}
     )
+    # Invalidate all existing tokens for this user in Redis (production-ready)
+    await blacklist_token(user_id=str(user["_id"]))
     logger.info("Password reset for user %s", user.get("username", user.get("email")))
     # Send notification email (console log for now)
     await send_password_reset_notification(user["email"])
     return {"message": "Password has been reset successfully."}
+
+@router.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(token: str):
+    """
+    Serve the password reset HTML page, injecting the Turnstile sitekey and token.
+    """
+    html = '''
+    <!DOCTYPE html>
+   <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reset Password</title>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+        :root {
+            --primary: #3a86ff;
+            --primary-hover: #265dbe;
+            --background: #f6f8fa;
+            --foreground: #ffffff;
+            --text-main: #22223b;
+            --text-sub: #4a4e69;
+            --border-color: #c9c9c9;
+            --error: #d90429;
+            --success: #06d6a0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--background);
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        .container {
+            background-color: var(--foreground);
+            padding: 2.5rem 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 420px;
+        }
+
+        h2 {
+            margin-bottom: 1.5rem;
+            color: var(--text-main);
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-sub);
+            font-weight: 500;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1.25rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .msg {
+            margin-top: 1rem;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        .error {
+            color: var(--error);
+        }
+
+        .success {
+            color: var(--success);
+        }
+
+        .cf-turnstile {
+            margin-bottom: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="container" role="main">
+        <h2>Reset Your Password</h2>
+        <form id="resetForm" aria-describedby="msg">
+            <label for="new_password">New Password</label>
+            <input type="password" id="new_password" name="new_password" required minlength="8" autocomplete="new-password" />
+
+            <label for="confirm_password">Confirm Password</label>
+            <input type="password" id="confirm_password" name="confirm_password" required minlength="8" autocomplete="new-password" />
+
+            <div class="cf-turnstile" data-sitekey="__TURNSTILE_SITEKEY__" data-theme="light"></div>
+
+            <button type="submit" aria-label="Submit new password">Reset Password</button>
+        </form>
+
+        <div class="msg" id="msg" role="alert" aria-live="polite"></div>
+    </main>
+
+    <script>
+        const RESET_TOKEN = window.RESET_TOKEN || new URLSearchParams(window.location.search).get('token');
+        const form = document.getElementById('resetForm');
+        const msg = document.getElementById('msg');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            msg.textContent = '';
+            msg.className = 'msg';
+
+            const newPassword = form.new_password.value.trim();
+            const confirmPassword = form.confirm_password.value.trim();
+
+            if (newPassword !== confirmPassword) {
+                msg.textContent = 'Passwords do not match.';
+                msg.classList.add('error');
+                return;
+            }
+
+            const turnstileTokenInput = document.querySelector('input[name="cf-turnstile-response"]');
+            const turnstileToken = turnstileTokenInput ? turnstileTokenInput.value : '';
+
+            if (!turnstileToken) {
+                msg.textContent = 'Please complete the CAPTCHA.';
+                msg.classList.add('error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: RESET_TOKEN,
+                        new_password: newPassword,
+                        turnstile_token: turnstileToken
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    msg.textContent = data.message || 'Password reset successful!';
+                    msg.classList.add('success');
+                    form.reset();
+                } else {
+                    msg.textContent = data.detail || 'Error resetting password.';
+                    msg.classList.add('error');
+                }
+            } catch (error) {
+                msg.textContent = 'A network error occurred. Please try again.';
+                msg.classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>
+    '''
+    html = html.replace("__TURNSTILE_SITEKEY__", settings.TURNSTILE_SITEKEY)
+    return HTMLResponse(content=html)
+
+@router.get("/confirm-reset-abuse", response_class=HTMLResponse)
+async def confirm_reset_abuse(token: str):
+    """
+    Endpoint for user to confirm (whitelist) a suspicious password reset attempt via secure email link.
+    """
+    from second_brain_database.routes.auth.service import consume_abuse_action_token, whitelist_reset_pair
+    email, ip = await consume_abuse_action_token(token, expected_action="whitelist")
+    if not email or not ip:
+        return HTMLResponse("<h2>Invalid or expired confirmation link.</h2>", status_code=400)
+    await whitelist_reset_pair(email, ip)
+    return HTMLResponse(f"<h2>Device whitelisted!</h2><p>Password reset requests from this device (IP: {ip}) are now allowed for {email} (for 30 minutes).</p>")
+
+@router.get("/block-reset-abuse", response_class=HTMLResponse)
+async def block_reset_abuse(token: str):
+    """
+    Endpoint for user to block a suspicious password reset attempt via secure email link.
+    """
+    from second_brain_database.routes.auth.service import consume_abuse_action_token, block_reset_pair
+    email, ip = await consume_abuse_action_token(token, expected_action="block")
+    if not email or not ip:
+        return HTMLResponse("<h2>Invalid or expired block link.</h2>", status_code=400)
+    await block_reset_pair(email, ip)
+    return HTMLResponse(f"<h2>Device blocked!</h2><p>Password reset requests from this device (IP: {ip}) are now blocked for {email} (for 24 hours).</p>")

@@ -12,3 +12,4 @@ redis
 qrcode[pil]
 bcrypt
 cryptography
+httpx

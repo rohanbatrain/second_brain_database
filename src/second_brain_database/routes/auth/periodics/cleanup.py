@@ -1,11 +1,11 @@
 """
-Background task for automatic cleanup of expired 2FA pending states and backup codes.
+Background task for automatic cleanup of expired 2FA pending states, backup codes, and password reset tokens.
 
 - The interval for cleanup runs is set by BACKUP_CODES_CLEANUP_INTERVAL (in seconds) from config/.sbd.
 - The expiration time for pending 2FA states is set by BACKUP_CODES_PENDING_TIME (in seconds) from config/.sbd.
 - The last cleanup time is tracked in the 'system' collection (MongoDB) for resilience across restarts.
 - On each run, users with 'two_fa_pending=True' are checked; if their pending state is older than BACKUP_CODES_PENDING_TIME, it is cleared.
-- This ensures expired 2FA states are removed promptly and reliably, even after restarts or failures.
+- Expired password reset tokens are also removed promptly and reliably, even after restarts or failures.
 """
 import asyncio
 import logging
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def get_last_cleanup_time():
     """
-    Retrieve the last time the 2FA cleanup task ran from the 'system' collection.
+    Retrieve the last time the cleanup task ran from the 'system' collection.
     Returns a datetime object or None if not set.
     """
     try:
@@ -50,9 +50,11 @@ async def set_last_cleanup_time(dt):
 async def periodic_2fa_cleanup():
     """
     Periodically scan for users with expired 2FA pending states and clean them up.
+    Also removes expired password reset tokens from user records.
     - Runs every BACKUP_CODES_CLEANUP_INTERVAL seconds (from config/.sbd).
     - For each user with 'two_fa_pending=True', checks if their pending state is older than BACKUP_CODES_PENDING_TIME.
     - If so, clears the pending state and backup codes.
+    - Removes expired password reset tokens.
     - Updates the last cleanup time in the 'system' collection for failsafe recovery.
     """
     interval = settings.BACKUP_CODES_CLEANUP_INTERVAL
@@ -66,6 +68,7 @@ async def periodic_2fa_cleanup():
                 users = db_manager.get_collection("users")
                 cleanup_count = 0
                 
+                # 2FA cleanup
                 async for user in users.find({"$or": [
                     {"two_fa_pending": True},
                     {"two_fa_enabled": False, "$or": [
@@ -97,13 +100,21 @@ async def periodic_2fa_cleanup():
                         logger.error("Error cleaning up 2FA for user %s: %s", 
                                    user.get('username', 'unknown'), e)
                 
+                # Password reset token cleanup
+                result = await users.update_many(
+                    {"password_reset_token_expiry": {"$exists": True, "$lt": now.isoformat()}},
+                    {"$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}}
+                )
+                if result.modified_count > 0:
+                    logger.info("Password reset token cleanup: removed %d expired tokens", result.modified_count)
+                
                 await set_last_cleanup_time(now)
                 
                 if cleanup_count > 0:
                     logger.info("2FA cleanup completed: cleaned up %d expired pending states", cleanup_count)
                     
         except Exception as e:
-            logger.error("Error in periodic 2FA cleanup task: %s", e)
+            logger.error("Error in periodic cleanup task: %s", e)
             
         finally:
             # Always sleep, even if there was an error

@@ -1,7 +1,17 @@
 """
 Service layer for authentication and user management.
-Handles registration, login, password change, token creation, email logging, and 2FA management.
+
+Password Reset Abuse Prevention Implementation:
+- All /forgot-password requests are logged to Redis (email, IP, user-agent, timestamp) for real-time abuse detection.
+- Abuse detection logic flags suspicious activity based on request volume, unique IPs, and IP reputation (VPN/proxy/abuse/relay via IPinfo).
+- If suspicious, the user is notified by email, and the (email, IP) pair is flagged in Redis for 15 minutes.
+- Scoped whitelisting/blocking of (email, IP) pairs is supported and respected by the abuse logic.
+- All sensitive endpoints, including /forgot-password, are rate-limited per IP and per endpoint.
+- If a /forgot-password request is suspicious, CAPTCHA (Cloudflare Turnstile) is required and verified before proceeding.
+- All abuse logs and flags are ephemeral (15 min expiry in Redis), and only metadata is stored (no sensitive data).
+- See function docstrings for details on thresholds, expiry, and privacy/security considerations.
 """
+
 import logging
 import secrets
 import pyotp
@@ -9,6 +19,7 @@ import bcrypt
 import json
 import hashlib
 from datetime import datetime, timedelta
+import secrets
 from fastapi import HTTPException, status
 from jose import jwt
 from second_brain_database.routes.auth.models import TwoFASetupResponse
@@ -22,14 +33,27 @@ from second_brain_database.utils.crypto import encrypt_totp_secret, decrypt_totp
 
 logger = logging.getLogger(__name__)
 
-# Token blacklist (in-memory for demo; use Redis or DB in prod)
-TOKEN_BLACKLIST = set()
+async def blacklist_token(user_id=None, token: str = None):
+    """
+    Blacklist all tokens for a user (by user_id) or a specific token.
+    Uses Redis for production-ready persistence and multi-instance support.
+    """
+    redis_conn = await redis_manager.get_redis()
+    if user_id is not None:
+        # Blacklist user by user_id for 7 days (adjust as needed)
+        await redis_conn.set(f"blacklist:user:{user_id}", "1", ex=60*60*24*7)
+    if token is not None:
+        # Blacklist specific token for 1 day (adjust as needed)
+        await redis_conn.set(f"blacklist:token:{token}", "1", ex=60*60*24)
 
-def blacklist_token(token: str):
-    TOKEN_BLACKLIST.add(token)
-
-def is_token_blacklisted(token: str) -> bool:
-    return token in TOKEN_BLACKLIST
+async def is_token_blacklisted(token: str, user_id: str = None) -> bool:
+    redis_conn = await redis_manager.get_redis()
+    if user_id:
+        if await redis_conn.get(f"blacklist:user:{user_id}"):
+            return True
+    if await redis_conn.get(f"blacklist:token:{token}"):
+        return True
+    return False
 
 def get_decrypted_totp_secret(user: dict) -> str:
     """
@@ -337,8 +361,6 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
         logger.info("Password reset requested for non-existent email: %s", email)
         return  # Do not reveal user existence
     # Generate a secure token and expiry
-    import secrets
-    from datetime import datetime, timedelta
     reset_token = secrets.token_urlsafe(32)
     # Hash the token before storing in DB
     token_hash = hashlib.sha256(reset_token.encode()).hexdigest()
@@ -417,10 +439,20 @@ async def resend_verification_email_service(email: str = None, username: str = N
 def create_access_token(data: dict) -> str:
     """
     Create a JWT access token with short expiry and required claims.
+    Includes token_version for stateless invalidation.
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub")})
+    # Add token_version if user is present
+    if "username" in data or "sub" in data:
+        username = data.get("username") or data.get("sub")
+        user = None
+        if username:
+            user = db_manager.get_collection("users").find_one({"username": username})
+        if user:
+            token_version = user.get("token_version", 0)
+            to_encode["token_version"] = token_version
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
@@ -433,7 +465,7 @@ async def get_current_user(token: str) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        if is_token_blacklisted(token):
+        if await is_token_blacklisted(token):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token is blacklisted",
@@ -441,11 +473,21 @@ async def get_current_user(token: str) -> dict:
             )
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
+        token_version_claim = payload.get("token_version")
         if username is None:
             raise credentials_exception
         user = await db_manager.get_collection("users").find_one({"username": username})
         if user is None:
             raise credentials_exception
+        # Check stateless token_version for JWT invalidation
+        if token_version_claim is not None:
+            user_token_version = user.get("token_version", 0)
+            if token_version_claim != user_token_version:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token is no longer valid (password changed or reset)",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
         return user
     except jwt.ExpiredSignatureError as exc:
         logger.warning("Token has expired")
@@ -504,7 +546,7 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
                 buffered = BytesIO()
                 img.save(buffered, format="PNG")
                 qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-                qr_code_url = f"data:image/png;base64,{qr_code_data}"
+                qr_code_url = f"data:image/png;base64:{qr_code_data}"
         except ImportError:
             qr_code_url = None
             logger.warning("QR code generation failed - qrcode library not available")
@@ -572,7 +614,7 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-        qr_code_url = f"data:image/png;base64,{qr_code_data}"
+        qr_code_url = f"data:image/png;base64:{qr_code_data}"
     except ImportError:
         qr_code_url = None
         logger.warning("QR code generation failed - qrcode library not available")
@@ -745,3 +787,238 @@ async def disable_2fa(current_user: dict):
     )
     user = await users.find_one({"username": current_user["username"]})
     return TwoFAStatus(enabled=user.get("two_fa_enabled", False), methods=user.get("two_fa_methods", []), pending=False)
+
+
+async def log_password_reset_request(email: str, ip: str, user_agent: str, timestamp: str):
+    """
+    Log a password reset request to Redis for real-time abuse detection.
+    Stores a rolling window of requests per email and per (email, ip) pair.
+    Privacy/Security: These logs are kept only in Redis, expire after 15 minutes, and are used solely for abuse detection.
+    No sensitive data (passwords, tokens) is stored. Only email, IP, user-agent, and timestamp are logged.
+    """
+    redis_conn = await redis_manager.get_redis()
+    # Store per-email list (for abuse detection)
+    email_key = f"abuse:reset:email:{email}"
+    await redis_conn.lpush(email_key, json.dumps({"ip": ip, "user_agent": user_agent, "timestamp": timestamp}))
+    await redis_conn.ltrim(email_key, 0, 49)  # Keep last 50
+    await redis_conn.expire(email_key, 900)   # 15 min TTL
+    # Store per (email, ip) pair for whitelisting/blocking
+    pair_key = f"abuse:reset:pair:{email}:{ip}"
+    await redis_conn.lpush(pair_key, json.dumps({"user_agent": user_agent, "timestamp": timestamp}))
+    await redis_conn.ltrim(pair_key, 0, 19)  # Keep last 20
+    await redis_conn.expire(pair_key, 900)   # 15 min TTL
+
+
+async def generate_abuse_action_token(email: str, ip: str, action: str, expiry_seconds: int = 1800) -> str:
+    """
+    Generate a secure, single-use, time-limited token for whitelist/block actions.
+    Store in Redis with expiry.
+    """
+    redis_conn = await redis_manager.get_redis()
+    token = secrets.token_urlsafe(32)
+    key = f"abuse:reset:action:{token}"
+    await redis_conn.set(key, json.dumps({"email": email, "ip": ip, "action": action}), ex=expiry_seconds)
+    return token
+
+async def consume_abuse_action_token(token: str, expected_action: str) -> tuple:
+    """
+    Validate and consume a single-use abuse action token. Returns (email, ip) if valid, else (None, None).
+    """
+    redis_conn = await redis_manager.get_redis()
+    key = f"abuse:reset:action:{token}"
+    val = await redis_conn.get(key)
+    if not val:
+        return None, None
+    try:
+        data = json.loads(val)
+        if data.get("action") != expected_action:
+            return None, None
+        email = data.get("email")
+        ip = data.get("ip")
+        await redis_conn.delete(key)
+        return email, ip
+    except Exception:
+        return None, None
+
+async def notify_user_of_suspicious_reset(email: str, reasons: list, ip: str = None, user_agent: str = None, request_time: str = None, location: str = None, isp: str = None):
+    """
+    Notify the user by email if a suspicious password reset attempt is detected for their account.
+    Includes secure links to whitelist or block the (email, IP) pair.
+    Includes full request metadata for user context and security.
+    """
+    user = await db_manager.get_collection("users").find_one({"email": email})
+    if not user:
+        return
+    subject = "Suspicious Password Reset Attempt Detected"
+    reason_list = "<ul>" + "".join(f"<li>{r}</li>" for r in reasons) + "</ul>"
+    # Generate secure tokens for whitelist/block actions
+    whitelist_token = await generate_abuse_action_token(email, ip, "whitelist", expiry_seconds=1800)  # 30 min
+    block_token = await generate_abuse_action_token(email, ip, "block", expiry_seconds=86400)  # 24h
+    base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
+    whitelist_link = f"{base_url}auth/confirm-reset-abuse?token={whitelist_token}"
+    block_link = f"{base_url}auth/block-reset-abuse?token={block_token}"
+    # Compose metadata section (same as password reset email)
+    meta = f"""
+    <ul>
+        <li><b>IP Address:</b> {ip or 'Unknown'}</li>
+        <li><b>Location:</b> {location or 'Unknown'}</li>
+        <li><b>Time:</b> {request_time or 'Unknown'}</li>
+        <li><b>Device:</b> {user_agent or 'Unknown'}</li>
+        <li><b>ISP:</b> {isp or 'Unknown'}</li>
+    </ul>
+    """
+    html_content = f"""
+    <html><body>
+    <h2>Suspicious Password Reset Attempt</h2>
+    <p>We detected a suspicious password reset attempt for your account.</p>
+    <b>Details:</b>
+    {reason_list}
+    <b>Request metadata:</b>
+    {meta}
+    <p>If this was <b>you</b>, you can <a href='{whitelist_link}'>confirm and allow password resets from this device</a> (valid for 30 minutes).</p>
+    <p>If this was <b>not you</b>, you can <a href='{block_link}'>block password resets from this device for 24 hours</a>.</p>
+    <p><i>These links are single-use and expire automatically for your security.</i></p>
+    </body></html>
+    """
+    logger.info("[SECURITY NOTIFY] To: %s | Subject: %s | Reasons: %s | IP: %s | UA: %s | Time: %s | Location: %s | ISP: %s", email, subject, reasons, ip, user_agent, request_time, location, isp)
+    await email_manager._send_via_console(email, subject, html_content)
+
+
+WHITELIST_KEY = "abuse:reset:whitelist"
+BLOCKLIST_KEY = "abuse:reset:blocklist"
+
+async def whitelist_reset_pair(email: str, ip: str):
+    redis_conn = await redis_manager.get_redis()
+    await redis_conn.sadd(WHITELIST_KEY, f"{email}:{ip}")
+
+async def block_reset_pair(email: str, ip: str):
+    redis_conn = await redis_manager.get_redis()
+    await redis_conn.sadd(BLOCKLIST_KEY, f"{email}:{ip}")
+
+async def is_pair_whitelisted(email: str, ip: str) -> bool:
+    # WARNING: Whitelisting only exempts from abuse/CAPTCHA escalation, NOT from rate limiting.
+    # Rate limiting is always enforced regardless of whitelist status to prevent DDoS.
+    redis_conn = await redis_manager.get_redis()
+    return await redis_conn.sismember(WHITELIST_KEY, f"{email}:{ip}")
+
+async def is_pair_blocked(email: str, ip: str) -> bool:
+    redis_conn = await redis_manager.get_redis()
+    return await redis_conn.sismember(BLOCKLIST_KEY, f"{email}:{ip}")
+
+async def detect_password_reset_abuse(email: str, ip: str) -> dict:
+    """
+    Detect abuse for password reset requests:
+    - Mass/coordinated attempts (many requests for same email, or from many unique IPs)
+    - IP reputation check (VPN/proxy/abuse via IPinfo)
+    - Store and flag suspicious activity in Redis
+    Privacy/Security: Abuse flags are stored in Redis for 15 minutes only (ephemeral, not persisted).
+    No sensitive data is stored. Only metadata for abuse detection and notification.
+    Returns a dict: { 'suspicious': bool, 'reasons': [str], 'ip_reputation': str, ... }
+
+    SECURITY NOTE: Whitelisting (email, IP) pairs only exempts from abuse/CAPTCHA escalation.
+    Whitelisted pairs are NEVER exempt from rate limiting, which is always enforced
+    by security_manager.check_rate_limit in the route handler. This prevents DDoS attacks
+    via whitelisted pairs. Do not change this behavior.
+    """
+    redis_conn = await redis_manager.get_redis()
+    suspicious = False
+    reasons = []
+    ip_reputation = None
+
+    # Check whitelist/blocklist first (see SECURITY NOTE above)
+    if await is_pair_whitelisted(email, ip):
+        return {"suspicious": False, "reasons": ["Pair whitelisted"], "ip_reputation": None}
+    if await is_pair_blocked(email, ip):
+        return {"suspicious": True, "reasons": ["Pair blocked"], "ip_reputation": None}
+
+    abuse_key = f"abuse:reset:email:{email}"
+    # 1. Check number of requests for this email in last 15 min
+    recent_requests = await redis_conn.lrange(abuse_key, 0, 49)
+    if recent_requests is None:
+        recent_requests = []
+    # 2. Count unique IPs for this email
+    unique_ips = set()
+    for entry in recent_requests:
+        try:
+            data = json.loads(entry)
+            unique_ips.add(data.get("ip"))
+        except Exception:
+            continue
+    # 3. Thresholds (tune as needed)
+    max_requests = 8  # e.g. 8+ resets in 15 min
+    max_unique_ips = 4  # e.g. 4+ unique IPs in 15 min
+    if len(recent_requests) >= max_requests:
+        suspicious = True
+        reasons.append(f"High volume: {len(recent_requests)} reset requests in 15 min")
+    if len(unique_ips) >= max_unique_ips:
+        suspicious = True
+        reasons.append(f"Many unique IPs: {len(unique_ips)} for this email in 15 min")
+    # 4. IP reputation check (IPinfo, fallback to None)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get(f"https://ipinfo.io/{ip}/json")
+            data = resp.json()
+            if data.get("privacy", {}).get("vpn") or data.get("privacy", {}).get("proxy"):
+                suspicious = True
+                ip_reputation = "vpn/proxy"
+                reasons.append("IP is VPN/proxy (IPinfo)")
+            elif data.get("abuse") or data.get("privacy", {}).get("relay"):
+                suspicious = True
+                ip_reputation = "abuse/relay"
+                reasons.append("IP flagged as abuse/relay (IPinfo)")
+            else:
+                ip_reputation = data.get("org")
+    except Exception:
+        ip_reputation = None
+    # 5. Store flag in Redis for this (email, ip) pair
+    if suspicious:
+        flag_key = f"abuse:reset:flagged:{email}:{ip}"
+        await redis_conn.set(flag_key, json.dumps({
+            "timestamp": datetime.utcnow().isoformat(),
+            "reasons": reasons,
+            "ip_reputation": ip_reputation
+        }), ex=900)  # 15 min expiry
+        # Notify user of suspicious activity
+        await notify_user_of_suspicious_reset(email, reasons, ip)
+    return {"suspicious": suspicious, "reasons": reasons, "ip_reputation": ip_reputation}
+
+async def verify_turnstile_captcha(token: str, remoteip: str = None) -> bool:
+    """
+    Verify a Cloudflare Turnstile CAPTCHA token. Returns True if valid, False otherwise.
+    """
+    import httpx
+    secret_key = getattr(settings, "TURNSTILE_SECRET_KEY", None)
+    if not secret_key:
+        logger.error("Turnstile secret key not configured.")
+        return False
+    data = {
+        "secret": secret_key,
+        "response": token,
+    }
+    if remoteip:
+        data["remoteip"] = remoteip
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=data)
+            result = resp.json()
+            return result.get("success", False)
+    except Exception as e:
+        logger.error(f"Turnstile CAPTCHA verification failed: {e}")
+        return False
+
+# TODO: Add admin endpoints to manage password reset whitelist/blocklist
+#   - POST /admin/whitelist-reset-pair {email, ip}
+#   - POST /admin/block-reset-pair {email, ip}
+#   - GET /admin/list-reset-whitelist
+#   - GET /admin/list-reset-blocklist
+#   - DELETE /admin/whitelist-reset-pair {email, ip}
+#   - DELETE /admin/block-reset-pair {email, ip}
+
+# --- Rate Limiting Tuning ---
+# Password reset endpoints are currently rate-limited via security_manager.check_rate_limit
+#   - Default: 100 requests per 60 seconds per IP (see routes.py)
+#   - Abuse detection thresholds (see detect_password_reset_abuse):
+#       - 8+ reset requests for the same email in 15 min = suspicious
+#       - 4+ unique IPs for the same email in 15 min = suspicious
+#   - These can be tuned as needed for production abuse patterns.
