@@ -457,7 +457,7 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
             abuse_count = await redis_conn.incr(abuse_key)
             if abuse_count == 1:
                 await redis_conn.expire(abuse_key, 604800)  # 1 week
-            # Log self_abuse event in reset_abuse_events
+            # Log self_abuse event in abuse_events
             await log_reset_abuse_event(
                 email=email,
                 ip=ip,
@@ -1079,7 +1079,7 @@ async def detect_password_reset_abuse(email: str, ip: str) -> dict:
     if len(recent_requests) >= max_requests:
         suspicious = True
         reasons.append(f"High volume: {len(recent_requests)} reset requests in 15 min")
-        # Log self_abuse event in reset_abuse_events (MongoDB)
+        # Log self_abuse event in abuse_events (MongoDB)
         await log_reset_abuse_event(
             email=email,
             ip=ip,
@@ -1092,7 +1092,7 @@ async def detect_password_reset_abuse(email: str, ip: str) -> dict:
     if len(unique_ips) >= max_unique_ips:
         suspicious = True
         reasons.append(f"Many unique IPs: {len(unique_ips)} for this email in 15 min")
-        # Log targeted_abuse event in reset_abuse_events
+        # Log targeted_abuse event in abuse_events
         await log_reset_abuse_event(
             email=email,
             ip=ip,
@@ -1169,8 +1169,8 @@ async def is_repeated_violator(user: dict, window_minutes: int = None, min_uniqu
     if min_unique_ips is None:
         min_unique_ips = getattr(settings, "REPEATED_VIOLATOR_MIN_UNIQUE_IPS", 3)
 
-    # Query reset_abuse_events for self_abuse events for this user in the window
-    collection = db_manager.get_collection("reset_abuse_events")
+    # Query abuse_events for self_abuse events for this user in the window
+    collection = db_manager.get_collection("abuse_events")
     now = datetime.utcnow()
     window_start = now - timedelta(minutes=window_minutes)
     # Only consider self_abuse events
@@ -1204,7 +1204,7 @@ async def is_repeated_violator(user: dict, window_minutes: int = None, min_uniqu
             return True
     return False
 
-# --- Password Reset Abuse Event Logging ---
+# --- Abuse Event Logging ---
 async def log_reset_abuse_event(
     email: str,
     ip: str,
@@ -1218,7 +1218,7 @@ async def log_reset_abuse_event(
     timestamp: datetime = None,
 ):
     """
-    Log a password reset abuse event to the reset_abuse_events collection.
+    Log an abuse event to the abuse_events collection.
     This collection is used for admin/backend review and escalation, and to distinguish between self-abuse and targeted abuse.
     Fields:
       - email: The user's email (indexed)
@@ -1232,7 +1232,7 @@ async def log_reset_abuse_event(
       - notes: Admin notes
       - timestamp: When the event occurred (defaults to now)
     """
-    collection = db_manager.get_collection("reset_abuse_events")
+    collection = db_manager.get_collection("abuse_events")
     doc = {
         "email": email,
         "ip": ip,
@@ -1247,7 +1247,7 @@ async def log_reset_abuse_event(
     }
     await collection.insert_one(doc)
 
-# --- Admin Management Endpoints for Password Reset Abuse ---
+# --- Admin Management Endpoints for Abuse ---
 # These functions are intended to be called from admin-only API endpoints (see routes.py).
 # They provide CRUD operations for the password reset whitelist/blocklist (Redis, fast path)
 # and abuse event review (MongoDB, persistent history).
@@ -1329,11 +1329,11 @@ async def admin_list_abuse_events(
     limit: int = 100,
 ) -> list:
     """
-    List password reset abuse events for admin review (MongoDB, persistent).
+    List abuse events for admin review (MongoDB, persistent).
     Supports filtering by email, event_type ('self_abuse' or 'targeted_abuse'), and resolved status.
     Returns a list of events sorted by timestamp (most recent first).
     """
-    collection = db_manager.get_collection("reset_abuse_events")
+    collection = db_manager.get_collection("abuse_events")
     query = {}
     if email:
         query["email"] = email
@@ -1350,11 +1350,11 @@ async def admin_list_abuse_events(
 
 async def admin_resolve_abuse_event(event_id: str, notes: str = None) -> bool:
     """
-    Mark a password reset abuse event as resolved by admin, with optional notes (MongoDB).
+    Mark an abuse event as resolved by admin, with optional notes (MongoDB).
     Returns True if updated, False if not found.
     """
     from bson import ObjectId
-    collection = db_manager.get_collection("reset_abuse_events")
+    collection = db_manager.get_collection("abuse_events")
     result = await collection.update_one(
         {"_id": ObjectId(event_id)},
         {"$set": {"resolved_by_admin": True, "notes": notes or ""}}

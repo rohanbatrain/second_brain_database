@@ -331,6 +331,14 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
         ip = request.client.host
         user_agent = request.headers.get("user-agent")
         request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        # --- 60 second buffer for resend prevention ---
+        redis_conn = await security_manager.get_redis()
+        resend_key = f"forgotpw:last:{email}"
+        last_ts = await redis_conn.get(resend_key)
+        now_ts = int(datetime.utcnow().timestamp())
+        if last_ts and now_ts - int(last_ts) < 60:
+            raise HTTPException(status_code=429, detail="Please wait at least 60 seconds before requesting another password reset email.")
+        await redis_conn.set(resend_key, now_ts, ex=900)
         # Log the reset request for abuse detection
         await log_password_reset_request(email, ip, user_agent, request_time)
         # Check if account is suspended

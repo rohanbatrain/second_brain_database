@@ -16,7 +16,7 @@ MONGODB_SERVER_SELECTION_TIMEOUT=5000
 # MONGODB_PASSWORD=your_password
 
 # JWT Configuration
-SECRET_KEY=iKDkfbdlsjfbdsipF*e9uhiwruh3bwy8ig3bd9gwbfihebfoauy89hfuipahfasjhfnioauowep9afiebvo
+SECRET_KEY=iKDkfbdlsjfbdsipFe9uhiwruh3bwy8ig3bd9gwbfihebfoauy89hfuipahfasjhfnioauowep9afiebvo
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
