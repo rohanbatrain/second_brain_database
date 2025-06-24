@@ -258,7 +258,14 @@ async def verify_user_email(token: str):
 
 
 async def login_user(username: str = None, email: str = None, password: str = None, two_fa_code: str = None, two_fa_method: str = None, client_side_encryption: bool = False):
-    """Authenticate a user by username or email and password, handle lockout and failed attempts, and check 2FA if enabled."""
+    """
+    Authenticate a user by username or email and password, handle lockout and failed attempts, and check 2FA if enabled.
+    Enforces account suspension for repeated password reset abuse:
+      - If abuse_suspended is True, login is blocked and a clear error is returned.
+      - Suspended users are told the reason and to contact support.
+      - Admins can unsuspend by setting is_active: True, abuse_suspended: False, and clearing abuse_suspended_at.
+      - Optionally, a notification email is sent to the user on suspension (see send_account_suspension_email).
+    """
     if username:
         user = await db_manager.get_collection("users").find_one({"username": username})
     elif email:
@@ -267,6 +274,12 @@ async def login_user(username: str = None, email: str = None, password: str = No
         raise HTTPException(status_code=400, detail="Username or email required")
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # --- Account suspension enforcement ---
+    if user.get("abuse_suspended", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Account suspended due to repeated abuse of the password reset system. Please contact support.",
+        )
     if user.get("failed_login_attempts", 0) >= 5:
         raise HTTPException(status_code=403, detail="Account locked due to too many failed attempts")
     if not user.get("is_active", True):
@@ -333,6 +346,24 @@ async def login_user(username: str = None, email: str = None, password: str = No
     if client_side_encryption:
         logger.info("User %s logged in with client-side encryption enabled", user["username"])
     return user
+
+
+async def send_account_suspension_email(email: str, username: str = None):
+    """
+    Optionally notify the user by email when their account is suspended for abuse.
+    """
+    subject = "Account Suspended Due to Abuse"
+    display_name = username or "user"
+    html_content = f"""
+    <html><body>
+    <h2>Account Suspended</h2>
+    <p>Dear {display_name},</p>
+    <p>Your account has been suspended due to repeated abuse of the password reset system. If you believe this is a mistake, please contact support for review and possible reactivation.</p>
+    <p>Thank you,<br>The Second Brain Database Team</p>
+    </body></html>
+    """
+    logger.info(f"[SUSPEND EMAIL] To: {email}\nSubject: {subject}\nHTML:\n{html_content}")
+    await email_manager._send_via_console(email, subject, html_content)
 
 
 async def change_user_password(current_user: dict, password_request: PasswordChangeRequest):
@@ -419,12 +450,34 @@ async def send_password_reset_email(email: str, ip=None, user_agent=None, reques
             abuse_count = await redis_conn.incr(abuse_key)
             if abuse_count == 1:
                 await redis_conn.expire(abuse_key, 604800)  # 1 week
+            # Log self_abuse event in reset_abuse_events
+            await log_reset_abuse_event(
+                email=email,
+                ip=ip,
+                user_agent=user_agent,
+                event_type="self_abuse",
+                details="Exceeded whitelist limit for password resets",
+                whitelisted=True,
+                action_taken="blocked",
+            )
+            # Escalate to ban if repeated self_abuse (3+ times in a week)
             if abuse_count >= 3:
-                # Suspend account and mark IP for abuse
-                await db_manager.get_collection("users").update_one({"email": email}, {"$set": {"is_active": False, "abuse_suspended": True, "abuse_suspended_at": datetime.utcnow()}})
+                await db_manager.get_collection("users").update_one(
+                    {"email": email},
+                    {"$set": {"is_active": False, "abuse_suspended": True, "abuse_suspended_at": datetime.utcnow()}}
+                )
                 abuse_message = "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
-                # Optionally, add IP to a global abuse set
                 await redis_conn.sadd("abuse:reset:abuse_ips", ip)
+                # Log ban event
+                await log_reset_abuse_event(
+                    email=email,
+                    ip=ip,
+                    user_agent=user_agent,
+                    event_type="self_abuse",
+                    details="Account suspended due to repeated whitelist abuse",
+                    whitelisted=True,
+                    action_taken="banned",
+                )
         elif count == stricter_limit:
             warning_message = "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
     html_content = f"""
@@ -1022,6 +1075,16 @@ async def detect_password_reset_abuse(email: str, ip: str) -> dict:
     if len(unique_ips) >= max_unique_ips:
         suspicious = True
         reasons.append(f"Many unique IPs: {len(unique_ips)} for this email in 15 min")
+        # Log targeted_abuse event in reset_abuse_events
+        await log_reset_abuse_event(
+            email=email,
+            ip=ip,
+            user_agent=None,
+            event_type="targeted_abuse",
+            details=f"{len(unique_ips)} unique IPs in 15 min for this email",
+            whitelisted=False,
+            action_taken="notified" if suspicious else "none",
+        )
     # 4. IP reputation check (IPinfo, fallback to None)
     try:
         import httpx
@@ -1088,33 +1151,84 @@ async def is_repeated_violator(user: dict, window_minutes: int = None, min_uniqu
         window_minutes = getattr(settings, "REPEATED_VIOLATOR_WINDOW_MINUTES", 10)
     if min_unique_ips is None:
         min_unique_ips = getattr(settings, "REPEATED_VIOLATOR_MIN_UNIQUE_IPS", 3)
+
+    # Query reset_abuse_events for self_abuse events for this user in the window
+    collection = db_manager.get_collection("reset_abuse_events")
     now = datetime.utcnow()
     window_start = now - timedelta(minutes=window_minutes)
-    events = [e for e in user.get("abuse_history", []) if "timestamp" in e and "ip" in e]
-    # Parse timestamps and filter
-    recent = []
-    for e in events:
-        try:
-            ts = e["timestamp"]
-            if isinstance(ts, str):
-                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            if ts >= window_start:
-                recent.append((ts, e["ip"]))
-        except Exception:
-            continue
+    # Only consider self_abuse events
+    query = {
+        "email": user.get("email"),
+        "event_type": "self_abuse",
+        "timestamp": {"$gte": window_start.isoformat()}
+    }
+    cursor = collection.find(query)
+    events = []
+    async for doc in cursor:
+        events.append(doc)
     # Group by IP
     ip_to_times = {}
-    for ts, ip in recent:
+    for e in events:
+        ts = e["timestamp"]
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                continue
+        ip = e["ip"]
         ip_to_times.setdefault(ip, []).append(ts)
     if len(ip_to_times) < min_unique_ips:
         return False
     # Check for overlap: find a time where >=min_unique_ips IPs had an event within window
-    all_times = sorted([ts for ts, _ in recent])
+    all_times = sorted([ts for times in ip_to_times.values() for ts in times])
     for t in all_times:
         count = sum(any(abs((t - ts).total_seconds()) < window_minutes*60 for ts in times) for times in ip_to_times.values())
         if count >= min_unique_ips:
             return True
     return False
+
+# --- Password Reset Abuse Event Logging ---
+async def log_reset_abuse_event(
+    email: str,
+    ip: str,
+    user_agent: str = None,
+    event_type: str = None,  # 'self_abuse' or 'targeted_abuse'
+    details: str = None,
+    whitelisted: bool = False,
+    action_taken: str = None,  # e.g., 'blocked', 'notified', 'banned', 'none'
+    resolved_by_admin: bool = False,
+    notes: str = None,
+    timestamp: datetime = None,
+):
+    """
+    Log a password reset abuse event to the reset_abuse_events collection.
+    This collection is used for admin/backend review and escalation, and to distinguish between self-abuse and targeted abuse.
+    Fields:
+      - email: The user's email (indexed)
+      - ip: The IP address involved
+      - user_agent: The user agent string (optional)
+      - event_type: 'self_abuse' (user abusing their own whitelist) or 'targeted_abuse' (user being targeted by others)
+      - details: Freeform string for reason/context
+      - whitelisted: Was this (email, ip) pair whitelisted at the time?
+      - action_taken: What action was taken ('blocked', 'notified', 'banned', etc)
+      - resolved_by_admin: Has an admin reviewed/resolved this event?
+      - notes: Admin notes
+      - timestamp: When the event occurred (defaults to now)
+    """
+    collection = db_manager.get_collection("reset_abuse_events")
+    doc = {
+        "email": email,
+        "ip": ip,
+        "user_agent": user_agent,
+        "event_type": event_type,
+        "details": details,
+        "whitelisted": whitelisted,
+        "action_taken": action_taken,
+        "resolved_by_admin": resolved_by_admin,
+        "notes": notes,
+        "timestamp": (timestamp or datetime.utcnow()).isoformat(),
+    }
+    await collection.insert_one(doc)
 
 # TODO: Add admin endpoints to manage password reset whitelist/blocklist
 #   - POST /admin/whitelist-reset-pair {email, ip}
