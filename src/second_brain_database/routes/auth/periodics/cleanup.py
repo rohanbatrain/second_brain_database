@@ -1,11 +1,29 @@
 """
 Background task for automatic cleanup of expired 2FA pending states, backup codes, and password reset tokens.
 
-- The interval for cleanup runs is set by BACKUP_CODES_CLEANUP_INTERVAL (in seconds) from config/.sbd.
-- The expiration time for pending 2FA states is set by BACKUP_CODES_PENDING_TIME (in seconds) from config/.sbd.
-- The last cleanup time is tracked in the 'system' collection (MongoDB) for resilience across restarts.
-- On each run, users with 'two_fa_pending=True' are checked; if their pending state is older than BACKUP_CODES_PENDING_TIME, it is cleared.
-- Expired password reset tokens are also removed promptly and reliably, even after restarts or failures.
+This module is responsible ONLY for cleanup of expired or obsolete authentication-related data in MongoDB.
+
+What this file does:
+- Runs a periodic background task (interval set by BACKUP_CODES_CLEANUP_INTERVAL in config/.sbd).
+- For each user, checks for and cleans up:
+    * Expired 2FA pending states (removes 'two_fa_pending', 'totp_secret', 'backup_codes', etc. if setup is stale)
+    * Orphaned 2FA data if 2FA is disabled (removes secrets/codes if user has 2FA off)
+    * Expired password reset tokens (removes 'password_reset_token' and 'password_reset_token_expiry' if expired)
+- Tracks the last cleanup time in the 'system' collection for resilience across restarts.
+- Logs all cleanup actions and errors for auditability.
+
+What this file does NOT do:
+- Does NOT sync password reset blocklist/whitelist/abuse_flags to Redis. That logic is now in redis_flag_sync.py.
+- Does NOT perform any business logic, rate limiting, or abuse detection.
+
+How to use:
+- Import and run `periodic_2fa_cleanup()` as a background task in your FastAPI app or worker.
+- The function will run forever, sleeping between runs, and will only act if enough time has passed since the last cleanup.
+- All cleanup is safe, idempotent, and logged.
+
+See also:
+- src/second_brain_database/routes/auth/periodics/redis_flag_sync.py for Redis sync logic.
+- config/.sbd for interval and expiry settings.
 """
 import asyncio
 import logging
@@ -108,6 +126,9 @@ async def periodic_2fa_cleanup():
                 if result.modified_count > 0:
                     logger.info("Password reset token cleanup: removed %d expired tokens", result.modified_count)
                 
+                # --- Password reset blocklist/whitelist/abuse_flags sync to Redis ---
+                # (Moved to redis_flag_sync.py for clarity. This file is now only for cleanup logic.)
+                # See: src/second_brain_database/routes/auth/periodics/redis_flag_sync.py
                 await set_last_cleanup_time(now)
                 
                 if cleanup_count > 0:

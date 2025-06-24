@@ -485,7 +485,7 @@ async def resend_verification_email_service(email: str = None, username: str = N
     return {"message": "Verification email sent"}
 
 
-def create_access_token(data: dict) -> str:
+async def create_access_token(data: dict) -> str:
     """
     Create a JWT access token with short expiry and required claims.
     Includes token_version for stateless invalidation.
@@ -498,7 +498,7 @@ def create_access_token(data: dict) -> str:
         username = data.get("username") or data.get("sub")
         user = None
         if username:
-            user = db_manager.get_collection("users").find_one({"username": username})
+            user = await db_manager.get_collection("users").find_one({"username": username})
         if user:
             token_version = user.get("token_version", 0)
             to_encode["token_version"] = token_version
@@ -1075,6 +1075,46 @@ async def verify_turnstile_captcha(token: str, remoteip: str = None) -> bool:
     except Exception as e:
         logger.error(f"Turnstile CAPTCHA verification failed: {e}")
         return False
+
+async def is_repeated_violator(user: dict, window_minutes: int = None, min_unique_ips: int = None) -> bool:
+    """
+    Returns True if the user has abuse events from >= min_unique_ips different IPs
+    within the last `window_minutes`, and those events are near-simultaneous (within the window).
+    This is stricter than just unique IPs: it requires overlap in time, reducing false positives from mobile/dynamic IPs.
+    Uses config values if not provided.
+    """
+    from second_brain_database.config import settings
+    if window_minutes is None:
+        window_minutes = getattr(settings, "REPEATED_VIOLATOR_WINDOW_MINUTES", 10)
+    if min_unique_ips is None:
+        min_unique_ips = getattr(settings, "REPEATED_VIOLATOR_MIN_UNIQUE_IPS", 3)
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=window_minutes)
+    events = [e for e in user.get("abuse_history", []) if "timestamp" in e and "ip" in e]
+    # Parse timestamps and filter
+    recent = []
+    for e in events:
+        try:
+            ts = e["timestamp"]
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if ts >= window_start:
+                recent.append((ts, e["ip"]))
+        except Exception:
+            continue
+    # Group by IP
+    ip_to_times = {}
+    for ts, ip in recent:
+        ip_to_times.setdefault(ip, []).append(ts)
+    if len(ip_to_times) < min_unique_ips:
+        return False
+    # Check for overlap: find a time where >=min_unique_ips IPs had an event within window
+    all_times = sorted([ts for ts, _ in recent])
+    for t in all_times:
+        count = sum(any(abs((t - ts).total_seconds()) < window_minutes*60 for ts in times) for times in ip_to_times.values())
+        if count >= min_unique_ips:
+            return True
+    return False
 
 # TODO: Add admin endpoints to manage password reset whitelist/blocklist
 #   - POST /admin/whitelist-reset-pair {email, ip}

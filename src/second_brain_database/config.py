@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     BLACKLIST_THRESHOLD: int = 10  # Number of violations before blacklisting
     BLACKLIST_DURATION: int = 60 * 60  # Blacklist for 1 hour (in seconds)
 
+    # Repeated violator detection configuration
+    REPEATED_VIOLATOR_WINDOW_MINUTES: int = 10  # Time window for repeated violator detection
+    REPEATED_VIOLATOR_MIN_UNIQUE_IPS: int = 3  # Unique IPs required in window
+
     # Fernet encryption key (for TOTP secret encryption)
     FERNET_KEY: str = "your-fernet-key-change-in-production"
 

@@ -86,7 +86,7 @@ async def register(user: UserIn, request: Request):
         # Build login-like response
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        token = create_access_token({"sub": user_doc["username"]})
+        token = await create_access_token({"sub": user_doc["username"]})
         email_verified = user_doc.get("is_verified", False)
         reg_log.outcome = "success"
         reg_log.reason = None
@@ -167,7 +167,7 @@ async def login(
         # Token creation
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        token = create_access_token({"sub": user["username"]})
+        token = await create_access_token({"sub": user["username"]})
         login_log.username = user.get("username", login_log.username)
         login_log.email = user.get("email", login_log.email)
         login_log.outcome = "success"
@@ -262,7 +262,7 @@ async def refresh_token(current_user: dict = Depends(get_current_user_dep), requ
     """Refresh access token for authenticated user."""
     await security_manager.check_rate_limit(request, "refresh-token")
     try:
-        access_token = create_access_token({"sub": current_user["username"]})
+        access_token = await create_access_token({"sub": current_user["username"]})
         logger.info("Token refreshed for user: %s", current_user["username"])
         return Token(access_token=access_token, token_type="bearer")
     except Exception as e:
