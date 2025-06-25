@@ -209,10 +209,12 @@ class TwoFAStatus(BaseModel):
     Two-factor authentication status response model.
 
     Indicates whether 2FA is enabled and lists the enabled methods.
+    If backup_codes is present, these are the one-time backup codes shown only after first successful 2FA verification.
     """
     enabled: bool
     methods: Optional[list] = []
     pending: Optional[bool] = False  # Indicates if setup is pending verification
+    backup_codes: Optional[list] = None  # Only present after first successful 2FA verification
 
 class TwoFASetupResponse(BaseModel):
     """
@@ -222,7 +224,7 @@ class TwoFASetupResponse(BaseModel):
     methods: Optional[list] = []
     totp_secret: Optional[str] = None
     provisioning_uri: Optional[str] = None
-    qr_code_url: Optional[str] = None
+    qr_code_data: Optional[str] = None
     backup_codes: Optional[List[str]] = None
 
 class LoginRequest(BaseModel):

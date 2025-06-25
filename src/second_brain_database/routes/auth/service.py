@@ -13,19 +13,20 @@ Password Reset Abuse Prevention Implementation:
 """
 
 import logging
-import secrets
-import pyotp
-import bcrypt
 import json
-import hashlib
-from datetime import datetime, timedelta
 import secrets
+import hashlib
+import base64
+import bcrypt
+import pyotp
+import qrcode
+import httpx
+from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from jose import jwt
-from second_brain_database.routes.auth.models import TwoFASetupResponse
+from second_brain_database.routes.auth.models import TwoFASetupResponse, TwoFAStatus, UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.models import UserIn, PasswordChangeRequest, validate_password_strength, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus
 from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.security_manager import security_manager
@@ -674,7 +675,7 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
     if cleared:
         user = await users.find_one({"username": current_user["username"]})
 
-    # If setup is already pending, return existing setup info (try Redis for backup codes)
+    # If setup is already pending, return existing setup info (but never backup codes)
     if user.get("two_fa_pending", False):
         try:
             secret = get_decrypted_totp_secret(user)
@@ -685,11 +686,11 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         provisioning_uri = None
         if secret:
             provisioning_uri = pyotp.totp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=issuer)
-        qr_code_url = None
+        qr_code_data = None
         try:
-            import qrcode
             from io import BytesIO
             import base64
+            import qrcode
             if provisioning_uri:
                 qr = qrcode.QRCode(version=1, box_size=10, border=5)
                 qr.add_data(provisioning_uri)
@@ -698,23 +699,19 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
                 buffered = BytesIO()
                 img.save(buffered, format="PNG")
                 qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-                qr_code_url = f"data:image/png;base64:{qr_code_data}"
         except ImportError:
-            qr_code_url = None
+            qr_code_data = None
             logger.warning("QR code generation failed - qrcode library not available")
         except (OSError, ValueError) as qr_exc:
-            qr_code_url = None
+            qr_code_data = None
             logger.warning("QR code generation failed: %s", qr_exc)
-        backup_codes = await get_backup_codes_temp(user["username"])
-        if not backup_codes:
-            logger.warning(f"No backup codes found in Redis for user {user['username']} during 2FA setup pending state.")
+        # Do NOT return backup codes here anymore
         return TwoFASetupResponse(
             enabled=False,
             methods=[],
             totp_secret=secret,
             provisioning_uri=provisioning_uri,
-            qr_code_url=qr_code_url,
-            backup_codes=backup_codes
+            qr_code_data=qr_code_data
         )
 
     if method != "totp":
@@ -756,7 +753,6 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
 
     try:
         import qrcode
-        import qrcode.image.svg
         from io import BytesIO
         import base64
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
@@ -766,22 +762,20 @@ async def setup_2fa(current_user: dict, request: TwoFASetupRequest):
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-        qr_code_url = f"data:image/png;base64:{qr_code_data}"
     except ImportError:
-        qr_code_url = None
+        qr_code_data = None
         logger.warning("QR code generation failed - qrcode library not available")
     except (OSError, ValueError) as qr_exc:
-        qr_code_url = None
+        qr_code_data = None
         logger.warning("QR code generation failed: %s", qr_exc)
 
-    # Always return the generated backup_codes on first setup call
+    # Only return backup_codes on first setup call (they are in Redis)
     return TwoFASetupResponse(
         enabled=False,  # Not enabled until verified
         methods=[],     # No methods until verified
         totp_secret=secret,
         provisioning_uri=provisioning_uri,
-        qr_code_url=qr_code_url,
-        backup_codes=backup_codes
+        qr_code_data=qr_code_data
     )
 
 
@@ -837,7 +831,7 @@ async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
     )
     
     # Generate QR code
-    qr_code_url = None
+    qr_code_data = None
     try:
         import qrcode
         from io import BytesIO
@@ -851,13 +845,12 @@ async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         qr_code_data = base64.b64encode(buffered.getvalue()).decode()
-        qr_code_url = f"data:image/png;base64:{qr_code_data}"
         
     except ImportError:
-        qr_code_url = None
+        qr_code_data = None
         logger.warning("QR code generation failed - qrcode library not available")
     except (OSError, ValueError) as qr_exc:
-        qr_code_url = None
+        qr_code_data = None
         logger.warning("QR code generation failed: %s", qr_exc)
     
     return TwoFASetupResponse(
@@ -865,8 +858,7 @@ async def reset_2fa(current_user: dict, request: TwoFASetupRequest):
         methods=user.get("two_fa_methods", []),
         totp_secret=secret,
         provisioning_uri=provisioning_uri,
-        qr_code_url=qr_code_url,
-        backup_codes=backup_codes
+        qr_code_data=qr_code_data
     )
 
 
@@ -884,13 +876,13 @@ async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
         raise HTTPException(status_code=400, detail="Only TOTP 2FA is supported in this demo.")
     secret = current_user.get("totp_secret")
     if not secret:
-        raise HTTPException(status_code=400, detail="TOTP not set up")
+        raise HTTPException(status_code=400, detail="TOTP not set up. Please complete 2FA setup before verifying.")
     # Decrypt if needed
     if is_encrypted_totp_secret(secret):
         secret = decrypt_totp_secret(secret)
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
-        raise HTTPException(status_code=401, detail="Invalid TOTP code")
+        raise HTTPException(status_code=401, detail="Invalid TOTP code. Please check your authenticator app and try again.")
     # If verification successful and 2FA is pending, enable it now
     if current_user.get("two_fa_pending", False):
         await users.update_one(
@@ -903,9 +895,10 @@ async def verify_2fa(current_user: dict, request: TwoFAVerifyRequest):
                 "$unset": {"two_fa_pending": "", "two_fa_pending_since": ""}
             }
         )
+        backup_codes = await get_backup_codes_temp(current_user["username"])
         await delete_backup_codes_temp(current_user["username"])
         logger.info("2FA enabled for user %s after successful verification", current_user["username"])
-        return TwoFAStatus(enabled=True, methods=["totp"], pending=False)
+        return TwoFAStatus(enabled=True, methods=["totp"], pending=False, backup_codes=backup_codes)
     return TwoFAStatus(
         enabled=current_user.get("two_fa_enabled", False), 
         methods=current_user.get("two_fa_methods", []),
