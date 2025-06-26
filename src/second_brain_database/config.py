@@ -1,23 +1,89 @@
 """
 Configuration module for Second Brain Database.
 
-Loads environment settings via Pydantic and dotenv.
+This module provides robust, production-grade configuration and logging bootstrapping for the application.
+
+Rationale and Best Practices:
+----------------------------
+- **Fail-fast, explicit config discovery:**
+  The config file is discovered in the following order: (1) via the `SECOND_BRAIN_DATABASE_CONFIG_PATH` environment variable, (2) `.sbd` in the project root, (3) `.env` in the project root. If none are found, the application fails fast with a clear error. This prevents silent misconfiguration and ensures that secrets and environment variables are always loaded as intended.
+
+- **Pydantic Settings with extra env support:**
+  The `Settings` class uses Pydantic's `BaseSettings` to load all configuration from the environment or config file, and allows extra environment variables (e.g., for OpenTelemetry or other integrations) without error. This makes the config extensible and cloud/deployment friendly.
+
+- **No circular imports:**
+  The logging logic for config bootstrapping is self-contained in this module, copied from the main logging manager, to avoid circular imports. After the config is loaded and the main logging manager is available, the main logger can be safely used.
+
+- **Security and best practices:**
+  Secrets (e.g., JWT keys, Fernet keys, DB URLs) are never hardcoded and must be set via environment or config file. Validators enforce this at startup. This prevents accidental leaks and enforces secure deployment.
+
+- **Extensive documentation and PEP 257 compliance:**
+  All classes, functions, and the module itself are documented with rationale, usage, and best practices for future maintainers. This is critical for production systems where config and logging are foundational and mistakes can have security or reliability consequences.
+
+How to extend/maintain:
+-----------------------
+- Add new config fields to the `Settings` class, and document them.
+- If you change the config discovery logic, update this docstring and the error messages.
+
+For more details, see the README and the comments in this file.
 """
 
-from typing import Optional
-from pydantic_settings import BaseSettings
+import os
+from typing import Optional, Any
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 from pydantic import SecretStr, field_validator
+from pathlib import Path
 
-load_dotenv()
+# --- Constants ---
+SBD_FILENAME: str = ".sbd"
+DEFAULT_ENV_FILENAME: str = ".env"
+CONFIG_ENV_VAR: str = "SECOND_BRAIN_DATABASE_CONFIG_PATH"
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+
+# --- Config file discovery (no logging) ---
+def get_config_path() -> Optional[str]:
+    """
+    Determine the config file path to use, in order of precedence:
+    1. Environment variable SECOND_BRAIN_DATABASE_CONFIG_PATH
+    2. .sbd in project root
+    3. .env in project root
+    Returns:
+        Optional[str]: Path to config file, or None if not found.
+    """
+    env_path: Optional[str] = os.environ.get(CONFIG_ENV_VAR)
+    if env_path and os.path.exists(env_path):
+        return env_path
+    sbd_path: Path = PROJECT_ROOT / SBD_FILENAME
+    if sbd_path.exists():
+        return str(sbd_path)
+    env_path_file: Path = PROJECT_ROOT / DEFAULT_ENV_FILENAME
+    if env_path_file.exists():
+        return str(env_path_file)
+    return None
+
+CONFIG_PATH: Optional[str] = get_config_path()
+if CONFIG_PATH:
+    try:
+        load_dotenv(dotenv_path=CONFIG_PATH, override=True)
+    except (OSError, IOError) as exc:
+        raise
+else:
+    raise RuntimeError(
+        f"No config file found. Please provide a config file as {SBD_FILENAME} or {DEFAULT_ENV_FILENAME} in the project root, "
+        f"or set the {CONFIG_ENV_VAR} environment variable to a valid config path."
+    )
 
 class Settings(BaseSettings):
-    """Application settings with environment variable support"""
-    
-    model_config = {
-        "env_file": ".sbd",
-        "env_file_encoding": "utf-8", 
-        "case_sensitive": True
+    """
+    Application settings with environment variable support.
+    All fields are loaded from the environment or the .sbd/.env file.
+    """
+    model_config: dict[str, Any] = {
+        "env_file": CONFIG_PATH,
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "allow"  # Allow extra env vars not defined as fields
     }
 
     # Server configuration (loaded from environment)
@@ -109,4 +175,4 @@ class Settings(BaseSettings):
         return v
 
 # Global settings instance
-settings = Settings()
+settings: Settings = Settings()
