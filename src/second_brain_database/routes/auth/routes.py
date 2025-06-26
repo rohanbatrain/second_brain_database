@@ -14,7 +14,9 @@ Password Reset Abuse Prevention Overview:
 Defines API endpoints for user registration, login, email verification, token management,
 password change, and password reset. All business logic is delegated to the service layer.
 """
-import logging
+from second_brain_database.managers.logging_manager import get_logger
+logger = get_logger()
+
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query, Security
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
@@ -36,8 +38,6 @@ from second_brain_database.database import db_manager
 from second_brain_database.config import settings
 from pymongo import ASCENDING, DESCENDING
 import bcrypt
-
-logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])

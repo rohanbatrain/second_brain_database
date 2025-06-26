@@ -1,11 +1,12 @@
 """Main routes module for the Second Brain Database API."""
-import logging
 from fastapi import APIRouter, HTTPException, status, Request
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.managers.logging_manager import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
+
 router = APIRouter()
 
 @router.get("/")

@@ -12,7 +12,6 @@ Password Reset Abuse Prevention Implementation:
 - See function docstrings for details on thresholds, expiry, and privacy/security considerations.
 """
 
-import logging
 import json
 import secrets
 import hashlib
@@ -31,8 +30,9 @@ from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.utils.crypto import encrypt_totp_secret, decrypt_totp_secret, is_encrypted_totp_secret, migrate_plaintext_secret
+from second_brain_database.managers.logging_manager import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 STRICTER_WHITELIST_LIMIT = getattr(settings, "STRICTER_WHITELIST_LIMIT", 3)
 STRICTER_WHITELIST_PERIOD = getattr(settings, "STRICTER_WHITELIST_PERIOD", 86400)  # 24h

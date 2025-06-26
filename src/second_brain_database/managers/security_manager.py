@@ -1,30 +1,50 @@
 """
 Security manager for IP rate limiting and abuse prevention using Redis.
 Provides per-route rate limiting, IP blacklisting, and abuse tracking.
-"""
-import logging
-from typing import Optional
 
+Logging:
+    - Uses the centralized logging manager.
+    - Logs all rate limit, blacklist, and abuse events.
+    - All exceptions are logged with full traceback.
+"""
+from typing import Optional
 from fastapi import Request, HTTPException, status
 from second_brain_database.config import settings
 from second_brain_database.managers.redis_manager import redis_manager
+from second_brain_database.managers.logging_manager import get_logger
+
+logger = get_logger()
+
+BLACKLISTED_MSG: str = "Your IP has been temporarily blacklisted due to excessive abuse."
+RATE_LIMITED_MSG: str = "Too many requests. Please try again later."
 
 class SecurityManager:
-    """Manages rate limiting and blacklisting for API endpoints using Redis."""
+    """
+    Manages rate limiting and blacklisting for API endpoints using Redis.
+    """
     def __init__(self) -> None:
         self.rate_limit_requests: int = settings.RATE_LIMIT_REQUESTS
         self.rate_limit_period: int = settings.RATE_LIMIT_PERIOD_SECONDS
         self.blacklist_threshold: int = settings.BLACKLIST_THRESHOLD
         self.blacklist_duration: int = settings.BLACKLIST_DURATION
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self.env_prefix: str = getattr(settings, 'ENV_PREFIX', 'dev')
+        self.logger.debug(
+            "[SecurityManager] Initialized with rate_limit_requests=%d, rate_limit_period=%d, blacklist_threshold=%d, blacklist_duration=%d, env_prefix=%s",
+            self.rate_limit_requests, self.rate_limit_period, self.blacklist_threshold, self.blacklist_duration, self.env_prefix
+        )
 
     async def get_redis(self):
-        """Proxy to RedisManager's get_redis for backward compatibility."""
+        """
+        Proxy to RedisManager's get_redis for backward compatibility.
+        Returns:
+            Redis connection instance.
+        """
         return await redis_manager.get_redis()
 
     def get_client_ip(self, request: Request) -> str:
-        """Extract the client IP address from the request headers or connection info.
+        """
+        Extract the client IP address from the request headers or connection info.
         Args:
             request (Request): The FastAPI request object.
         Returns:
@@ -38,17 +58,20 @@ class SecurityManager:
         return ip
 
     def is_trusted_ip(self, ip: str) -> bool:
-        """Return True if the IP is localhost or a trusted range."""
-        # Localhost IPv4 and IPv6
+        """
+        Return True if the IP is localhost or a trusted range.
+        Args:
+            ip (str): The IP address to check.
+        Returns:
+            bool: True if trusted, False otherwise.
+        """
         if ip in ("127.0.0.1", "::1", "0.0.0.0"):
             return True
-        # # Cloudflare Tunnel IPv4 range (100.96.0.0/12) or add more as needed
-        # if ip.startswith("100.96.") or ip.startswith("100.97.") or ip.startswith("100.98.") or ip.startswith("100.99."):
-        #     return True
         return False
 
     async def is_blacklisted(self, ip: str) -> bool:
-        """Check if the given IP address is currently blacklisted.
+        """
+        Check if the given IP address is currently blacklisted.
         Args:
             ip (str): The IP address to check.
         Returns:
@@ -58,13 +81,16 @@ class SecurityManager:
         return await redis_conn.exists(f"{self.env_prefix}:blacklist:{ip}")
 
     async def blacklist_ip(self, ip: str) -> None:
-        """Blacklist the given IP address for a configured duration.
+        """
+        Blacklist the given IP address for a configured duration.
         Args:
             ip (str): The IP address to blacklist.
+        Side-effects:
+            Sets a key in Redis and logs the event.
         """
         redis_conn = await self.get_redis()
         await redis_conn.set(f"{self.env_prefix}:blacklist:{ip}", 1, ex=self.blacklist_duration)
-        self.logger.warning("IP %s has been blacklisted for %d seconds.", ip, self.blacklist_duration)
+        self.logger.warning("[SecurityManager] IP %s has been blacklisted for %d seconds.", ip, self.blacklist_duration)
 
     async def check_rate_limit(
         self,
@@ -83,8 +109,9 @@ class SecurityManager:
             rate_limit_period (Optional[int]): Custom period in seconds.
         Raises:
             HTTPException: If blacklisted or rate limit exceeded.
+        Side-effects:
+            Logs all rate limit, blacklist, and abuse events.
         """
-        # Use a Redis Lua script for atomic rate limiting and abuse logic
         lua_script = """
         local rate_key = KEYS[1]
         local abuse_key = KEYS[2]
@@ -93,13 +120,11 @@ class SecurityManager:
         local period = tonumber(ARGV[2])
         local blacklist_threshold = tonumber(ARGV[3])
         local blacklist_duration = tonumber(ARGV[4])
-        -- Increment rate limit counter
         local count = redis.call('INCR', rate_key)
         if count == 1 then
             redis.call('EXPIRE', rate_key, period)
         end
         if count > requests_allowed then
-            -- Increment abuse counter
             local abuse_count = redis.call('INCR', abuse_key)
             if abuse_count == 1 then
                 redis.call('EXPIRE', abuse_key, blacklist_duration)
@@ -115,17 +140,17 @@ class SecurityManager:
         redis_conn = await self.get_redis()
         ip = self.get_client_ip(request)
         if self.is_trusted_ip(ip):
-            return  # Allow trusted IPs (localhost, Cloudflare Tunnel)
+            self.logger.debug("[SecurityManager] Trusted IP %s bypassed rate limiting.", ip)
+            return
         if await self.is_blacklisted(ip):
-            self.logger.warning("Blocked request from blacklisted IP: %s", ip)
+            self.logger.warning("[SecurityManager] Blocked request from blacklisted IP: %s", ip)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your IP has been temporarily blacklisted due to excessive abuse."
+                detail=BLACKLISTED_MSG
             )
         key = f"{self.env_prefix}:ratelimit:{action}:{ip}"
         abuse_key = f"{self.env_prefix}:abuse:{ip}"
         blacklist_key = f"{self.env_prefix}:blacklist:{ip}"
-        # Use config values from settings if not provided
         requests_allowed = rate_limit_requests if rate_limit_requests is not None else settings.RATE_LIMIT_REQUESTS
         period = rate_limit_period if rate_limit_period is not None else settings.RATE_LIMIT_PERIOD_SECONDS
         blacklist_threshold = settings.BLACKLIST_THRESHOLD
@@ -143,9 +168,9 @@ class SecurityManager:
                 blacklist_duration
             )
             count, abuse_count, status_flag = result
-        except Exception as lua_exc:  # Use generic Exception, as redis exceptions are handled in redis_manager
-            self.logger.error("Lua script failed for rate limiting: %s. Falling back to Python logic.", lua_exc)
-            # Failsafe: fallback to less efficient Python logic
+        except RuntimeError as lua_exc:
+            self.logger.error("[SecurityManager] Lua script failed for rate limiting: %s. Falling back to Python logic.", 
+                              lua_exc, exc_info=True)
             count = await redis_conn.incr(key)
             if count == 1:
                 await redis_conn.expire(key, period)
@@ -162,16 +187,18 @@ class SecurityManager:
                 abuse_count = 0
                 status_flag = 'OK'
         if status_flag == 'BLACKLISTED':
-            self.logger.error("IP %s has been blacklisted after %d abuses.", ip, abuse_count)
+            self.logger.error("[SecurityManager] IP %s has been blacklisted after %d abuses.",
+                              ip, abuse_count)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your IP has been temporarily blacklisted due to excessive abuse."
+                detail=BLACKLISTED_MSG
             )
         if status_flag == 'RATE_LIMITED':
-            self.logger.warning("Rate limit exceeded for IP %s (action: %s). Abuse count: %d", ip, action, abuse_count)
+            self.logger.warning("[SecurityManager] Rate limit exceeded for IP %s (action: %s). Abuse count: %d",
+                                ip, action, abuse_count)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later."
+                detail=RATE_LIMITED_MSG
             )
 
 security_manager = SecurityManager()

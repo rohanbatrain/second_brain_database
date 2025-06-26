@@ -4,11 +4,11 @@ Provides encryption/decryption for sensitive data like TOTP secrets.
 """
 import base64
 import hashlib
-import logging
 from cryptography.fernet import Fernet
 from second_brain_database.config import settings
+from second_brain_database.managers.logging_manager import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 def _get_encryption_key() -> bytes:
     """

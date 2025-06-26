@@ -1,13 +1,13 @@
 """Database module for Second Brain Database API."""
 import asyncio
-import logging
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
 
 from second_brain_database.config import settings
+from second_brain_database.managers.logging_manager import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 class DatabaseManager:
     """MongoDB database manager using Motor (async MongoDB driver)"""

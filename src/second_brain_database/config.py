@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     MAX_RESET_REQUESTS: int = 8  # Max reset requests in 15 min
     MAX_RESET_UNIQUE_IPS: int = 4  # Max unique IPs in 15 min
 
+    # Logging configuration
+    DEFAULT_LOG_LEVEL: str = "INFO"
+    DEFAULT_BUFFER_FILE: str = "loki_buffer.log"
+    LOKI_VERSION: str = "1"
+    LOKI_COMPRESS: bool = True
+
+    # --- Admin/Abuse Service Constants ---
+    WHITELIST_KEY: str = "abuse:reset:whitelist"
+    BLOCKLIST_KEY: str = "abuse:reset:blocklist"
+    USERS_COLLECTION: str = "users"
+    ABUSE_EVENTS_COLLECTION: str = "reset_abuse_events"
+
     @field_validator("SECRET_KEY", "FERNET_KEY", "TURNSTILE_SITEKEY", "TURNSTILE_SECRET", mode="before")
     @classmethod
     def no_hardcoded_secrets(cls, v, info):

@@ -4,7 +4,6 @@ Main application module for Second Brain Database API.
 This module sets up the FastAPI application with proper lifespan management,
 database connections, and routing configuration.
 """
-import logging
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -16,10 +15,9 @@ from second_brain_database.database import db_manager
 from second_brain_database.routes import auth_router, main_router
 from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
+from second_brain_database.managers.logging_manager import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 @asynccontextmanager

@@ -18,12 +18,12 @@ Redis keys:
 """
 import asyncio
 import json
-import logging
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.service import reconcile_blocklist_whitelist
 from second_brain_database.config import settings
+from second_brain_database.managers.logging_manager import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 async def sync_password_reset_flags_to_redis():
     """
