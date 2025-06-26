@@ -3,6 +3,9 @@ from datetime import datetime
 from typing import Optional, List
 import re
 from pydantic import BaseModel, Field, EmailStr, field_validator
+from second_brain_database.managers.logging_manager import get_logger
+
+logger = get_logger(prefix="[Auth Models]")
 
 def validate_password_strength(password: str) -> bool:
     """
@@ -22,14 +25,19 @@ def validate_password_strength(password: str) -> bool:
         bool: True if password meets all requirements, False otherwise
     """
     if len(password) < 8:
+        logger.warning("Password validation failed: too short")
         return False
     if not re.search(r"[A-Z]", password):
+        logger.warning("Password validation failed: missing uppercase letter")
         return False
     if not re.search(r"[a-z]", password):
+        logger.warning("Password validation failed: missing lowercase letter")
         return False
     if not re.search(r"\d", password):
+        logger.warning("Password validation failed: missing digit")
         return False
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        logger.warning("Password validation failed: missing special character")
         return False
     return True
 
@@ -66,6 +74,7 @@ class UserIn(BaseModel):
         Validate username contains only alphanumeric characters, dashes, and underscores. Unicode is not allowed.
         """
         if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            logger.error(f"Invalid username: {v}")
             raise ValueError('Username must contain only alphanumeric characters, dashes, and underscores (no Unicode)')
         return v.lower()
 

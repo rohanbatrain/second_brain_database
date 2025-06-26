@@ -1,5 +1,6 @@
 """
-Background task for automatic cleanup of expired 2FA pending states, backup codes, and password reset tokens.
+Background task for automatic cleanup of expired 2FA pending states,
+backup codes, and password reset tokens.
 
 This module is responsible ONLY for cleanup of expired or obsolete authentication-related data in MongoDB.
 
@@ -33,7 +34,7 @@ from second_brain_database.routes.auth.service import clear_2fa_pending_if_expir
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
 
-logger = get_logger()
+logger = get_logger(prefix="[Auth Periodic Cleanup]")
 
 SYSTEM_COLLECTION = "system"
 USERS_COLLECTION = settings.USERS_COLLECTION
@@ -49,10 +50,12 @@ async def get_last_cleanup_time() -> Optional[datetime]:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         doc = await system.find_one({"_id": CLEANUP_DOC_ID})
         if doc and "last_cleanup" in doc:
+            logger.debug("Retrieved last cleanup time: %s", doc["last_cleanup"])
             return datetime.fromisoformat(doc["last_cleanup"])
+        logger.debug("No last cleanup time found in system collection.")
         return None
-    except Exception:
-        logger.error("Error getting last cleanup time", exc_info=True)
+    except Exception as exc:
+        logger.error("Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
 async def set_last_cleanup_time(dt: datetime) -> None:
@@ -68,8 +71,9 @@ async def set_last_cleanup_time(dt: datetime) -> None:
             {"$set": {"last_cleanup": dt.isoformat()}},
             upsert=True
         )
-    except Exception:
-        logger.error("Error setting last cleanup time", exc_info=True)
+        logger.debug("Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("Error setting last cleanup time: %s", exc, exc_info=True)
         raise
 
 async def periodic_2fa_cleanup() -> None:
@@ -84,6 +88,7 @@ async def periodic_2fa_cleanup() -> None:
     Side-effects: Logs all actions and errors.
     """
     interval = settings.BACKUP_CODES_CLEANUP_INTERVAL
+    logger.info("Starting periodic 2FA cleanup task with interval %ds", interval)
     while True:
         try:
             now = datetime.utcnow()
@@ -106,6 +111,7 @@ async def periodic_2fa_cleanup() -> None:
                             cleaned = await clear_2fa_pending_if_expired(user)
                             if cleaned:
                                 cleanup_count += 1
+                                logger.info("Cleared expired 2FA pending state for user '%s' (_id=%s)", user.get('username', 'unknown'), user.get('_id'))
                         else:
                             # If 2FA is disabled but 2FA-related values exist, remove them
                             update_fields = {}
@@ -118,8 +124,9 @@ async def periodic_2fa_cleanup() -> None:
                             if update_fields:
                                 await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
                                 cleanup_count += 1
-                    except Exception:
-                        logger.error("Error cleaning up 2FA for user %s", user.get('username', 'unknown'), exc_info=True)
+                                logger.info("Removed orphaned 2FA data for user '%s' (_id=%s)", user.get('username', 'unknown'), user.get('_id'))
+                    except Exception as exc:
+                        logger.error("Error cleaning up 2FA for user '%s' (_id=%s): %s", user.get('username', 'unknown'), user.get('_id'), exc, exc_info=True)
                 # Password reset token cleanup
                 result = await users.update_many(
                     {"password_reset_token_expiry": {"$exists": True, "$lt": now.isoformat()}},
@@ -130,7 +137,11 @@ async def periodic_2fa_cleanup() -> None:
                 await set_last_cleanup_time(now)
                 if cleanup_count > 0:
                     logger.info("2FA cleanup completed: cleaned up %d expired pending states", cleanup_count)
-        except Exception:
-            logger.error("Error in periodic cleanup task", exc_info=True)
+                else:
+                    logger.debug("No 2FA cleanup actions needed this cycle.")
+            else:
+                logger.debug("Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic cleanup task: %s", exc, exc_info=True)
         finally:
             await asyncio.sleep(interval)

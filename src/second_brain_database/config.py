@@ -83,9 +83,14 @@ class Settings(BaseSettings):
     LOKI_VERSION: str = "1"
     LOKI_COMPRESS: bool = True
 
+    # Redis/Abuse sync intervals
+    REDIS_FLAG_SYNC_INTERVAL: int = 60  # Interval for syncing password reset flags to Redis (seconds)
+    BLOCKLIST_RECONCILE_INTERVAL: int = 300  # Interval for blocklist/whitelist reconciliation (seconds)
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"
+    ABUSE_FLAG_PREFIX: str = "abuse:reset:flagged"
     USERS_COLLECTION: str = "users"
     ABUSE_EVENTS_COLLECTION: str = "reset_abuse_events"
 

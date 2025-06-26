@@ -15,7 +15,7 @@ from second_brain_database.routes.admin.models import AbuseEvent, EmailIpPairDic
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.config import settings
 
-logger = get_logger()
+logger = get_logger(prefix="[Admin Service]")
 
 # --- Whitelist/Blocklist Management ---
 async def admin_add_whitelist_pair(email: str, ip: str) -> int:

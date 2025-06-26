@@ -9,7 +9,7 @@ and is fully instrumented with production-grade logging.
 from typing import Optional
 from second_brain_database.managers.logging_manager import get_logger
 
-logger = get_logger()
+logger = get_logger(prefix="[EmailManager]")
 
 class EmailManager:
     """
@@ -20,7 +20,7 @@ class EmailManager:
         self.logger = logger
         # Placeholder for provider configs (add as needed)
         self.providers = [self._send_via_console]  # Add real providers here
-        self.logger.debug("[EmailManager] Initialized with providers: %s", [p.__name__ for p in self.providers])
+        self.logger.debug("Initialized with providers: %s", [p.__name__ for p in self.providers])
 
     async def send_verification_email(
         self, to_email: str, verification_link: str, username: Optional[str] = None
@@ -41,23 +41,23 @@ class EmailManager:
         </html>
         """
         self.logger.info(
-            "[EmailManager] Attempting to send verification email to %s (username=%s)", to_email, username
+            "Attempting to send verification email to %s (username=%s)", to_email, username
         )
         for provider in self.providers:
             try:
-                self.logger.debug("[EmailManager] Trying provider: %s for %s", provider.__name__, to_email)
+                self.logger.debug("Trying provider: %s for %s", provider.__name__, to_email)
                 await provider(to_email, subject, html_content)
                 self.logger.info(
-                    "[EmailManager] Verification email sent to %s using provider %s", to_email, provider.__name__
+                    "Verification email sent to %s using provider %s", to_email, provider.__name__
                 )
                 return True
             except RuntimeError as e:
                 self.logger.warning(
-                    "[EmailManager] Email provider %s failed for %s: %s",
+                    "Email provider %s failed for %s: %s",
                     provider.__name__, to_email, e, exc_info=True
                 )
         self.logger.error(
-            "[EmailManager] All email providers failed to send verification to %s", to_email, exc_info=True
+            "All email providers failed to send verification to %s", to_email, exc_info=True
         )
         return False
 
@@ -66,10 +66,10 @@ class EmailManager:
         For development: log the email instead of sending.
         """
         self.logger.info(
-            "[EmailManager] [DEV EMAIL] To: %s\nSubject: %s\nHTML:\n%s", to_email, subject, html_content
+            "[DEV EMAIL] To: %s\nSubject: %s\nHTML:\n%s", to_email, subject, html_content
         )
         self.logger.debug(
-            "[EmailManager] Email content for %s: subject=%s, html_length=%d", to_email, subject, len(html_content)
+            "Email content for %s: subject=%s, html_length=%d", to_email, subject, len(html_content)
         )
 
 # Singleton instance

@@ -19,7 +19,7 @@ from second_brain_database.routes.admin.models import (
 from second_brain_database.routes.auth.routes import require_admin
 from second_brain_database.managers.logging_manager import get_logger
 
-logger = get_logger()
+logger = get_logger(prefix="[Admin Routes]")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

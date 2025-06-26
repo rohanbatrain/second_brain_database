@@ -37,13 +37,13 @@ except ImportError as e:
     LokiLoggerHandler = None  # type: ignore
     _loki_available = False
     logging.basicConfig(level=logging.INFO)
-    logging.getLogger("fastapi").warning(
+    logging.getLogger("Second_Brain_Database").warning(
         "[LoggingManager] LokiLoggerHandler import failed: %s. Falling back to console logging.", e
     )
 
 LOKI_URL: str = os.getenv("LOKI_URL", getattr(settings, "LOKI_URL", "http://localhost:3100/loki/api/v1/push"))
 LOKI_TAGS: dict[str, str] = {
-    "app": os.getenv("APP_NAME", getattr(settings, "APP_NAME", "fastapi-app")),
+    "app": os.getenv("APP_NAME", getattr(settings, "APP_NAME", "Second_Brain_Database-app")),
     "env": os.getenv("ENV", getattr(settings, "ENV", "dev")),
 }
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", getattr(settings, "LOG_LEVEL", "INFO")).upper()
@@ -68,7 +68,7 @@ def _write_to_buffer(record: logging.LogRecord) -> None:
                 f.write(log_line)
     except OSError as e:
         # Fallback: print to stderr if buffer file is not writable
-        logging.getLogger("fastapi").error(
+        logging.getLogger("Second_Brain_Database").error(
             "[LoggingManager] Failed to write log to buffer file '%s': %s", BUFFER_FILE, e, exc_info=True
         )
 
@@ -138,15 +138,14 @@ def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger)
             logger.error("[LoggingManager] Failed to flush buffer to Loki: %s", flush_exc, exc_info=True)
 
 
-def get_logger(name: str = "fastapi", add_loki: bool = True) -> logging.Logger:
+def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefix: str = "") -> logging.Logger:
     """
     Returns a logger instance with Loki handler if available and enabled.
-    Falls back to standard logging if Loki handler is unavailable.
-    Logs all handler setup and errors for observability.
-
+    Optionally prepends a prefix to all log messages from this logger.
     Args:
-        name: Logger name (default: "fastapi").
+        name: Logger name (default: "Second_Brain_Database").
         add_loki: Whether to attach Loki handler if available.
+        prefix: String to prepend to all log messages (default: "").
     Returns:
         Configured logger instance.
     Side-effects:
@@ -154,6 +153,16 @@ def get_logger(name: str = "fastapi", add_loki: bool = True) -> logging.Logger:
     """
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+    class PrefixFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            if prefix and not getattr(record, '_prefix_applied', False):
+                record.msg = f"{prefix} {record.msg}"
+                record._prefix_applied = True
+            return True
+
+    if prefix and not any(isinstance(f, PrefixFilter) for f in logger.filters):
+        logger.addFilter(PrefixFilter())
 
     handler_types = [type(h) for h in logger.handlers]
     if add_loki and _loki_available and LokiLoggerHandler not in handler_types:
@@ -172,7 +181,6 @@ def get_logger(name: str = "fastapi", add_loki: bool = True) -> logging.Logger:
                 LOKI_URL,
                 LOKI_TAGS,
             )
-            # Always try to flush buffer if it exists
             _flush_buffer_to_loki(loki_handler, logger)
         except (ImportError, OSError) as e:
             logger.error(
