@@ -14,30 +14,47 @@ Password Reset Abuse Prevention Overview:
 Defines API endpoints for user registration, login, email verification, token management,
 password change, and password reset. All business logic is delegated to the service layer.
 """
-from second_brain_database.managers.logging_manager import get_logger
-logger = get_logger()
-
+from typing import Any, Dict, Optional
+import secrets
+import hashlib
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query, Security
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
-from second_brain_database.routes.auth.models import (
-    UserIn, UserOut, Token, PasswordChangeRequest, TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
-    validate_password_strength
-)
-# Admin models are now in routes.admin.models
-from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.service import (
-    register_user, verify_user_email, login_user, change_user_password, create_access_token, get_current_user, send_verification_email, send_password_reset_email,
-    setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa, blacklist_token, redis_check_username, redis_incr_username_demand, redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification, log_password_reset_request, detect_password_reset_abuse, is_pair_whitelisted, is_pair_blocked,
-    reconcile_blocklist_whitelist
-)
-# Admin service functions are now in routes.admin.service
-from second_brain_database.database import db_manager
-from second_brain_database.config import settings
+from fastapi.responses import JSONResponse, HTMLResponse
 from pymongo import ASCENDING, DESCENDING
 import bcrypt
+import httpx
+from jose import jwt
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes.auth.models import (
+    UserIn, UserOut, Token, PasswordChangeRequest, 
+    TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, 
+    LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
+    validate_password_strength
+)
+from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.routes.auth.service import (
+    register_user, verify_user_email, login_user,
+    change_user_password, create_access_token, get_current_user,
+    send_verification_email, send_password_reset_email,
+    setup_2fa, verify_2fa, get_2fa_status, disable_2fa,
+    reset_2fa, blacklist_token, redis_incr_username_demand,
+    redis_get_top_demanded_usernames,
+    resend_verification_email_service, send_password_reset_notification,
+    log_password_reset_request, detect_password_reset_abuse, is_pair_blocked,
+    reconcile_blocklist_whitelist, consume_abuse_action_token,
+    whitelist_reset_pair, block_reset_pair
+)
+from second_brain_database.database import db_manager
+from second_brain_database.config import settings
+
+# Constants
+RESEND_RESET_EMAIL_INTERVAL: int = 60  # seconds
+RESET_EMAIL_EXPIRY: int = 900  # seconds
+MAX_BACKUP_CODES: int = 10
+BACKUP_CODE_LENGTH: int = 4
+
+logger = get_logger(prefix="[Auth Routes]")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -70,8 +87,17 @@ async def reconcile_blocklist_whitelist_on_startup():
 
 # Rate limit: register: 100 requests per 60 seconds per IP (default)
 @router.post("/register", response_model=UserOut)
-async def register(user: UserIn, request: Request):
-    """Register a new user and return a login-like response payload."""
+async def register(user: UserIn, request: Request) -> JSONResponse:
+    """
+    Register a new user and return a login-like response payload.
+    Args:
+        user: UserIn - registration data
+        request: Request - FastAPI request object
+    Returns:
+        JSONResponse with access token and user info
+    Side-effects:
+        Writes to DB, sends verification email, logs registration
+    """
     await security_manager.check_rate_limit(request, "register")
     reg_log = RegistrationLog(
         timestamp=datetime.utcnow().replace(microsecond=0),
@@ -86,10 +112,8 @@ async def register(user: UserIn, request: Request):
     )
     try:
         user_doc, verification_token = await register_user(user)
-        # Optionally send verification email (but do not return link)
         verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
         await send_verification_email(user.email, verification_link, username=user.username)
-        # Build login-like response
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = await create_access_token({"sub": user_doc["username"]})
@@ -97,6 +121,7 @@ async def register(user: UserIn, request: Request):
         reg_log.outcome = "success"
         reg_log.reason = None
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
+        logger.info("User registered: %s", user.username)
         return JSONResponse({
             "access_token": token,
             "token_type": "bearer",
@@ -110,12 +135,13 @@ async def register(user: UserIn, request: Request):
         reg_log.outcome = f"failure:{str(e.detail).replace(' ', '_').lower()}"
         reg_log.reason = str(e.detail)
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
+        logger.warning("Registration failed for user %s: %s", user.username, e.detail)
         raise
     except Exception as e:
         reg_log.outcome = "failure:internal_error"
         reg_log.reason = str(e)
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
-        logger.error("Registration failed for user %s: %s", user.username, e)
+        logger.error("Registration failed for user %s: %s", user.username, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Registration failed"
@@ -308,49 +334,57 @@ async def change_password(
 
 # Rate limit: forgot-password: 100 requests per 60 seconds per IP (default)
 @router.post("/forgot-password")
-async def forgot_password(request: Request, payload: dict = Body(default=None)):
+async def forgot_password(request: Request, 
+                          payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
     """
-    Initiate password reset process by sending a reset link to the user's email. Accepts JSON or query param.
-    If abuse detection flags the request as suspicious, require and verify Turnstile CAPTCHA.
-    SECURITY NOTE: Rate limiting is always enforced via security_manager.check_rate_limit
-    BEFORE any abuse/whitelist logic. Whitelisting never exempts from rate limiting.
+    Initiate password reset process by sending a reset link to the user's email. 
+    Accepts JSON or query param.
+    If abuse detection flags the request as suspicious, 
+    require and verify Turnstile CAPTCHA.
+    SECURITY NOTE: 
+    Rate limiting is always enforced via 
+    security_manager.check_rate_limit BEFORE any abuse/whitelist logic.
+    Args:
+        request: FastAPI request object
+        payload: Optional dict with email and turnstile_token
+    Returns:
+        Dict with status message and abuse info
+    Side-effects:
+        Writes to Redis, logs abuse, sends email
     """
     await security_manager.check_rate_limit(request, "forgot-password")
-    email = None
-    turnstile_token = None
-    # Try to get email and turnstile_token from JSON body
+    email: Optional[str] = None
     if payload and isinstance(payload, dict):
         email = payload.get("email")
-        turnstile_token = payload.get("turnstile_token")
-    # Fallback: try to get email from query param
     if not email:
         email = request.query_params.get("email")
     if not email:
+        logger.warning("Forgot password request missing email.")
         raise HTTPException(status_code=400, detail="Email is required.")
     try:
         ip = request.client.host
         user_agent = request.headers.get("user-agent")
         request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-        # --- 60 second buffer for resend prevention ---
         redis_conn = await security_manager.get_redis()
         resend_key = f"forgotpw:last:{email}"
         last_ts = await redis_conn.get(resend_key)
         now_ts = int(datetime.utcnow().timestamp())
-        if last_ts and now_ts - int(last_ts) < 60:
-            raise HTTPException(status_code=429, detail="Please wait at least 60 seconds before requesting another password reset email.")
-        await redis_conn.set(resend_key, now_ts, ex=900)
-        # Log the reset request for abuse detection
+        if last_ts and now_ts - int(last_ts) < RESEND_RESET_EMAIL_INTERVAL:
+            logger.info("Password reset email resend blocked for %s (rate limit)", email)
+            raise HTTPException(status_code=429, 
+                                detail="Please wait at least 60 seconds before requesting another password reset email.")
+        await redis_conn.set(resend_key, now_ts, ex=RESET_EMAIL_EXPIRY)
         await log_password_reset_request(email, ip, user_agent, request_time)
-        # Check if account is suspended
         user = await db_manager.get_collection("users").find_one({"email": email})
         if user and user.get("abuse_suspended", False):
-            raise HTTPException(status_code=403, detail="Account suspended due to repeated password reset abuse. Contact support.")
-        # Check if pair is blocked
+            logger.warning("Account suspended for abuse: %s", email)
+            raise HTTPException(status_code=403,
+                                detail="Account suspended due to repeated password reset abuse. Contact support.")
         if await is_pair_blocked(email, ip):
-            raise HTTPException(status_code=403, detail="Password reset requests from this device are temporarily blocked due to abuse. Try again later.")
-        # Abuse detection logic
+            logger.warning("Password reset blocked for %s from IP %s", email, ip)
+            raise HTTPException(status_code=403, 
+                                detail="Password reset requests from this device are temporarily blocked due to abuse. Try again later.")
         abuse_result = await detect_password_reset_abuse(email, ip)
-        # If suspicious, require CAPTCHA
         if abuse_result["suspicious"]:
             abuse_msgs = []
             targeted_abuse = False
@@ -372,6 +406,7 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
             extra_info = ""
             if targeted_abuse:
                 extra_info = " You may be a victim of targeted abuse. Please review your account security and contact support if you did not initiate these requests."
+            logger.warning("Suspicious password reset activity for %s: %s", email, abuse_result["reasons"])
             return JSONResponse(
                 status_code=403,
                 content={
@@ -381,10 +416,9 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
                     "abuse_reasons": abuse_result["reasons"]
                 }
             )
-        # Fetch GeoIP info
-        import httpx
-        location = None
-        isp = None
+
+        location: Optional[str] = None
+        isp: Optional[str] = None
         try:
             async with httpx.AsyncClient() as client:
                 geo = await client.get(f"https://ipinfo.io/{ip}/json")
@@ -392,7 +426,7 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
                 location = f"{geo_data.get('city', '')}, {geo_data.get('country', '')}".strip(', ')
                 isp = geo_data.get('org')
         except httpx.HTTPError as geo_exc:
-            logger.warning("GeoIP lookup failed for IP %s: %s", ip, geo_exc)
+            logger.warning("GeoIP lookup failed for IP %s: %s", ip, geo_exc, exc_info=True)
             location = None
             isp = None
         await send_password_reset_email(
@@ -403,12 +437,13 @@ async def forgot_password(request: Request, payload: dict = Body(default=None)):
             location=location,
             isp=isp
         )
+        logger.info("Password reset email sent to %s", email)
         return {"message": "Password reset email sent", "suspicious": abuse_result["suspicious"], "abuse_reasons": abuse_result["reasons"]}
     except HTTPException as e:
-        logger.warning("Forgot password HTTP error for email %s: %s", email, e.detail)
+        logger.warning("Forgot password HTTP error for email %s: %s", email, e.detail, exc_info=True)
         raise
     except Exception as e:
-        logger.error("Forgot password failed for email %s: %s", email, str(e))
+        logger.error("Forgot password failed for email %s: %s", email, str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate password reset"
@@ -439,7 +474,6 @@ async def resend_verification_email(request: Request):
     # Prefer email for abuse tracking, fallback to username
     abuse_id = email or username
     if abuse_id:
-        from second_brain_database.routes.auth.service import log_password_reset_request, detect_password_reset_abuse
         await log_password_reset_request(abuse_id, ip, user_agent, request_time)
         # Check if account is suspended
         user = None
@@ -450,7 +484,6 @@ async def resend_verification_email(request: Request):
         if user and user.get("abuse_suspended", False):
             raise HTTPException(status_code=403, detail="Account suspended due to repeated abuse. Contact support.")
         # Check if pair is blocked
-        from second_brain_database.routes.auth.service import is_pair_blocked
         if await is_pair_blocked(abuse_id, ip):
             raise HTTPException(status_code=403, detail="Requests from this device are temporarily blocked due to abuse. Try again later.")
         abuse_result = await detect_password_reset_abuse(abuse_id, ip)
@@ -556,7 +589,6 @@ async def validate_token(token: str = Depends(oauth2_scheme), request: Request =
         user = await get_current_user(token)
         if user.get("is_verified", False):
             # Parse token for issued_at and expires_at
-            from jose import jwt
             secret_key = getattr(settings, "SECRET_KEY", None)
             if hasattr(secret_key, "get_secret_value"):
                 secret_key = secret_key.get_secret_value()
@@ -654,8 +686,7 @@ async def regenerate_backup_codes(current_user: dict = Depends(get_current_user_
         raise HTTPException(status_code=400, detail="2FA is not enabled")
     
     # Generate new backup codes
-    import secrets
-    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    backup_codes = [secrets.token_hex(BACKUP_CODE_LENGTH).upper() for _ in range(MAX_BACKUP_CODES)]
     hashed_backup_codes = [bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8') for code in backup_codes]
     
     # Update user with new backup codes
@@ -692,7 +723,6 @@ async def reset_password(request: Request, payload: dict = Body(...)):
     new_password = payload.get("new_password")
     if not token or not new_password:
         raise HTTPException(status_code=400, detail="Token and new password are required.")
-    import hashlib
     user = await db_manager.get_collection("users").find_one({"password_reset_token": hashlib.sha256(token.encode()).hexdigest()})
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired token.")
@@ -765,7 +795,7 @@ async def reset_password_page(token: str):
             border-radius: 12px;
             box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
             width: 100%;
-            max-width: 420px;
+            max-width: 420px.
         }
 
         h2 {
@@ -802,7 +832,7 @@ async def reset_password_page(token: str):
             font-size: 1.1rem;
             font-weight: 700;
             cursor: pointer;
-            transition: background-color 0.2s ease-in-out;
+            transition: background-color 0.2s ease-in-out.
         }
 
         button:hover {
@@ -916,7 +946,6 @@ async def confirm_reset_abuse(token: str):
     """
     Endpoint for user to confirm (whitelist) a suspicious password reset attempt via secure email link.
     """
-    from second_brain_database.routes.auth.service import consume_abuse_action_token, whitelist_reset_pair
     email, ip = await consume_abuse_action_token(token, expected_action="whitelist")
     if not email or not ip:
         return HTMLResponse("<h2>Invalid or expired confirmation link.</h2>", status_code=400)
@@ -928,7 +957,6 @@ async def block_reset_abuse(token: str):
     """
     Endpoint for user to block a suspicious password reset attempt via secure email link.
     """
-    from second_brain_database.routes.auth.service import consume_abuse_action_token, block_reset_pair
     email, ip = await consume_abuse_action_token(token, expected_action="block")
     if not email or not ip:
         return HTMLResponse("<h2>Invalid or expired block link.</h2>", status_code=400)
