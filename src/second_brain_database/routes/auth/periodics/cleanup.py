@@ -30,9 +30,10 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.service import clear_2fa_pending_if_expired
 from second_brain_database.config import settings
+
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes.auth.services.auth.twofa import clear_2fa_pending_if_expired
 
 logger = get_logger(prefix="[Auth Periodic Cleanup]")
 

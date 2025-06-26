@@ -33,18 +33,15 @@ from second_brain_database.routes.auth.models import (
     validate_password_strength
 )
 from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.service import (
-    register_user, verify_user_email, login_user,
-    change_user_password, create_access_token, get_current_user,
-    send_verification_email, send_password_reset_email,
-    setup_2fa, verify_2fa, get_2fa_status, disable_2fa,
-    reset_2fa, blacklist_token, redis_incr_username_demand,
-    redis_get_top_demanded_usernames,
-    resend_verification_email_service, send_password_reset_notification,
-    log_password_reset_request, detect_password_reset_abuse, is_pair_blocked,
-    reconcile_blocklist_whitelist, consume_abuse_action_token,
-    whitelist_reset_pair, block_reset_pair
-)
+from second_brain_database.routes.auth.services.auth.registration import register_user, verify_user_email
+from second_brain_database.routes.auth.services.auth.login import login_user, create_access_token, get_current_user
+from second_brain_database.routes.auth.services.auth.password import change_user_password, send_password_reset_email, send_password_reset_notification
+from second_brain_database.routes.auth.services.auth.twofa import setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa
+from second_brain_database.routes.auth.services.security.tokens import blacklist_token
+from second_brain_database.routes.auth.services.utils.redis_utils import redis_incr_username_demand, redis_get_top_demanded_usernames, consume_abuse_action_token
+from second_brain_database.routes.auth.services.auth.verification import send_verification_email, resend_verification_email_service
+from second_brain_database.routes.auth.services.abuse.detection import log_password_reset_request, detect_password_reset_abuse
+from second_brain_database.routes.auth.services.abuse.management import is_pair_blocked, reconcile_blocklist_whitelist, whitelist_reset_pair, block_reset_pair
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
 

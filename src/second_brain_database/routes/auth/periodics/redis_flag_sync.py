@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 import pymongo.errors
 import redis.exceptions
 from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.service import reconcile_blocklist_whitelist
+from second_brain_database.routes.auth.services.abuse.management import reconcile_blocklist_whitelist
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
@@ -33,7 +33,7 @@ from second_brain_database.managers.redis_manager import redis_manager
 db_manager.pymongo_errors = pymongo.errors
 redis_manager.redis_exceptions = redis.exceptions
 
-logger = get_logger()
+logger = get_logger(prefix="[Auth Periodic Redis]")
 
 # Constants
 REDIS_ABUSE_FLAG_EXPIRY: int = 900  # 15 minutes in seconds
