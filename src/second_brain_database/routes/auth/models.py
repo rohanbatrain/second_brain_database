@@ -1,11 +1,29 @@
 """Authentication models for user registration, login, and data validation."""
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any, Dict, TypedDict
 import re
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[Auth Models]")
+
+# Constants for password validation
+PASSWORD_MIN_LENGTH: int = 8
+USERNAME_MIN_LENGTH: int = 3
+USERNAME_MAX_LENGTH: int = 50
+PASSWORD_SPECIAL_CHARS: str = r"!@#$%^&*(),.?\":{}|<>"
+USERNAME_REGEX: str = r'^[a-zA-Z0-9_-]+$'
+
+class PasswordValidationResult(TypedDict):
+    """
+    A TypedDict representing the result of a password validation check.
+
+    Attributes:
+        valid (bool): Indicates whether the password passed validation.
+        reason (str): Provides the reason for validation failure, or an explanatory message.
+    """
+    valid: bool
+    reason: str
 
 def validate_password_strength(password: str) -> bool:
     """
@@ -19,12 +37,13 @@ def validate_password_strength(password: str) -> bool:
     - At least one special character
 
     Args:
-        password: The password to validate
-
+        password (str): The password to validate.
     Returns:
-        bool: True if password meets all requirements, False otherwise
+        bool: True if password meets all requirements, False otherwise.
+    Side-effects:
+        Logs warnings for each failed requirement.
     """
-    if len(password) < 8:
+    if len(password) < PASSWORD_MIN_LENGTH:
         logger.warning("Password validation failed: too short")
         return False
     if not re.search(r"[A-Z]", password):
@@ -36,7 +55,7 @@ def validate_password_strength(password: str) -> bool:
     if not re.search(r"\d", password):
         logger.warning("Password validation failed: missing digit")
         return False
-    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+    if not re.search(f"[{PASSWORD_SPECIAL_CHARS}]", password):
         logger.warning("Password validation failed: missing special character")
         return False
     return True
@@ -51,14 +70,14 @@ class UserIn(BaseModel):
     """
     username: str = Field(
         ...,
-        min_length=3,
-        max_length=50,
+        min_length=USERNAME_MIN_LENGTH,
+        max_length=USERNAME_MAX_LENGTH,
         description="Username must be 3-50 characters"
     )
     email: EmailStr = Field(..., description="Valid email address")
     password: str = Field(
         ...,
-        min_length=8,
+        min_length=PASSWORD_MIN_LENGTH,
         description="Password must be at least 8 characters"
     )
     plan: Optional[str] = "free"
@@ -72,9 +91,17 @@ class UserIn(BaseModel):
     def validate_username(cls, v: str) -> str:
         """
         Validate username contains only alphanumeric characters, dashes, and underscores. Unicode is not allowed.
+        Args:
+            v (str): The username to validate.
+        Returns:
+            str: The validated username in lowercase.
+        Raises:
+            ValueError: If username is invalid.
+        Side-effects:
+            Logs error if username is invalid.
         """
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            logger.error(f"Invalid username: {v}")
+        if not re.match(USERNAME_REGEX, v):
+            logger.error("Invalid username: %s", v)
             raise ValueError('Username must contain only alphanumeric characters, dashes, and underscores (no Unicode)')
         return v.lower()
 
@@ -83,12 +110,10 @@ class UserIn(BaseModel):
     def validate_email(cls, v: str) -> str:
         """
         Validate and normalize email address.
-
         Args:
-            v: The email to validate
-
+            v (str): The email to validate.
         Returns:
-            str: The validated email in lowercase
+            str: The validated email in lowercase.
         """
         return v.lower()
 
@@ -126,44 +151,13 @@ class UserInDB(BaseModel):
     team: Optional[List[str]] = Field(default_factory=list)
     role: Optional[str] = "user"
     is_verified: bool = False
-    # 2FA fields (TOTP only)
     two_fa_enabled: bool = False
     totp_secret: Optional[str] = None
     backup_codes: Optional[List[str]] = None
     backup_codes_used: Optional[List[int]] = None
-    reset_blocklist: Optional[list] = Field(default_factory=list)
-    reset_whitelist: Optional[list] = Field(default_factory=list)
-    # The following legacy fields are deprecated and should not be used:
-    # abuse_flags: Optional[dict] = Field(default_factory=dict)
-    # abuse_history: Optional[list] = Field(default_factory=list)
-    #
-    # All abuse events and flags are now tracked in the reset_abuse_events collection (MongoDB)
-    # and managed via admin endpoints and service logic. These fields are retained for backward compatibility only.
-    #
-    # Remove or ignore these fields in new code. Use the new event-based system for all abuse review and escalation.
-    """
-    ---
-    Password reset abuse prevention fields (MongoDB persistence):
-    - reset_blocklist: List of IPs (as strings) currently blocked from password reset for this user.
-      Example: ["127.0.0.1", "203.0.113.5"]
-    - reset_whitelist: List of IPs (as strings) currently whitelisted for password reset for this user.
-      Example: ["10.0.0.2"]
-    ---
-    To add an event (example mongosh):
-      db.users.updateOne({email: "user@example.com"}, {$push: {abuse_history: {timestamp: new Date().toISOString(), ip: "127.0.0.1", reason: "too many reset attempts", action: "block"}}})
-    To query for repeated violators (strict, in Python):
-      # See service.py for a helper function to check for N+ abuse events from different IPs in a short window.
-    ---
-    These fields are stored directly in the MongoDB user document. You can edit them using any MongoDB admin tool (e.g., MongoDB Compass, mongosh):
-    Example update (add an IP to blocklist):
-      db.users.updateOne({email: "user@example.com"}, {$addToSet: {reset_blocklist: "203.0.113.5"}})
-    Example update (remove an IP from whitelist):
-      db.users.updateOne({email: "user@example.com"}, {$pull: {reset_whitelist: "10.0.0.2"}})
-    Example update (set abuse flag):
-      db.users.updateOne({email: "user@example.com"}, {$set: {"abuse_flags.127.0.0.1": {blocked_until: "2025-06-24T12:00:00Z", reason: "manual block"}}})
-    ---
-    These fields are periodically synced to Redis for fast in-memory checks. MongoDB is the source of truth.
-    """
+    reset_blocklist: Optional[List[str]] = Field(default_factory=list)
+    reset_whitelist: Optional[List[str]] = Field(default_factory=list)
+    # Deprecated/legacy fields are documented in the docstring above.
 
 class Token(BaseModel):
     """
@@ -192,7 +186,7 @@ class PasswordChangeRequest(BaseModel):
     old_password: str
     new_password: str = Field(
         ...,
-        min_length=8,
+        min_length=PASSWORD_MIN_LENGTH,
         description="New password must be at least 8 characters"
     )
 
@@ -211,7 +205,7 @@ class TwoFAVerifyRequest(BaseModel):
     Contains the method and code for verification.
     """
     method: str
-    code: str  # For TOTP or email OTP; for passkey, this could be a challenge response
+    code: str
 
 class TwoFAStatus(BaseModel):
     """
@@ -221,16 +215,16 @@ class TwoFAStatus(BaseModel):
     If backup_codes is present, these are the one-time backup codes shown only after first successful 2FA verification.
     """
     enabled: bool
-    methods: Optional[list] = []
-    pending: Optional[bool] = False  # Indicates if setup is pending verification
-    backup_codes: Optional[list] = None  # Only present after first successful 2FA verification
+    methods: Optional[List[str]] = Field(default_factory=list)
+    pending: Optional[bool] = False
+    backup_codes: Optional[List[str]] = None
 
 class TwoFASetupResponse(BaseModel):
     """
     Response model for 2FA setup, including secret and provisioning URI for TOTP.
     """
     enabled: bool
-    methods: Optional[list] = []
+    methods: Optional[List[str]] = Field(default_factory=list)
     totp_secret: Optional[str] = None
     provisioning_uri: Optional[str] = None
     qr_code_data: Optional[str] = None
@@ -250,8 +244,18 @@ class LoginRequest(BaseModel):
 
     @classmethod
     @field_validator('*', mode='before')
-    def check_username_or_email(cls, values):
+    def check_username_or_email(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ensure that either username or email is provided for login.
+        Args:
+            values (dict): The input values.
+        Returns:
+            dict: The validated input values.
+        Raises:
+            ValueError: If neither username nor email is provided.
+        """
         if not values.get('username') and not values.get('email'):
+            logger.error("Login validation failed: missing username and email")
             raise ValueError('Either username or email must be provided for login.')
         return values
 
@@ -260,24 +264,24 @@ class LoginLog(BaseModel):
     Model for logging login attempts.
     """
     timestamp: datetime
-    ip_address: str | None = None
-    user_agent: str | None = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
     username: str
-    email: str | None = None
+    email: Optional[str] = None
     outcome: str  # 'success' or 'failure'
-    reason: str | None = None
-    mfa_status: bool | None = None
+    reason: Optional[str] = None
+    mfa_status: Optional[bool] = None
 
 class RegistrationLog(BaseModel):
     """
     Model for logging registration attempts.
     """
     timestamp: datetime
-    ip_address: str | None = None
-    user_agent: str | None = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
     username: str
     email: str
     outcome: str  # 'success' or 'failure:reason'
-    reason: str | None = None
-    plan: str | None = None
-    role: str | None = None
+    reason: Optional[str] = None
+    plan: Optional[str] = None
+    role: Optional[str] = None

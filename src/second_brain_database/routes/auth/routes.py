@@ -44,12 +44,61 @@ from second_brain_database.routes.auth.services.abuse.detection import log_passw
 from second_brain_database.routes.auth.services.abuse.management import is_pair_blocked, reconcile_blocklist_whitelist, whitelist_reset_pair, block_reset_pair
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
+from second_brain_database.routes.auth.routes_html import render_reset_password_page
 
 # Constants
 RESEND_RESET_EMAIL_INTERVAL: int = 60  # seconds
 RESET_EMAIL_EXPIRY: int = 900  # seconds
 MAX_BACKUP_CODES: int = 10
 BACKUP_CODE_LENGTH: int = 4
+
+# Magic constants
+LOGIN_RATE_LIMIT: int = 100
+LOGIN_RATE_PERIOD: int = 60
+REGISTER_RATE_LIMIT: int = 100
+REGISTER_RATE_PERIOD: int = 60
+VERIFY_EMAIL_RATE_LIMIT: int = 100
+VERIFY_EMAIL_RATE_PERIOD: int = 60
+RESEND_VERIFICATION_EMAIL_LIMIT: int = 50
+RESEND_VERIFICATION_EMAIL_PERIOD: int = 600
+FORGOT_PASSWORD_RATE_LIMIT: int = 100
+FORGOT_PASSWORD_RATE_PERIOD: int = 60
+CHANGE_PASSWORD_RATE_LIMIT: int = 100
+CHANGE_PASSWORD_RATE_PERIOD: int = 60
+REFRESH_TOKEN_RATE_LIMIT: int = 100
+REFRESH_TOKEN_RATE_PERIOD: int = 60
+LOGOUT_RATE_LIMIT: int = 100
+LOGOUT_RATE_PERIOD: int = 60
+CHECK_USERNAME_RATE_LIMIT: int = 100
+CHECK_USERNAME_RATE_PERIOD: int = 60
+CHECK_EMAIL_RATE_LIMIT: int = 100
+CHECK_EMAIL_RATE_PERIOD: int = 60
+USERNAME_DEMAND_RATE_LIMIT: int = 100
+USERNAME_DEMAND_RATE_PERIOD: int = 60
+TWO_FA_SETUP_RATE_LIMIT: int = 100
+TWO_FA_SETUP_RATE_PERIOD: int = 60
+TWO_FA_VERIFY_RATE_LIMIT: int = 100
+TWO_FA_VERIFY_RATE_PERIOD: int = 60
+TWO_FA_STATUS_RATE_LIMIT: int = 100
+TWO_FA_STATUS_RATE_PERIOD: int = 60
+TWO_FA_DISABLE_RATE_LIMIT: int = 100
+TWO_FA_DISABLE_RATE_PERIOD: int = 60
+IS_VERIFIED_RATE_LIMIT: int = 100
+IS_VERIFIED_RATE_PERIOD: int = 60
+VALIDATE_TOKEN_RATE_LIMIT: int = 100
+VALIDATE_TOKEN_RATE_PERIOD: int = 60
+TWO_FA_GUIDE_RATE_LIMIT: int = 100
+TWO_FA_GUIDE_RATE_PERIOD: int = 60
+SECURITY_DASHBOARD_RATE_LIMIT: int = 100
+SECURITY_DASHBOARD_RATE_PERIOD: int = 60
+TWO_FA_BACKUP_CODES_LIMIT: int = 5
+TWO_FA_BACKUP_CODES_PERIOD: int = 300
+TWO_FA_REGENERATE_BACKUP_LIMIT: int = 200
+TWO_FA_REGENERATE_BACKUP_PERIOD: int = 3600
+TWO_FA_RESET_LIMIT: int = 5
+TWO_FA_RESET_PERIOD: int = 3600
+RESET_PASSWORD_RATE_LIMIT: int = 100
+RESET_PASSWORD_RATE_PERIOD: int = 60
 
 logger = get_logger(prefix="[Auth Routes]")
 
@@ -134,7 +183,7 @@ async def register(user: UserIn, request: Request) -> JSONResponse:
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
         logger.warning("Registration failed for user %s: %s", user.username, e.detail)
         raise
-    except Exception as e:
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
         reg_log.outcome = "failure:internal_error"
         reg_log.reason = str(e)
         await db_manager.get_collection("logs").insert_one(reg_log.model_dump())
@@ -146,7 +195,7 @@ async def register(user: UserIn, request: Request) -> JSONResponse:
 
 # Rate limit: verify-email: 100 requests per 60 seconds per IP (default)
 @router.get("/verify-email")
-async def verify_email(token: str = None, username: str = None, request: Request = None):
+async def verify_email(request: Request, token: str = None, username: str = None):
     """Verify user's email using the provided token or username."""
     await security_manager.check_rate_limit(request, "verify-email")
     if not token and not username:
@@ -169,13 +218,22 @@ async def verify_email(token: str = None, username: str = None, request: Request
 # Rate limit: login: 100 requests per 60 seconds per IP (default)
 @router.post("/login")
 async def login(
-    login_request: LoginRequest = Body(...),
-    request: Request = None
-):
-    """Authenticate user and return JWT token if credentials and email verification are valid. If 2FA is enabled, require 2FA code."""
+    request: Request,
+    login_request: LoginRequest = Body(...)
+) -> JSONResponse:
+    """
+    Authenticate user and return JWT token if credentials and email verification are valid. If 2FA is enabled, require 2FA code.
+    Args:
+        login_request (LoginRequest): Login request data.
+        request (Request): FastAPI request object.
+    Returns:
+        JSONResponse: Token and user info or error response.
+    Side-effects:
+        Writes to DB, logs login attempt, may raise HTTPException.
+    """
     await security_manager.check_rate_limit(request, "login")
     login_log = LoginLog(
-        timestamp=datetime.utcnow().replace(microsecond=0),  # ISO 8601 UTC, no microseconds
+        timestamp=datetime.utcnow().replace(microsecond=0),
         ip_address=security_manager.get_client_ip(request) if request else None,
         user_agent=request.headers.get("user-agent") if request else None,
         username=login_request.username if login_request.username else "",
@@ -193,7 +251,6 @@ async def login(
             two_fa_method=login_request.two_fa_method,
             client_side_encryption=login_request.client_side_encryption
         )
-        # Token creation
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = await create_access_token({"sub": user["username"]})
@@ -203,6 +260,7 @@ async def login(
         login_log.reason = None
         login_log.mfa_status = user.get("two_fa_enabled", False)
         await db_manager.get_collection("logs").insert_one(login_log.model_dump())
+        logger.info("User logged in: %s", login_log.username)
         return JSONResponse({
             "access_token": token,
             "token_type": "bearer",
@@ -222,25 +280,23 @@ async def login(
                 user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
             elif login_request.email:
                 user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
-            
             two_fa_methods = user_doc.get("two_fa_methods", []) if user_doc else []
+            logger.info("2FA required for user: %s", login_request.username or login_request.email)
             return JSONResponse(
                 status_code=422,
                 content={
-                    "detail": "2FA authentication required", 
+                    "detail": "2FA authentication required",
                     "two_fa_required": True,
                     "available_methods": two_fa_methods + ["backup"],
                     "username": user_doc.get("username") if user_doc else login_request.username,
                     "email": user_doc.get("email") if user_doc else login_request.email
                 }
             )
-        # Special handling for 'Email not verified' error
         elif str(e.detail) == "Email not verified":
             email_resp = login_request.email
             username_resp = login_request.username
-            # If only username or email was provided, try to fetch missing info from DB
-            if (not email_resp or not username_resp):
-                user_doc = None
+            user_doc = None
+            if not email_resp or not username_resp:
                 if login_request.username:
                     user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
                 elif login_request.email:
@@ -250,13 +306,13 @@ async def login(
                         email_resp = user_doc.get("email")
                     if not username_resp:
                         username_resp = user_doc.get("username")
+            logger.info("Login failed: email not verified for user: %s", username_resp)
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Email not verified", "email": email_resp, "username": username_resp}
             )
         login_log.outcome = f"failure:{str(e.detail).replace(' ', '_').lower()}"
         login_log.reason = str(e.detail)
-        # Try to get email if possible
         user_doc = None
         if login_request.username:
             user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
@@ -267,34 +323,26 @@ async def login(
             login_log.email = user_doc.get("email", login_log.email)
             login_log.mfa_status = user_doc.get("two_fa_enabled", False)
         await db_manager.get_collection("logs").insert_one(login_log.model_dump())
-        logger.warning("Login failed for user ID: %s", getattr(e, 'user_id', 'unknown'))
+        logger.warning("Login failed for user: %s, reason: %s", login_log.username, str(e.detail))
         raise
-    except Exception as e:
-        login_log.outcome = "failure:internal_error"
+    except (ValueError, KeyError, TypeError) as e:
+        login_log.outcome = "failure:bad_request"
         login_log.reason = str(e)
-        user_doc = None
-        if login_request.username:
-            user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
-        elif login_request.email:
-            user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
-        if user_doc:
-            login_log.username = user_doc.get("username", login_log.username)
-            login_log.email = user_doc.get("email", login_log.email)
-            login_log.mfa_status = user_doc.get("two_fa_enabled", False)
         await db_manager.get_collection("logs").insert_one(login_log.model_dump())
-        logger.warning("Login failed: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        logger.error("Login failed due to bad request: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid login request") from e
+    # Do not catch Exception: let FastAPI handle unexpected errors for full traceability
 
 # Rate limit: refresh-token: 100 requests per 60 seconds per IP (default)
 @router.post("/refresh", response_model=Token)
-async def refresh_token(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def refresh_token(request: Request, current_user: dict = Depends(get_current_user_dep)):
     """Refresh access token for authenticated user."""
     await security_manager.check_rate_limit(request, "refresh-token")
     try:
         access_token = await create_access_token({"sub": current_user["username"]})
         logger.info("Token refreshed for user: %s", current_user["username"])
         return Token(access_token=access_token, token_type="bearer")
-    except Exception as e:
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
         logger.error("Token refresh failed for user %s: %s", current_user["username"], e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -303,7 +351,7 @@ async def refresh_token(current_user: dict = Depends(get_current_user_dep), requ
 
 # Rate limit: logout: 100 requests per 60 seconds per IP (default)
 @router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme), request: Request = None):
+async def logout(request: Request, current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme)):
     """Logout user (invalidate token on server side)."""
     await security_manager.check_rate_limit(request, "logout")
     blacklist_token(token)
@@ -439,7 +487,7 @@ async def forgot_password(request: Request,
     except HTTPException as e:
         logger.warning("Forgot password HTTP error for email %s: %s", email, e.detail, exc_info=True)
         raise
-    except Exception as e:
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
         logger.error("Forgot password failed for email %s: %s", email, str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -512,7 +560,7 @@ async def resend_verification_email(request: Request):
 
 # Rate limit: check-username: 100 requests per 60 seconds per IP (default)
 @router.get("/check-username")
-async def check_username(username: str = Query(..., min_length=3, max_length=50), request: Request = None):
+async def check_username(request: Request, username: str = Query(..., min_length=3, max_length=50)):
     """Check if a username is available (not already taken), using DB for accuracy and Redis for demand tracking only."""
     await security_manager.check_rate_limit(request, "check-username")
     await redis_incr_username_demand(username)
@@ -522,7 +570,7 @@ async def check_username(username: str = Query(..., min_length=3, max_length=50)
 
 # Rate limit: check-email: 100 requests per 60 seconds per IP (default)
 @router.get("/check-email")
-async def check_email(email: str = Query(...), request: Request = None):
+async def check_email(request: Request, email: str = Query(...)):
     """Check if an email is available (not already taken), using DB directly."""
     await security_manager.check_rate_limit(request, "check-email")
     exists = await db_manager.get_collection("users").find_one({"email": email})
@@ -530,7 +578,7 @@ async def check_email(email: str = Query(...), request: Request = None):
 
 # Rate limit: username-demand: 100 requests per 60 seconds per IP (default)
 @router.get("/username-demand")
-async def username_demand(top_n: int = 10, request: Request = None):
+async def username_demand(request: Request, top_n: int = 10):
     """Get the most in-demand usernames (most checked), using Redis."""
     await security_manager.check_rate_limit(request, "username-demand")
     most_demanded = await redis_get_top_demanded_usernames(top_n=top_n)
@@ -538,7 +586,7 @@ async def username_demand(top_n: int = 10, request: Request = None):
 
 # Rate limit: 2fa-setup: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/setup", response_model=TwoFASetupResponse)
-async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
+async def setup_two_fa(req: Request, request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
     """
     Setup a 2FA method for the current user and return TOTP secret, provisioning URI, QR code image, and backup codes.
     If a 2FA setup is already pending, returns the existing setup information instead of generating a new one.
@@ -550,21 +598,21 @@ async def setup_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(
 
 # Rate limit: 2fa-verify: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/verify", response_model=TwoFAStatus)
-async def verify_two_fa(request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None):
+async def verify_two_fa(req: Request, request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep)):
     """Verify a 2FA code for the current user."""
     await security_manager.check_rate_limit(req, "2fa-verify")
     return await verify_2fa(current_user, request)
 
 # Rate limit: 2fa-status: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/status", response_model=TwoFAStatus)
-async def get_two_fa_status(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def get_two_fa_status(request: Request, current_user: dict = Depends(get_current_user_dep)):
     """Get 2FA status for the current user."""
     await security_manager.check_rate_limit(request, "2fa-status")
     return await get_2fa_status(current_user)
 
 # Rate limit: 2fa-disable: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/disable", response_model=TwoFAStatus)
-async def disable_two_fa(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def disable_two_fa(request: Request, current_user: dict = Depends(get_current_user_dep)):
     """Disable all 2FA for the current user."""
     await security_manager.check_rate_limit(request, "2fa-disable")
     # Recent password confirmation or re-login should be required for sensitive actions in production
@@ -572,7 +620,7 @@ async def disable_two_fa(current_user: dict = Depends(get_current_user_dep), req
 
 # Rate limit: is-verified: 100 requests per 60 seconds per IP (default)
 @router.get("/is-verified")
-async def is_verified(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def is_verified(request: Request, current_user: dict = Depends(get_current_user_dep)):
     """Check if the current user's email is verified."""
     await security_manager.check_rate_limit(request, "is-verified")
     return {"is_verified": current_user.get("is_verified", False)}
@@ -607,7 +655,7 @@ async def validate_token(token: str = Depends(oauth2_scheme), request: Request =
             return {"token": "invalid", "reason": "User is not verified"}
     except HTTPException as e:
         return {"token": "invalid", "reason": str(e.detail) if hasattr(e, 'detail') else str(e)}
-    except Exception as e:
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
         return {"token": "invalid", "reason": str(e)}
 
 # Rate limit: 2fa-guide: 100 requests per 60 seconds per IP (default)
@@ -714,7 +762,7 @@ async def reset_two_fa(request: TwoFASetupRequest, current_user: dict = Depends(
 
 # Rate limit: reset-password: 100 requests per 60 seconds per IP (default)
 @router.post("/reset-password")
-async def reset_password(request: Request, payload: dict = Body(...)):
+async def reset_password(payload: dict = Body(...)):
     """Reset the user's password using a valid reset token."""
     token = payload.get("token")
     new_password = payload.get("new_password")
@@ -749,194 +797,7 @@ async def reset_password_page(token: str):
     """
     Serve the password reset HTML page, injecting the Turnstile sitekey and token.
     """
-    html = '''
-    <!DOCTYPE html>
-   <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Reset Password</title>
-    <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <style>
-        :root {
-            --primary: #3a86ff;
-            --primary-hover: #265dbe;
-            --background: #f6f8fa;
-            --foreground: #ffffff;
-            --text-main: #22223b;
-            --text-sub: #4a4e69;
-            --border-color: #c9c9c9;
-            --error: #d90429;
-            --success: #06d6a0;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            background-color: var(--background);
-            font-family: 'Roboto', sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }
-
-        .container {
-            background-color: var(--foreground);
-            padding: 2.5rem 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-            width: 100%;
-            max-width: 420px.
-        }
-
-        h2 {
-            margin-bottom: 1.5rem;
-            color: var(--text-main);
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-align: center;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--text-sub);
-            font-weight: 500;
-        }
-
-        input[type="password"] {
-            width: 100%;
-            padding: 0.75rem;
-            margin-bottom: 1.25rem;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 1rem;
-        }
-
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background-color: var(--primary);
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: background-color 0.2s ease-in-out.
-        }
-
-        button:hover {
-            background-color: var(--primary-hover);
-        }
-
-        .msg {
-            margin-top: 1rem;
-            text-align: center;
-            font-size: 0.95rem;
-        }
-
-        .error {
-            color: var(--error);
-        }
-
-        .success {
-            color: var(--success);
-        }
-
-        .cf-turnstile {
-            margin-bottom: 1.25rem;
-        }
-    </style>
-</head>
-<body>
-    <main class="container" role="main">
-        <h2>Reset Your Password</h2>
-        <form id="resetForm" aria-describedby="msg">
-            <label for="new_password">New Password</label>
-            <input type="password" id="new_password" name="new_password" required minlength="8" autocomplete="new-password" />
-
-            <label for="confirm_password">Confirm Password</label>
-            <input type="password" id="confirm_password" name="confirm_password" required minlength="8" autocomplete="new-password" />
-
-            <div class="cf-turnstile" data-sitekey="__TURNSTILE_SITEKEY__" data-theme="light"></div>
-
-            <button type="submit" aria-label="Submit new password">Reset Password</button>
-        </form>
-
-        <div class="msg" id="msg" role="alert" aria-live="polite"></div>
-    </main>
-
-    <script>
-        const RESET_TOKEN = window.RESET_TOKEN || new URLSearchParams(window.location.search).get('token');
-        const form = document.getElementById('resetForm');
-        const msg = document.getElementById('msg');
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            msg.textContent = '';
-            msg.className = 'msg';
-
-            const newPassword = form.new_password.value.trim();
-            const confirmPassword = form.confirm_password.value.trim();
-
-            if (newPassword !== confirmPassword) {
-                msg.textContent = 'Passwords do not match.';
-                msg.classList.add('error');
-                return;
-            }
-
-            const turnstileTokenInput = document.querySelector('input[name="cf-turnstile-response"]');
-            const turnstileToken = turnstileTokenInput ? turnstileTokenInput.value : '';
-
-            if (!turnstileToken) {
-                msg.textContent = 'Please complete the CAPTCHA.';
-                msg.classList.add('error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/auth/reset-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        token: RESET_TOKEN,
-                        new_password: newPassword,
-                        turnstile_token: turnstileToken
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    msg.textContent = data.message || 'Password reset successful!';
-                    msg.classList.add('success');
-                    form.reset();
-                } else {
-                    msg.textContent = data.detail || 'Error resetting password.';
-                    msg.classList.add('error');
-                }
-            } catch (error) {
-                msg.textContent = 'A network error occurred. Please try again.';
-                msg.classList.add('error');
-            }
-        });
-    </script>
-</body>
-</html>
-    '''
-    # Ensure TURNSTILE_SITEKEY is a string
-    sitekey = settings.TURNSTILE_SITEKEY
-    if hasattr(sitekey, "get_secret_value"):
-        sitekey = sitekey.get_secret_value()
-    html = html.replace("__TURNSTILE_SITEKEY__", sitekey)
-    return HTMLResponse(content=html)
+    return render_reset_password_page(token)
 
 @router.get("/confirm-reset-abuse", response_class=HTMLResponse)
 async def confirm_reset_abuse(token: str):
