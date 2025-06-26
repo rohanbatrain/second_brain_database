@@ -1,17 +1,36 @@
+"""
+User registration and verification utilities for authentication workflows.
+
+This module provides async functions for registering users, sending welcome and suspension emails,
+and verifying user emails. All email sending is logged and instrumented for production.
+"""
+from typing import Optional, Tuple, Dict, Any
 from datetime import datetime
+import secrets
 from fastapi import HTTPException, status
 import bcrypt
-import secrets
 from second_brain_database.routes.auth.models import UserIn, validate_password_strength
 from second_brain_database.database import db_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
 
-logger = get_logger()
+logger = get_logger(prefix="[Auth Service Registration]")
 
-async def register_user(user: UserIn):
-    """Register a new user, validate password, and return user doc and verification token."""
+async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
+    """
+    Register a new user, validate password, and return user doc and verification token.
+
+    Args:
+        user (UserIn): User registration input model.
+
+    Returns:
+        Tuple[Dict[str, Any], str]: The user document and verification token.
+
+    Raises:
+        HTTPException: If validation fails or user already exists.
+    """
     if not validate_password_strength(user.password):
+        logger.info("Password strength validation failed for username=%s", user.username)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 8 characters long and contain "
@@ -24,7 +43,7 @@ async def register_user(user: UserIn):
         ]
     })
     if existing_user:
-        # Generic error to prevent user enumeration
+        logger.info("Registration failed: username or email already exists (%s, %s)", user.username, user.email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username or email already exists"
@@ -48,15 +67,25 @@ async def register_user(user: UserIn):
     }
     result = await db_manager.get_collection("users").insert_one(user_doc)
     if not result.inserted_id:
+        logger.error("Failed to create user: %s", user.username)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user"
         )
+    logger.info("User registered: %s", user.username)
     return user_doc, verification_token
 
+async def send_welcome_email(email: str, username: Optional[str] = None) -> None:
+    """
+    Send a personalized welcome email after user verifies their email.
 
-async def send_welcome_email(email: str, username: str = None):
-    """Send a personalized welcome email after user verifies their email."""
+    Args:
+        email (str): The user's email address.
+        username (Optional[str]): The user's username.
+
+    Side Effects:
+        Sends an email to the user.
+    """
     subject = "Welcome to Second Brain Database!"
     display_name = username or "there"
     html_content = f"""
@@ -68,27 +97,44 @@ async def send_welcome_email(email: str, username: str = None):
     <p>Best regards,<br>The Second Brain Database Team</p>
     </body></html>
     """
-    logger.info(f"[WELCOME EMAIL] To: {email}\nSubject: {subject}\nHTML:\n{html_content}")
+    logger.info("[WELCOME EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
 
+async def verify_user_email(token: str) -> Dict[str, Any]:
+    """
+    Verify a user's email using the provided token and send a welcome email.
 
-async def verify_user_email(token: str):
-    """Verify a user's email using the provided token and send a welcome email."""
+    Args:
+        token (str): The verification token.
+
+    Returns:
+        Dict[str, Any]: The user document after verification.
+
+    Raises:
+        HTTPException: If the token is invalid or expired.
+    """
     user = await db_manager.get_collection("users").find_one({"verification_token": token})
     if not user:
+        logger.warning("Invalid or expired verification token: %s", token)
         raise HTTPException(status_code=400, detail="Invalid or expired verification token.")
     await db_manager.get_collection("users").update_one(
         {"_id": user["_id"]},
         {"$set": {"is_verified": True}, "$unset": {"verification_token": ""}}
     )
-    # Send welcome email after successful verification
     await send_welcome_email(user["email"], user.get("username"))
+    logger.info("User email verified: %s", user.get("username"))
     return user
 
-
-async def send_account_suspension_email(email: str, username: str = None):
+async def send_account_suspension_email(email: str, username: Optional[str] = None) -> None:
     """
     Optionally notify the user by email when their account is suspended for abuse.
+
+    Args:
+        email (str): The user's email address.
+        username (Optional[str]): The user's username.
+
+    Side Effects:
+        Sends an email to the user.
     """
     subject = "Account Suspended Due to Abuse"
     display_name = username or "user"
@@ -100,6 +146,6 @@ async def send_account_suspension_email(email: str, username: str = None):
     <p>Thank you,<br>The Second Brain Database Team</p>
     </body></html>
     """
-    logger.info(f"[SUSPEND EMAIL] To: {email}\nSubject: {subject}\nHTML:\n{html_content}")
+    logger.info("[SUSPEND EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
 
