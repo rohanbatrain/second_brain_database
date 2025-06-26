@@ -9,6 +9,7 @@ import asyncio
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
@@ -66,6 +67,14 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(main_router)
+
+# Instrumentator for Prometheus metrics
+Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    should_respect_env_var=False,
+    should_instrument_requests_inprogress=True,
+).add().instrument(app).expose(app, include_in_schema=False, endpoint="/metrics")
 
 if __name__ == "__main__":
     uvicorn.run(

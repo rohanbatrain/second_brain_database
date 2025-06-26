@@ -31,7 +31,7 @@ import threading
 from second_brain_database.config import settings
 
 try:
-    from loki_logger_handler import LokiLoggerHandler
+    from loki_logger_handler.loki_logger_handler import LokiLoggerHandler
     _loki_available: bool = True
 except ImportError as e:
     LokiLoggerHandler = None  # type: ignore
@@ -169,14 +169,13 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
         try:
             loki_handler = LokiLoggerHandler(
                 url=LOKI_URL,
-                tags=LOKI_TAGS,
+                labels=LOKI_TAGS,
                 auth=None,
-                version=LOKI_VERSION,
-                compress=LOKI_COMPRESS,
+                compressed=LOKI_COMPRESS,
             )
             logger.addHandler(loki_handler)
             logger.info(
-                "[LoggingManager] LokiLoggerHandler attached to logger '%s' (url=%s, tags=%s)",
+                "[LoggingManager] LokiLoggerHandler attached to logger '%s' (url=%s, labels=%s)",
                 name,
                 LOKI_URL,
                 LOKI_TAGS,
