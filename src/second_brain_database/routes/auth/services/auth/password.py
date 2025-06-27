@@ -223,3 +223,21 @@ async def send_password_reset_notification(email: str) -> None:
     )
     logger.info("[NOTIFY EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
+
+async def send_trusted_ip_lockdown_code_email(email: str, code: str, action: str, trusted_ips: list[str], email_manager=None):
+    """
+    Send a trusted IP lockdown confirmation code email with HTML template.
+    Args:
+        email (str): The user's email address.
+        code (str): The confirmation code.
+        action (str): 'enable' or 'disable'.
+        trusted_ips (list[str]): List of IPs allowed to confirm.
+        email_manager: Optional email manager for sending (defaults to global if not provided).
+    """
+    from second_brain_database.routes.auth.routes_html import render_trusted_ip_lockdown_email
+    subject = f"Confirm Trusted IP Lockdown {action.title()}"
+    html_content = render_trusted_ip_lockdown_email(code, action, trusted_ips)
+    if email_manager is None:
+        from second_brain_database.managers.email import email_manager as default_email_manager
+        email_manager = default_email_manager
+    await email_manager._send_via_console(email, subject, html_content)

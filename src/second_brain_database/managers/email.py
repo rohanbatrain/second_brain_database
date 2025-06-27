@@ -63,7 +63,7 @@ class EmailManager:
 
     async def _send_via_console(self, to_email: str, subject: str, html_content: str) -> None:
         """
-        For development: log the email instead of sending.
+        For development: log the email and print to console instead of sending.
         """
         self.logger.info(
             "[DEV EMAIL] To: %s\nSubject: %s\nHTML:\n%s", to_email, subject, html_content
@@ -71,6 +71,8 @@ class EmailManager:
         self.logger.debug(
             "Email content for %s: subject=%s, html_length=%d", to_email, subject, len(html_content)
         )
+        print(f"\n[DEV EMAIL] To: {to_email}\nSubject: {subject}\nHTML:\n{html_content}\n")
+
 
 # Singleton instance
 email_manager = EmailManager()

@@ -14,10 +14,10 @@ Password Reset Abuse Prevention Overview:
 Defines API endpoints for user registration, login, email verification, token management,
 password change, and password reset. All business logic is delegated to the service layer.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import secrets
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -35,7 +35,7 @@ from second_brain_database.routes.auth.models import (
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.services.auth.registration import register_user, verify_user_email
 from second_brain_database.routes.auth.services.auth.login import login_user, create_access_token, get_current_user
-from second_brain_database.routes.auth.services.auth.password import change_user_password, send_password_reset_email, send_password_reset_notification
+from second_brain_database.routes.auth.services.auth.password import change_user_password, send_password_reset_email, send_password_reset_notification, send_trusted_ip_lockdown_code_email
 from second_brain_database.routes.auth.services.auth.twofa import setup_2fa, verify_2fa, get_2fa_status, disable_2fa, reset_2fa
 from second_brain_database.routes.auth.services.security.tokens import blacklist_token
 from second_brain_database.routes.auth.services.utils.redis_utils import redis_incr_username_demand, redis_get_top_demanded_usernames, consume_abuse_action_token
@@ -45,6 +45,7 @@ from second_brain_database.routes.auth.services.abuse.management import is_pair_
 from second_brain_database.database import db_manager
 from second_brain_database.config import settings
 from second_brain_database.routes.auth.routes_html import render_reset_password_page
+from second_brain_database.routes.auth.services.auth import login as login_service
 
 # Constants
 RESEND_RESET_EMAIL_INTERVAL: int = 60  # seconds
@@ -242,6 +243,11 @@ async def login(
         reason=None,
         mfa_status=None
     )
+    # Set request_ip contextvar for trusted IP lockdown enforcement
+    request_ip = security_manager.get_client_ip(request) if request else None
+    token = None
+    if request_ip:
+        token = login_service.request_ip_ctx.set(request_ip)
     try:
         user = await login_user(
             username=login_request.username,
@@ -251,6 +257,10 @@ async def login(
             two_fa_method=login_request.two_fa_method,
             client_side_encryption=login_request.client_side_encryption
         )
+    finally:
+        if request_ip and token is not None:
+            login_service.request_ip_ctx.reset(token)
+    try:
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = await create_access_token({"sub": user["username"]})
@@ -820,3 +830,110 @@ async def block_reset_abuse(token: str):
         return HTMLResponse("<h2>Invalid or expired block link.</h2>", status_code=400)
     await block_reset_pair(email, ip)
     return HTMLResponse(f"<h2>Device blocked!</h2><p>Password reset requests from this device (IP: {ip}) are now blocked for {email} (for 24 hours).</p>")
+
+# --- Trusted IP Lockdown: 2FA-like Enable/Disable Flow (IP-bound confirmation) ---
+@router.post("/trusted-ips/lockdown-request")
+async def trusted_ips_lockdown_request(
+    request: Request,
+    action: str = Body(..., embed=True),  # 'enable' or 'disable'
+    trusted_ips: List[str] = Body(default=None, embed=True),  # List of IPs to allow confirmation from (optional for disable)
+    current_user: dict = Depends(get_current_user_dep)
+):
+    logger.info("[trusted_ips_lockdown_request] user=%s action=%s trusted_ips=%s request_ip=%s headers=%s",
+                current_user.get("username"), action, trusted_ips, request.client.host, dict(request.headers))
+    await security_manager.check_rate_limit(request, "trusted-ips-lockdown-request", rate_limit_requests=5, rate_limit_period=3600)
+    if action not in ("enable", "disable"):
+        logger.info("Invalid lockdown action requested: %s by user %s", action, current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Invalid action. Must be 'enable' or 'disable'.")
+    if action == "disable":
+        # First, check if trusted_ip_lockdown is enabled before proceeding
+        user_doc = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
+        if not user_doc.get("trusted_ip_lockdown", False):
+            logger.info("Trusted IP Lockdown is not enabled for user %s; cannot disable", current_user.get("username"))
+            raise HTTPException(status_code=400, detail="Trusted IP Lockdown is not enabled.")
+        # For disabling, ignore user-provided trusted_ips and use the current trusted_ips from the DB
+        trusted_ips = user_doc.get("trusted_ips", [])
+        if not trusted_ips:
+            logger.info("No trusted_ips set for user %s; cannot disable lockdown without any trusted IPs", current_user.get("username"))
+            raise HTTPException(status_code=400, detail="No trusted IPs set. Cannot disable lockdown without any trusted IPs.")
+    elif not trusted_ips or not isinstance(trusted_ips, list):
+        logger.info("No trusted_ips provided for lockdown by user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="trusted_ips must be a non-empty list.")
+    code = secrets.token_urlsafe(8)
+    expiry = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
+    await db_manager.get_collection("users").update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"lockdown_code": code, "lockdown_code_expiry": expiry, "lockdown_code_action": action, "lockdown_code_ips": trusted_ips}}
+    )
+    email = current_user.get("email")
+    if action == "disable":
+        # Notify user of the IPs that will be allowed to disable lockdown (before confirmation)
+        from second_brain_database.managers.email import email_manager
+        subject = "[Security Notice] Trusted IP Lockdown Disable Requested"
+        html_content = f"""
+        <html><body>
+        <h2>Trusted IP Lockdown Disable Requested</h2>
+        <p>A request was made to disable Trusted IP Lockdown on your account.</p>
+        <p><b>The following IPs will be allowed to confirm this action:</b></p>
+        <ul>{''.join(f'<li>{ip}</li>' for ip in trusted_ips)}</ul>
+        <p>If you did not request this, your account may be at risk. Please review your account security and contact support immediately.</p>
+        </body></html>
+        """
+        await email_manager._send_via_console(current_user["email"], subject, html_content)
+    try:
+        await send_trusted_ip_lockdown_code_email(email, code, action, trusted_ips)
+        logger.info("Lockdown %s code sent to user %s (allowed IPs: %s)", action, current_user.get("username"), trusted_ips)
+    except Exception as e:
+        logger.error("Failed to send lockdown code to %s: %s", email, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send confirmation code.") from e
+    return {"message": f"Confirmation code sent to {email}. Must confirm from one of the provided IPs."}
+
+@router.post("/trusted-ips/lockdown-confirm")
+async def trusted_ips_lockdown_confirm(
+    request: Request,
+    code: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    user = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
+    logger.info("[trusted_ips_lockdown_confirm] user=%s code=%s request_ip=%s allowed_ips=%s headers=%s",
+                current_user.get("username"), code, request.client.host, user.get("lockdown_code_ips", []), dict(request.headers))
+    await security_manager.check_rate_limit(request, "trusted-ips-lockdown-confirm", rate_limit_requests=10, rate_limit_period=3600)
+    stored_code = user.get("lockdown_code")
+    expiry = user.get("lockdown_code_expiry")
+    action = user.get("lockdown_code_action")
+    allowed_ips = user.get("lockdown_code_ips", [])
+    if not stored_code or not expiry or not action or not allowed_ips:
+        logger.info("No lockdown code or allowed IPs found for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="No pending lockdown action.")
+    if datetime.utcnow() > datetime.fromisoformat(expiry):
+        logger.info("Expired lockdown code for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Code expired.")
+    if code != stored_code:
+        logger.info("Invalid lockdown code for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Invalid code.")
+    request_ip = request.client.host
+    if action == "disable":
+        db_trusted_ips = user.get("trusted_ips", [])
+        if request_ip not in db_trusted_ips:
+            logger.info("Lockdown disable confirm from non-trusted IP %s for user %s (trusted_ips: %s)", request_ip, current_user.get("username"), db_trusted_ips)
+            raise HTTPException(status_code=403, detail="Disabling lockdown must be confirmed from one of your existing trusted IPs.")
+    else:
+        if request_ip not in allowed_ips:
+            logger.info("Lockdown confirm from disallowed IP %s for user %s (allowed: %s)", request_ip, current_user.get("username"), allowed_ips)
+            raise HTTPException(status_code=403, detail="Confirmation must be from one of the allowed IPs.")
+    lockdown_flag = True if action == "enable" else False
+    update_fields = {"trusted_ip_lockdown": lockdown_flag}
+    if action == "enable":
+        update_fields["trusted_ips"] = allowed_ips
+    await db_manager.get_collection("users").update_one(
+        {"_id": current_user["_id"]},
+        {"$set": update_fields, "$unset": {"lockdown_code": "", "lockdown_code_expiry": "", "lockdown_code_action": "", "lockdown_code_ips": ""}}
+    )
+    logger.info("Trusted IP lockdown %s for user %s (confirmed from IP %s, trusted_ips updated if enabled)", action, current_user.get("username"), request_ip)
+    return {"message": f"Trusted IP lockdown {action}d successfully.{ ' Trusted IPs updated.' if action == 'enable' else ''}"}
+
+@router.get("/trusted-ips/lockdown-status")
+async def trusted_ips_lockdown_status(request: Request, current_user: dict = Depends(get_current_user_dep)):
+    logger.info("[trusted_ips_lockdown_status] user=%s", current_user.get("username"))
+    lockdown_status = bool(current_user.get("trusted_ip_lockdown", False))
+    return {"trusted_ip_lockdown": lockdown_status, "your_ip": request.client.host}

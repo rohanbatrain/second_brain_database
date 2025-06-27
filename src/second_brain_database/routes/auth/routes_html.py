@@ -4,6 +4,7 @@ HTML page rendering for authentication routes (password reset, etc).
 from fastapi.responses import HTMLResponse
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
+from typing import List
 
 logger = get_logger(prefix="[Auth Routes HTML]")
 
@@ -180,3 +181,27 @@ def render_reset_password_page(token: str) -> HTMLResponse:
         logger.error("Error accessing Turnstile sitekey: %s", e, exc_info=True)
         html = html.replace(TURNSTILE_SITEKEY_PLACEHOLDER, "")
     return HTMLResponse(content=html)
+
+
+def render_trusted_ip_lockdown_email(code: str, action: str, trusted_ips: List[str]) -> str:
+    """
+    Render an HTML email for trusted IP lockdown confirmation.
+    Args:
+        code (str): The confirmation code.
+        action (str): 'enable' or 'disable'.
+        trusted_ips (List[str]): List of IPs allowed to confirm.
+    Returns:
+        str: HTML content for the email.
+    """
+    ip_list_html = ''.join(f'<li>{ip}</li>' for ip in trusted_ips)
+    return f"""
+    <html>
+    <body>
+        <h2>Trusted IP Lockdown {action.title()} Confirmation</h2>
+        <p>Your confirmation code to <b>{action}</b> trusted IP lockdown is: <b>{code}</b></p>
+        <p>This code expires in 15 minutes. If you did not request this, you can ignore this email.</p>
+        <p><b>You must confirm from one of these IPs:</b></p>
+        <ul>{ip_list_html}</ul>
+    </body>
+    </html>
+    """

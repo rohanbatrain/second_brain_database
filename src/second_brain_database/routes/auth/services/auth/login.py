@@ -15,10 +15,37 @@ from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.auth.services.security.tokens import is_token_blacklisted
 from second_brain_database.utils.crypto import decrypt_totp_secret, is_encrypted_totp_secret
+import contextvars
+from second_brain_database.managers.email import email_manager
 
 MAX_FAILED_LOGIN_ATTEMPTS: int = 5
 
 logger = get_logger(prefix="[Auth Service Login]")
+
+request_ip_ctx = contextvars.ContextVar("request_ip", default=None)
+
+async def send_blocked_login_notification(email: str, attempted_ip: str, trusted_ips: list[str]):
+    """
+    Send an email notification about a blocked login attempt due to Trusted IP Lockdown.
+    """
+    
+    subject = "Blocked Login Attempt: Trusted IP Lockdown Active"
+    html_content = f"""
+    <html><body>
+    <h2>Blocked Login Attempt</h2>
+    <p>A login attempt to your account was blocked because it came from an IP address not on your trusted list.</p>
+    <ul>
+        <li><b>Attempted IP:</b> {attempted_ip}</li>
+        <li><b>Allowed IPs:</b> {', '.join(trusted_ips) or 'None'}</li>
+        <li><b>Time (UTC):</b> {datetime.utcnow().isoformat()}</li>
+    </ul>
+    <p>If this was you, please check your trusted IP settings. If you did not attempt to log in, no action is needed.</p>
+    </body></html>
+    """
+    try:
+        await email_manager._send_via_console(email, subject, html_content)
+    except RuntimeError as e:
+        logger.error("Failed to send blocked login notification: %s", e, exc_info=True)
 
 async def login_user(
     username: Optional[str] = None,
@@ -68,6 +95,18 @@ async def login_user(
     if not user.get("is_active", True):
         logger.warning("Login blocked: inactive account for user %s", user.get("username", user.get("email")))
         raise HTTPException(status_code=403, detail="User account is inactive, please contact support to reactivate account.")
+    if user.get("trusted_ip_lockdown", False):
+        # Enforce trusted IP lockdown: only allow login from trusted IPs
+        request_ip = request_ip_ctx.get()
+        if not request_ip:
+            # Fallback: try to get from user doc (should not happen)
+            logger.warning("Trusted IP lockdown: could not determine request IP for user %s", user.get("username", user.get("email")))
+            raise HTTPException(status_code=403, detail="Trusted IP lockdown: unable to determine request IP.")
+        trusted_ips = user.get("trusted_ips", [])
+        if request_ip not in trusted_ips:
+            logger.warning("Trusted IP lockdown: login attempt from disallowed IP %s for user %s (trusted: %s)", request_ip, user.get("username", user.get("email")), trusted_ips)
+            await send_blocked_login_notification(user["email"], request_ip, trusted_ips)
+            raise HTTPException(status_code=403, detail="Login not allowed from this IP (Trusted IP Lockdown is enabled).")
     if not password or not bcrypt.checkpw(password.encode('utf-8'), user["hashed_password"].encode('utf-8')):
         await db_manager.get_collection("users").update_one(
             {"_id": user["_id"]},
