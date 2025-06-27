@@ -880,12 +880,14 @@ async def trusted_ips_lockdown_request(
         </body></html>
         """
         await email_manager._send_via_console(current_user["email"], subject, html_content)
+        logger.info("Lockdown disable email sent to user %s (allowed IPs: %s)", current_user.get("username"), trusted_ips)
     try:
         await send_trusted_ip_lockdown_code_email(email, code, action, trusted_ips)
         logger.info("Lockdown %s code sent to user %s (allowed IPs: %s)", action, current_user.get("username"), trusted_ips)
     except Exception as e:
         logger.error("Failed to send lockdown code to %s: %s", email, str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to send confirmation code.") from e
+    logger.info("Lockdown request completed for user %s (action: %s)", current_user.get("username"), action)
     return {"message": f"Confirmation code sent to {email}. Must confirm from one of the provided IPs."}
 
 @router.post("/trusted-ips/lockdown-confirm")
@@ -895,8 +897,7 @@ async def trusted_ips_lockdown_confirm(
     current_user: dict = Depends(get_current_user_dep)
 ):
     user = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
-    logger.info("[trusted_ips_lockdown_confirm] user=%s code=%s request_ip=%s allowed_ips=%s headers=%s",
-                current_user.get("username"), code, request.client.host, user.get("lockdown_code_ips", []), dict(request.headers))
+    logger.info("[trusted_ips_lockdown_confirm] user=%s code=%s request_ip=%s allowed_ips=%s headers=%s", current_user.get("username"), code, request.client.host, user.get("lockdown_code_ips", []), dict(request.headers))
     await security_manager.check_rate_limit(request, "trusted-ips-lockdown-confirm", rate_limit_requests=10, rate_limit_period=3600)
     stored_code = user.get("lockdown_code")
     expiry = user.get("lockdown_code_expiry")
