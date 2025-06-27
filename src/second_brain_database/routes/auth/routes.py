@@ -364,7 +364,7 @@ async def refresh_token(request: Request, current_user: dict = Depends(get_curre
 async def logout(request: Request, current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme)):
     """Logout user (invalidate token on server side)."""
     await security_manager.check_rate_limit(request, "logout")
-    blacklist_token(token)
+    await blacklist_token(token)
     logger.info("User logged out: %s", current_user["username"])
 
 # Rate limit: change-password: 100 requests per 60 seconds per IP (default)
