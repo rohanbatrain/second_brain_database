@@ -938,3 +938,17 @@ async def trusted_ips_lockdown_status(request: Request, current_user: dict = Dep
     logger.info("[trusted_ips_lockdown_status] user=%s", current_user.get("username"))
     lockdown_status = bool(current_user.get("trusted_ip_lockdown", False))
     return {"trusted_ip_lockdown": lockdown_status, "your_ip": request.client.host}
+
+@router.get("/recent-logins")
+async def get_recent_successful_logins(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Get the most recent successful login attempts (default 10). Requires authentication. Returns a JSON object."""
+    logs_collection = db_manager.get_collection("logs")
+    cursor = logs_collection.find({"outcome": "success"}).sort("timestamp", -1).limit(limit)
+    results = []
+    async for doc in cursor:
+        doc.pop("_id", None)
+        results.append(LoginLog(**doc).model_dump())
+    return {"logins": results}
