@@ -17,6 +17,7 @@ from second_brain_database.routes import auth_router, main_router
 from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
 
 logger = get_logger()
 
@@ -40,6 +41,7 @@ async def lifespan(_app: FastAPI):
     cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
     # Start periodic blocklist/whitelist reconciliation task
     reconcile_task = asyncio.create_task(periodic_blocklist_whitelist_reconcile())
+    # Start periodic AdMob keys refresh task
 
     yield
 
@@ -67,6 +69,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(main_router)
+app.include_router(sbd_tokens_router)
 
 # Instrumentator for Prometheus metrics
 Instrumentator(
