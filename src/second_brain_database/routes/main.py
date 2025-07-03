@@ -14,6 +14,7 @@ from cryptography.exceptions import InvalidSignature
 import aiohttp
 import asyncio
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 logger = get_logger(prefix="[AdMob SSV]")
 
@@ -217,16 +218,42 @@ async def admob_ssv_reward(
         user = await users_collection.find_one({"username": user_id})
         logger.debug(f"User lookup for reward: {user}")
         if user:
+            now_iso = datetime.now(timezone.utc).isoformat()
             update_result = await users_collection.update_one(
                 {"username": user_id},
                 {
                     "$inc": {"sbd_tokens": 10},
-                    "$push": {"admob_ssv_transactions": {"transaction_id": transaction_id, "timestamp": timestamp}}
+                    "$push": {
+                        "admob_ssv_transactions": {"transaction_id": transaction_id, "timestamp": timestamp},
+                        "sbd_tokens_transactions": {
+                            "type": "receive",
+                            "from": "sbd_ads",
+                            "amount": 10,
+                            "timestamp": now_iso,
+                            "admob_transaction_id": transaction_id
+                        }
+                    }
                 }
             )
             logger.debug(f"Update result: {update_result.raw_result}")
             if update_result.modified_count:
                 logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +10 tokens, tx={transaction_id}")
+                # Log the send transaction for sbd_ads
+                await users_collection.update_one(
+                    {"username": "sbd_ads"},
+                    {
+                        "$push": {
+                            "sbd_tokens_transactions": {
+                                "type": "send",
+                                "to": user_id,
+                                "amount": 10,
+                                "timestamp": now_iso,
+                                "admob_transaction_id": transaction_id
+                            }
+                        }
+                    },
+                    upsert=True
+                )
             else:
                 logger.warning(f"[SBD TOKENS UPDATE FAILED] User: {user_id}")
         else:
