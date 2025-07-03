@@ -15,6 +15,7 @@ import aiohttp
 import asyncio
 from urllib.parse import urlparse
 from datetime import datetime, timezone
+from uuid import uuid4
 
 logger = get_logger(prefix="[AdMob SSV]")
 
@@ -115,11 +116,12 @@ async def admob_ssv_reward(
     reward_amount: int,
     reward_item: str,
     timestamp: str,
-    transaction_id: str,
-    user_id: str,
-    signature: str,
-    key_id: str,
-    request: Request
+    transaction_id: str = None,
+    user_id: str = None,
+    signature: str = None,
+    key_id: str = None,
+    note: str = None,
+    request: Request = None
 ):
     reward_info = {
         "ad_network": ad_network,
@@ -127,10 +129,11 @@ async def admob_ssv_reward(
         "reward_amount": reward_amount,
         "reward_item": reward_item,
         "timestamp": timestamp,
-        "transaction_id": transaction_id,
+        "transaction_id": transaction_id or "<generated>",
         "user_id": user_id,
         "signature": "<hidden>",  # Never log raw signature in prod
-        "key_id": key_id
+        "key_id": key_id,
+        "note": note
     }
     logger.info(f"[REWARD RECEIVED] {reward_info}")
     raw_url = str(request.url)
@@ -219,37 +222,45 @@ async def admob_ssv_reward(
         logger.debug(f"User lookup for reward: {user}")
         if user:
             now_iso = datetime.now(timezone.utc).isoformat()
+            txn_id = transaction_id or str(uuid4())
+            # Add transaction log to user (receive)
+            receive_txn = {
+                "type": "receive",
+                "from": "sbd_ads",
+                "amount": 10,
+                "timestamp": now_iso,
+                "transaction_id": txn_id
+            }
+            if note:
+                receive_txn["note"] = note
             update_result = await users_collection.update_one(
                 {"username": user_id},
                 {
                     "$inc": {"sbd_tokens": 10},
                     "$push": {
-                        "admob_ssv_transactions": {"transaction_id": transaction_id, "timestamp": timestamp},
-                        "sbd_tokens_transactions": {
-                            "type": "receive",
-                            "from": "sbd_ads",
-                            "amount": 10,
-                            "timestamp": now_iso,
-                            "admob_transaction_id": transaction_id
-                        }
+                        "admob_ssv_transactions": {"transaction_id": txn_id, "timestamp": timestamp},
+                        "sbd_tokens_transactions": receive_txn
                     }
                 }
             )
             logger.debug(f"Update result: {update_result.raw_result}")
             if update_result.modified_count:
-                logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +10 tokens, tx={transaction_id}")
+                logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +10 tokens, tx={txn_id}")
                 # Log the send transaction for sbd_ads
+                send_txn = {
+                    "type": "send",
+                    "to": user_id,
+                    "amount": 10,
+                    "timestamp": now_iso,
+                    "transaction_id": txn_id
+                }
+                if note:
+                    send_txn["note"] = note
                 await users_collection.update_one(
                     {"username": "sbd_ads"},
                     {
                         "$push": {
-                            "sbd_tokens_transactions": {
-                                "type": "send",
-                                "to": user_id,
-                                "amount": 10,
-                                "timestamp": now_iso,
-                                "admob_transaction_id": transaction_id
-                            }
+                            "sbd_tokens_transactions": send_txn
                         }
                     },
                     upsert=True
