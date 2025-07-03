@@ -37,68 +37,122 @@ async def send_sbd_tokens(
     to_user = data.get("to_user")
     amount = data.get("amount")
     note = data.get("note")
-    transaction_id = data.get("transaction_id") or str(uuid4())
-    if not all([to_user, amount]):
+    transaction_id = str(data.get("transaction_id") or uuid4())
+    if not to_user or amount is None:
         logger.warning("[SBD TOKENS SEND] Missing fields: %s", data)
         return JSONResponse({"status": "error", "detail": "Missing required fields"}, status_code=400)
     if not isinstance(amount, int) or amount <= 0:
         logger.warning("[SBD TOKENS SEND] Invalid amount: %s", amount)
         return JSONResponse({"status": "error", "detail": "Amount must be a positive integer"}, status_code=400)
     users_collection = db_manager.get_collection("users")
+    is_replica_set = False
     try:
-        from_user_doc = await users_collection.find_one({"username": from_user})
-        to_user_doc = await users_collection.find_one({"username": to_user})
-        if not from_user_doc or not to_user_doc:
-            logger.warning("[SBD TOKENS SEND] User not found: from=%s, to=%s", from_user, to_user)
-            return JSONResponse({"status": "error", "detail": "One or both users not found"}, status_code=404)
-        if from_user_doc.get("sbd_tokens", 0) < amount:
-            logger.warning("[SBD TOKENS SEND] Insufficient tokens: %s has %s, tried to send %s", from_user, from_user_doc.get('sbd_tokens', 0), amount)
-            return JSONResponse({"status": "error", "detail": "Insufficient sbd_tokens"}, status_code=400)
-        # Atomically update both users and log transaction
-        async with await db_manager.client.start_session() as session:
-            async with session.start_transaction():
-                now_iso = datetime.now(timezone.utc).isoformat()
-                send_txn = {
-                    "type": "send",
-                    "to": to_user,
-                    "amount": amount,
-                    "timestamp": now_iso,
-                    "transaction_id": transaction_id
-                }
-                if note:
-                    send_txn["note"] = note
-                res1 = await users_collection.update_one(
-                    {"username": from_user, "sbd_tokens": {"$gte": amount}},
-                    {"$inc": {"sbd_tokens": -amount},
-                     "$push": {"sbd_tokens_transactions": send_txn}},
-                    session=session
-                )
-                if res1.modified_count == 0:
-                    logger.warning("[SBD TOKENS SEND] Race condition: insufficient tokens for %s", from_user)
-                    return JSONResponse({"status": "error", "detail": "Insufficient sbd_tokens (race)"}, status_code=400)
-                receive_txn = {
-                    "type": "receive",
-                    "from": from_user,
-                    "amount": amount,
-                    "timestamp": now_iso,
-                    "transaction_id": transaction_id
-                }
-                if note:
-                    receive_txn["note"] = note
-                await users_collection.update_one(
-                    {"username": to_user},
-                    {"$inc": {"sbd_tokens": amount},
-                     "$push": {"sbd_tokens_transactions": receive_txn}},
-                    session=session
-                )
-                logger.info("[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)", amount, from_user, to_user, transaction_id)
+        # Check if MongoDB is a replica set
+        ismaster = await db_manager.client.admin.command("ismaster")
+        is_replica_set = bool(ismaster.get("setName"))
+    except Exception as e:
+        logger.warning("[SBD TOKENS SEND] Could not determine replica set: %s", e)
+    try:
+        if is_replica_set:
+            # Use transaction/session if replica set
+            async with await db_manager.client.start_session() as session:
+                async with session.start_transaction():
+                    from_user_doc = await users_collection.find_one({"username": from_user}, session=session)
+                    to_user_doc = await users_collection.find_one({"username": to_user}, session=session)
+                    # If recipient does not exist, create them with 0 tokens and empty transactions
+                    if not to_user_doc:
+                        await users_collection.insert_one({"username": to_user, "sbd_tokens": 0, "sbd_tokens_transactions": []}, session=session)
+                        to_user_doc = await users_collection.find_one({"username": to_user}, session=session)
+                    if not from_user_doc:
+                        logger.warning("[SBD TOKENS SEND] Sender not found: %s", from_user)
+                        return JSONResponse({"status": "error", "detail": "Transaction could not be completed. Please check the details and try again."}, status_code=400)
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    send_txn = {
+                        "type": "send",
+                        "to": to_user,
+                        "amount": amount,
+                        "timestamp": now_iso,
+                        "transaction_id": transaction_id
+                    }
+                    if note:
+                        send_txn["note"] = note
+                    res1 = await users_collection.update_one(
+                        {"username": from_user, "sbd_tokens": {"$gte": amount}},
+                        {"$inc": {"sbd_tokens": -amount},
+                         "$push": {"sbd_tokens_transactions": send_txn}},
+                        session=session
+                    )
+                    if res1.modified_count == 0:
+                        logger.warning("[SBD TOKENS SEND] Race condition: insufficient tokens for %s", from_user)
+                        return JSONResponse({"status": "error", "detail": "Insufficient sbd_tokens (race)"}, status_code=400)
+                    receive_txn = {
+                        "type": "receive",
+                        "from": from_user,
+                        "amount": amount,
+                        "timestamp": now_iso,
+                        "transaction_id": transaction_id
+                    }
+                    if note:
+                        receive_txn["note"] = note
+                    await users_collection.update_one(
+                        {"username": to_user},
+                        {"$inc": {"sbd_tokens": amount},
+                         "$push": {"sbd_tokens_transactions": receive_txn}},
+                        session=session
+                    )
+                    logger.info("[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)", amount, from_user, to_user, transaction_id)
+        else:
+            # Fallback: no transaction/session
+            from_user_doc = await users_collection.find_one({"username": from_user})
+            to_user_doc = await users_collection.find_one({"username": to_user})
+            # If recipient does not exist, create them with 0 tokens and empty transactions
+            if not to_user_doc:
+                await users_collection.insert_one({"username": to_user, "sbd_tokens": 0, "sbd_tokens_transactions": []})
+                to_user_doc = await users_collection.find_one({"username": to_user})
+            if not from_user_doc:
+                logger.warning("[SBD TOKENS SEND] Sender not found: %s", from_user)
+                return JSONResponse({"status": "error", "detail": "Transaction could not be completed. Please check the details and try again."}, status_code=400)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            send_txn = {
+                "type": "send",
+                "to": to_user,
+                "amount": amount,
+                "timestamp": now_iso,
+                "transaction_id": transaction_id
+            }
+            if note:
+                send_txn["note"] = note
+            res1 = await users_collection.update_one(
+                {"username": from_user, "sbd_tokens": {"$gte": amount}},
+                {"$inc": {"sbd_tokens": -amount},
+                 "$push": {"sbd_tokens_transactions": send_txn}}
+            )
+            if res1.modified_count == 0:
+                logger.warning("[SBD TOKENS SEND] Race condition: insufficient tokens for %s", from_user)
+                return JSONResponse({"status": "error", "detail": "Insufficient sbd_tokens (race)"}, status_code=400)
+            receive_txn = {
+                "type": "receive",
+                "from": from_user,
+                "amount": amount,
+                "timestamp": now_iso,
+                "transaction_id": transaction_id
+            }
+            if note:
+                receive_txn["note"] = note
+            await users_collection.update_one(
+                {"username": to_user},
+                {"$inc": {"sbd_tokens": amount},
+                 "$push": {"sbd_tokens_transactions": receive_txn}}
+            )
+            logger.info("[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)", amount, from_user, to_user, transaction_id)
         return {"status": "success", "from_user": from_user, "to_user": to_user, "amount": amount, "transaction_id": transaction_id}
     except PyMongoError as e:
+        print("[DEBUG][SBD TOKENS SEND] DB error:", e, flush=True)
         logger.error("[SBD TOKENS SEND] DB error: %s", e)
-        return JSONResponse({"status": "error", "detail": "Database error"}, status_code=500)
+        return JSONResponse({"status": "error", "detail": "Database error", "error": str(e)}, status_code=500)
     except Exception as e:
-        logger.error("[SBD TOKENS SEND] Unexpected error: %s", e)
-        return JSONResponse({"status": "error", "detail": "Internal server error"}, status_code=500)
+        logger.error("[SBD TOKENS SEND] Unexpected error: %s", e, exc_info=True)
+        return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
 @router.get("/sbd_tokens/transactions")
 async def get_my_sbd_tokens_transactions(
