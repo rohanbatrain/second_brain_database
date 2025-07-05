@@ -14,7 +14,7 @@ from cryptography.exceptions import InvalidSignature
 import aiohttp
 import asyncio
 from urllib.parse import urlparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 logger = get_logger(prefix="[AdMob SSV]")
@@ -269,5 +269,56 @@ async def admob_ssv_reward(
                 logger.warning(f"[SBD TOKENS UPDATE FAILED] User: {user_id}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id}")
+    # Process theme rewards for supported emotion_tracker themes
+    supported_themes = [
+        "emotion_tracker-serenityGreen",
+        "emotion_tracker-serenityGreenDark",
+        "emotion_tracker-pacificBlue",
+        "emotion_tracker-pacificBlueDark",
+        "emotion_tracker-blushRose",
+        "emotion_tracker-blushRoseDark",
+        "emotion_tracker-cloudGray",
+        "emotion_tracker-cloudGrayDark",
+        "emotion_tracker-sunsetPeach",
+        "emotion_tracker-sunsetPeachDark",
+        "emotion_tracker-midnightLavender",
+        "emotion_tracker-midnightLavenderLight",
+        "emotion_tracker-crimsonRed",
+        "emotion_tracker-crimsonRedDark",
+        "emotion_tracker-forestGreen",
+        "emotion_tracker-forestGreenDark",
+        "emotion_tracker-goldenYellow",
+        "emotion_tracker-goldenYellowDark",
+        "emotion_tracker-deepPurple",
+        "emotion_tracker-deepPurpleDark",
+        "emotion_tracker-royalOrange",
+        "emotion_tracker-royalOrangeDark"
+    ]
+    if reward_item in supported_themes and reward_amount == 1:
+        user = await users_collection.find_one({"username": user_id})
+        logger.debug(f"User lookup for theme reward: {user}")
+        if user:
+            now_iso = datetime.now(timezone.utc)
+            txn_id = transaction_id or str(uuid4())
+            try:
+                hours = int(note) if note and note.isdigit() else 1
+            except Exception:
+                hours = 1
+            valid_till = (now_iso + timedelta(hours=hours)).isoformat()
+            theme_entry = {
+                "theme_id": reward_item,
+                "unlocked_at": now_iso.isoformat(),
+                "duration_hours": hours,
+                "valid_till": valid_till,
+                "transaction_id": txn_id
+            }
+            update_result = await users_collection.update_one(
+                {"username": user_id},
+                {"$push": {"themes_rented": theme_entry}}
+            )
+            logger.info(f"[THEME UNLOCKED] User: {user_id}, theme: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.debug(f"Theme unlock update result: {update_result.raw_result}")
+        else:
+            logger.warning(f"[USER NOT FOUND] Username: {user_id} (theme reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 

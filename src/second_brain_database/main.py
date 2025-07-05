@@ -18,6 +18,7 @@ from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cle
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
+from second_brain_database.routes.themes.routes import router as themes_router
 
 logger = get_logger()
 
@@ -70,6 +71,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(main_router)
 app.include_router(sbd_tokens_router)
+app.include_router(themes_router)
 
 # Instrumentator for Prometheus metrics
 Instrumentator(
