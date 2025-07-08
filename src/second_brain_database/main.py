@@ -19,6 +19,8 @@ from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
 from second_brain_database.routes.themes.routes import router as themes_router
+from second_brain_database.routes.shop.routes import router as shop_router
+from second_brain_database.routes.avatars.routes import router as avatars_router
 
 logger = get_logger()
 
@@ -72,6 +74,8 @@ app.include_router(auth_router)
 app.include_router(main_router)
 app.include_router(sbd_tokens_router)
 app.include_router(themes_router)
+app.include_router(shop_router)
+app.include_router(avatars_router)
 
 # Instrumentator for Prometheus metrics
 Instrumentator(

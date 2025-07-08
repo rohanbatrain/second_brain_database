@@ -320,5 +320,45 @@ async def admob_ssv_reward(
             logger.debug(f"Theme unlock update result: {update_result.raw_result}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (theme reward)")
+    # Process avatar rewards for supported avatars
+    supported_avatars = set([
+        # Cat Avatars
+        *[f"emotion_tracker-static-avatar-cat-{i}" for i in range(1, 21)],
+        # Dog Avatars
+        *[f"emotion_tracker-static-avatar-dog-{i}" for i in range(1, 18)],
+        # Panda Avatars
+        *[f"emotion_tracker-static-avatar-panda-{i}" for i in list(range(1, 10)) + list(range(10, 13))],
+        # People Avatars
+        *[f"emotion_tracker-static-avatar-person-{i}" for i in list(range(1, 9)) + list(range(10, 17))],
+        # Animated Avatars
+        "emotion_tracker-animated-avatar-playful_eye",
+        "emotion_tracker-animated-avatar-floating_brain",
+    ])
+    if reward_item in supported_avatars and reward_amount == 1:
+        user = await users_collection.find_one({"username": user_id})
+        logger.debug(f"User lookup for avatar reward: {user}")
+        if user:
+            now_iso = datetime.now(timezone.utc)
+            txn_id = transaction_id or str(uuid4())
+            try:
+                hours = int(note) if note and note.isdigit() else 1
+            except Exception:
+                hours = 1
+            valid_till = (now_iso + timedelta(hours=hours)).isoformat()
+            avatar_entry = {
+                "avatar_id": reward_item,
+                "unlocked_at": now_iso.isoformat(),
+                "duration_hours": hours,
+                "valid_till": valid_till,
+                "transaction_id": txn_id
+            }
+            update_result = await users_collection.update_one(
+                {"username": user_id},
+                {"$push": {"avatars_rented": avatar_entry}}
+            )
+            logger.info(f"[AVATAR UNLOCKED] User: {user_id}, avatar: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.debug(f"Avatar unlock update result: {update_result.raw_result}")
+        else:
+            logger.warning(f"[USER NOT FOUND] Username: {user_id} (avatar reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 
