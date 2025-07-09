@@ -1,15 +1,20 @@
 """
 Background task for automatic cleanup of expired 2FA pending states,
-backup codes, and password reset tokens.
+backup codes, password reset tokens, rented avatars, and rented banners.
 
-This module is responsible ONLY for cleanup of expired or obsolete authentication-related data in MongoDB.
+This module is responsible ONLY for cleanup of expired or obsolete authentication-related data, rented avatars, and rented banners in MongoDB.
 
 What this file does:
-- Runs a periodic background task (interval set by BACKUP_CODES_CLEANUP_INTERVAL in config/.sbd).
+- Runs periodic background tasks:
+    * Cleanup of expired 2FA pending states, backup codes, and password reset tokens (interval set by BACKUP_CODES_CLEANUP_INTERVAL in config/.sbd).
+    * Cleanup of expired rented avatars (interval set to 3600 seconds).
+    * Cleanup of expired rented banners (interval set to 3600 seconds).
 - For each user, checks for and cleans up:
     * Expired 2FA pending states (removes 'two_fa_pending', 'totp_secret', 'backup_codes', etc. if setup is stale)
     * Orphaned 2FA data if 2FA is disabled (removes secrets/codes if user has 2FA off)
     * Expired password reset tokens (removes 'password_reset_token' and 'password_reset_token_expiry' if expired)
+    * Expired rented avatars (removes expired entries from 'avatars_rented' and clears them from 'avatars' if set as current)
+    * Expired rented banners (removes expired entries from 'banners_rented' and clears them from 'banners' if set as current)
 - Tracks the last cleanup time in the 'system' collection for resilience across restarts.
 - Logs all cleanup actions and errors for auditability.
 
@@ -18,8 +23,8 @@ What this file does NOT do:
 - Does NOT perform any business logic, rate limiting, or abuse detection.
 
 How to use:
-- Import and run `periodic_2fa_cleanup()` as a background task in your FastAPI app or worker.
-- The function will run forever, sleeping between runs, and will only act if enough time has passed since the last cleanup.
+- Import and run `periodic_2fa_cleanup()`, `periodic_avatar_rental_cleanup()`, and `periodic_banner_rental_cleanup()` as background tasks in your FastAPI app or worker.
+- The functions will run forever, sleeping between runs, and will only act if enough time has passed since the last cleanup.
 - All cleanup is safe, idempotent, and logged.
 
 See also:
@@ -146,3 +151,73 @@ async def periodic_2fa_cleanup() -> None:
             logger.error("Error in periodic cleanup task: %s", exc, exc_info=True)
         finally:
             await asyncio.sleep(interval)
+
+async def periodic_avatar_rental_cleanup() -> None:
+    """
+    Periodically remove expired rented avatars from all user documents.
+    This ensures that outdated rentals are not present in user['avatars_rented'] or set as current.
+    """
+    from datetime import timezone
+    users = db_manager.get_collection("users")
+    interval = 300  # Run every hour
+    while True:
+        now = datetime.now(timezone.utc)
+        async for user in users.find({"avatars_rented": {"$exists": True, "$ne": []}}):
+            updated_rented = []
+            expired_avatar_ids = set()
+            for avatar in user["avatars_rented"]:
+                try:
+                    if datetime.fromisoformat(avatar["valid_till"]) > now:
+                        updated_rented.append(avatar)
+                    else:
+                        expired_avatar_ids.add(avatar["avatar_id"])
+                except Exception:
+                    expired_avatar_ids.add(avatar.get("avatar_id"))
+            # Remove expired rentals from avatars_rented
+            update_fields = {"avatars_rented": updated_rented}
+            # Remove expired rentals from current avatars
+            avatars = user.get("avatars", {})
+            avatars_changed = False
+            for app_key, avatar_id in list(avatars.items()):
+                if avatar_id in expired_avatar_ids:
+                    avatars[app_key] = None
+                    avatars_changed = True
+            if avatars_changed:
+                update_fields["avatars"] = avatars
+            await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+        await asyncio.sleep(interval)
+
+async def periodic_banner_rental_cleanup() -> None:
+    """
+    Periodically remove expired rented banners from all user documents.
+    This ensures that outdated rentals are not present in user['banners_rented'] or set as current.
+    """
+    from datetime import timezone
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour (adjust as needed)
+    while True:
+        now = datetime.now(timezone.utc)
+        async for user in users.find({"banners_rented": {"$exists": True, "$ne": []}}):
+            updated_rented = []
+            expired_banner_ids = set()
+            for banner in user["banners_rented"]:
+                try:
+                    if datetime.fromisoformat(banner["valid_till"]) > now:
+                        updated_rented.append(banner)
+                    else:
+                        expired_banner_ids.add(banner["banner_id"])
+                except Exception:
+                    expired_banner_ids.add(banner.get("banner_id"))
+            # Remove expired rentals from banners_rented
+            update_fields = {"banners_rented": updated_rented}
+            # Remove expired rentals from current banners
+            banners = user.get("banners", {})
+            banners_changed = False
+            for app_key, banner_id in list(banners.items()):
+                if banner_id in expired_banner_ids:
+                    banners[app_key] = None
+                    banners_changed = True
+            if banners_changed:
+                update_fields["banners"] = banners
+            await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+        await asyncio.sleep(interval)

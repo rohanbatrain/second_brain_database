@@ -14,13 +14,14 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.routes import auth_router, main_router
-from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup
+from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup, periodic_avatar_rental_cleanup, periodic_banner_rental_cleanup
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.avatars.routes import router as avatars_router
+from second_brain_database.routes.banners.routes import router as banners_router
 
 logger = get_logger()
 
@@ -44,7 +45,10 @@ async def lifespan(_app: FastAPI):
     cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
     # Start periodic blocklist/whitelist reconciliation task
     reconcile_task = asyncio.create_task(periodic_blocklist_whitelist_reconcile())
-    # Start periodic AdMob keys refresh task
+    # Start periodic avatar rental cleanup task
+    avatar_cleanup_task = asyncio.create_task(periodic_avatar_rental_cleanup())
+    # Start periodic banner rental cleanup task
+    banner_cleanup_task = asyncio.create_task(periodic_banner_rental_cleanup())
 
     yield
 
@@ -52,12 +56,22 @@ async def lifespan(_app: FastAPI):
     logger.info("Shutting down FastAPI application...")
     cleanup_task.cancel()
     reconcile_task.cancel()
+    avatar_cleanup_task.cancel()
+    banner_cleanup_task.cancel()
     try:
         await cleanup_task
     except asyncio.CancelledError:
         pass
     try:
         await reconcile_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await avatar_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await banner_cleanup_task
     except asyncio.CancelledError:
         pass
     await db_manager.disconnect()
@@ -76,6 +90,7 @@ app.include_router(sbd_tokens_router)
 app.include_router(themes_router)
 app.include_router(shop_router)
 app.include_router(avatars_router)
+app.include_router(banners_router)
 
 # Instrumentator for Prometheus metrics
 Instrumentator(

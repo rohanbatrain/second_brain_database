@@ -27,3 +27,51 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(get_c
     if not user or "avatars_owned" not in user:
         return {"avatars_owned": []}
     return {"avatars_owned": user["avatars_owned"]}
+
+@router.post("/avatars/current", tags=["avatars"], summary="Set the current avatar for the authenticated user and app (by user-agent)")
+async def set_current_avatar(request: Request, data: dict, current_user: dict = Depends(get_current_user_dep)):
+    """
+    Set the current avatar for the user and app (determined by user-agent).
+    Expects: {"avatar_id": "..."}
+    Stores in user.avatars[app_key] = avatar_id
+    """
+    users_collection = db_manager.get_collection("users")
+    user_agent = request.headers.get("user-agent", "unknown_app")
+    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
+    avatar_id = data.get("avatar_id")
+    if not avatar_id:
+        return {"error": "avatar_id is required"}
+    # Check if avatar_id is owned or rented and valid
+    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars": 1, "avatars_owned": 1, "avatars_rented": 1})
+    avatars = user.get("avatars", {}) if user else {}
+    owned = user.get("avatars_owned", []) if user else []
+    rented = user.get("avatars_rented", []) if user else []
+    # Check owned
+    if avatar_id not in owned:
+        # Check rented and valid
+        now = datetime.now(timezone.utc)
+        valid_rented = False
+        for avatar in rented:
+            if avatar.get("avatar_id") == avatar_id:
+                try:
+                    if datetime.fromisoformat(avatar["valid_till"]) > now:
+                        valid_rented = True
+                        break
+                except Exception:
+                    continue
+        if not valid_rented:
+            return {"error": "avatar_id is not owned or validly rented"}
+    avatars[app_key] = avatar_id
+    await users_collection.update_one({"username": current_user["username"]}, {"$set": {"avatars": avatars}})
+    return {"success": True, "avatar_id": avatar_id}
+
+@router.get("/avatars/current", tags=["avatars"], summary="Get the current avatar for the authenticated user and app (by user-agent)")
+async def get_current_avatar(request: Request, current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    user_agent = request.headers.get("user-agent", "unknown_app")
+    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
+    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars": 1})
+    avatars = user.get("avatars", {}) if user else {}
+    avatar_id = avatars.get(app_key)
+    return {"avatar_id": avatar_id}
+

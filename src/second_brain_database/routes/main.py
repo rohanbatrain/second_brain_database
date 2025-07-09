@@ -360,5 +360,35 @@ async def admob_ssv_reward(
             logger.debug(f"Avatar unlock update result: {update_result.raw_result}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (avatar reward)")
+    # Process banner rewards for supported banners
+    supported_banners = set([
+        "emotion_tracker-static-banner-earth-1"
+    ])
+    if reward_item in supported_banners and reward_amount == 1:
+        user = await users_collection.find_one({"username": user_id})
+        logger.debug(f"User lookup for banner reward: {user}")
+        if user:
+            now_iso = datetime.now(timezone.utc)
+            txn_id = transaction_id or str(uuid4())
+            try:
+                hours = int(note) if note and note.isdigit() else 1
+            except Exception:
+                hours = 1
+            valid_till = (now_iso + timedelta(hours=hours)).isoformat()
+            banner_entry = {
+                "banner_id": reward_item,
+                "unlocked_at": now_iso.isoformat(),
+                "duration_hours": hours,
+                "valid_till": valid_till,
+                "transaction_id": txn_id
+            }
+            update_result = await users_collection.update_one(
+                {"username": user_id},
+                {"$push": {"banners_rented": banner_entry}}
+            )
+            logger.info(f"[BANNER UNLOCKED] User: {user_id}, banner: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.debug(f"Banner unlock update result: {update_result.raw_result}")
+        else:
+            logger.warning(f"[USER NOT FOUND] Username: {user_id} (banner reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 

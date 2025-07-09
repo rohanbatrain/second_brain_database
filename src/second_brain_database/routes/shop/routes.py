@@ -99,6 +99,94 @@ async def buy_theme(
         logger.error(f"[THEME PURCHASE ERROR] {e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
+@router.post("/shop/avatars/buy", tags=["shop"], summary="Buy an avatar with SBD tokens")
+async def buy_avatar(
+    request: Request,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    users_collection = db_manager.get_collection("users")
+    avatar_id = data.get("avatar_id")
+    price = data.get("price", 100)  # Default price is 100 if not provided
+    username = current_user["username"]
+    if not avatar_id:
+        return JSONResponse({"status": "error", "detail": "Invalid or missing avatar_id"}, status_code=400)
+    # Check if user already owns the avatar
+    user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "sbd_tokens": 1})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    if avatar_id in user.get("avatars_owned", []):
+        return JSONResponse({"status": "error", "detail": "Avatar already owned"}, status_code=400)
+    sbd_tokens = user.get("sbd_tokens", 0)
+    if sbd_tokens < price:
+        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+    # Deduct tokens and add avatar to owned
+    now_iso = datetime.now(timezone.utc).isoformat()
+    transaction_id = str(uuid4())
+    avatar_entry = {
+        "avatar_id": avatar_id,
+        "unlocked_at": now_iso,
+        "permanent": True,
+        "source": "purchase",
+        "transaction_id": transaction_id,
+        "note": "Bought from shop",
+        "price": price
+    }
+    try:
+        result = await users_collection.update_one(
+            {"username": username, "sbd_tokens": {"$gte": price}},
+            {"$inc": {"sbd_tokens": -price}, "$push": {"avatars_owned": avatar_entry}}
+        )
+        if result.modified_count == 0:
+            return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        return {"status": "success", "avatar": avatar_entry, "transaction_id": transaction_id}
+    except Exception as e:
+        return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
+
+@router.post("/shop/bundles/buy", tags=["shop"], summary="Buy a bundle with SBD tokens")
+async def buy_bundle(
+    request: Request,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    users_collection = db_manager.get_collection("users")
+    bundle_id = data.get("bundle_id")
+    price = data.get("price", 500)  # Default price is 500 if not provided
+    username = current_user["username"]
+    if not bundle_id:
+        return JSONResponse({"status": "error", "detail": "Invalid or missing bundle_id"}, status_code=400)
+    # Check if user already owns the bundle
+    user = await users_collection.find_one({"username": username}, {"bundles_owned": 1, "sbd_tokens": 1})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    if bundle_id in user.get("bundles_owned", []):
+        return JSONResponse({"status": "error", "detail": "Bundle already owned"}, status_code=400)
+    sbd_tokens = user.get("sbd_tokens", 0)
+    if sbd_tokens < price:
+        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+    # Deduct tokens and add bundle to owned
+    now_iso = datetime.now(timezone.utc).isoformat()
+    transaction_id = str(uuid4())
+    bundle_entry = {
+        "bundle_id": bundle_id,
+        "unlocked_at": now_iso,
+        "permanent": True,
+        "source": "purchase",
+        "transaction_id": transaction_id,
+        "note": "Bought from shop",
+        "price": price
+    }
+    try:
+        result = await users_collection.update_one(
+            {"username": username, "sbd_tokens": {"$gte": price}},
+            {"$inc": {"sbd_tokens": -price}, "$push": {"bundles_owned": bundle_entry}}
+        )
+        if result.modified_count == 0:
+            return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        return {"status": "success", "bundle": bundle_entry, "transaction_id": transaction_id}
+    except Exception as e:
+        return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
+
 @router.post("/shop/cart/{app}/add", tags=["shop"], summary="Add item to app-specific cart")
 async def add_to_cart(app: str, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
