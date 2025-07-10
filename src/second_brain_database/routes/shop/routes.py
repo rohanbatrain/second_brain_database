@@ -22,13 +22,39 @@ async def get_item_details(item_id: str, item_type: str):
         if item_id.startswith("emotion_tracker-"):
             return {"theme_id": item_id, "name": "Emotion Tracker Theme", "price": 250, "type": "theme"}
     elif item_type == "avatar":
+        # Premium animated avatars
+        if item_id == "emotion_tracker-animated-avatar-playful_eye":
+            return {"avatar_id": item_id, "name": "Playful Eye", "price": 2500, "type": "avatar"}
+        if item_id == "emotion_tracker-animated-avatar-floating_brain":
+            return {"avatar_id": item_id, "name": "Floating Brain", "price": 5000, "type": "avatar"}
+        
         # In a real app, you'd look up the avatar's price
-        return {"avatar_id": item_id, "name": "User Avatar", "price": 100, "type": "avatar"}
+        name = "User Avatar"  # Default name
+        try:
+            # Attempt to create a more descriptive name from the ID
+            # e.g., "emotion_tracker-static-avatar-cat-1" -> "Cat 1"
+            name_part = item_id.split("avatar-")[1]
+            name = name_part.replace("-", " ").title()
+        except IndexError:
+            # If the ID format is not as expected, fall back to the default name
+            pass
+        return {"avatar_id": item_id, "name": name, "price": 100, "type": "avatar"}
     elif item_type == "bundle":
-        # In a real app, you'd look up the bundle's price
-        return {"bundle_id": item_id, "name": "Item Bundle", "price": 500, "type": "bundle"}
+        bundles = {
+            "emotion_tracker-avatars-cat-bundle": {"name": "Cat Lovers Pack", "price": 2000},
+            "emotion_tracker-avatars-dog-bundle": {"name": "Dog Lovers Pack", "price": 2000},
+            "emotion_tracker-avatars-panda-bundle": {"name": "Panda Lovers Pack", "price": 1500},
+            "emotion_tracker-avatars-people-bundle": {"name": "People Pack", "price": 2000},
+            "emotion_tracker-themes-dark": {"name": "Dark Theme Pack", "price": 2500},
+            "emotion_tracker-themes-light": {"name": "Light Theme Pack", "price": 2500},
+        }
+        if item_id in bundles:
+            bundle_info = bundles[item_id]
+            return {"bundle_id": item_id, "name": bundle_info["name"], "price": bundle_info["price"], "type": "bundle"}
     elif item_type == "banner":
-        # In a real app, you'd look up the banner's price
+        if item_id == "emotion_tracker-static-banner-earth-1":
+            return {"banner_id": item_id, "name": "Earth Banner", "price": 150, "type": "banner"}
+        # Fallback for other banners
         return {"banner_id": item_id, "name": "User Banner", "price": 150, "type": "banner"}
     return None
 
@@ -213,7 +239,7 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
     username = current_user["username"]
     item_id = data.get("item_id")
     item_type = data.get("item_type") # "theme", "avatar", "bundle", "banner"
-    user_agent = request.headers.get("user-agent", "unknown")
+    user_agent = request.headers.get("user-agent", "unknown").lower()
     app_name = user_agent.split('/')[0].strip() if '/' in user_agent else user_agent
 
     if not all([item_id, item_type]):
@@ -231,6 +257,8 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
     if not item_details:
         return JSONResponse({"status": "error", "detail": "Item not found"}, status_code=404)
 
+    item_details["added_at"] = datetime.now(timezone.utc).isoformat()
+
     await get_or_create_shop_doc(username)
     # Use $addToSet to prevent duplicate items in the cart
     await shop_collection.update_one(
@@ -239,13 +267,13 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
     )
     return {"status": "success", "added": item_details, "app": app_name}
 
-@router.post("/shop/cart/remove", tags=["shop"], summary="Remove item from a cart")
+@router.delete("/shop/cart/remove", tags=["shop"], summary="Remove item from a cart")
 async def remove_from_cart(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
     item_id = data.get("item_id")
     item_type = data.get("item_type")
-    user_agent = request.headers.get("user-agent")
+    user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split('/')[0].strip() if user_agent and '/' in user_agent else user_agent
 
     if not all([item_id, item_type, app_name]):
@@ -268,14 +296,14 @@ async def remove_from_cart(request: Request, data: dict = Body(...), current_use
     else:
         return JSONResponse({"status": "error", "detail": f"Item not found in cart for app '{app_name}'"}, status_code=404)
 
-@router.post("/shop/cart/clear", tags=["shop"], summary="Clear all items from a cart")
+@router.delete("/shop/cart/clear", tags=["shop"], summary="Clear all items from a cart")
 async def clear_cart(request: Request, current_user: dict = Depends(get_current_user_dep)):
     """
     Clears items from a user's shopping cart for a specific app, identified by user-agent.
     """
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
-    user_agent = request.headers.get("user-agent")
+    user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split('/')[0].strip() if user_agent and '/' in user_agent else user_agent
 
     if not app_name:
@@ -296,7 +324,7 @@ async def clear_cart(request: Request, current_user: dict = Depends(get_current_
 async def get_cart(request: Request, current_user: dict = Depends(get_current_user_dep)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
-    user_agent = request.headers.get("user-agent")
+    user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split('/')[0].strip() if user_agent and '/' in user_agent else user_agent
 
     if not app_name:
@@ -315,7 +343,7 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     
-    user_agent = request.headers.get("user-agent")
+    user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split('/')[0].strip() if user_agent and '/' in user_agent else user_agent
     if not app_name:
         return JSONResponse({"status": "error", "detail": "The 'user-agent' header is required and must be in a valid format."}, status_code=400)
@@ -364,19 +392,37 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
     )
 
     # Distribute purchased items to the correct `*_owned` arrays
-    items_by_type = {}
+    update_operations = {}
+    now_iso_checkout = datetime.now(timezone.utc).isoformat()
+
     for item in items_to_checkout:
         item_type = item.get("type")
-        if item_type:
-            if item_type not in items_by_type:
-                items_by_type[item_type] = []
-            items_by_type[item_type].append(item)
+        if not item_type:
+            continue
 
-    for item_type, items in items_by_type.items():
-        owned_field = f"{item_type}s_owned" # e.g., themes_owned, avatars_owned
+        id_key = f"{item_type}_id"
+        owned_field = f"{item_type}s_owned"
+
+        owned_item_entry = {
+            id_key: item.get(id_key),
+            "unlocked_at": now_iso_checkout,
+            "permanent": True,
+            "source": "purchase_cart",
+            "transaction_id": transaction_id,
+            "note": f"Purchased via cart checkout from {app_name}",
+            "price": item.get("price")
+        }
+
+        if owned_field not in update_operations:
+            update_operations[owned_field] = {"$each": []}
+        
+        update_operations[owned_field]["$each"].append(owned_item_entry)
+
+    # Perform all updates in a single operation if possible, or one per type
+    for owned_field, push_value in update_operations.items():
         await users_collection.update_one(
             {"username": username},
-            {"$push": {owned_field: {"$each": items}}}
+            {"$push": {owned_field: push_value}}
         )
 
     # Clear the relevant cart(s)
