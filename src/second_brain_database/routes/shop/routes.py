@@ -139,7 +139,7 @@ async def buy_theme(
             upsert=True
         )
         logger.info(f"[THEME PURCHASE] User: {username} bought {theme_id} for {price} SBD tokens (txn_id={transaction_id})")
-        return {"status": "success", "theme": theme_entry, "transaction_id": transaction_id}
+        return {"status": "success", "theme": theme_entry}
     except Exception as e:
         logger.error(f"[THEME PURCHASE ERROR] {e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
@@ -160,7 +160,8 @@ async def buy_avatar(
     user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "sbd_tokens": 1})
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
-    if avatar_id in user.get("avatars_owned", []):
+    # FIX: Prevent duplicate avatar purchases by checking avatar_id in dicts
+    if any(owned.get("avatar_id") == avatar_id for owned in user.get("avatars_owned", [])):
         return JSONResponse({"status": "error", "detail": "Avatar already owned"}, status_code=400)
     sbd_tokens = user.get("sbd_tokens", 0)
     if sbd_tokens < price:
@@ -178,13 +179,34 @@ async def buy_avatar(
         "price": price
     }
     try:
+        send_txn = {
+            "type": "send",
+            "to": "emotion_tracker_shop",
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"Bought avatar {avatar_id}"
+        }
+        receive_txn = {
+            "type": "receive",
+            "from": username,
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"User bought avatar {avatar_id}"
+        }
         result = await users_collection.update_one(
             {"username": username, "sbd_tokens": {"$gte": price}},
-            {"$inc": {"sbd_tokens": -price}, "$push": {"avatars_owned": avatar_entry}}
+            {"$inc": {"sbd_tokens": -price}, "$push": {"avatars_owned": avatar_entry, "sbd_tokens_transactions": send_txn}}
         )
         if result.modified_count == 0:
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
-        return {"status": "success", "avatar": avatar_entry, "transaction_id": transaction_id}
+        await users_collection.update_one(
+            {"username": "emotion_tracker_shop"},
+            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            upsert=True
+        )
+        return {"status": "success", "avatar": avatar_entry}
     except Exception as e:
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
@@ -228,7 +250,7 @@ async def buy_bundle(
         )
         if result.modified_count == 0:
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
-        return {"status": "success", "bundle": bundle_entry, "transaction_id": transaction_id}
+        return {"status": "success", "bundle": bundle_entry}
     except Exception as e:
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
@@ -429,3 +451,60 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
     await shop_collection.update_one({"username": username}, {"$set": {f"carts.{app_name}": []}})
 
     return {"status": "success", "checked_out": items_to_checkout, "total_price": total_price, "transaction_id": transaction_id}
+
+@router.get("/shop/avatars/owned", tags=["shop"], summary="Get user's owned avatars")
+async def get_owned_avatars(current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "_id": 0})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    return {"status": "success", "avatars_owned": user.get("avatars_owned", [])}
+
+@router.get("/shop/banners/owned", tags=["shop"], summary="Get user's owned banners")
+async def get_owned_banners(current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user = await users_collection.find_one({"username": username}, {"banners_owned": 1, "_id": 0})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    return {"status": "success", "banners_owned": user.get("banners_owned", [])}
+
+@router.get("/shop/bundles/owned", tags=["shop"], summary="Get user's owned bundles")
+async def get_owned_bundles(current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user = await users_collection.find_one({"username": username}, {"bundles_owned": 1, "_id": 0})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    return {"status": "success", "bundles_owned": user.get("bundles_owned", [])}
+
+@router.get("/shop/themes/owned", tags=["shop"], summary="Get user's owned themes")
+async def get_owned_themes(current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user = await users_collection.find_one({"username": username}, {"themes_owned": 1, "_id": 0})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    return {"status": "success", "themes_owned": user.get("themes_owned", [])}
+
+@router.get("/shop/owned", tags=["shop"], summary="Get all user's owned shop items")
+async def get_all_owned(current_user: dict = Depends(get_current_user_dep)):
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user = await users_collection.find_one({"username": username}, {
+        "avatars_owned": 1,
+        "banners_owned": 1,
+        "bundles_owned": 1,
+        "themes_owned": 1,
+        "_id": 0
+    })
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    return {
+        "status": "success",
+        "avatars_owned": user.get("avatars_owned", []),
+        "banners_owned": user.get("banners_owned", []),
+        "bundles_owned": user.get("bundles_owned", []),
+        "themes_owned": user.get("themes_owned", [])
+    }
