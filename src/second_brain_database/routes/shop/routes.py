@@ -53,9 +53,9 @@ async def get_item_details(item_id: str, item_type: str):
             return {"bundle_id": item_id, "name": bundle_info["name"], "price": bundle_info["price"], "type": "bundle"}
     elif item_type == "banner":
         if item_id == "emotion_tracker-static-banner-earth-1":
-            return {"banner_id": item_id, "name": "Earth Banner", "price": 150, "type": "banner"}
+            return {"banner_id": item_id, "name": "Earth Banner", "price": 100, "type": "banner"}
         # Fallback for other banners
-        return {"banner_id": item_id, "name": "User Banner", "price": 150, "type": "banner"}
+        return {"banner_id": item_id, "name": "User Banner", "price": 100, "type": "banner"}
     return None
 
 # Utility to get or create a user's shop doc
@@ -67,6 +67,120 @@ async def get_or_create_shop_doc(username):
         await shop_collection.insert_one(doc)
     return doc
 
+BUNDLE_CONTENTS = {
+    "emotion_tracker-avatars-cat-bundle": {
+        "avatars": [
+            "emotion_tracker-static-avatar-cat-1",
+            "emotion_tracker-static-avatar-cat-2",
+            "emotion_tracker-static-avatar-cat-3",
+            "emotion_tracker-static-avatar-cat-4",
+            "emotion_tracker-static-avatar-cat-5",
+            "emotion_tracker-static-avatar-cat-6",
+            "emotion_tracker-static-avatar-cat-7",
+            "emotion_tracker-static-avatar-cat-8",
+            "emotion_tracker-static-avatar-cat-9",
+            "emotion_tracker-static-avatar-cat-10",
+            "emotion_tracker-static-avatar-cat-11",
+            "emotion_tracker-static-avatar-cat-12",
+            "emotion_tracker-static-avatar-cat-13",
+            "emotion_tracker-static-avatar-cat-14",
+            "emotion_tracker-static-avatar-cat-15",
+            "emotion_tracker-static-avatar-cat-16",
+            "emotion_tracker-static-avatar-cat-17",
+            "emotion_tracker-static-avatar-cat-18",
+            "emotion_tracker-static-avatar-cat-19",
+            "emotion_tracker-static-avatar-cat-20",
+        ]
+    },
+    "emotion_tracker-avatars-dog-bundle": {
+        "avatars": [
+            "emotion_tracker-static-avatar-dog-1",
+            "emotion_tracker-static-avatar-dog-2",
+            "emotion_tracker-static-avatar-dog-3",
+            "emotion_tracker-static-avatar-dog-4",
+            "emotion_tracker-static-avatar-dog-5",
+            "emotion_tracker-static-avatar-dog-6",
+            "emotion_tracker-static-avatar-dog-7",
+            "emotion_tracker-static-avatar-dog-8",
+            "emotion_tracker-static-avatar-dog-9",
+            "emotion_tracker-static-avatar-dog-10",
+            "emotion_tracker-static-avatar-dog-11",
+            "emotion_tracker-static-avatar-dog-12",
+            "emotion_tracker-static-avatar-dog-13",
+            "emotion_tracker-static-avatar-dog-14",
+            "emotion_tracker-static-avatar-dog-15",
+            "emotion_tracker-static-avatar-dog-16",
+            "emotion_tracker-static-avatar-dog-17",
+        ]
+    },
+    "emotion_tracker-avatars-panda-bundle": {
+        "avatars": [
+            "emotion_tracker-static-avatar-panda-1",
+            "emotion_tracker-static-avatar-panda-2",
+            "emotion_tracker-static-avatar-panda-3",
+            "emotion_tracker-static-avatar-panda-4",
+            "emotion_tracker-static-avatar-panda-5",
+            "emotion_tracker-static-avatar-panda-6",
+            "emotion_tracker-static-avatar-panda-7",
+            "emotion_tracker-static-avatar-panda-8",
+            "emotion_tracker-static-avatar-panda-9",
+            "emotion_tracker-static-avatar-panda-10",
+            "emotion_tracker-static-avatar-panda-11",
+            "emotion_tracker-static-avatar-panda-12",
+        ]
+    },
+    "emotion_tracker-avatars-people-bundle": {
+        "avatars": [
+            "emotion_tracker-static-avatar-person-1",
+            "emotion_tracker-static-avatar-person-2",
+            "emotion_tracker-static-avatar-person-3",
+            "emotion_tracker-static-avatar-person-4",
+            "emotion_tracker-static-avatar-person-5",
+            "emotion_tracker-static-avatar-person-6",
+            "emotion_tracker-static-avatar-person-7",
+            "emotion_tracker-static-avatar-person-8",
+            "emotion_tracker-static-avatar-person-9",
+            "emotion_tracker-static-avatar-person-10",
+            "emotion_tracker-static-avatar-person-11",
+            "emotion_tracker-static-avatar-person-12",
+            "emotion_tracker-static-avatar-person-13",
+            "emotion_tracker-static-avatar-person-14",
+            "emotion_tracker-static-avatar-person-15",
+            "emotion_tracker-static-avatar-person-16",
+        ]
+    },
+    "emotion_tracker-themes-dark": {
+        "themes": [
+            "emotion_tracker-serenityGreenDark",
+            "emotion_tracker-pacificBlueDark",
+            "emotion_tracker-blushRoseDark",
+            "emotion_tracker-cloudGrayDark",
+            "emotion_tracker-sunsetPeachDark",
+            "emotion_tracker-goldenYellowDark",
+            "emotion_tracker-forestGreenDark",
+            "emotion_tracker-midnightLavender",
+            "emotion_tracker-crimsonRedDark",
+            "emotion_tracker-deepPurpleDark",
+            "emotion_tracker-royalOrangeDark",
+        ]
+    },
+    "emotion_tracker-themes-light": {
+        "themes": [
+            "emotion_tracker-serenityGreen",
+            "emotion_tracker-pacificBlue",
+            "emotion_tracker-blushRose",
+            "emotion_tracker-cloudGray",
+            "emotion_tracker-sunsetPeach",
+            "emotion_tracker-goldenYellow",
+            "emotion_tracker-forestGreen",
+            "emotion_tracker-midnightLavenderLight",
+            "emotion_tracker-royalOrange",
+            "emotion_tracker-crimsonRed",
+            "emotion_tracker-deepPurple",
+        ]
+    },
+}
+
 @router.post("/shop/themes/buy", tags=["shop"], summary="Buy a theme with SBD tokens")
 async def buy_theme(
     request: Request,
@@ -75,13 +189,17 @@ async def buy_theme(
 ):
     users_collection = db_manager.get_collection("users")
     theme_id = data.get("theme_id")
-    price = data.get("price", 250)  # Default price is now 250 if not provided
     user_agent = request.headers.get("user-agent", "")
     username = current_user["username"]
     if not theme_id or not theme_id.startswith("emotion_tracker-"):
         return JSONResponse({"status": "error", "detail": "Invalid or missing theme_id"}, status_code=400)
     if "emotion_tracker" not in user_agent:
         return JSONResponse({"status": "error", "detail": "Shop access denied: invalid client"}, status_code=403)
+    # Get theme details from server-side registry
+    theme_details = await get_item_details(theme_id, "theme")
+    if not theme_details:
+        return JSONResponse({"status": "error", "detail": "Theme not found"}, status_code=404)
+    price = theme_details["price"]
     # Check if user already owns the theme
     user = await users_collection.find_one({"username": username}, {"themes_owned": 1, "sbd_tokens": 1})
     if not user:
@@ -152,15 +270,18 @@ async def buy_avatar(
 ):
     users_collection = db_manager.get_collection("users")
     avatar_id = data.get("avatar_id")
-    price = data.get("price", 100)  # Default price is 100 if not provided
     username = current_user["username"]
     if not avatar_id:
         return JSONResponse({"status": "error", "detail": "Invalid or missing avatar_id"}, status_code=400)
+    # Get avatar details from server-side registry
+    avatar_details = await get_item_details(avatar_id, "avatar")
+    if not avatar_details:
+        return JSONResponse({"status": "error", "detail": "Avatar not found"}, status_code=404)
+    price = avatar_details["price"]
     # Check if user already owns the avatar
     user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "sbd_tokens": 1})
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
-    # FIX: Prevent duplicate avatar purchases by checking avatar_id in dicts
     if any(owned.get("avatar_id") == avatar_id for owned in user.get("avatars_owned", [])):
         return JSONResponse({"status": "error", "detail": "Avatar already owned"}, status_code=400)
     sbd_tokens = user.get("sbd_tokens", 0)
@@ -179,6 +300,7 @@ async def buy_avatar(
         "price": price
     }
     try:
+        logger.info(f"[AVATAR BUY] User: {username} attempting to buy avatar_id={avatar_id} for price={price}")
         send_txn = {
             "type": "send",
             "to": "emotion_tracker_shop",
@@ -199,15 +321,93 @@ async def buy_avatar(
             {"username": username, "sbd_tokens": {"$gte": price}},
             {"$inc": {"sbd_tokens": -price}, "$push": {"avatars_owned": avatar_entry, "sbd_tokens_transactions": send_txn}}
         )
+        logger.info(f"[AVATAR BUY] Update result for user {username}: modified_count={result.modified_count}")
         if result.modified_count == 0:
+            logger.warning(f"[AVATAR BUY] Insufficient SBD tokens or race condition for user {username} buying avatar_id={avatar_id}")
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
         await users_collection.update_one(
             {"username": "emotion_tracker_shop"},
             {"$push": {"sbd_tokens_transactions": receive_txn}},
             upsert=True
         )
+        logger.info(f"[AVATAR BUY] User: {username} successfully bought avatar_id={avatar_id} (txn_id={transaction_id})")
         return {"status": "success", "avatar": avatar_entry}
     except Exception as e:
+        logger.error(f"[AVATAR BUY ERROR] User: {username}, avatar_id={avatar_id}, error={e}")
+        return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
+
+@router.post("/shop/banners/buy", tags=["shop"], summary="Buy a banner with SBD tokens")
+async def buy_banner(
+    request: Request,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    users_collection = db_manager.get_collection("users")
+    banner_id = data.get("banner_id")
+    username = current_user["username"]
+    if not banner_id:
+        return JSONResponse({"status": "error", "detail": "Invalid or missing banner_id"}, status_code=400)
+    # Get banner details from server-side registry
+    banner_details = await get_item_details(banner_id, "banner")
+    if not banner_details:
+        return JSONResponse({"status": "error", "detail": "Banner not found"}, status_code=404)
+    price = banner_details["price"]
+    # Check if user already owns the banner
+    user = await users_collection.find_one({"username": username}, {"banners_owned": 1, "sbd_tokens": 1})
+    if not user:
+        return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    if any(owned.get("banner_id") == banner_id for owned in user.get("banners_owned", [])):
+        return JSONResponse({"status": "error", "detail": "Banner already owned"}, status_code=400)
+    sbd_tokens = user.get("sbd_tokens", 0)
+    if sbd_tokens < price:
+        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+    # Deduct tokens and add banner to owned
+    now_iso = datetime.now(timezone.utc).isoformat()
+    transaction_id = str(uuid4())
+    banner_entry = {
+        "banner_id": banner_id,
+        "unlocked_at": now_iso,
+        "permanent": True,
+        "source": "purchase",
+        "transaction_id": transaction_id,
+        "note": "Bought from shop",
+        "price": price
+    }
+    try:
+        logger.info(f"[BANNER BUY] User: {username} attempting to buy banner_id={banner_id} for price={price}")
+        send_txn = {
+            "type": "send",
+            "to": "emotion_tracker_shop",
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"Bought banner {banner_id}"
+        }
+        receive_txn = {
+            "type": "receive",
+            "from": username,
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"User bought banner {banner_id}"
+        }
+        result = await users_collection.update_one(
+            {"username": username, "sbd_tokens": {"$gte": price}},
+            {"$inc": {"sbd_tokens": -price}, "$push": {"banners_owned": banner_entry, "sbd_tokens_transactions": send_txn}}
+        )
+        logger.info(f"[BANNER BUY] Update result for user {username}: modified_count={result.modified_count}")
+        if result.modified_count == 0:
+            logger.warning(f"[BANNER BUY] Insufficient SBD tokens or race condition for user {username} buying banner_id={banner_id}")
+            return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        await users_collection.update_one(
+            {"username": "emotion_tracker_shop"},
+            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            upsert=True
+        )
+        logger.info(f"[BANNER BUY] User: {username} successfully bought banner_id={banner_id} (txn_id={transaction_id})")
+        return {"status": "success", "banner": banner_entry}
+    except Exception as e:
+        logger.error(f"[BANNER BUY ERROR] User: {username}, banner_id={banner_id}, error={e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
 @router.post("/shop/bundles/buy", tags=["shop"], summary="Buy a bundle with SBD tokens")
@@ -218,12 +418,16 @@ async def buy_bundle(
 ):
     users_collection = db_manager.get_collection("users")
     bundle_id = data.get("bundle_id")
-    price = data.get("price", 500)  # Default price is 500 if not provided
     username = current_user["username"]
     if not bundle_id:
         return JSONResponse({"status": "error", "detail": "Invalid or missing bundle_id"}, status_code=400)
+    # Get bundle details from server-side registry
+    bundle_details = await get_item_details(bundle_id, "bundle")
+    if not bundle_details:
+        return JSONResponse({"status": "error", "detail": "Bundle not found"}, status_code=404)
+    price = bundle_details["price"]
     # Check if user already owns the bundle
-    user = await users_collection.find_one({"username": username}, {"bundles_owned": 1, "sbd_tokens": 1})
+    user = await users_collection.find_one({"username": username}, {"bundles_owned": 1, "avatars_owned": 1, "themes_owned": 1, "banners_owned": 1, "sbd_tokens": 1})
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
     if bundle_id in user.get("bundles_owned", []):
@@ -250,7 +454,55 @@ async def buy_bundle(
         )
         if result.modified_count == 0:
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
-        return {"status": "success", "bundle": bundle_entry}
+        # --- Auto-populate bundle contents ---
+        bundle_contents = BUNDLE_CONTENTS.get(bundle_id, {})
+        update_ops = {}
+        # Add avatars from bundle
+        for avatar_id in bundle_contents.get("avatars", []):
+            if not any(owned.get("avatar_id") == avatar_id for owned in user.get("avatars_owned", [])):
+                avatar_entry = {
+                    "avatar_id": avatar_id,
+                    "unlocked_at": now_iso,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id}",
+                    "price": 0
+                }
+                update_ops.setdefault("avatars_owned", []).append(avatar_entry)
+        # Add themes from bundle
+        for theme_id in bundle_contents.get("themes", []):
+            if not any(owned.get("theme_id") == theme_id for owned in user.get("themes_owned", [])):
+                theme_entry = {
+                    "theme_id": theme_id,
+                    "unlocked_at": now_iso,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id}",
+                    "price": 0
+                }
+                update_ops.setdefault("themes_owned", []).append(theme_entry)
+        # Add banners from bundle (if you have such bundles)
+        for banner_id in bundle_contents.get("banners", []):
+            if not any(owned.get("banner_id") == banner_id for owned in user.get("banners_owned", [])):
+                banner_entry = {
+                    "banner_id": banner_id,
+                    "unlocked_at": now_iso,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id}",
+                    "price": 0
+                }
+                update_ops.setdefault("banners_owned", []).append(banner_entry)
+        # Perform the update for each owned type
+        for field, entries in update_ops.items():
+            await users_collection.update_one(
+                {"username": username},
+                {"$push": {field: {"$each": entries}}}
+            )
+        return {"status": "success", "bundle": bundle_entry, "unlocked_items": update_ops}
     except Exception as e:
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 

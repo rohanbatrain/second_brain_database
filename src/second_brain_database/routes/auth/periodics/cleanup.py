@@ -155,7 +155,8 @@ async def periodic_2fa_cleanup() -> None:
 async def periodic_avatar_rental_cleanup() -> None:
     """
     Periodically remove expired rented avatars from all user documents.
-    This ensures that outdated rentals are not present in user['avatars_rented'] or set as current.
+    This ensures that outdated rentals are not present in user['avatars_rented'] or set as current,
+    but does NOT clear current avatar if the user owns it permanently.
     """
     from datetime import timezone
     users = db_manager.get_collection("users")
@@ -173,13 +174,13 @@ async def periodic_avatar_rental_cleanup() -> None:
                         expired_avatar_ids.add(avatar["avatar_id"])
                 except Exception:
                     expired_avatar_ids.add(avatar.get("avatar_id"))
-            # Remove expired rentals from avatars_rented
             update_fields = {"avatars_rented": updated_rented}
-            # Remove expired rentals from current avatars
+            # Only clear current avatar if not owned permanently
             avatars = user.get("avatars", {})
+            avatars_owned = {a.get("avatar_id") for a in user.get("avatars_owned", [])}
             avatars_changed = False
             for app_key, avatar_id in list(avatars.items()):
-                if avatar_id in expired_avatar_ids:
+                if avatar_id in expired_avatar_ids and avatar_id not in avatars_owned:
                     avatars[app_key] = None
                     avatars_changed = True
             if avatars_changed:

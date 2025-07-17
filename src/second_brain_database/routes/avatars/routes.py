@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Request, Depends
 from second_brain_database.database import db_manager
 from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.managers.logging_manager import get_logger
 from datetime import datetime, timezone
 
 router = APIRouter()
+logger = get_logger(prefix="[AVATARS]")
 
 @router.get("/avatars/rented", tags=["avatars"], summary="Get rented avatars for the authenticated user")
 async def get_rented_avatars(request: Request, current_user: dict = Depends(get_current_user_dep)):
@@ -39,12 +41,16 @@ async def set_current_avatar(request: Request, data: dict, current_user: dict = 
     user_agent = request.headers.get("user-agent", "unknown_app")
     app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
     avatar_id = data.get("avatar_id")
+    username = current_user["username"]
+    logger.info(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Attempting to set current avatar.")
     if not avatar_id:
+        logger.warning(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key} - avatar_id is required.")
         return {"error": "avatar_id is required"}
     # Check if avatar_id is owned or rented and valid
-    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars": 1, "avatars_owned": 1, "avatars_rented": 1})
+    user = await users_collection.find_one({"username": username}, {"_id": 0, "avatars": 1, "avatars_owned": 1, "avatars_rented": 1})
     avatars = user.get("avatars", {}) if user else {}
-    owned = user.get("avatars_owned", []) if user else []
+    # Patch: always build avatars_owned as a set of avatar_id strings
+    owned = set(a.get("avatar_id") for a in user.get("avatars_owned", []) if a.get("avatar_id")) if user else set()
     rented = user.get("avatars_rented", []) if user else []
     # Check owned
     if avatar_id not in owned:
@@ -60,10 +66,16 @@ async def set_current_avatar(request: Request, data: dict, current_user: dict = 
                 except Exception:
                     continue
         if not valid_rented:
+            logger.warning(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Not owned or validly rented.")
             return {"error": "avatar_id is not owned or validly rented"}
     avatars[app_key] = avatar_id
-    await users_collection.update_one({"username": current_user["username"]}, {"$set": {"avatars": avatars}})
-    return {"success": True, "avatar_id": avatar_id}
+    try:
+        await users_collection.update_one({"username": username}, {"$set": {"avatars": avatars}})
+        logger.info(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Successfully set current avatar.")
+        return {"success": True, "avatar_id": avatar_id}
+    except Exception as e:
+        logger.error(f"[SET CURRENT AVATAR ERROR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id}, error: {e}")
+        return {"error": "Failed to set current avatar", "details": str(e)}
 
 @router.get("/avatars/current", tags=["avatars"], summary="Get the current avatar for the authenticated user and app (by user-agent)")
 async def get_current_avatar(request: Request, current_user: dict = Depends(get_current_user_dep)):

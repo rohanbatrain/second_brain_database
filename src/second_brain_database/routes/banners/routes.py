@@ -26,7 +26,9 @@ async def get_owned_banners(request: Request, current_user: dict = Depends(get_c
     user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "banners_owned": 1})
     if not user or "banners_owned" not in user:
         return {"banners_owned": []}
-    return {"banners_owned": user["banners_owned"]}
+    # Patch: always build banners_owned as a set of banner_id strings
+    owned = set(b.get("banner_id") for b in user.get("banners_owned", []) if b.get("banner_id"))
+    return {"banners_owned": list(owned)}
 
 @router.post("/banners/current", tags=["banners"], summary="Set the current banner for the authenticated user and app (by user-agent)")
 async def set_current_banner(request: Request, data: dict, current_user: dict = Depends(get_current_user_dep)):
@@ -44,7 +46,8 @@ async def set_current_banner(request: Request, data: dict, current_user: dict = 
     # Check if banner_id is owned or rented and valid
     user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "banners": 1, "banners_owned": 1, "banners_rented": 1})
     banners = user.get("banners", {}) if user else {}
-    owned = user.get("banners_owned", []) if user else []
+    # Patch: always build banners_owned as a set of banner_id strings
+    owned = set(b.get("banner_id") for b in user.get("banners_owned", []) if b.get("banner_id")) if user else set()
     rented = user.get("banners_rented", []) if user else []
     if banner_id not in owned:
         now = datetime.now(timezone.utc)

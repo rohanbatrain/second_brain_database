@@ -139,20 +139,21 @@ def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger)
 
 
 def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefix: str = "") -> logging.Logger:
-    """
-    Returns a logger instance with Loki handler if available and enabled.
-    Optionally prepends a prefix to all log messages from this logger.
-    Args:
-        name: Logger name (default: "Second_Brain_Database").
-        add_loki: Whether to attach Loki handler if available.
-        prefix: String to prepend to all log messages (default: "").
-    Returns:
-        Configured logger instance.
-    Side-effects:
-        May attach handlers, flush buffer, or log errors.
-    """
+    # Always get the logger and ensure at least a StreamHandler is attached
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+    # Always attach a StreamHandler for console logging if not present
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        stream_handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)s in %(name)s: %(message)s"
+        )
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+        logger.info(
+            "[LoggingManager] Console StreamHandler attached to logger '%s'", name
+        )
 
     class PrefixFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
@@ -187,28 +188,12 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
                 e,
                 exc_info=True,
             )
-            if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-                stream_handler = logging.StreamHandler()
-                formatter = logging.Formatter(
-                    "[%(asctime)s] %(levelname)s in %(name)s: %(message)s"
-                )
-                stream_handler.setFormatter(formatter)
-                logger.addHandler(stream_handler)
             class BufferHandler(logging.Handler):
                 def emit(self, record: logging.LogRecord) -> None:
                     _write_to_buffer(record)
             if not any(isinstance(h, BufferHandler) for h in logger.handlers):
                 logger.addHandler(BufferHandler())
-    elif not _loki_available and not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)s in %(name)s: %(message)s"
-        )
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
-        logger.info(
-            "[LoggingManager] Console StreamHandler attached to logger '%s' (Loki unavailable)", name
-        )
+    elif not _loki_available:
         class BufferHandler(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
                 _write_to_buffer(record)
