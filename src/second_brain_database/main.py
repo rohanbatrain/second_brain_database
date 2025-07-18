@@ -6,17 +6,24 @@ database connections, and routing configuration.
 """
 from contextlib import asynccontextmanager
 import asyncio
-
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
-from second_brain_database.routes import auth_router, main_router
-from second_brain_database.routes.auth.periodics.cleanup import periodic_2fa_cleanup, periodic_avatar_rental_cleanup, periodic_banner_rental_cleanup
-from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes import auth_router, main_router
+from second_brain_database.routes.auth.periodics.cleanup import (
+    periodic_2fa_cleanup,
+    periodic_avatar_rental_cleanup,
+    periodic_banner_rental_cleanup,
+    periodic_email_verification_token_cleanup,
+    periodic_session_cleanup,
+    periodic_trusted_ip_lockdown_code_cleanup,
+    periodic_admin_session_token_cleanup,
+)
+from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.shop.routes import router as shop_router
@@ -41,14 +48,15 @@ async def lifespan(_app: FastAPI):
             detail='Service not ready: Database connection failed'
         ) from e
 
-    # Start periodic 2FA cleanup task
+    # Start periodic cleanup tasks
     cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
-    # Start periodic blocklist/whitelist reconciliation task
     reconcile_task = asyncio.create_task(periodic_blocklist_whitelist_reconcile())
-    # Start periodic avatar rental cleanup task
     avatar_cleanup_task = asyncio.create_task(periodic_avatar_rental_cleanup())
-    # Start periodic banner rental cleanup task
     banner_cleanup_task = asyncio.create_task(periodic_banner_rental_cleanup())
+    email_verif_cleanup_task = asyncio.create_task(periodic_email_verification_token_cleanup())
+    session_cleanup_task = asyncio.create_task(periodic_session_cleanup())
+    trusted_ip_cleanup_task = asyncio.create_task(periodic_trusted_ip_lockdown_code_cleanup())
+    admin_session_cleanup_task = asyncio.create_task(periodic_admin_session_token_cleanup())
 
     yield
 
@@ -58,6 +66,10 @@ async def lifespan(_app: FastAPI):
     reconcile_task.cancel()
     avatar_cleanup_task.cancel()
     banner_cleanup_task.cancel()
+    email_verif_cleanup_task.cancel()
+    session_cleanup_task.cancel()
+    trusted_ip_cleanup_task.cancel()
+    admin_session_cleanup_task.cancel()
     try:
         await cleanup_task
     except asyncio.CancelledError:
@@ -72,6 +84,22 @@ async def lifespan(_app: FastAPI):
         pass
     try:
         await banner_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await email_verif_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await session_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await trusted_ip_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await admin_session_cleanup_task
     except asyncio.CancelledError:
         pass
     await db_manager.disconnect()

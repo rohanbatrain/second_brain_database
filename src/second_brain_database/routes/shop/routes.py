@@ -448,12 +448,40 @@ async def buy_bundle(
         "price": price
     }
     try:
+        # Deduct tokens and add bundle to owned
         result = await users_collection.update_one(
             {"username": username, "sbd_tokens": {"$gte": price}},
             {"$inc": {"sbd_tokens": -price}, "$push": {"bundles_owned": bundle_entry}}
         )
         if result.modified_count == 0:
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        # --- Transaction log for user ---
+        send_txn = {
+            "type": "send",
+            "to": "emotion_tracker_shop",
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"Bought bundle {bundle_id}"
+        }
+        # --- Transaction log for shop ---
+        receive_txn = {
+            "type": "receive",
+            "from": username,
+            "amount": price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"User bought bundle {bundle_id}"
+        }
+        await users_collection.update_one(
+            {"username": username},
+            {"$push": {"sbd_tokens_transactions": send_txn}}
+        )
+        await users_collection.update_one(
+            {"username": "emotion_tracker_shop"},
+            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            upsert=True
+        )
         # --- Auto-populate bundle contents ---
         bundle_contents = BUNDLE_CONTENTS.get(bundle_id, {})
         update_ops = {}
@@ -530,6 +558,13 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
     item_details = await get_item_details(item_id, item_type)
     if not item_details:
         return JSONResponse({"status": "error", "detail": "Item not found"}, status_code=404)
+
+    # Check if item is already in the cart for this app
+    doc = await get_or_create_shop_doc(username)
+    carts = doc.get("carts", {})
+    cart = carts.get(app_name, [])
+    if any(item.get(id_key) == item_id for item in cart):
+        return JSONResponse({"status": "error", "detail": "Item already in cart."}, status_code=400)
 
     item_details["added_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -654,14 +689,17 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
     if result.modified_count == 0:
         return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
 
-    # Log receive transaction for the shop
+    # Log receive transaction for the shop (create shop user if not exists)
     await users_collection.update_one(
         {"username": shop_name},
-        {"$push": {"sbd_tokens_transactions": {
-            "type": "receive", "from": username, "amount": total_price,
-            "timestamp": now_iso, "transaction_id": transaction_id,
-            "note": f"User checked out cart for {shop_name}"
-        }}},
+        {
+            "$inc": {"sbd_tokens": total_price},
+            "$push": {"sbd_tokens_transactions": {
+                "type": "receive", "from": username, "amount": total_price,
+                "timestamp": now_iso, "transaction_id": transaction_id,
+                "note": f"User checked out cart for {shop_name}"
+            }}
+        },
         upsert=True
     )
 
@@ -677,6 +715,47 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
         id_key = f"{item_type}_id"
         owned_field = f"{item_type}s_owned"
 
+        # If the item is a bundle, auto-populate its contents (avatars, themes, banners)
+        if item_type == "bundle":
+            bundle_id = item.get("bundle_id")
+            bundle_contents = BUNDLE_CONTENTS.get(bundle_id, {})
+            # Add avatars from bundle
+            for avatar_id in bundle_contents.get("avatars", []):
+                avatar_entry = {
+                    "avatar_id": avatar_id,
+                    "unlocked_at": now_iso_checkout,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id} (cart)",
+                    "price": 0
+                }
+                update_operations.setdefault("avatars_owned", {"$each": []})["$each"].append(avatar_entry)
+            # Add themes from bundle
+            for theme_id in bundle_contents.get("themes", []):
+                theme_entry = {
+                    "theme_id": theme_id,
+                    "unlocked_at": now_iso_checkout,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id} (cart)",
+                    "price": 0
+                }
+                update_operations.setdefault("themes_owned", {"$each": []})["$each"].append(theme_entry)
+            # Add banners from bundle
+            for banner_id in bundle_contents.get("banners", []):
+                banner_entry = {
+                    "banner_id": banner_id,
+                    "unlocked_at": now_iso_checkout,
+                    "permanent": True,
+                    "source": f"bundle:{bundle_id}",
+                    "transaction_id": transaction_id,
+                    "note": f"Unlocked via bundle {bundle_id} (cart)",
+                    "price": 0
+                }
+                update_operations.setdefault("banners_owned", {"$each": []})["$each"].append(banner_entry)
+        # Add the bundle itself to bundles_owned
         owned_item_entry = {
             id_key: item.get(id_key),
             "unlocked_at": now_iso_checkout,
@@ -686,10 +765,8 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
             "note": f"Purchased via cart checkout from {app_name}",
             "price": item.get("price")
         }
-
         if owned_field not in update_operations:
             update_operations[owned_field] = {"$each": []}
-        
         update_operations[owned_field]["$each"].append(owned_item_entry)
 
     # Perform all updates in a single operation if possible, or one per type

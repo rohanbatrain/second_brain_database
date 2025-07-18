@@ -152,73 +152,429 @@ async def periodic_2fa_cleanup() -> None:
         finally:
             await asyncio.sleep(interval)
 
+async def get_last_avatar_rental_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the avatar rental cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "avatar_rental_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Avatar Rental] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Avatar Rental] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_avatar_rental_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for avatar rental in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "avatar_rental_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Avatar Rental] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Avatar Rental] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
 async def periodic_avatar_rental_cleanup() -> None:
     """
     Periodically remove expired rented avatars from all user documents.
     This ensures that outdated rentals are not present in user['avatars_rented'] or set as current,
     but does NOT clear current avatar if the user owns it permanently.
+    Now tracks last run time in the system collection for resilience.
     """
     from datetime import timezone
     users = db_manager.get_collection("users")
-    interval = 300  # Run every hour
+    interval = 300  # Run every 5 minutes
+    logger.info("Starting periodic avatar rental cleanup task with interval %ds", interval)
     while True:
-        now = datetime.now(timezone.utc)
-        async for user in users.find({"avatars_rented": {"$exists": True, "$ne": []}}):
-            updated_rented = []
-            expired_avatar_ids = set()
-            for avatar in user["avatars_rented"]:
-                try:
-                    if datetime.fromisoformat(avatar["valid_till"]) > now:
-                        updated_rented.append(avatar)
-                    else:
-                        expired_avatar_ids.add(avatar["avatar_id"])
-                except Exception:
-                    expired_avatar_ids.add(avatar.get("avatar_id"))
-            update_fields = {"avatars_rented": updated_rented}
-            # Only clear current avatar if not owned permanently
-            avatars = user.get("avatars", {})
-            avatars_owned = {a.get("avatar_id") for a in user.get("avatars_owned", [])}
-            avatars_changed = False
-            for app_key, avatar_id in list(avatars.items()):
-                if avatar_id in expired_avatar_ids and avatar_id not in avatars_owned:
-                    avatars[app_key] = None
-                    avatars_changed = True
-            if avatars_changed:
-                update_fields["avatars"] = avatars
-            await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+        try:
+            now = datetime.now(timezone.utc)
+            last_cleanup = await get_last_avatar_rental_cleanup_time()
+            if not last_cleanup or (now - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"avatars_rented": {"$exists": True, "$ne": []}}):
+                    updated_rented = []
+                    expired_avatar_ids = set()
+                    for avatar in user["avatars_rented"]:
+                        try:
+                            if datetime.fromisoformat(avatar["valid_till"]) > now:
+                                updated_rented.append(avatar)
+                            else:
+                                expired_avatar_ids.add(avatar["avatar_id"])
+                        except Exception:
+                            expired_avatar_ids.add(avatar.get("avatar_id"))
+                    update_fields = {"avatars_rented": updated_rented}
+                    # Only clear current avatar if not owned permanently
+                    avatars = user.get("avatars", {})
+                    avatars_owned = {a.get("avatar_id") for a in user.get("avatars_owned", [])}
+                    avatars_changed = False
+                    for app_key, avatar_id in list(avatars.items()):
+                        if avatar_id in expired_avatar_ids and avatar_id not in avatars_owned:
+                            avatars[app_key] = None
+                            avatars_changed = True
+                    if avatars_changed:
+                        update_fields["avatars"] = avatars
+                    if expired_avatar_ids or avatars_changed:
+                        await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+                        cleanup_count += 1
+                        logger.info("Avatar rental cleanup: removed expired avatars %s for user '%s' (_id=%s)", list(expired_avatar_ids), user.get('username', 'unknown'), user.get('_id'))
+                if cleanup_count > 0:
+                    logger.info("Avatar rental cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No avatar rental cleanup actions needed this cycle.")
+                await set_last_avatar_rental_cleanup_time(now)
+            else:
+                logger.debug("[Avatar Rental] Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_avatar_rental_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
+async def get_last_banner_rental_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the banner rental cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "banner_rental_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Banner Rental] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Banner Rental] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_banner_rental_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for banner rental in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "banner_rental_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Banner Rental] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Banner Rental] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
 
 async def periodic_banner_rental_cleanup() -> None:
     """
     Periodically remove expired rented banners from all user documents.
     This ensures that outdated rentals are not present in user['banners_rented'] or set as current.
+    Now tracks last run time in the system collection for resilience.
     """
     from datetime import timezone
     users = db_manager.get_collection("users")
     interval = 3600  # Run every hour (adjust as needed)
+    logger.info("Starting periodic banner rental cleanup task with interval %ds", interval)
     while True:
-        now = datetime.now(timezone.utc)
-        async for user in users.find({"banners_rented": {"$exists": True, "$ne": []}}):
-            updated_rented = []
-            expired_banner_ids = set()
-            for banner in user["banners_rented"]:
-                try:
-                    if datetime.fromisoformat(banner["valid_till"]) > now:
-                        updated_rented.append(banner)
-                    else:
-                        expired_banner_ids.add(banner["banner_id"])
-                except Exception:
-                    expired_banner_ids.add(banner.get("banner_id"))
-            # Remove expired rentals from banners_rented
-            update_fields = {"banners_rented": updated_rented}
-            # Remove expired rentals from current banners
-            banners = user.get("banners", {})
-            banners_changed = False
-            for app_key, banner_id in list(banners.items()):
-                if banner_id in expired_banner_ids:
-                    banners[app_key] = None
-                    banners_changed = True
-            if banners_changed:
-                update_fields["banners"] = banners
-            await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+        try:
+            now = datetime.now(timezone.utc)
+            last_cleanup = await get_last_banner_rental_cleanup_time()
+            if not last_cleanup or (now - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"banners_rented": {"$exists": True, "$ne": []}}):
+                    updated_rented = []
+                    expired_banner_ids = set()
+                    for banner in user["banners_rented"]:
+                        try:
+                            if datetime.fromisoformat(banner["valid_till"]) > now:
+                                updated_rented.append(banner)
+                            else:
+                                expired_banner_ids.add(banner["banner_id"])
+                        except Exception:
+                            expired_banner_ids.add(banner.get("banner_id"))
+                    # Remove expired rentals from banners_rented
+                    update_fields = {"banners_rented": updated_rented}
+                    # Remove expired rentals from current banners
+                    banners = user.get("banners", {})
+                    banners_changed = False
+                    for app_key, banner_id in list(banners.items()):
+                        if banner_id in expired_banner_ids:
+                            banners[app_key] = None
+                            banners_changed = True
+                    if banners_changed:
+                        update_fields["banners"] = banners
+                    if expired_banner_ids or banners_changed:
+                        await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+                        cleanup_count += 1
+                        logger.info("Banner rental cleanup: removed expired banners %s for user '%s' (_id=%s)", list(expired_banner_ids), user.get('username', 'unknown'), user.get('_id'))
+                if cleanup_count > 0:
+                    logger.info("Banner rental cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No banner rental cleanup actions needed this cycle.")
+                await set_last_banner_rental_cleanup_time(now)
+            else:
+                logger.debug("[Banner Rental] Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_banner_rental_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)
+
+async def get_last_email_verification_token_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the email verification token cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "email_verification_token_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Email Verification] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Email Verification] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_email_verification_token_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for email verification token cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "email_verification_token_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Email Verification] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Email Verification] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def periodic_email_verification_token_cleanup() -> None:
+    """
+    Periodically remove expired email verification tokens from user documents.
+    Now tracks last run time in the system collection for resilience.
+    """
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour
+    logger.info("Starting periodic email verification token cleanup task with interval %ds", interval)
+    while True:
+        try:
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_email_verification_token_cleanup_time()
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                result = await users.update_many(
+                    {"email_verification_token_expiry": {"$exists": True, "$lt": now}},
+                    {"$unset": {"email_verification_token": "", "email_verification_token_expiry": ""}}
+                )
+                if result.modified_count > 0:
+                    logger.info("Email verification token cleanup: removed %d expired tokens", result.modified_count)
+                else:
+                    logger.debug("No email verification token cleanup actions needed this cycle.")
+                await set_last_email_verification_token_cleanup_time(now_dt)
+            else:
+                logger.debug("[Email Verification] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_email_verification_token_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)
+
+async def get_last_session_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the session cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "session_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Session] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Session] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_session_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for session cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "session_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Session] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Session] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def periodic_session_cleanup() -> None:
+    """
+    Periodically remove expired sessions from user documents.
+    Now tracks last run time in the system collection for resilience.
+    """
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour
+    logger.info("Starting periodic session cleanup task with interval %ds", interval)
+    while True:
+        try:
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_session_cleanup_time()
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"sessions": {"$exists": True, "$ne": []}}):
+                    sessions = user.get("sessions", [])
+                    filtered = [s for s in sessions if s.get("expires_at", now) > now]
+                    if len(filtered) != len(sessions):
+                        await users.update_one({"_id": user["_id"]}, {"$set": {"sessions": filtered}})
+                        cleanup_count += 1
+                        logger.info("Session cleanup: removed expired sessions for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                if cleanup_count > 0:
+                    logger.info("Session cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No session cleanup actions needed this cycle.")
+                await set_last_session_cleanup_time(now_dt)
+            else:
+                logger.debug("[Session] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_session_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)
+
+async def get_last_trusted_ip_lockdown_code_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the trusted IP lockdown code cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "trusted_ip_lockdown_code_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Trusted IP] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Trusted IP] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_trusted_ip_lockdown_code_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for trusted IP lockdown code cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "trusted_ip_lockdown_code_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Trusted IP] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Trusted IP] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def periodic_trusted_ip_lockdown_code_cleanup() -> None:
+    """
+    Periodically remove expired trusted IP lockdown codes from user documents.
+    Now tracks last run time in the system collection for resilience.
+    """
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour
+    logger.info("Starting periodic trusted IP lockdown code cleanup task with interval %ds", interval)
+    while True:
+        try:
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_trusted_ip_lockdown_code_cleanup_time()
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"trusted_ip_lockdown_codes": {"$exists": True, "$ne": []}}):
+                    codes = user.get("trusted_ip_lockdown_codes", [])
+                    filtered = [c for c in codes if c.get("expires_at", now) > now]
+                    if len(filtered) != len(codes):
+                        await users.update_one({"_id": user["_id"]}, {"$set": {"trusted_ip_lockdown_codes": filtered}})
+                        cleanup_count += 1
+                        logger.info("Trusted IP lockdown code cleanup: removed expired codes for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                if cleanup_count > 0:
+                    logger.info("Trusted IP lockdown code cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No trusted IP lockdown code cleanup actions needed this cycle.")
+                await set_last_trusted_ip_lockdown_code_cleanup_time(now_dt)
+            else:
+                logger.debug("[Trusted IP] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_trusted_ip_lockdown_code_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)
+
+async def get_last_admin_session_token_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the admin session token cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "admin_session_token_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Admin Session] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Admin Session] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def set_last_admin_session_token_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for admin session token cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "admin_session_token_cleanup"},
+            {"$set": {"last_cleanup": dt.isoformat()}},
+            upsert=True
+        )
+        logger.debug("[Admin Session] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Admin Session] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+async def periodic_admin_session_token_cleanup() -> None:
+    """
+    Periodically remove expired admin session tokens from user documents.
+    Now tracks last run time in the system collection for resilience.
+    """
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour
+    logger.info("Starting periodic admin session token cleanup task with interval %ds", interval)
+    while True:
+        try:
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_admin_session_token_cleanup_time()
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"admin_sessions": {"$exists": True, "$ne": []}}):
+                    sessions = user.get("admin_sessions", [])
+                    filtered = [s for s in sessions if s.get("expires_at", now) > now]
+                    if len(filtered) != len(sessions):
+                        await users.update_one({"_id": user["_id"]}, {"$set": {"admin_sessions": filtered}})
+                        cleanup_count += 1
+                        logger.info("Admin session token cleanup: removed expired tokens for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                if cleanup_count > 0:
+                    logger.info("Admin session token cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No admin session token cleanup actions needed this cycle.")
+                await set_last_admin_session_token_cleanup_time(now_dt)
+            else:
+                logger.debug("[Admin Session] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+        except Exception as exc:
+            logger.error("Error in periodic_admin_session_token_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
