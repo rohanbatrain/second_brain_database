@@ -831,6 +831,7 @@ class PermanentTokenDocument(BaseModel):
     Represents the complete document structure stored in MongoDB.
     """
     user_id: str = Field(..., description="ObjectId of the token owner")
+    token_id: str = Field(..., description="Unique token identifier for management operations")
     token_hash: str = Field(..., description="SHA-256 hash of the token")
     description: Optional[str] = Field(None, max_length=255, description="Optional token description")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Token creation timestamp")

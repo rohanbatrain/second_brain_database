@@ -113,6 +113,7 @@ async def create_permanent_token(
         created_at = datetime.utcnow()
         token_doc = PermanentTokenDocument(
             user_id=user_id,
+            token_id=token_id,
             token_hash=token_hash,
             description=description,
             created_at=created_at,
