@@ -207,9 +207,12 @@ async def create_access_token(data: Dict[str, Any]) -> str:
 async def get_current_user(token: str) -> Dict[str, Any]:
     """
     Get the current authenticated user from a JWT token.
+    
+    Supports both regular JWT tokens (with expiration) and permanent tokens (without expiration).
+    Permanent tokens are validated using Redis cache-first approach with database fallback.
 
     Args:
-        token (str): JWT access token.
+        token (str): JWT access token (regular or permanent).
 
     Returns:
         Dict[str, Any]: The user document if token is valid.
@@ -217,12 +220,19 @@ async def get_current_user(token: str) -> Dict[str, Any]:
     Raises:
         HTTPException: If the token is invalid, expired, or user not found.
     """
+    from second_brain_database.routes.auth.services.permanent_tokens import (
+        validate_permanent_token,
+        is_permanent_token
+    )
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
     try:
+        # Check if token is blacklisted first (applies to both token types)
         if await is_token_blacklisted(token):
             logger.warning("Token is blacklisted")
             raise HTTPException(
@@ -230,22 +240,38 @@ async def get_current_user(token: str) -> Dict[str, Any]:
                 detail="Token is blacklisted",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        
+        # Check if this is a permanent token
+        if is_permanent_token(token):
+            logger.debug("Detected permanent token, using permanent token validation")
+            user = await validate_permanent_token(token)
+            if user is None:
+                logger.warning("Permanent token validation failed")
+                raise credentials_exception
+            return user
+        
+        # Regular JWT token validation (existing logic)
         secret_key = getattr(settings, "SECRET_KEY", None)
         if hasattr(secret_key, "get_secret_value"):
             secret_key = secret_key.get_secret_value()
         if not isinstance(secret_key, (str, bytes)) or not secret_key:
             logger.error("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
             raise credentials_exception
+            
         payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM])
         username: Optional[str] = payload.get("sub")
         token_version_claim = payload.get("token_version")
+        
         if username is None:
             logger.warning("JWT payload missing 'sub' claim")
             raise credentials_exception
+            
         user = await db_manager.get_collection("users").find_one({"username": username})
         if user is None:
             logger.warning("User not found for JWT 'sub' claim: %s", username)
             raise credentials_exception
+            
+        # Check token version for regular tokens (permanent tokens don't use this)
         if token_version_claim is not None:
             user_token_version = user.get("token_version", 0)
             if token_version_claim != user_token_version:
@@ -255,9 +281,21 @@ async def get_current_user(token: str) -> Dict[str, Any]:
                     detail="Token is no longer valid (password changed or reset)",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        logger.debug("JWT validated for user: %s", username)
+        
+        logger.debug("Regular JWT validated for user: %s", username)
         return user
+        
     except jwt.ExpiredSignatureError as exc:
+        # Regular token expired - check if it might be a permanent token
+        try:
+            if is_permanent_token(token):
+                logger.debug("Expired signature but permanent token detected, validating as permanent")
+                user = await validate_permanent_token(token)
+                if user is not None:
+                    return user
+        except Exception:
+            pass  # Fall through to expired token error
+            
         logger.warning("Token has expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

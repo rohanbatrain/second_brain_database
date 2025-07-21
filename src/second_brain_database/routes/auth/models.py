@@ -4,6 +4,7 @@ from typing import Optional, List, Any, Dict, TypedDict
 import re
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.docs.models import BaseDocumentedModel
 
 logger = get_logger(prefix="[Auth Models]")
 
@@ -13,6 +14,7 @@ USERNAME_MIN_LENGTH: int = 3
 USERNAME_MAX_LENGTH: int = 50
 PASSWORD_SPECIAL_CHARS: str = r"!@#$%^&*(),.?\":{}|<>"
 USERNAME_REGEX: str = r'^[a-zA-Z0-9_-]+$'
+
 
 class PasswordValidationResult(TypedDict):
     """
@@ -60,31 +62,77 @@ def validate_password_strength(password: str) -> bool:
         return False
     return True
 
-class UserIn(BaseModel):
+class UserIn(BaseDocumentedModel):
     """
     User input model for registration.
 
     Validates username format, email format, and ensures password meets
     minimum requirements. Username is automatically converted to lowercase
     for consistency.
+    
+    **Validation Rules:**
+    - Username: 3-50 characters, alphanumeric with dashes/underscores only
+    - Email: Valid email format, automatically converted to lowercase
+    - Password: Minimum 8 characters with strength requirements
     """
     username: str = Field(
         ...,
         min_length=USERNAME_MIN_LENGTH,
         max_length=USERNAME_MAX_LENGTH,
-        description="Username must be 3-50 characters"
+        description="Unique username for the account. Must be 3-50 characters, containing only letters, numbers, dashes, and underscores. Will be converted to lowercase.",
+        example="john_doe"
     )
-    email: EmailStr = Field(..., description="Valid email address")
+    email: EmailStr = Field(
+        ..., 
+        description="Valid email address for account verification and communication. Will be converted to lowercase.",
+        example="john.doe@example.com"
+    )
     password: str = Field(
         ...,
         min_length=PASSWORD_MIN_LENGTH,
-        description="Password must be at least 8 characters"
+        description="Account password. Must be at least 8 characters and include uppercase, lowercase, number, and special character.",
+        example="SecurePassword123!"
     )
-    plan: Optional[str] = "free"
-    team: Optional[List[str]] = Field(default_factory=list)
-    role: Optional[str] = "user"
-    is_verified: bool = False
-    client_side_encryption: bool = False
+    plan: Optional[str] = Field(
+        default="free",
+        description="User subscription plan. Defaults to 'free' for new registrations.",
+        example="free"
+    )
+    team: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of team identifiers the user belongs to. Empty by default.",
+        example=["team_alpha", "project_beta"]
+    )
+    role: Optional[str] = Field(
+        default="user",
+        description="User role in the system. Defaults to 'user' for standard accounts.",
+        example="user"
+    )
+    is_verified: bool = Field(
+        default=False,
+        description="Email verification status. Always false for new registrations until email is verified.",
+        example=False
+    )
+    client_side_encryption: bool = Field(
+        default=False,
+        description="Whether the user wants to enable client-side encryption for their data.",
+        example=False
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "username": "john_doe",
+                "email": "john.doe@example.com", 
+                "password": "SecurePassword123!",
+                "plan": "free",
+                "team": [],
+                "role": "user",
+                "is_verified": False,
+                "client_side_encryption": False
+            }
+        }
+    }
 
     @field_validator('username')
     @classmethod
@@ -117,21 +165,77 @@ class UserIn(BaseModel):
         """
         return v.lower()
 
-class UserOut(BaseModel):
+class UserOut(BaseDocumentedModel):
     """
     User output model for API responses.
 
     Contains safe user information without sensitive data like passwords.
+    Used in API responses to provide user profile information securely.
+    
+    **Security Note:** This model excludes sensitive fields like passwords,
+    2FA secrets, and internal security tracking data.
     """
-    username: str
-    email: str
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="UTC time when the user was created")
-    last_login: Optional[datetime] = Field(default_factory=datetime.utcnow, description="UTC time when the user last logged in")
-    is_active: bool = True
-    plan: Optional[str] = "free"
-    team: Optional[List[str]] = Field(default_factory=list)
-    role: Optional[str] = "user"
-    is_verified: bool = False
+    username: str = Field(
+        ...,
+        description="The user's unique username, always in lowercase",
+        example="john_doe"
+    )
+    email: str = Field(
+        ...,
+        description="The user's email address, used for communication and login",
+        example="john.doe@example.com"
+    )
+    created_at: Optional[datetime] = Field(
+        default_factory=datetime.utcnow, 
+        description="UTC timestamp when the user account was created",
+        example="2024-01-01T10:00:00Z"
+    )
+    last_login: Optional[datetime] = Field(
+        default_factory=datetime.utcnow, 
+        description="UTC timestamp of the user's last successful login",
+        example="2024-01-01T15:30:00Z"
+    )
+    is_active: bool = Field(
+        default=True,
+        description="Whether the user account is active and can be used for login",
+        example=True
+    )
+    plan: Optional[str] = Field(
+        default="free",
+        description="The user's current subscription plan",
+        example="free"
+    )
+    team: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of team identifiers the user belongs to",
+        example=["team_alpha", "project_beta"]
+    )
+    role: Optional[str] = Field(
+        default="user",
+        description="The user's role in the system (user, admin, etc.)",
+        example="user"
+    )
+    is_verified: bool = Field(
+        default=False,
+        description="Whether the user's email address has been verified",
+        example=True
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "username": "john_doe",
+                "email": "john.doe@example.com",
+                "created_at": "2024-01-01T10:00:00Z",
+                "last_login": "2024-01-01T15:30:00Z",
+                "is_active": True,
+                "plan": "free",
+                "team": ["team_alpha"],
+                "role": "user",
+                "is_verified": True
+            }
+        }
+    }
 
 class UserInDB(BaseModel):
     """
@@ -157,16 +261,39 @@ class UserInDB(BaseModel):
     backup_codes_used: Optional[List[int]] = None
     reset_blocklist: Optional[List[str]] = Field(default_factory=list)
     reset_whitelist: Optional[List[str]] = Field(default_factory=list)
-    # Deprecated/legacy fields are documented in the docstring above.
 
-class Token(BaseModel):
+class Token(BaseDocumentedModel):
     """
     JWT token response model.
 
     Contains the access token and token type for authentication.
+    Returned after successful login, registration, or token refresh operations.
+    
+    **Usage:** Include the access_token in the Authorization header as:
+    `Authorization: Bearer <access_token>`
+    
+    **Security:** Tokens expire after 30 minutes by default and should be refreshed
+    using the `/auth/refresh` endpoint before expiration.
     """
-    access_token: str
-    token_type: str
+    access_token: str = Field(
+        ...,
+        description="JWT access token for API authentication. Include in Authorization header as 'Bearer <token>'",
+        example="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsImV4cCI6MTY0MDk5NTIwMH0.example_signature"
+    )
+    token_type: str = Field(
+        default="bearer",
+        description="Token type, always 'bearer' for JWT tokens",
+        example="bearer"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsImV4cCI6MTY0MDk5NTIwMH0.example_signature",
+                "token_type": "bearer"
+            }
+        }
+    }
 
 class TokenData(BaseModel):
     """
@@ -230,34 +357,93 @@ class TwoFASetupResponse(BaseModel):
     qr_code_data: Optional[str] = None
     backup_codes: Optional[List[str]] = None
 
-class LoginRequest(BaseModel):
+class LoginRequest(BaseDocumentedModel):
     """
     Login request model supporting 2FA fields.
+    
     Accepts either username or email (at least one required), password, and optional 2FA code/method.
+    Supports both standard login and two-factor authentication flows.
+    
+    **Authentication Flow:**
+    1. Standard login: Provide username/email and password
+    2. 2FA login: Include two_fa_code and two_fa_method after initial attempt
+    
+    **Supported 2FA Methods:** totp, backup
     """
-    username: Optional[str] = None
-    email: Optional[EmailStr] = None
-    password: str
-    two_fa_code: Optional[str] = None
-    two_fa_method: Optional[str] = None
-    client_side_encryption: bool = False
+    username: Optional[str] = Field(
+        None,
+        description="Username for login. Either username or email must be provided.",
+        example="john_doe"
+    )
+    email: Optional[EmailStr] = Field(
+        None,
+        description="Email address for login. Either username or email must be provided.",
+        example="john.doe@example.com"
+    )
+    password: str = Field(
+        ..., 
+        description="User's password for authentication",
+        example="SecurePassword123!"
+    )
+    two_fa_code: Optional[str] = Field(
+        None,
+        description="Two-factor authentication code. Required if 2FA is enabled for the account.",
+        example="123456"
+    )
+    two_fa_method: Optional[str] = Field(
+        None,
+        description="Two-factor authentication method. Options: 'totp' (authenticator app), 'backup' (backup codes)",
+        example="totp"
+    )
+    client_side_encryption: bool = Field(
+        default=False,
+        description="Whether to enable client-side encryption for this session",
+        example=False
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "Standard Login",
+                    "summary": "Login with username and password",
+                    "value": {
+                        "username": "john_doe",
+                        "password": "SecurePassword123!",
+                        "client_side_encryption": False
+                    }
+                },
+                {
+                    "name": "Email Login",
+                    "summary": "Login with email and password",
+                    "value": {
+                        "email": "john.doe@example.com",
+                        "password": "SecurePassword123!",
+                        "client_side_encryption": False
+                    }
+                },
+                {
+                    "name": "2FA Login",
+                    "summary": "Login with 2FA authentication",
+                    "value": {
+                        "username": "john_doe",
+                        "password": "SecurePassword123!",
+                        "two_fa_code": "123456",
+                        "two_fa_method": "totp",
+                        "client_side_encryption": False
+                    }
+                }
+            ]
+        }
+    }
 
     @classmethod
-    @field_validator('*', mode='before')
-    def check_username_or_email(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ensure that either username or email is provided for login.
-        Args:
-            values (dict): The input values.
-        Returns:
-            dict: The validated input values.
-        Raises:
-            ValueError: If neither username nor email is provided.
-        """
-        if not values.get('username') and not values.get('email'):
-            logger.error("Login validation failed: missing username and email")
-            raise ValueError('Either username or email must be provided for login.')
-        return values
+    def model_validate(cls, data):
+        # Pydantic v2: use model_validate for cross-field validation
+        obj = super().model_validate(data)
+        if not obj.username and not obj.email:
+            raise ValueError("Either username or email must be provided.")
+        return obj
 
 class LoginLog(BaseModel):
     """
@@ -285,3 +471,369 @@ class RegistrationLog(BaseModel):
     reason: Optional[str] = None
     plan: Optional[str] = None
     role: Optional[str] = None
+
+
+# Permanent Token Models
+
+class PermanentTokenRequest(BaseDocumentedModel):
+    """
+    Request model for creating a new permanent token.
+    
+    Permanent tokens provide long-lived authentication for integrations, automation,
+    and server-to-server communication. They don't expire unless manually revoked.
+    
+    **Use Cases:**
+    - CI/CD pipeline authentication
+    - Third-party application integrations
+    - Automated scripts and background jobs
+    - Server-to-server communication
+    
+    **Security:** Tokens are generated with cryptographically secure randomness
+    and stored as SHA-256 hashes in the database.
+    """
+    description: Optional[str] = Field(
+        None, 
+        max_length=255,
+        description="Optional description to identify the token's purpose. Helps with token management and auditing.",
+        example="CI/CD Pipeline Token for GitHub Actions"
+    )
+    ip_restrictions: Optional[List[str]] = Field(
+        None,
+        description="Optional list of IP addresses or CIDR blocks that can use this token. Leave empty for no restrictions.",
+        example=["192.168.1.0/24", "10.0.0.0/8"]
+    )
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="Optional expiration date for the token. If not provided, token will not expire.",
+        example="2024-12-31T23:59:59Z"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "CI/CD Token",
+                    "summary": "Token for continuous integration",
+                    "value": {
+                        "description": "GitHub Actions CI/CD Pipeline",
+                        "ip_restrictions": ["192.30.252.0/22", "185.199.108.0/22"],
+                        "expires_at": None
+                    }
+                },
+                {
+                    "name": "Integration Token",
+                    "summary": "Token for third-party integration",
+                    "value": {
+                        "description": "Slack Bot Integration",
+                        "ip_restrictions": [],
+                        "expires_at": "2024-12-31T23:59:59Z"
+                    }
+                },
+                {
+                    "name": "Development Token",
+                    "summary": "Token for local development",
+                    "value": {
+                        "description": "Local Development Environment",
+                        "ip_restrictions": ["127.0.0.1/32", "192.168.1.0/24"],
+                        "expires_at": "2024-06-30T23:59:59Z"
+                    }
+                }
+            ]
+        }
+    }
+
+
+class PermanentTokenResponse(BaseDocumentedModel):
+    """
+    Response model for permanent token creation.
+    
+    Contains the actual token (only returned once) and metadata.
+    
+    **IMPORTANT SECURITY NOTE:** The token value is only returned once during creation.
+    Store it securely as it cannot be retrieved again. If lost, you must create a new token.
+    
+    **Token Format:** Permanent tokens start with 'sbd_permanent_' followed by a secure random string.
+    """
+    token: str = Field(
+        ..., 
+        description="The permanent API token. Store this securely - it will not be shown again!",
+        example="sbd_permanent_1234567890abcdef1234567890abcdef1234567890abcdef"
+    )
+    token_id: str = Field(
+        ..., 
+        description="Unique identifier for the token, used for management operations",
+        example="pt_1234567890abcdef"
+    )
+    created_at: datetime = Field(
+        ..., 
+        description="UTC timestamp when the token was created",
+        example="2024-01-01T12:00:00Z"
+    )
+    description: Optional[str] = Field(
+        None, 
+        description="Description provided during token creation",
+        example="CI/CD Pipeline Token for GitHub Actions"
+    )
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="UTC timestamp when the token expires, or null if it never expires",
+        example=None
+    )
+    ip_restrictions: Optional[List[str]] = Field(
+        None,
+        description="List of IP addresses or CIDR blocks that can use this token",
+        example=["192.168.1.0/24", "10.0.0.0/8"]
+    )
+    last_used_at: Optional[datetime] = Field(
+        None,
+        description="UTC timestamp when the token was last used (null for new tokens)",
+        example=None
+    )
+    usage_count: int = Field(
+        default=0,
+        description="Number of times the token has been used for authentication",
+        example=0
+    )
+    is_revoked: bool = Field(
+        default=False,
+        description="Whether the token has been revoked",
+        example=False
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "token": "sbd_permanent_1234567890abcdef1234567890abcdef1234567890abcdef",
+                "token_id": "pt_1234567890abcdef",
+                "created_at": "2024-01-01T12:00:00Z",
+                "description": "CI/CD Pipeline Token for GitHub Actions",
+                "expires_at": None,
+                "ip_restrictions": ["192.30.252.0/22"],
+                "last_used_at": None,
+                "usage_count": 0,
+                "is_revoked": False
+            }
+        }
+    }
+
+
+class PermanentTokenInfo(BaseDocumentedModel):
+    """
+    Model for permanent token metadata (without the actual token).
+    
+    Used for listing tokens and displaying token information.
+    This model provides safe token information without exposing the actual token value.
+    
+    **Security:** The actual token value is never included in this model for security reasons.
+    """
+    token_id: str = Field(
+        ..., 
+        description="Unique identifier for the token, used for management operations like revocation",
+        example="pt_1234567890abcdef"
+    )
+    description: Optional[str] = Field(
+        None, 
+        description="User-provided description to identify the token's purpose",
+        example="CI/CD Pipeline Token for GitHub Actions"
+    )
+    created_at: datetime = Field(
+        ..., 
+        description="UTC timestamp when the token was created",
+        example="2024-01-01T12:00:00Z"
+    )
+    last_used_at: Optional[datetime] = Field(
+        None, 
+        description="UTC timestamp when the token was last used for authentication, or null if never used",
+        example="2024-01-01T15:30:00Z"
+    )
+    usage_count: int = Field(
+        default=0,
+        description="Total number of times this token has been used for authentication",
+        example=42
+    )
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="UTC timestamp when the token expires, or null if it never expires",
+        example=None
+    )
+    ip_restrictions: Optional[List[str]] = Field(
+        None,
+        description="List of IP addresses or CIDR blocks that can use this token",
+        example=["192.168.1.0/24", "10.0.0.0/8"]
+    )
+    is_revoked: bool = Field(
+        default=False, 
+        description="Whether the token has been revoked and can no longer be used",
+        example=False
+    )
+    revoked_at: Optional[datetime] = Field(
+        None, 
+        description="UTC timestamp when the token was revoked, or null if still active",
+        example=None
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "Active Token",
+                    "summary": "An active permanent token with usage history",
+                    "value": {
+                        "token_id": "pt_1234567890abcdef",
+                        "description": "CI/CD Pipeline Token for GitHub Actions",
+                        "created_at": "2024-01-01T12:00:00Z",
+                        "last_used_at": "2024-01-01T15:30:00Z",
+                        "usage_count": 42,
+                        "expires_at": None,
+                        "ip_restrictions": ["192.30.252.0/22"],
+                        "is_revoked": False,
+                        "revoked_at": None
+                    }
+                },
+                {
+                    "name": "Revoked Token",
+                    "summary": "A revoked permanent token",
+                    "value": {
+                        "token_id": "pt_abcdef1234567890",
+                        "description": "Old Development Token",
+                        "created_at": "2023-12-01T10:00:00Z",
+                        "last_used_at": "2023-12-15T14:20:00Z",
+                        "usage_count": 15,
+                        "expires_at": None,
+                        "ip_restrictions": ["127.0.0.1/32"],
+                        "is_revoked": True,
+                        "revoked_at": "2023-12-20T09:00:00Z"
+                    }
+                }
+            ]
+        }
+    }
+
+
+class PermanentTokenListResponse(BaseDocumentedModel):
+    """
+    Response model for listing permanent tokens.
+    
+    Contains array of token metadata without actual token values.
+    Provides comprehensive overview of all tokens for a user including usage statistics.
+    
+    **Security:** Token values are never included in list responses for security reasons.
+    """
+    tokens: List[PermanentTokenInfo] = Field(
+        default_factory=list,
+        description="List of permanent tokens for the user, including both active and revoked tokens"
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total number of tokens (active + revoked)",
+        example=5
+    )
+    active_count: int = Field(
+        default=0,
+        description="Number of active (non-revoked) tokens",
+        example=3
+    )
+    revoked_count: int = Field(
+        default=0,
+        description="Number of revoked tokens",
+        example=2
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "tokens": [
+                    {
+                        "token_id": "pt_1234567890abcdef",
+                        "description": "CI/CD Pipeline Token for GitHub Actions",
+                        "created_at": "2024-01-01T12:00:00Z",
+                        "last_used_at": "2024-01-01T15:30:00Z",
+                        "usage_count": 42,
+                        "expires_at": None,
+                        "ip_restrictions": ["192.30.252.0/22"],
+                        "is_revoked": False,
+                        "revoked_at": None
+                    },
+                    {
+                        "token_id": "pt_abcdef1234567890",
+                        "description": "Mobile App Integration",
+                        "created_at": "2024-01-02T09:00:00Z",
+                        "last_used_at": "2024-01-02T10:15:00Z",
+                        "usage_count": 15,
+                        "expires_at": "2024-12-31T23:59:59Z",
+                        "ip_restrictions": [],
+                        "is_revoked": False,
+                        "revoked_at": None
+                    }
+                ],
+                "total_count": 2,
+                "active_count": 2,
+                "revoked_count": 0
+            }
+        }
+    }
+
+
+class PermanentTokenCacheData(BaseModel):
+    """
+    Model for data stored in Redis cache.
+    
+    Contains user metadata for fast token validation.
+    """
+    user_id: str = Field(..., description="String representation of user ID")
+    username: str = Field(..., description="Username")
+    email: str = Field(..., description="User email")
+    role: str = Field(default="user", description="User role")
+    is_verified: bool = Field(default=False, description="Email verification status")
+    last_used_at: Optional[datetime] = Field(None, description="Last usage timestamp")
+
+
+class TokenRevocationResponse(BaseDocumentedModel):
+    """
+    Response model for token revocation.
+    
+    Confirms successful token revocation and provides revocation details.
+    Once a token is revoked, it cannot be used for authentication and cannot be restored.
+    
+    **Security:** Revoked tokens are immediately invalidated and removed from cache.
+    """
+    message: str = Field(
+        ..., 
+        description="Confirmation message indicating successful revocation",
+        example="Token revoked successfully"
+    )
+    token_id: str = Field(
+        ..., 
+        description="Unique identifier of the revoked token",
+        example="pt_1234567890abcdef"
+    )
+    revoked_at: datetime = Field(
+        ..., 
+        description="UTC timestamp when the token was revoked",
+        example="2024-01-01T16:00:00Z"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "message": "Token revoked successfully",
+                "token_id": "pt_1234567890abcdef",
+                "revoked_at": "2024-01-01T16:00:00Z"
+            }
+        }
+    }
+
+
+class PermanentTokenDocument(BaseModel):
+    """
+    Database document model for permanent tokens collection.
+    
+    Represents the complete document structure stored in MongoDB.
+    """
+    user_id: str = Field(..., description="ObjectId of the token owner")
+    token_hash: str = Field(..., description="SHA-256 hash of the token")
+    description: Optional[str] = Field(None, max_length=255, description="Optional token description")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Token creation timestamp")
+    last_used_at: Optional[datetime] = Field(None, description="Last usage timestamp")
+    is_revoked: bool = Field(default=False, description="Revocation status")
+    revoked_at: Optional[datetime] = Field(None, description="Revocation timestamp")

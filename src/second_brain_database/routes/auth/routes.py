@@ -30,7 +30,12 @@ from second_brain_database.routes.auth.models import (
     UserIn, UserOut, Token, PasswordChangeRequest, 
     TwoFASetupRequest, TwoFAVerifyRequest, TwoFAStatus, 
     LoginRequest, TwoFASetupResponse, LoginLog, RegistrationLog,
-    validate_password_strength
+    validate_password_strength, PermanentTokenRequest, PermanentTokenResponse,
+    PermanentTokenListResponse, TokenRevocationResponse
+)
+from second_brain_database.docs.models import (
+    StandardErrorResponse, StandardSuccessResponse, ValidationErrorResponse,
+    create_error_responses, create_standard_responses
 )
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.services.auth.registration import register_user, verify_user_email
@@ -133,17 +138,101 @@ async def reconcile_blocklist_whitelist_on_startup():
     await reconcile_blocklist_whitelist()
 
 # Rate limit: register: 100 requests per 60 seconds per IP (default)
-@router.post("/register", response_model=UserOut)
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=201,
+    summary="Register a new user account",
+    description="""
+    Register a new user account with email verification.
+    
+    **Process:**
+    1. Validates user input (username, email, password strength)
+    2. Creates user account in database
+    3. Sends email verification link
+    4. Returns JWT token for immediate API access
+    
+    **Security Features:**
+    - Password strength validation (8+ chars, mixed case, numbers, symbols)
+    - Username format validation (alphanumeric, dashes, underscores only)
+    - Email format validation and normalization
+    - Rate limiting (100 requests per 60 seconds per IP)
+    - Comprehensive audit logging
+    
+    **Email Verification:**
+    - Account is created but marked as unverified
+    - Verification email sent automatically
+    - Some features may be restricted until email is verified
+    
+    **Response:**
+    Returns JWT token and user information for immediate API access.
+    """,
+    responses={
+        201: {
+            "description": "User registered successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                        "token_type": "bearer",
+                        "client_side_encryption": False,
+                        "issued_at": 1640993400,
+                        "expires_at": 1640995200,
+                        "is_verified": False,
+                        "two_fa_enabled": False
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid input data",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "validation_error",
+                        "message": "Invalid registration data",
+                        "details": {"field": "password", "issue": "too_weak"},
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        409: {
+            "description": "Username or email already exists",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "resource_conflict",
+                        "message": "Username or email already exists",
+                        "details": {"field": "username", "issue": "already_exists"},
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "Validation failed",
+            "model": ValidationErrorResponse
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        },
+        500: {
+            "description": "Internal server error",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["Authentication"]
+)
 async def register(user: UserIn, request: Request) -> JSONResponse:
     """
-    Register a new user and return a login-like response payload.
-    Args:
-        user: UserIn - registration data
-        request: Request - FastAPI request object
-    Returns:
-        JSONResponse with access token and user info
-    Side-effects:
-        Writes to DB, sends verification email, logs registration
+    Register a new user account with comprehensive validation and security features.
+    
+    This endpoint creates a new user account, sends an email verification link,
+    and returns a JWT token for immediate API access.
     """
     await security_manager.check_rate_limit(request, "register")
     reg_log = RegistrationLog(
@@ -217,49 +306,196 @@ async def verify_email(request: Request, token: str = None, username: str = None
     return {"message": "Email verified successfully"}
 
 # Rate limit: login: 100 requests per 60 seconds per IP (default)
-@router.post("/login")
+@router.post(
+    "/login",
+    summary="Authenticate user and obtain JWT token",
+    description="""
+    Authenticate user credentials and return JWT token for API access.
+    
+    **Authentication Methods:**
+    - Username + Password
+    - Email + Password
+    - Username/Email + Password + 2FA Code (if 2FA enabled)
+    
+    **Input Formats:**
+    - JSON: Use LoginRequest model with flexible authentication options
+    - Form Data: OAuth2 compatible form data (username/password)
+    
+    **2FA Flow:**
+    1. First attempt: Send username/email + password
+    2. If 2FA required: Response includes available 2FA methods
+    3. Second attempt: Include two_fa_code and two_fa_method
+    
+    **Security Features:**
+    - Rate limiting (100 requests per 60 seconds per IP)
+    - Email verification requirement
+    - 2FA support (TOTP, backup codes)
+    - Comprehensive audit logging
+    - IP-based trusted device tracking
+    
+    **Response:**
+    Returns JWT token with user information and session details.
+    """,
+    responses={
+        200: {
+            "description": "Login successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                        "token_type": "bearer",
+                        "client_side_encryption": False,
+                        "issued_at": 1640993400,
+                        "expires_at": 1640995200,
+                        "is_verified": True,
+                        "role": "user",
+                        "username": "john_doe",
+                        "email": "john.doe@example.com"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request format or credentials",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "invalid_request",
+                        "message": "Invalid login request format",
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Invalid credentials",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "authentication_failed",
+                        "message": "Invalid username or password",
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        403: {
+            "description": "Email not verified",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Email not verified",
+                        "email": "john.doe@example.com",
+                        "username": "john_doe"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "2FA authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "2FA authentication required",
+                        "two_fa_required": True,
+                        "available_methods": ["totp", "backup"],
+                        "username": "john_doe",
+                        "email": "john.doe@example.com"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        },
+        500: {
+            "description": "Internal server error",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["Authentication"]
+)
 async def login(
     request: Request,
-    login_request: LoginRequest = Body(...)
+    login_request: Optional[LoginRequest] = Body(None)
 ) -> JSONResponse:
     """
-    Authenticate user and return JWT token if credentials and email verification are valid. If 2FA is enabled, require 2FA code.
-    Args:
-        login_request (LoginRequest): Login request data.
-        request (Request): FastAPI request object.
-    Returns:
-        JSONResponse: Token and user info or error response.
-    Side-effects:
-        Writes to DB, logs login attempt, may raise HTTPException.
+    Authenticate user credentials and return JWT token.
+    
+    Supports multiple authentication flows including standard login and 2FA.
+    Compatible with both JSON requests and OAuth2 form data.
     """
     await security_manager.check_rate_limit(request, "login")
+    content_type = request.headers.get("content-type", "")
+    # Default values
+    username = email = password = two_fa_code = two_fa_method = None
+    client_side_encryption = False
+    # Prefer JSON body if present
+    if "application/json" in content_type and login_request:
+        # Use Pydantic validation
+        username = login_request.username
+        email = login_request.email
+        password = login_request.password
+        two_fa_code = login_request.two_fa_code
+        two_fa_method = login_request.two_fa_method
+        client_side_encryption = login_request.client_side_encryption
+    elif "application/x-www-form-urlencoded" in content_type:
+        # Manually parse form data
+        form = await request.form()
+        username = form.get("username")
+        password = form.get("password")
+        # Optionally, allow email in username field if you want
+        if "@" in username:
+            email = username
+            username = None
+        # Validate using LoginRequest model
+        try:
+            login_request_obj = LoginRequest(
+                username=username,
+                email=email,
+                password=password,
+                client_side_encryption=False
+            )
+            username = login_request_obj.username
+            email = login_request_obj.email
+            password = login_request_obj.password
+            two_fa_code = login_request_obj.two_fa_code
+            two_fa_method = login_request_obj.two_fa_method
+            client_side_encryption = login_request_obj.client_side_encryption
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Invalid login form data: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported login format")
     login_log = LoginLog(
         timestamp=datetime.utcnow().replace(microsecond=0),
         ip_address=security_manager.get_client_ip(request) if request else None,
         user_agent=request.headers.get("user-agent") if request else None,
-        username=login_request.username if login_request.username else "",
-        email=login_request.email if login_request.email else None,
+        username=username or "",
+        email=email,
         outcome="pending",
         reason=None,
         mfa_status=None
     )
     # Set request_ip contextvar for trusted IP lockdown enforcement
     request_ip = security_manager.get_client_ip(request) if request else None
-    token = None
+    token_ctx = None
     if request_ip:
-        token = login_service.request_ip_ctx.set(request_ip)
+        token_ctx = login_service.request_ip_ctx.set(request_ip)
     try:
         user = await login_user(
-            username=login_request.username,
-            email=login_request.email,
-            password=login_request.password,
-            two_fa_code=login_request.two_fa_code,
-            two_fa_method=login_request.two_fa_method,
-            client_side_encryption=login_request.client_side_encryption
+            username=username,
+            email=email,
+            password=password,
+            two_fa_code=two_fa_code,
+            two_fa_method=two_fa_method,
+            client_side_encryption=client_side_encryption
         )
     finally:
-        if request_ip and token is not None:
-            login_service.request_ip_ctx.reset(token)
+        if request_ip and token_ctx is not None:
+            login_service.request_ip_ctx.reset(token_ctx)
     try:
         issued_at = int(datetime.utcnow().timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
@@ -286,31 +522,31 @@ async def login(
         # Special handling for '2FA authentication required' error
         if str(e.detail) == "2FA authentication required":
             user_doc = None
-            if login_request.username:
-                user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
-            elif login_request.email:
-                user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
+            if username:
+                user_doc = await db_manager.get_collection("users").find_one({"username": username})
+            elif email:
+                user_doc = await db_manager.get_collection("users").find_one({"email": email})
             two_fa_methods = user_doc.get("two_fa_methods", []) if user_doc else []
-            logger.info("2FA required for user: %s", login_request.username or login_request.email)
+            logger.info("2FA required for user: %s", username or email)
             return JSONResponse(
                 status_code=422,
                 content={
                     "detail": "2FA authentication required",
                     "two_fa_required": True,
                     "available_methods": two_fa_methods + ["backup"],
-                    "username": user_doc.get("username") if user_doc else login_request.username,
-                    "email": user_doc.get("email") if user_doc else login_request.email
+                    "username": user_doc.get("username") if user_doc else username,
+                    "email": user_doc.get("email") if user_doc else email
                 }
             )
         elif str(e.detail) == "Email not verified":
-            email_resp = login_request.email
-            username_resp = login_request.username
+            email_resp = email
+            username_resp = username
             user_doc = None
             if not email_resp or not username_resp:
-                if login_request.username:
-                    user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
-                elif login_request.email:
-                    user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
+                if username:
+                    user_doc = await db_manager.get_collection("users").find_one({"username": username})
+                elif email:
+                    user_doc = await db_manager.get_collection("users").find_one({"email": email})
                 if user_doc:
                     if not email_resp:
                         email_resp = user_doc.get("email")
@@ -324,10 +560,10 @@ async def login(
         login_log.outcome = f"failure:{str(e.detail).replace(' ', '_').lower()}"
         login_log.reason = str(e.detail)
         user_doc = None
-        if login_request.username:
-            user_doc = await db_manager.get_collection("users").find_one({"username": login_request.username})
-        elif login_request.email:
-            user_doc = await db_manager.get_collection("users").find_one({"email": login_request.email})
+        if username:
+            user_doc = await db_manager.get_collection("users").find_one({"username": username})
+        elif email:
+            user_doc = await db_manager.get_collection("users").find_one({"email": email})
         if user_doc:
             login_log.username = user_doc.get("username", login_log.username)
             login_log.email = user_doc.get("email", login_log.email)
@@ -344,9 +580,61 @@ async def login(
     # Do not catch Exception: let FastAPI handle unexpected errors for full traceability
 
 # Rate limit: refresh-token: 100 requests per 60 seconds per IP (default)
-@router.post("/refresh", response_model=Token)
+@router.post(
+    "/refresh", 
+    response_model=Token,
+    summary="Refresh JWT access token",
+    description="""
+    Refresh an expired or soon-to-expire JWT access token.
+    
+    **Usage:**
+    - Use this endpoint when your JWT token is about to expire
+    - Requires a valid (non-expired) JWT token in Authorization header
+    - Returns a new JWT token with extended expiration time
+    
+    **Security:**
+    - Rate limited to prevent abuse
+    - Requires valid authentication
+    - Old token remains valid until natural expiration
+    
+    **Best Practice:**
+    Implement automatic token refresh in your client applications
+    to maintain seamless user experience.
+    """,
+    responses={
+        200: {
+            "description": "Token refreshed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Invalid or expired token",
+            "model": StandardErrorResponse
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        },
+        500: {
+            "description": "Token refresh failed",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["Authentication"]
+)
 async def refresh_token(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    """Refresh access token for authenticated user."""
+    """
+    Refresh JWT access token for authenticated user.
+    
+    Generates a new JWT token with extended expiration time while
+    maintaining the same user session and permissions.
+    """
     await security_manager.check_rate_limit(request, "refresh-token")
     try:
         access_token = await create_access_token({"sub": current_user["username"]})
@@ -952,3 +1240,156 @@ async def get_recent_successful_logins(
         doc.pop("_id", None)
         results.append(LoginLog(**doc).model_dump())
     return {"logins": results}
+
+
+# --- Permanent API Tokens ---
+
+# Rate limit: permanent-tokens: 10 requests per 60 seconds per IP (restricted)
+PERMANENT_TOKEN_CREATE_RATE_LIMIT: int = 10
+PERMANENT_TOKEN_CREATE_RATE_PERIOD: int = 60
+PERMANENT_TOKEN_LIST_RATE_LIMIT: int = 50
+PERMANENT_TOKEN_LIST_RATE_PERIOD: int = 60
+PERMANENT_TOKEN_REVOKE_RATE_LIMIT: int = 20
+PERMANENT_TOKEN_REVOKE_RATE_PERIOD: int = 60
+
+
+@router.post("/permanent-tokens", response_model=PermanentTokenResponse)
+async def create_permanent_token(
+    request: Request,
+    token_request: PermanentTokenRequest,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Create a new permanent API token for the authenticated user.
+    
+    Permanent tokens:
+    - Never expire (until manually revoked)
+    - Can be used with any API endpoint that accepts Bearer tokens
+    - Are rate-limited to prevent abuse
+    - Include optional description for identification
+    
+    Returns the actual token (only shown once) and metadata.
+    """
+    await security_manager.check_rate_limit(
+        request, 
+        "permanent-token-create", 
+        rate_limit_requests=PERMANENT_TOKEN_CREATE_RATE_LIMIT,
+        rate_limit_period=PERMANENT_TOKEN_CREATE_RATE_PERIOD
+    )
+    
+    from second_brain_database.routes.auth.services.permanent_tokens import create_permanent_token
+    
+    try:
+        # Create the permanent token
+        token_response = await create_permanent_token(
+            user_id=str(current_user["_id"]),
+            username=current_user["username"],
+            email=current_user["email"],
+            role=current_user.get("role", "user"),
+            is_verified=current_user.get("is_verified", False),
+            description=token_request.description
+        )
+        
+        logger.info(
+            "Permanent token created for user %s (token_id: %s)",
+            current_user["username"], 
+            token_response.token_id
+        )
+        
+        return token_response
+        
+    except Exception as e:
+        logger.error("Failed to create permanent token for user %s: %s", current_user["username"], e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create permanent token"
+        )
+
+
+@router.get("/permanent-tokens", response_model=PermanentTokenListResponse)
+async def list_permanent_tokens(
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    List all permanent tokens for the authenticated user.
+    
+    Returns token metadata (ID, description, created date, last used, etc.)
+    but never returns the actual token values for security.
+    """
+    await security_manager.check_rate_limit(
+        request,
+        "permanent-token-list",
+        rate_limit_requests=PERMANENT_TOKEN_LIST_RATE_LIMIT,
+        rate_limit_period=PERMANENT_TOKEN_LIST_RATE_PERIOD
+    )
+    
+    from second_brain_database.routes.auth.services.permanent_tokens import get_user_tokens
+    
+    try:
+        tokens = await get_user_tokens(str(current_user["_id"]), include_revoked=False)
+        
+        return PermanentTokenListResponse(tokens=tokens)
+        
+    except Exception as e:
+        logger.error("Failed to list permanent tokens for user %s: %s", current_user["username"], e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve permanent tokens"
+        )
+
+
+@router.delete("/permanent-tokens/{token_id}", response_model=TokenRevocationResponse)
+async def revoke_permanent_token(
+    request: Request,
+    token_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Revoke a permanent token by its ID.
+    
+    Only the token owner can revoke their own tokens.
+    Revoked tokens are immediately invalidated and cannot be used.
+    """
+    await security_manager.check_rate_limit(
+        request,
+        "permanent-token-revoke",
+        rate_limit_requests=PERMANENT_TOKEN_REVOKE_RATE_LIMIT,
+        rate_limit_period=PERMANENT_TOKEN_REVOKE_RATE_PERIOD
+    )
+    
+    from second_brain_database.routes.auth.services.permanent_tokens import revoke_token_by_id
+    
+    try:
+        revocation_response = await revoke_token_by_id(
+            user_id=str(current_user["_id"]),
+            token_id=token_id
+        )
+        
+        if revocation_response is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Token not found or already revoked"
+            )
+        
+        logger.info(
+            "Permanent token revoked: token_id=%s, user=%s",
+            token_id,
+            current_user["username"]
+        )
+        
+        return revocation_response
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error("Failed to revoke permanent token %s for user %s: %s", token_id, current_user["username"], e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to revoke permanent token"
+        )

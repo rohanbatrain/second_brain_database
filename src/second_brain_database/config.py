@@ -112,6 +112,24 @@ class Settings(BaseSettings):
     # Redis configuration
     REDIS_URL: str  # Must be set in .sbd or environment
 
+    # Permanent Token configuration
+    PERMANENT_TOKENS_ENABLED: bool = True  # Enable/disable permanent token feature
+    PERMANENT_TOKEN_CACHE_TTL_SECONDS: int = 24 * 60 * 60  # 24 hours cache TTL
+    PERMANENT_TOKEN_CREATE_RATE_LIMIT: int = 10  # Max tokens created per hour per user
+    PERMANENT_TOKEN_CREATE_RATE_PERIOD: int = 3600  # Rate limit period in seconds
+    PERMANENT_TOKEN_LIST_RATE_LIMIT: int = 50  # Max list requests per hour per user
+    PERMANENT_TOKEN_LIST_RATE_PERIOD: int = 3600  # Rate limit period in seconds
+    PERMANENT_TOKEN_REVOKE_RATE_LIMIT: int = 20  # Max revoke requests per hour per user
+    PERMANENT_TOKEN_REVOKE_RATE_PERIOD: int = 3600  # Rate limit period in seconds
+    PERMANENT_TOKEN_MAX_PER_USER: int = 50  # Maximum tokens per user
+    PERMANENT_TOKEN_CLEANUP_DAYS: int = 90  # Days to keep revoked tokens
+    PERMANENT_TOKEN_AUDIT_RETENTION_DAYS: int = 365  # Days to keep audit logs
+    PERMANENT_TOKEN_ANALYTICS_RETENTION_DAYS: int = 180  # Days to keep analytics
+    PERMANENT_TOKEN_MAINTENANCE_INTERVAL_HOURS: int = 6  # Maintenance interval
+    PERMANENT_TOKEN_SUSPICIOUS_IP_THRESHOLD: int = 5  # Max IPs per token before alert
+    PERMANENT_TOKEN_RAPID_CREATION_THRESHOLD: int = 10  # Max tokens in 5 min before alert
+    PERMANENT_TOKEN_FAILED_VALIDATION_THRESHOLD: int = 20  # Max failures in 10 min before alert
+
     # Rate limiting configuration
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD_SECONDS: int = 60
@@ -153,6 +171,28 @@ class Settings(BaseSettings):
     REDIS_FLAG_SYNC_INTERVAL: int = 60  # Interval for syncing password reset flags to Redis (seconds)
     BLOCKLIST_RECONCILE_INTERVAL: int = 300  # Interval for blocklist/whitelist reconciliation (seconds)
 
+    # Documentation configuration
+    DOCS_ENABLED: bool = True  # Enable/disable documentation endpoints
+    DOCS_URL: Optional[str] = "/docs"  # Swagger UI URL
+    REDOC_URL: Optional[str] = "/redoc"  # ReDoc URL
+    OPENAPI_URL: Optional[str] = "/openapi.json"  # OpenAPI schema URL
+    DOCS_ACCESS_CONTROL: bool = False  # Enable access control for docs
+    DOCS_CACHE_ENABLED: bool = True  # Enable documentation caching
+    DOCS_CACHE_TTL: int = 3600  # Documentation cache TTL in seconds
+    
+    # Production documentation security
+    DOCS_ALLOWED_IPS: Optional[str] = None  # Comma-separated list of allowed IPs for docs
+    DOCS_REQUIRE_AUTH: bool = False  # Require authentication for documentation access
+    DOCS_RATE_LIMIT_REQUESTS: int = 10  # Max documentation requests per minute per IP
+    DOCS_RATE_LIMIT_PERIOD: int = 60  # Rate limit period in seconds
+    
+    # CORS configuration for documentation
+    DOCS_CORS_ORIGINS: Optional[str] = None  # Comma-separated allowed origins for docs CORS
+    DOCS_CORS_CREDENTIALS: bool = False  # Allow credentials in CORS for docs
+    DOCS_CORS_METHODS: str = "GET"  # Allowed methods for docs CORS
+    DOCS_CORS_HEADERS: str = "Content-Type,Authorization"  # Allowed headers for docs CORS
+    DOCS_CORS_MAX_AGE: int = 3600  # CORS preflight cache duration
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"
@@ -173,6 +213,21 @@ class Settings(BaseSettings):
         if not v or str(v).strip() == "":
             raise ValueError(f"{info.field_name} must be set via environment or .sbd and not empty!")
         return v
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment."""
+        return not self.DEBUG
+
+    @property
+    def docs_should_be_enabled(self) -> bool:
+        """Determine if documentation should be enabled based on environment."""
+        return self.DEBUG or self.DOCS_ENABLED
+
+    @property
+    def should_cache_docs(self) -> bool:
+        """Determine if documentation should be cached."""
+        return self.is_production and self.DOCS_CACHE_ENABLED
 
 # Global settings instance
 settings: Settings = Settings()

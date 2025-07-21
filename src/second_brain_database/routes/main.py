@@ -6,6 +6,10 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_5
 from second_brain_database.database import db_manager
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.docs.models import (
+    StandardErrorResponse, StandardSuccessResponse, ValidationErrorResponse,
+    create_error_responses, create_standard_responses
+)
 import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
@@ -44,8 +48,64 @@ async def fetch_admob_keys():
 def get_admob_key_base64(key_id: str):
     return _admob_keys.get(str(key_id))
 
-@router.get("/")
+@router.get(
+    "/",
+    summary="API Root Endpoint",
+    description="""
+    Root endpoint providing basic API information and status.
+    
+    **Purpose:**
+    - Verify API is accessible and running
+    - Get basic API information (name, version, status)
+    - Quick connectivity test for client applications
+    
+    **Rate Limiting:**
+    - 10 requests per 60 seconds per IP address
+    - Designed for occasional connectivity checks
+    
+    **Use Cases:**
+    - API health verification
+    - Client application startup checks
+    - Load balancer health probes
+    - Basic API discovery
+    """,
+    responses={
+        200: {
+            "description": "API information retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Second Brain Database API",
+                        "version": "1.0.0",
+                        "status": "running"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "rate_limit_exceeded",
+                        "message": "Too many requests. Please try again later",
+                        "details": {"retry_after": 60},
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        }
+    },
+    tags=["System"]
+)
 async def root(request: Request):
+    """
+    Get basic API information and status.
+    
+    Returns fundamental information about the Second Brain Database API
+    including version, status, and welcome message.
+    """
     await security_manager.check_rate_limit(request, "root", rate_limit_requests=10, rate_limit_period=60)
     return {
         "message": "Second Brain Database API",
@@ -53,8 +113,80 @@ async def root(request: Request):
         "status": "running"
     }
 
-@router.get("/health")
+@router.get(
+    "/health",
+    summary="Comprehensive Health Check",
+    description="""
+    Comprehensive health check endpoint for monitoring system status.
+    
+    **Health Checks Performed:**
+    - Database connectivity (MongoDB)
+    - Redis cache connectivity
+    - API service status
+    
+    **Response Codes:**
+    - 200: All systems healthy
+    - 503: One or more systems unhealthy
+    
+    **Rate Limiting:**
+    - 5 requests per 30 seconds per IP address
+    - Optimized for monitoring systems
+    
+    **Use Cases:**
+    - Load balancer health checks
+    - Monitoring system integration
+    - Service dependency verification
+    - Automated health monitoring
+    
+    **Monitoring Integration:**
+    This endpoint is designed for integration with monitoring tools
+    like Prometheus, Grafana, or cloud monitoring services.
+    """,
+    responses={
+        200: {
+            "description": "All systems healthy",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "healthy",
+                        "database": "connected",
+                        "redis": "connected",
+                        "api": "running"
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "One or more systems unhealthy",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "service_unavailable",
+                        "message": "Database or Redis connection failed",
+                        "details": {
+                            "database": "disconnected",
+                            "redis": "connected"
+                        },
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["System"]
+)
 async def health_check(request: Request):
+    """
+    Perform comprehensive health check of all system components.
+    
+    Checks the health of database, Redis cache, and API service
+    to ensure the system is fully operational.
+    """
     await security_manager.check_rate_limit(request, "health", rate_limit_requests=5, rate_limit_period=30)
     try:
         # Check database connection
@@ -87,13 +219,131 @@ async def health_check(request: Request):
             detail="Service unavailable"
         ) from e
 
-@router.get("/healthz")
+@router.get(
+    "/healthz",
+    summary="Kubernetes Health Check",
+    description="""
+    Lightweight health check endpoint optimized for Kubernetes health probes.
+    
+    **Purpose:**
+    - Kubernetes liveness probe endpoint
+    - Quick health verification without heavy checks
+    - High-frequency monitoring support
+    
+    **Rate Limiting:**
+    - 20 requests per 60 seconds per IP address
+    - Optimized for frequent Kubernetes probe checks
+    
+    **Response:**
+    Always returns 200 OK with simple status message unless rate limited.
+    
+    **Kubernetes Integration:**
+    Configure as liveness probe in your Kubernetes deployment:
+    ```yaml
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8000
+      initialDelaySeconds: 30
+      periodSeconds: 10
+    ```
+    """,
+    responses={
+        200: {
+            "description": "Service is alive",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ok"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["System"]
+)
 async def kubernetes_health(request: Request):
+    """
+    Kubernetes liveness probe endpoint.
+    
+    Lightweight health check that indicates the service is alive
+    and responding to requests.
+    """
     await security_manager.check_rate_limit(request, "healthz", rate_limit_requests=20, rate_limit_period=60)
     return {"status": "ok"}
 
-@router.get("/ready")
+@router.get(
+    "/ready",
+    summary="Kubernetes Readiness Check",
+    description="""
+    Kubernetes readiness probe endpoint that verifies service is ready to handle traffic.
+    
+    **Purpose:**
+    - Kubernetes readiness probe endpoint
+    - Verifies database connectivity before accepting traffic
+    - Ensures service dependencies are available
+    
+    **Rate Limiting:**
+    - 3 requests per 30 seconds per IP address
+    - Conservative limit for readiness checks
+    
+    **Database Check:**
+    Performs actual database connectivity test to ensure the service
+    can handle requests that require database access.
+    
+    **Kubernetes Integration:**
+    Configure as readiness probe in your Kubernetes deployment:
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /ready
+        port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    ```
+    """,
+    responses={
+        200: {
+            "description": "Service is ready to handle traffic",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ready"
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Service not ready - database unavailable",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "service_unavailable",
+                        "message": "Database not ready",
+                        "timestamp": "2024-01-01T12:00:00Z"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["System"]
+)
 async def readiness_check(request: Request):
+    """
+    Kubernetes readiness probe that checks database connectivity.
+    
+    Verifies that the service is ready to handle traffic by checking
+    that the database connection is available and functional.
+    """
     await security_manager.check_rate_limit(request, "ready", rate_limit_requests=3, rate_limit_period=30)
     try:
         is_connected = await db_manager.health_check()
@@ -104,8 +354,54 @@ async def readiness_check(request: Request):
         logger.error("Readiness check failed: %s", e)
         raise HTTPException(status_code=503, detail="Service not ready") from e
 
-@router.get("/live")
+@router.get(
+    "/live",
+    summary="Liveness Check",
+    description="""
+    Simple liveness check endpoint that confirms the service is running.
+    
+    **Purpose:**
+    - Basic liveness verification
+    - Service availability confirmation
+    - Lightweight health check without dependencies
+    
+    **Rate Limiting:**
+    - 15 requests per 60 seconds per IP address
+    - Balanced for regular monitoring
+    
+    **Response:**
+    Always returns 200 OK with alive status unless rate limited.
+    
+    **Use Cases:**
+    - Basic service monitoring
+    - Load balancer health checks
+    - Service discovery health verification
+    - Uptime monitoring systems
+    """,
+    responses={
+        200: {
+            "description": "Service is alive and responding",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "alive"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": StandardErrorResponse
+        }
+    },
+    tags=["System"]
+)
 async def liveness_check(request: Request):
+    """
+    Simple liveness check that confirms the service is running.
+    
+    Returns a basic alive status without performing any dependency checks.
+    """
     await security_manager.check_rate_limit(request, "live", rate_limit_requests=15, rate_limit_period=60)
     return {"status": "alive"}
 
@@ -259,9 +555,8 @@ async def admob_ssv_reward(
                 await users_collection.update_one(
                     {"username": "sbd_ads"},
                     {
-                        "$push": {
-                            "sbd_tokens_transactions": send_txn
-                        }
+                        "$setOnInsert": {"email": "sbd_ads@rohanbatra.in"},
+                        "$push": {"sbd_tokens_transactions": send_txn}
                     },
                     upsert=True
                 )

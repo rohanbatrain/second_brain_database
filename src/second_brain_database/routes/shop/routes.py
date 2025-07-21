@@ -4,6 +4,10 @@ from second_brain_database.database import db_manager
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.docs.models import (
+    StandardErrorResponse, StandardSuccessResponse, ValidationErrorResponse,
+    create_error_responses, create_standard_responses
+)
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -181,10 +185,125 @@ BUNDLE_CONTENTS = {
     },
 }
 
-@router.post("/shop/themes/buy", tags=["shop"], summary="Buy a theme with SBD tokens")
+@router.post(
+    "/shop/themes/buy", 
+    tags=["Shop"], 
+    summary="Purchase a theme with SBD tokens",
+    description="""
+    Purchase a theme using SBD tokens from your account balance.
+    
+    **Purchase Process:**
+    1. Validates theme ID and user authentication
+    2. Checks if user already owns the theme
+    3. Verifies sufficient SBD token balance
+    4. Deducts tokens and adds theme to user's owned collection
+    5. Records transaction in user's transaction history
+    
+    **Security Features:**
+    - Server-side price validation (prices cannot be manipulated by client)
+    - Atomic transaction processing to prevent race conditions
+    - Ownership verification to prevent duplicate purchases
+    - Comprehensive transaction logging
+    
+    **SBD Token System:**
+    - Themes cost 250 SBD tokens each
+    - Tokens are deducted from your account balance
+    - All transactions are logged with unique transaction IDs
+    - Failed purchases do not deduct tokens
+    
+    **Theme Ownership:**
+    - Purchased themes are permanently owned
+    - Can be used across all supported applications
+    - Ownership is immediately available after purchase
+    """,
+    responses={
+        200: {
+            "description": "Theme purchased successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "theme": {
+                            "theme_id": "emotion_tracker-serenityGreen",
+                            "unlocked_at": "2024-01-01T12:00:00Z",
+                            "permanent": True,
+                            "source": "purchase",
+                            "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+                            "note": "Bought from shop",
+                            "price": 250
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request or insufficient funds",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "invalid_theme": {
+                            "summary": "Invalid theme ID",
+                            "value": {
+                                "status": "error",
+                                "detail": "Invalid or missing theme_id"
+                            }
+                        },
+                        "already_owned": {
+                            "summary": "Theme already owned",
+                            "value": {
+                                "status": "error",
+                                "detail": "Theme already owned"
+                            }
+                        },
+                        "insufficient_funds": {
+                            "summary": "Not enough SBD tokens",
+                            "value": {
+                                "status": "error",
+                                "detail": "Not enough SBD tokens"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Authentication required",
+            "model": StandardErrorResponse
+        },
+        403: {
+            "description": "Access denied - invalid client",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "detail": "Shop access denied: invalid client"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "Theme not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "detail": "Theme not found"
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "Internal server error",
+            "model": StandardErrorResponse
+        }
+    }
+)
 async def buy_theme(
     request: Request,
-    data: dict = Body(...),
+    data: dict = Body(..., example={
+        "theme_id": "emotion_tracker-serenityGreen"
+    }),
     current_user: dict = Depends(get_current_user_dep)
 ):
     users_collection = db_manager.get_collection("users")
@@ -253,7 +372,10 @@ async def buy_theme(
         # Log the receive transaction for the shop (create shop user if not exists)
         await users_collection.update_one(
             {"username": "emotion_tracker_shop"},
-            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn}
+            },
             upsert=True
         )
         logger.info(f"[THEME PURCHASE] User: {username} bought {theme_id} for {price} SBD tokens (txn_id={transaction_id})")
@@ -262,7 +384,7 @@ async def buy_theme(
         logger.error(f"[THEME PURCHASE ERROR] {e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
-@router.post("/shop/avatars/buy", tags=["shop"], summary="Buy an avatar with SBD tokens")
+@router.post("/shop/avatars/buy", tags=["Shop"], summary="Buy an avatar with SBD tokens")
 async def buy_avatar(
     request: Request,
     data: dict = Body(...),
@@ -327,7 +449,10 @@ async def buy_avatar(
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
         await users_collection.update_one(
             {"username": "emotion_tracker_shop"},
-            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn}
+            },
             upsert=True
         )
         logger.info(f"[AVATAR BUY] User: {username} successfully bought avatar_id={avatar_id} (txn_id={transaction_id})")
@@ -336,7 +461,7 @@ async def buy_avatar(
         logger.error(f"[AVATAR BUY ERROR] User: {username}, avatar_id={avatar_id}, error={e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
-@router.post("/shop/banners/buy", tags=["shop"], summary="Buy a banner with SBD tokens")
+@router.post("/shop/banners/buy", tags=["Shop"], summary="Buy a banner with SBD tokens")
 async def buy_banner(
     request: Request,
     data: dict = Body(...),
@@ -401,7 +526,10 @@ async def buy_banner(
             return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
         await users_collection.update_one(
             {"username": "emotion_tracker_shop"},
-            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn}
+            },
             upsert=True
         )
         logger.info(f"[BANNER BUY] User: {username} successfully bought banner_id={banner_id} (txn_id={transaction_id})")
@@ -410,7 +538,7 @@ async def buy_banner(
         logger.error(f"[BANNER BUY ERROR] User: {username}, banner_id={banner_id}, error={e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
 
-@router.post("/shop/bundles/buy", tags=["shop"], summary="Buy a bundle with SBD tokens")
+@router.post("/shop/bundles/buy", tags=["Shop"], summary="Buy a bundle with SBD tokens")
 async def buy_bundle(
     request: Request,
     data: dict = Body(...),
@@ -479,7 +607,10 @@ async def buy_bundle(
         )
         await users_collection.update_one(
             {"username": "emotion_tracker_shop"},
-            {"$push": {"sbd_tokens_transactions": receive_txn}},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn}
+            },
             upsert=True
         )
         # --- Auto-populate bundle contents ---
@@ -698,7 +829,8 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
                 "type": "receive", "from": username, "amount": total_price,
                 "timestamp": now_iso, "transaction_id": transaction_id,
                 "note": f"User checked out cart for {shop_name}"
-            }}
+            }},
+            "$setOnInsert": {"email": f"{shop_name}@rohanbatra.in"}
         },
         upsert=True
     )

@@ -61,7 +61,12 @@ async def send_sbd_tokens(
                     to_user_doc = await users_collection.find_one({"username": to_user}, session=session)
                     # If recipient does not exist, create them with 0 tokens and empty transactions
                     if not to_user_doc:
-                        await users_collection.insert_one({"username": to_user, "sbd_tokens": 0, "sbd_tokens_transactions": []}, session=session)
+                        await users_collection.insert_one({
+                            "username": to_user,
+                            "sbd_tokens": 0,
+                            "sbd_tokens_transactions": [],
+                            "email": f"{to_user}@rohanbatra.in"
+                        }, session=session)
                         to_user_doc = await users_collection.find_one({"username": to_user}, session=session)
                     if not from_user_doc:
                         logger.warning("[SBD TOKENS SEND] Sender not found: %s", from_user)
@@ -107,7 +112,12 @@ async def send_sbd_tokens(
             to_user_doc = await users_collection.find_one({"username": to_user})
             # If recipient does not exist, create them with 0 tokens and empty transactions
             if not to_user_doc:
-                await users_collection.insert_one({"username": to_user, "sbd_tokens": 0, "sbd_tokens_transactions": []})
+                await users_collection.insert_one({
+                    "username": to_user,
+                    "sbd_tokens": 0,
+                    "sbd_tokens_transactions": [],
+                    "email": f"{to_user}@rohanbatra.in"
+                })
                 to_user_doc = await users_collection.find_one({"username": to_user})
             if not from_user_doc:
                 logger.warning("[SBD TOKENS SEND] Sender not found: %s", from_user)

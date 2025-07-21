@@ -95,11 +95,35 @@ class DatabaseManager:
         try:
             users_collection = self.get_collection("users")
 
-            # Create unique index on username
-            await users_collection.create_index("username", unique=True)
+            # Get existing indexes
+            existing_indexes = await users_collection.list_indexes().to_list(length=None)
+            existing_index_names = [idx['name'] for idx in existing_indexes]
 
-            # Create unique index on email
-            await users_collection.create_index("email", unique=True)
+            # Handle username index
+            if "username_1" in existing_index_names:
+                # Check if it's already sparse
+                username_idx = next((idx for idx in existing_indexes if idx['name'] == 'username_1'), None)
+                if username_idx and not username_idx.get('sparse', False):
+                    await users_collection.drop_index("username_1")
+                    await users_collection.create_index("username", unique=True, sparse=True)
+            else:
+                await users_collection.create_index("username", unique=True, sparse=True)
+
+            # Handle email index
+            if "email_1" in existing_index_names:
+                # Check if it's already sparse
+                email_idx = next((idx for idx in existing_indexes if idx['name'] == 'email_1'), None)
+                if email_idx and not email_idx.get('sparse', False):
+                    try:
+                        await users_collection.drop_index("email_1")
+                        await users_collection.create_index("email", unique=True, sparse=True)
+                    except Exception as e:
+                        logger.warning("Could not recreate email index as sparse: %s", e)
+            else:
+                try:
+                    await users_collection.create_index("email", unique=True, sparse=True)
+                except Exception as e:
+                    logger.warning("Could not create email index: %s", e)
 
             # Create index on failed_login_attempts for account lockout queries
             await users_collection.create_index("failed_login_attempts")
@@ -113,6 +137,24 @@ class DatabaseManager:
                 "password_reset_token_expiry",
                 expireAfterSeconds=0
             )
+
+            # Permanent tokens collection indexes
+            permanent_tokens_collection = self.get_collection("permanent_tokens")
+
+            # Create unique index on token_hash for fast lookups
+            await permanent_tokens_collection.create_index("token_hash", unique=True)
+
+            # Create compound index for user queries (user_id + is_revoked)
+            await permanent_tokens_collection.create_index([
+                ("user_id", 1),
+                ("is_revoked", 1)
+            ])
+
+            # Create index on created_at for analytics and cleanup
+            await permanent_tokens_collection.create_index("created_at")
+
+            # Create index on last_used_at for usage tracking
+            await permanent_tokens_collection.create_index("last_used_at")
 
             logger.info("Database indexes created successfully")
 
