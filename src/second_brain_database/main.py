@@ -4,33 +4,35 @@ Main application module for Second Brain Database API.
 This module sets up the FastAPI application with proper lifespan management,
 database connections, and routing configuration.
 """
-from contextlib import asynccontextmanager
+
 import asyncio
-import uvicorn
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
+import uvicorn
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
-from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.docs.config import docs_config
 from second_brain_database.docs.middleware import configure_documentation_middleware
+from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes import auth_router, main_router
 from second_brain_database.routes.auth.periodics.cleanup import (
     periodic_2fa_cleanup,
+    periodic_admin_session_token_cleanup,
     periodic_avatar_rental_cleanup,
     periodic_banner_rental_cleanup,
     periodic_email_verification_token_cleanup,
     periodic_session_cleanup,
     periodic_trusted_ip_lockdown_code_cleanup,
-    periodic_admin_session_token_cleanup,
 )
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
-from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
-from second_brain_database.routes.themes.routes import router as themes_router
-from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.avatars.routes import router as avatars_router
 from second_brain_database.routes.banners.routes import router as banners_router
+from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
+from second_brain_database.routes.shop.routes import router as shop_router
+from second_brain_database.routes.themes.routes import router as themes_router
 
 logger = get_logger()
 
@@ -43,16 +45,13 @@ async def lifespan(_app: FastAPI):
     try:
         await db_manager.connect()
         logger.info("Database connection established")
-        
+
         # Create database indexes
         await db_manager.create_indexes()
         logger.info("Database indexes created/verified")
     except Exception as e:
         logger.error("Failed to connect to database: %s", e)
-        raise HTTPException(
-            status_code=503,
-            detail='Service not ready: Database connection failed'
-        ) from e
+        raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
 
     # Start periodic cleanup tasks
     cleanup_task = asyncio.create_task(periodic_2fa_cleanup())
@@ -111,6 +110,7 @@ async def lifespan(_app: FastAPI):
     await db_manager.disconnect()
     logger.info("Database connection closed")
 
+
 # Create FastAPI app with comprehensive documentation configuration
 app = FastAPI(
     title="Second Brain Database API",
@@ -151,50 +151,30 @@ app = FastAPI(
     lifespan=lifespan,
     # Additional OpenAPI configuration
     openapi_tags=[
-        {
-            "name": "Authentication",
-            "description": "User authentication, registration, and session management"
-        },
-        {
-            "name": "Permanent Tokens",
-            "description": "Long-lived API tokens for integrations and automation"
-        },
-        {
-            "name": "Knowledge Base",
-            "description": "Core knowledge management functionality"
-        },
-        {
-            "name": "User Profile",
-            "description": "User profile management including avatars and banners"
-        },
-        {
-            "name": "Themes",
-            "description": "Theme and customization management"
-        },
-        {
-            "name": "Shop",
-            "description": "Digital asset and purchase management"
-        },
-        {
-            "name": "System",
-            "description": "System health and monitoring endpoints"
-        }
-    ]
+        {"name": "Authentication", "description": "User authentication, registration, and session management"},
+        {"name": "Permanent Tokens", "description": "Long-lived API tokens for integrations and automation"},
+        {"name": "Knowledge Base", "description": "Core knowledge management functionality"},
+        {"name": "User Profile", "description": "User profile management including avatars and banners"},
+        {"name": "Themes", "description": "Theme and customization management"},
+        {"name": "Shop", "description": "Digital asset and purchase management"},
+        {"name": "System", "description": "System health and monitoring endpoints"},
+    ],
 )
+
 
 # Add comprehensive security schemes to OpenAPI
 def custom_openapi():
     """
     Custom OpenAPI schema generation with enhanced security documentation.
-    
+
     This function generates a comprehensive OpenAPI schema with detailed security
     documentation, enhanced metadata, and environment-aware configurations.
     """
     if app.openapi_schema:
         return app.openapi_schema
-    
+
     from fastapi.openapi.utils import get_openapi
-    
+
     try:
         openapi_schema = get_openapi(
             title=app.title,
@@ -203,15 +183,15 @@ def custom_openapi():
             routes=app.routes,
             tags=app.openapi_tags,
             servers=app.servers,
-            terms_of_service=getattr(app, 'terms_of_service', None),
+            terms_of_service=getattr(app, "terms_of_service", None),
             contact=app.contact,
             license_info=app.license_info,
         )
-        
+
         # Ensure components section exists
         if "components" not in openapi_schema:
             openapi_schema["components"] = {}
-        
+
         # Add comprehensive security schemes
         openapi_schema["components"]["securitySchemes"] = {
             "JWTBearer": {
@@ -245,7 +225,7 @@ def custom_openapi():
                   "expires_at": 1640995200
                 }
                 ```
-                """
+                """,
             },
             "PermanentToken": {
                 "type": "http",
@@ -275,7 +255,7 @@ def custom_openapi():
                 - List tokens: `GET /auth/permanent-tokens`
                 - Revoke token: `DELETE /auth/permanent-tokens/{token_id}`
                 - View analytics: Token usage statistics available in response
-                """
+                """,
             },
             "AdminAPIKey": {
                 "type": "apiKey",
@@ -298,38 +278,36 @@ def custom_openapi():
                 - Separate from user authentication tokens
                 - Additional layer of security for sensitive operations
                 - Logged and monitored for security auditing
-                """
-            }
-        }
-        
-        # Add global security requirements
-        openapi_schema["security"] = [
-            {"JWTBearer": []},
-            {"PermanentToken": []},
-            {"AdminAPIKey": []}
-        ]
-        
-        # Enhanced info section with additional metadata
-        openapi_schema["info"].update({
-            "x-logo": {
-                "url": "https://github.com/rohanbatrain/second_brain_database/raw/main/logo.png",
-                "altText": "Second Brain Database Logo"
+                """,
             },
-            "x-api-id": "second-brain-database-api",
-            "x-audience": "developers",
-            "x-category": "knowledge-management"
-        })
-        
+        }
+
+        # Add global security requirements
+        openapi_schema["security"] = [{"JWTBearer": []}, {"PermanentToken": []}, {"AdminAPIKey": []}]
+
+        # Enhanced info section with additional metadata
+        openapi_schema["info"].update(
+            {
+                "x-logo": {
+                    "url": "https://github.com/rohanbatrain/second_brain_database/raw/main/logo.png",
+                    "altText": "Second Brain Database Logo",
+                },
+                "x-api-id": "second-brain-database-api",
+                "x-audience": "developers",
+                "x-category": "knowledge-management",
+            }
+        )
+
         # Add external documentation
         openapi_schema["externalDocs"] = {
             "description": "GitHub Repository & Full Documentation",
-            "url": "https://github.com/rohanbatrain/second_brain_database"
+            "url": "https://github.com/rohanbatrain/second_brain_database",
         }
-        
+
         # Add comprehensive tag descriptions with enhanced metadata
         if "tags" not in openapi_schema:
             openapi_schema["tags"] = []
-        
+
         # Update existing tags with more detailed descriptions
         enhanced_tags = [
             {
@@ -352,11 +330,11 @@ def custom_openapi():
                 """,
                 "externalDocs": {
                     "description": "Authentication Guide",
-                    "url": "https://github.com/rohanbatrain/second_brain_database#authentication"
-                }
+                    "url": "https://github.com/rohanbatrain/second_brain_database#authentication",
+                },
             },
             {
-                "name": "Permanent Tokens", 
+                "name": "Permanent Tokens",
                 "description": """
                 **Long-lived API Tokens for Integrations**
                 
@@ -374,9 +352,9 @@ def custom_openapi():
                 - Abuse detection and alerting
                 """,
                 "externalDocs": {
-                    "description": "Permanent Tokens Guide", 
-                    "url": "https://github.com/rohanbatrain/second_brain_database#permanent-tokens"
-                }
+                    "description": "Permanent Tokens Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#permanent-tokens",
+                },
             },
             {
                 "name": "Knowledge Base",
@@ -390,7 +368,7 @@ def custom_openapi():
                 - Version control and history
                 
                 **Coming Soon:** Enhanced knowledge management features
-                """
+                """,
             },
             {
                 "name": "User Profile",
@@ -407,7 +385,7 @@ def custom_openapi():
                 - Asset ownership and rental tracking
                 - Multi-application avatar/banner support
                 - User preference synchronization
-                """
+                """,
             },
             {
                 "name": "Themes",
@@ -419,7 +397,7 @@ def custom_openapi():
                 - Custom color schemes
                 - Visual preference settings
                 - Theme rental and ownership system
-                """
+                """,
             },
             {
                 "name": "Shop",
@@ -432,7 +410,7 @@ def custom_openapi():
                 - Shopping cart management
                 - Purchase history and receipts
                 - Asset ownership tracking
-                """
+                """,
             },
             {
                 "name": "System",
@@ -444,22 +422,22 @@ def custom_openapi():
                 - Performance metrics and analytics
                 - System information and diagnostics
                 - Administrative tools and utilities
-                """
-            }
+                """,
+            },
         ]
-        
+
         # Replace existing tags with enhanced versions
         openapi_schema["tags"] = enhanced_tags
-        
+
         # Add environment-specific information
         if settings.is_production:
             openapi_schema["info"]["x-environment"] = "production"
         else:
             openapi_schema["info"]["x-environment"] = "development"
             openapi_schema["info"]["x-debug"] = True
-        
+
         logger.info("Custom OpenAPI schema generated successfully")
-        
+
     except Exception as e:
         logger.error("Error generating custom OpenAPI schema: %s", e)
         # Fallback to default schema generation
@@ -469,9 +447,10 @@ def custom_openapi():
             description=app.description,
             routes=app.routes,
         )
-    
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
+
 
 # Set custom OpenAPI schema
 app.openapi = custom_openapi
@@ -497,10 +476,4 @@ Instrumentator(
 ).add().instrument(app).expose(app, include_in_schema=False, endpoint="/metrics")
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level="info"
-    )
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG, log_level="info")
