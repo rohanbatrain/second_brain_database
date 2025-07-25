@@ -10,17 +10,19 @@ Logging:
     - Logs connection attempts, successes, and failures.
     - All exceptions are logged with full traceback.
 """
+
 from typing import Optional
-import redis.asyncio as redis
+
 from fastapi import HTTPException, status
+import redis.asyncio as redis
+
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger()
 
-REDIS_UNAVAILABLE_MSG: str = (
-    "Rate limiting service unavailable. Please try again later."
-)
+REDIS_UNAVAILABLE_MSG: str = "Rate limiting service unavailable. Please try again later."
+
 
 class RedisManager:
     """
@@ -31,6 +33,7 @@ class RedisManager:
         _redis: The cached Redis connection instance.
         logger: The logger instance for this manager.
     """
+
     def __init__(self) -> None:
         """Initialize the RedisManager with config and logger."""
         self.redis_url: str = settings.REDIS_URL
@@ -54,18 +57,15 @@ class RedisManager:
         if self._redis is None:
             try:
                 self.logger.info("[RedisManager] Attempting to connect to Redis at %s", self.redis_url)
-                self._redis = await redis.from_url(
-                    self.redis_url, decode_responses=True
-                )
+                self._redis = await redis.from_url(self.redis_url, decode_responses=True)
                 self.logger.info("[RedisManager] Successfully connected to Redis at %s", self.redis_url)
             except Exception as conn_exc:
-                self.logger.error(
-                    "[RedisManager] Failed to connect to Redis: %s", conn_exc, exc_info=True
-                )
+                self.logger.error("[RedisManager] Failed to connect to Redis: %s", conn_exc, exc_info=True)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=REDIS_UNAVAILABLE_MSG,
                 ) from conn_exc
         return self._redis
+
 
 redis_manager = RedisManager()

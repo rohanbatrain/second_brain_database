@@ -31,12 +31,13 @@ See also:
 - src/second_brain_database/routes/auth/periodics/redis_flag_sync.py for Redis sync logic.
 - config/.sbd for interval and expiry settings.
 """
+
 import asyncio
 from datetime import datetime
 from typing import Optional
-from second_brain_database.database import db_manager
-from second_brain_database.config import settings
 
+from second_brain_database.config import settings
+from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.routes.auth.services.auth.twofa import clear_2fa_pending_if_expired
 
@@ -45,6 +46,7 @@ logger = get_logger(prefix="[Auth Periodic Cleanup]")
 SYSTEM_COLLECTION = "system"
 USERS_COLLECTION = settings.USERS_COLLECTION
 CLEANUP_DOC_ID = "2fa_cleanup"
+
 
 async def get_last_cleanup_time() -> Optional[datetime]:
     """
@@ -64,6 +66,7 @@ async def get_last_cleanup_time() -> Optional[datetime]:
         logger.error("Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time in the system collection to the given datetime.
@@ -72,15 +75,12 @@ async def set_last_cleanup_time(dt: datetime) -> None:
     """
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
-        await system.update_one(
-            {"_id": CLEANUP_DOC_ID},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
-        )
+        await system.update_one({"_id": CLEANUP_DOC_ID}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True)
         logger.debug("Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_2fa_cleanup() -> None:
     """
@@ -103,21 +103,32 @@ async def periodic_2fa_cleanup() -> None:
                 users = db_manager.get_collection(USERS_COLLECTION)
                 cleanup_count = 0
                 # 2FA cleanup
-                async for user in users.find({"$or": [
-                    {"two_fa_pending": True},
-                    {"two_fa_enabled": False, "$or": [
-                        {"totp_secret": {"$exists": True, "$ne": None}},
-                        {"backup_codes": {"$exists": True, "$ne": []}},
-                        {"two_fa_pending": {"$exists": True, "$ne": False}}
-                    ]}
-                ]}):
+                async for user in users.find(
+                    {
+                        "$or": [
+                            {"two_fa_pending": True},
+                            {
+                                "two_fa_enabled": False,
+                                "$or": [
+                                    {"totp_secret": {"$exists": True, "$ne": None}},
+                                    {"backup_codes": {"$exists": True, "$ne": []}},
+                                    {"two_fa_pending": {"$exists": True, "$ne": False}},
+                                ],
+                            },
+                        ]
+                    }
+                ):
                     try:
                         # If 2FA is enabled, just clear expired pending states
                         if user.get("two_fa_enabled", False):
                             cleaned = await clear_2fa_pending_if_expired(user)
                             if cleaned:
                                 cleanup_count += 1
-                                logger.info("Cleared expired 2FA pending state for user '%s' (_id=%s)", user.get('username', 'unknown'), user.get('_id'))
+                                logger.info(
+                                    "Cleared expired 2FA pending state for user '%s' (_id=%s)",
+                                    user.get("username", "unknown"),
+                                    user.get("_id"),
+                                )
                         else:
                             # If 2FA is disabled but 2FA-related values exist, remove them
                             update_fields = {}
@@ -130,13 +141,23 @@ async def periodic_2fa_cleanup() -> None:
                             if update_fields:
                                 await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
                                 cleanup_count += 1
-                                logger.info("Removed orphaned 2FA data for user '%s' (_id=%s)", user.get('username', 'unknown'), user.get('_id'))
+                                logger.info(
+                                    "Removed orphaned 2FA data for user '%s' (_id=%s)",
+                                    user.get("username", "unknown"),
+                                    user.get("_id"),
+                                )
                     except Exception as exc:
-                        logger.error("Error cleaning up 2FA for user '%s' (_id=%s): %s", user.get('username', 'unknown'), user.get('_id'), exc, exc_info=True)
+                        logger.error(
+                            "Error cleaning up 2FA for user '%s' (_id=%s): %s",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                            exc,
+                            exc_info=True,
+                        )
                 # Password reset token cleanup
                 result = await users.update_many(
                     {"password_reset_token_expiry": {"$exists": True, "$lt": now.isoformat()}},
-                    {"$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}}
+                    {"$unset": {"password_reset_token": "", "password_reset_token_expiry": ""}},
                 )
                 if result.modified_count > 0:
                     logger.info("Password reset token cleanup: removed %d expired tokens", result.modified_count)
@@ -146,11 +167,16 @@ async def periodic_2fa_cleanup() -> None:
                 else:
                     logger.debug("No 2FA cleanup actions needed this cycle.")
             else:
-                logger.debug("Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic cleanup task: %s", exc, exc_info=True)
         finally:
             await asyncio.sleep(interval)
+
 
 async def get_last_avatar_rental_cleanup_time() -> Optional[datetime]:
     """
@@ -168,6 +194,7 @@ async def get_last_avatar_rental_cleanup_time() -> Optional[datetime]:
         logger.error("[Avatar Rental] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_avatar_rental_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for avatar rental in the system collection.
@@ -175,14 +202,13 @@ async def set_last_avatar_rental_cleanup_time(dt: datetime) -> None:
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         await system.update_one(
-            {"_id": "avatar_rental_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
+            {"_id": "avatar_rental_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
         )
         logger.debug("[Avatar Rental] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Avatar Rental] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_avatar_rental_cleanup() -> None:
     """
@@ -192,6 +218,7 @@ async def periodic_avatar_rental_cleanup() -> None:
     Now tracks last run time in the system collection for resilience.
     """
     from datetime import timezone
+
     users = db_manager.get_collection("users")
     interval = 300  # Run every 5 minutes
     logger.info("Starting periodic avatar rental cleanup task with interval %ds", interval)
@@ -226,17 +253,27 @@ async def periodic_avatar_rental_cleanup() -> None:
                     if expired_avatar_ids or avatars_changed:
                         await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
                         cleanup_count += 1
-                        logger.info("Avatar rental cleanup: removed expired avatars %s for user '%s' (_id=%s)", list(expired_avatar_ids), user.get('username', 'unknown'), user.get('_id'))
+                        logger.info(
+                            "Avatar rental cleanup: removed expired avatars %s for user '%s' (_id=%s)",
+                            list(expired_avatar_ids),
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
                 if cleanup_count > 0:
                     logger.info("Avatar rental cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No avatar rental cleanup actions needed this cycle.")
                 await set_last_avatar_rental_cleanup_time(now)
             else:
-                logger.debug("[Avatar Rental] Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Avatar Rental] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_avatar_rental_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def get_last_banner_rental_cleanup_time() -> Optional[datetime]:
     """
@@ -254,6 +291,7 @@ async def get_last_banner_rental_cleanup_time() -> Optional[datetime]:
         logger.error("[Banner Rental] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_banner_rental_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for banner rental in the system collection.
@@ -261,14 +299,13 @@ async def set_last_banner_rental_cleanup_time(dt: datetime) -> None:
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         await system.update_one(
-            {"_id": "banner_rental_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
+            {"_id": "banner_rental_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
         )
         logger.debug("[Banner Rental] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Banner Rental] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_banner_rental_cleanup() -> None:
     """
@@ -277,6 +314,7 @@ async def periodic_banner_rental_cleanup() -> None:
     Now tracks last run time in the system collection for resilience.
     """
     from datetime import timezone
+
     users = db_manager.get_collection("users")
     interval = 3600  # Run every hour (adjust as needed)
     logger.info("Starting periodic banner rental cleanup task with interval %ds", interval)
@@ -311,17 +349,27 @@ async def periodic_banner_rental_cleanup() -> None:
                     if expired_banner_ids or banners_changed:
                         await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
                         cleanup_count += 1
-                        logger.info("Banner rental cleanup: removed expired banners %s for user '%s' (_id=%s)", list(expired_banner_ids), user.get('username', 'unknown'), user.get('_id'))
+                        logger.info(
+                            "Banner rental cleanup: removed expired banners %s for user '%s' (_id=%s)",
+                            list(expired_banner_ids),
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
                 if cleanup_count > 0:
                     logger.info("Banner rental cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No banner rental cleanup actions needed this cycle.")
                 await set_last_banner_rental_cleanup_time(now)
             else:
-                logger.debug("[Banner Rental] Skipping cleanup; only %ds since last run (interval: %ds)", (now - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Banner Rental] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_banner_rental_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def get_last_email_verification_token_cleanup_time() -> Optional[datetime]:
     """
@@ -339,6 +387,7 @@ async def get_last_email_verification_token_cleanup_time() -> Optional[datetime]
         logger.error("[Email Verification] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_email_verification_token_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for email verification token cleanup in the system collection.
@@ -346,14 +395,13 @@ async def set_last_email_verification_token_cleanup_time(dt: datetime) -> None:
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         await system.update_one(
-            {"_id": "email_verification_token_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
+            {"_id": "email_verification_token_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
         )
         logger.debug("[Email Verification] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Email Verification] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_email_verification_token_cleanup() -> None:
     """
@@ -371,7 +419,7 @@ async def periodic_email_verification_token_cleanup() -> None:
             if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
                 result = await users.update_many(
                     {"email_verification_token_expiry": {"$exists": True, "$lt": now}},
-                    {"$unset": {"email_verification_token": "", "email_verification_token_expiry": ""}}
+                    {"$unset": {"email_verification_token": "", "email_verification_token_expiry": ""}},
                 )
                 if result.modified_count > 0:
                     logger.info("Email verification token cleanup: removed %d expired tokens", result.modified_count)
@@ -379,10 +427,15 @@ async def periodic_email_verification_token_cleanup() -> None:
                     logger.debug("No email verification token cleanup actions needed this cycle.")
                 await set_last_email_verification_token_cleanup_time(now_dt)
             else:
-                logger.debug("[Email Verification] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Email Verification] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_email_verification_token_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def get_last_session_cleanup_time() -> Optional[datetime]:
     """
@@ -400,21 +453,19 @@ async def get_last_session_cleanup_time() -> Optional[datetime]:
         logger.error("[Session] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_session_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for session cleanup in the system collection.
     """
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
-        await system.update_one(
-            {"_id": "session_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
-        )
+        await system.update_one({"_id": "session_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True)
         logger.debug("[Session] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Session] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_session_cleanup() -> None:
     """
@@ -437,17 +488,26 @@ async def periodic_session_cleanup() -> None:
                     if len(filtered) != len(sessions):
                         await users.update_one({"_id": user["_id"]}, {"$set": {"sessions": filtered}})
                         cleanup_count += 1
-                        logger.info("Session cleanup: removed expired sessions for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                        logger.info(
+                            "Session cleanup: removed expired sessions for user '%s' (_id=%s)",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
                 if cleanup_count > 0:
                     logger.info("Session cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No session cleanup actions needed this cycle.")
                 await set_last_session_cleanup_time(now_dt)
             else:
-                logger.debug("[Session] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Session] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_session_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def get_last_trusted_ip_lockdown_code_cleanup_time() -> Optional[datetime]:
     """
@@ -465,6 +525,7 @@ async def get_last_trusted_ip_lockdown_code_cleanup_time() -> Optional[datetime]
         logger.error("[Trusted IP] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_trusted_ip_lockdown_code_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for trusted IP lockdown code cleanup in the system collection.
@@ -472,14 +533,13 @@ async def set_last_trusted_ip_lockdown_code_cleanup_time(dt: datetime) -> None:
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         await system.update_one(
-            {"_id": "trusted_ip_lockdown_code_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
+            {"_id": "trusted_ip_lockdown_code_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
         )
         logger.debug("[Trusted IP] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Trusted IP] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_trusted_ip_lockdown_code_cleanup() -> None:
     """
@@ -502,17 +562,26 @@ async def periodic_trusted_ip_lockdown_code_cleanup() -> None:
                     if len(filtered) != len(codes):
                         await users.update_one({"_id": user["_id"]}, {"$set": {"trusted_ip_lockdown_codes": filtered}})
                         cleanup_count += 1
-                        logger.info("Trusted IP lockdown code cleanup: removed expired codes for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                        logger.info(
+                            "Trusted IP lockdown code cleanup: removed expired codes for user '%s' (_id=%s)",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
                 if cleanup_count > 0:
                     logger.info("Trusted IP lockdown code cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No trusted IP lockdown code cleanup actions needed this cycle.")
                 await set_last_trusted_ip_lockdown_code_cleanup_time(now_dt)
             else:
-                logger.debug("[Trusted IP] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Trusted IP] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_trusted_ip_lockdown_code_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def get_last_admin_session_token_cleanup_time() -> Optional[datetime]:
     """
@@ -530,6 +599,7 @@ async def get_last_admin_session_token_cleanup_time() -> Optional[datetime]:
         logger.error("[Admin Session] Error getting last cleanup time: %s", exc, exc_info=True)
         raise
 
+
 async def set_last_admin_session_token_cleanup_time(dt: datetime) -> None:
     """
     Update the last cleanup time for admin session token cleanup in the system collection.
@@ -537,14 +607,13 @@ async def set_last_admin_session_token_cleanup_time(dt: datetime) -> None:
     try:
         system = db_manager.get_collection(SYSTEM_COLLECTION)
         await system.update_one(
-            {"_id": "admin_session_token_cleanup"},
-            {"$set": {"last_cleanup": dt.isoformat()}},
-            upsert=True
+            {"_id": "admin_session_token_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
         )
         logger.debug("[Admin Session] Set last cleanup time to: %s", dt.isoformat())
     except Exception as exc:
         logger.error("[Admin Session] Error setting last cleanup time: %s", exc, exc_info=True)
         raise
+
 
 async def periodic_admin_session_token_cleanup() -> None:
     """
@@ -567,14 +636,22 @@ async def periodic_admin_session_token_cleanup() -> None:
                     if len(filtered) != len(sessions):
                         await users.update_one({"_id": user["_id"]}, {"$set": {"admin_sessions": filtered}})
                         cleanup_count += 1
-                        logger.info("Admin session token cleanup: removed expired tokens for user '%s' (_id=%s)", user.get("username", "unknown"), user.get("_id"))
+                        logger.info(
+                            "Admin session token cleanup: removed expired tokens for user '%s' (_id=%s)",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
                 if cleanup_count > 0:
                     logger.info("Admin session token cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No admin session token cleanup actions needed this cycle.")
                 await set_last_admin_session_token_cleanup_time(now_dt)
             else:
-                logger.debug("[Admin Session] Skipping cleanup; only %ds since last run (interval: %ds)", (now_dt - last_cleanup).total_seconds() if last_cleanup else 0, interval)
+                logger.debug(
+                    "[Admin Session] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
         except Exception as exc:
             logger.error("Error in periodic_admin_session_token_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)

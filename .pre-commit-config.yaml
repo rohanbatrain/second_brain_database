@@ -1,5 +1,5 @@
 # Pre-commit configuration for Second Brain Database
-# Install with: pip install pre-commit && pre-commit install
+# Install with: uv sync --extra dev && uv run pre-commit install
 
 repos:
   # Black code formatter

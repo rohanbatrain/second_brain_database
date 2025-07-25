@@ -5,12 +5,13 @@ This module provides comprehensive security documentation, including security
 requirements for different endpoint types and detailed security scheme information.
 """
 
-from typing import Dict, Any, List, Optional
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class SecurityLevel(Enum):
     """Security levels for different endpoint types."""
+
     PUBLIC = "public"
     USER = "user"
     ADMIN = "admin"
@@ -20,49 +21,40 @@ class SecurityLevel(Enum):
 class SecurityRequirements:
     """
     Security requirements documentation for different endpoint types.
-    
+
     This class provides standardized security requirements that can be applied
     to different categories of endpoints.
     """
-    
+
     @staticmethod
     def get_public_endpoints() -> Dict[str, Any]:
         """
         Get security requirements for public endpoints.
-        
+
         Returns:
             Dict containing public endpoint security configuration
         """
         return {
             "security": [],  # No authentication required
             "description": "Public endpoints that don't require authentication",
-            "examples": [
-                "/docs",
-                "/redoc", 
-                "/openapi.json",
-                "/health",
-                "/"
-            ],
+            "examples": ["/docs", "/redoc", "/openapi.json", "/health", "/"],
             "rate_limiting": {
                 "enabled": True,
                 "requests_per_minute": 100,
-                "description": "Rate limiting applied to prevent abuse"
-            }
+                "description": "Rate limiting applied to prevent abuse",
+            },
         }
-    
+
     @staticmethod
     def get_user_endpoints() -> Dict[str, Any]:
         """
         Get security requirements for user-authenticated endpoints.
-        
+
         Returns:
             Dict containing user endpoint security configuration
         """
         return {
-            "security": [
-                {"JWTBearer": []},
-                {"PermanentToken": []}
-            ],
+            "security": [{"JWTBearer": []}, {"PermanentToken": []}],
             "description": "Endpoints requiring user authentication via JWT or permanent token",
             "examples": [
                 "/auth/me",
@@ -73,131 +65,112 @@ class SecurityRequirements:
                 "/avatars/*",
                 "/banners/*",
                 "/themes/*",
-                "/shop/*"
+                "/shop/*",
             ],
             "authentication_methods": [
                 {
                     "method": "JWT Bearer Token",
                     "header": "Authorization: Bearer <jwt_token>",
                     "expiration": "30 minutes",
-                    "use_case": "Interactive user sessions"
+                    "use_case": "Interactive user sessions",
                 },
                 {
                     "method": "Permanent API Token",
                     "header": "Authorization: Bearer <permanent_token>",
                     "expiration": "No expiration (until revoked)",
-                    "use_case": "Integrations and automation"
-                }
+                    "use_case": "Integrations and automation",
+                },
             ],
             "rate_limiting": {
                 "enabled": True,
                 "requests_per_minute": 100,
-                "description": "Rate limiting applied per authenticated user"
-            }
+                "description": "Rate limiting applied per authenticated user",
+            },
         }
-    
+
     @staticmethod
     def get_admin_endpoints() -> Dict[str, Any]:
         """
         Get security requirements for admin-only endpoints.
-        
+
         Returns:
             Dict containing admin endpoint security configuration
         """
         return {
-            "security": [
-                {"JWTBearer": [], "AdminAPIKey": []},
-                {"PermanentToken": [], "AdminAPIKey": []}
-            ],
+            "security": [{"JWTBearer": [], "AdminAPIKey": []}, {"PermanentToken": [], "AdminAPIKey": []}],
             "description": "Endpoints requiring admin role and additional API key authentication",
-            "examples": [
-                "/admin/*",
-                "/auth/admin/*",
-                "/system/admin/*"
-            ],
+            "examples": ["/admin/*", "/auth/admin/*", "/system/admin/*"],
             "authentication_methods": [
                 {
                     "method": "JWT Bearer Token + Admin API Key",
-                    "headers": [
-                        "Authorization: Bearer <jwt_token>",
-                        "X-Admin-API-Key: <admin_api_key>"
-                    ],
+                    "headers": ["Authorization: Bearer <jwt_token>", "X-Admin-API-Key: <admin_api_key>"],
                     "requirements": ["Admin role", "Valid admin API key"],
-                    "use_case": "Administrative operations"
+                    "use_case": "Administrative operations",
                 },
                 {
                     "method": "Permanent Token + Admin API Key",
-                    "headers": [
-                        "Authorization: Bearer <permanent_token>",
-                        "X-Admin-API-Key: <admin_api_key>"
-                    ],
+                    "headers": ["Authorization: Bearer <permanent_token>", "X-Admin-API-Key: <admin_api_key>"],
                     "requirements": ["Admin role", "Valid admin API key"],
-                    "use_case": "Automated admin operations"
-                }
+                    "use_case": "Automated admin operations",
+                },
             ],
             "additional_security": {
                 "role_check": "User must have 'admin' role",
                 "api_key_validation": "Valid admin API key required",
-                "audit_logging": "All admin operations are logged"
+                "audit_logging": "All admin operations are logged",
             },
             "rate_limiting": {
                 "enabled": True,
                 "requests_per_minute": 50,
-                "description": "Stricter rate limiting for admin operations"
-            }
+                "description": "Stricter rate limiting for admin operations",
+            },
         }
-    
+
     @staticmethod
     def get_system_endpoints() -> Dict[str, Any]:
         """
         Get security requirements for system-level endpoints.
-        
+
         Returns:
             Dict containing system endpoint security configuration
         """
         return {
-            "security": [
-                {"AdminAPIKey": []}
-            ],
+            "security": [{"AdminAPIKey": []}],
             "description": "System-level endpoints for monitoring and health checks",
-            "examples": [
-                "/metrics",
-                "/system/health",
-                "/system/status"
-            ],
+            "examples": ["/metrics", "/system/health", "/system/status"],
             "authentication_methods": [
                 {
                     "method": "Admin API Key Only",
                     "header": "X-Admin-API-Key: <admin_api_key>",
                     "requirements": ["Valid admin API key"],
-                    "use_case": "System monitoring and health checks"
+                    "use_case": "System monitoring and health checks",
                 }
             ],
             "additional_security": {
                 "ip_restrictions": "May be restricted to specific IP ranges",
-                "monitoring": "Access is monitored and logged"
+                "monitoring": "Access is monitored and logged",
             },
             "rate_limiting": {
                 "enabled": True,
                 "requests_per_minute": 200,
-                "description": "Higher rate limits for monitoring systems"
-            }
+                "description": "Higher rate limits for monitoring systems",
+            },
         }
 
 
 class SecurityDocumentation:
     """
     Comprehensive security documentation for the API.
-    
+
     This class provides detailed security information, best practices,
     and implementation guidelines.
     """
-    
+
     @staticmethod
     def get_security_overview() -> Dict[str, Any]:
         """
         Get comprehensive security overview documentation.
-        
+
         Returns:
             Dict containing security overview and best practices
         """
@@ -212,29 +185,29 @@ class SecurityDocumentation:
                     {
                         "layer": "Authentication",
                         "description": "Multiple authentication methods including JWT tokens and permanent API tokens",
-                        "methods": ["JWT Bearer", "Permanent Tokens", "Admin API Keys"]
+                        "methods": ["JWT Bearer", "Permanent Tokens", "Admin API Keys"],
                     },
                     {
-                        "layer": "Authorization", 
+                        "layer": "Authorization",
                         "description": "Role-based access control with user and admin roles",
-                        "features": ["Role validation", "Endpoint-specific permissions", "Resource ownership checks"]
+                        "features": ["Role validation", "Endpoint-specific permissions", "Resource ownership checks"],
                     },
                     {
                         "layer": "Rate Limiting",
                         "description": "Comprehensive rate limiting to prevent abuse and ensure fair usage",
-                        "features": ["Per-IP limits", "Per-user limits", "Endpoint-specific limits"]
+                        "features": ["Per-IP limits", "Per-user limits", "Endpoint-specific limits"],
                     },
                     {
                         "layer": "Input Validation",
                         "description": "Strict input validation and sanitization",
-                        "features": ["Pydantic model validation", "SQL injection prevention", "XSS protection"]
+                        "features": ["Pydantic model validation", "SQL injection prevention", "XSS protection"],
                     },
                     {
                         "layer": "Audit Logging",
                         "description": "Comprehensive logging of security events and user actions",
-                        "features": ["Authentication events", "Admin operations", "Failed access attempts"]
-                    }
-                ]
+                        "features": ["Authentication events", "Admin operations", "Failed access attempts"],
+                    },
+                ],
             },
             "best_practices": {
                 "title": "Security Best Practices",
@@ -245,7 +218,7 @@ class SecurityDocumentation:
                     "Handle authentication errors gracefully",
                     "Use permanent tokens for server-to-server communication",
                     "Regularly rotate permanent tokens",
-                    "Monitor token usage and revoke unused tokens"
+                    "Monitor token usage and revoke unused tokens",
                 ],
                 "for_integrations": [
                     "Use permanent tokens instead of JWT for long-running processes",
@@ -253,8 +226,8 @@ class SecurityDocumentation:
                     "Respect rate limits and implement backoff strategies",
                     "Use IP restrictions when possible for permanent tokens",
                     "Monitor token usage through the API",
-                    "Implement token rotation policies"
-                ]
+                    "Implement token rotation policies",
+                ],
             },
             "common_errors": {
                 "title": "Common Security Errors and Solutions",
@@ -262,27 +235,31 @@ class SecurityDocumentation:
                     {
                         "error": "401 Unauthorized",
                         "causes": ["Expired token", "Invalid token", "Missing token"],
-                        "solutions": ["Refresh JWT token", "Check token format", "Include Authorization header"]
+                        "solutions": ["Refresh JWT token", "Check token format", "Include Authorization header"],
                     },
                     {
-                        "error": "403 Forbidden", 
+                        "error": "403 Forbidden",
                         "causes": ["Insufficient permissions", "Missing admin role", "Invalid admin API key"],
-                        "solutions": ["Check user role", "Verify admin API key", "Contact administrator"]
+                        "solutions": ["Check user role", "Verify admin API key", "Contact administrator"],
                     },
                     {
                         "error": "429 Too Many Requests",
                         "causes": ["Rate limit exceeded", "Too many failed attempts"],
-                        "solutions": ["Implement backoff strategy", "Reduce request frequency", "Wait for rate limit reset"]
-                    }
-                ]
-            }
+                        "solutions": [
+                            "Implement backoff strategy",
+                            "Reduce request frequency",
+                            "Wait for rate limit reset",
+                        ],
+                    },
+                ],
+            },
         }
-    
+
     @staticmethod
     def get_token_management_guide() -> Dict[str, Any]:
         """
         Get comprehensive token management documentation.
-        
+
         Returns:
             Dict containing token management best practices and guidelines
         """
@@ -297,8 +274,8 @@ class SecurityDocumentation:
                         "best_practices": [
                             "Use secure login endpoints",
                             "Handle 2FA requirements properly",
-                            "Store tokens securely"
-                        ]
+                            "Store tokens securely",
+                        ],
                     },
                     {
                         "phase": "Usage",
@@ -306,8 +283,8 @@ class SecurityDocumentation:
                         "best_practices": [
                             "Include in Authorization header",
                             "Check expiration before requests",
-                            "Handle 401 errors gracefully"
-                        ]
+                            "Handle 401 errors gracefully",
+                        ],
                     },
                     {
                         "phase": "Refresh",
@@ -315,19 +292,15 @@ class SecurityDocumentation:
                         "best_practices": [
                             "Implement automatic refresh logic",
                             "Handle refresh failures",
-                            "Update stored token"
-                        ]
+                            "Update stored token",
+                        ],
                     },
                     {
                         "phase": "Logout",
                         "description": "Properly invalidating tokens",
-                        "best_practices": [
-                            "Call logout endpoint",
-                            "Clear stored tokens",
-                            "Handle logout errors"
-                        ]
-                    }
-                ]
+                        "best_practices": ["Call logout endpoint", "Clear stored tokens", "Handle logout errors"],
+                    },
+                ],
             },
             "permanent_tokens": {
                 "title": "Permanent Token Management",
@@ -340,8 +313,8 @@ class SecurityDocumentation:
                             "Use descriptive names",
                             "Set IP restrictions when possible",
                             "Consider expiration dates for temporary integrations",
-                            "Store tokens securely"
-                        ]
+                            "Store tokens securely",
+                        ],
                     },
                     {
                         "phase": "Usage",
@@ -350,8 +323,8 @@ class SecurityDocumentation:
                             "Use environment variables for storage",
                             "Implement proper error handling",
                             "Monitor usage through API",
-                            "Respect rate limits"
-                        ]
+                            "Respect rate limits",
+                        ],
                     },
                     {
                         "phase": "Monitoring",
@@ -360,8 +333,8 @@ class SecurityDocumentation:
                             "Regularly review token list",
                             "Monitor usage patterns",
                             "Check for suspicious activity",
-                            "Review IP restrictions"
-                        ]
+                            "Review IP restrictions",
+                        ],
                     },
                     {
                         "phase": "Rotation",
@@ -370,26 +343,26 @@ class SecurityDocumentation:
                             "Implement regular rotation schedule",
                             "Create new token before revoking old",
                             "Update all systems using the token",
-                            "Verify new token works before cleanup"
-                        ]
-                    }
-                ]
-            }
+                            "Verify new token works before cleanup",
+                        ],
+                    },
+                ],
+            },
         }
 
 
 def get_security_requirements_for_endpoint(endpoint_type: SecurityLevel) -> Dict[str, Any]:
     """
     Get security requirements for a specific endpoint type.
-    
+
     Args:
         endpoint_type: The security level/type of the endpoint
-        
+
     Returns:
         Dict containing security requirements for the endpoint type
     """
     requirements = SecurityRequirements()
-    
+
     if endpoint_type == SecurityLevel.PUBLIC:
         return requirements.get_public_endpoints()
     elif endpoint_type == SecurityLevel.USER:
@@ -405,12 +378,12 @@ def get_security_requirements_for_endpoint(endpoint_type: SecurityLevel) -> Dict
 def get_comprehensive_security_documentation() -> Dict[str, Any]:
     """
     Get complete security documentation for the API.
-    
+
     Returns:
         Dict containing comprehensive security documentation
     """
     security_docs = SecurityDocumentation()
-    
+
     return {
         "security_overview": security_docs.get_security_overview(),
         "token_management": security_docs.get_token_management_guide(),
@@ -418,6 +391,6 @@ def get_comprehensive_security_documentation() -> Dict[str, Any]:
             "public": get_security_requirements_for_endpoint(SecurityLevel.PUBLIC),
             "user": get_security_requirements_for_endpoint(SecurityLevel.USER),
             "admin": get_security_requirements_for_endpoint(SecurityLevel.ADMIN),
-            "system": get_security_requirements_for_endpoint(SecurityLevel.SYSTEM)
-        }
+            "system": get_security_requirements_for_endpoint(SecurityLevel.SYSTEM),
+        },
     }

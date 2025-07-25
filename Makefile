@@ -11,7 +11,9 @@ help:
 	@echo "  check         - Run type checking with mypy"
 	@echo "  pylint        - Run pylint code quality checks"
 	@echo "  test          - Run tests with pytest"
-	@echo "  install-dev   - Install development dependencies"
+	@echo "  install-dev   - Install development dependencies with uv"
+	@echo "  setup-dev     - Complete development environment setup"
+	@echo "  validate-dev  - Validate development environment"
 	@echo "  pre-commit    - Install pre-commit hooks"
 	@echo "  clean         - Clean up temporary files"
 
@@ -49,8 +51,15 @@ test-cov:
 # Development setup
 install-dev:
 	@echo "📦 Installing development dependencies..."
-	pip install -e .
-	pip install black isort pylint mypy flake8 pytest pytest-cov pre-commit bandit pydocstyle
+	uv sync --extra dev
+
+setup-dev:
+	@echo "🚀 Setting up development environment..."
+	uv run python scripts/setup_dev_environment.py
+
+validate-dev:
+	@echo "✅ Validating development environment..."
+	uv run python scripts/validate_dev_environment.py
 
 pre-commit:
 	@echo "🪝 Installing pre-commit hooks..."
@@ -70,7 +79,7 @@ clean:
 	rm -rf .coverage
 
 # Quick development workflow
-dev-setup: install-dev pre-commit
+dev-setup: setup-dev pre-commit
 	@echo "✅ Development environment setup complete!"
 
 # CI/CD commands

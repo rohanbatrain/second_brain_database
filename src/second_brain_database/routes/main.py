@@ -1,25 +1,31 @@
 """Main routes module for the Second Brain Database API."""
-from fastapi import APIRouter, HTTPException, status, Request, Body
-from fastapi.responses import JSONResponse
+
+import asyncio
+import base64
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
+from uuid import uuid4
+
+import aiohttp
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+from fastapi import APIRouter, Body, HTTPException, Request, status
+from fastapi.responses import JSONResponse, Response
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from second_brain_database.database import db_manager
-from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.docs.models import (
-    StandardErrorResponse, StandardSuccessResponse, ValidationErrorResponse,
-    create_error_responses, create_standard_responses
+    StandardErrorResponse,
+    StandardSuccessResponse,
+    ValidationErrorResponse,
+    create_error_responses,
+    create_standard_responses,
 )
-import base64
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
-from cryptography.hazmat.primitives.serialization import load_der_public_key
-from cryptography.exceptions import InvalidSignature
-import aiohttp
-import asyncio
-from urllib.parse import urlparse
-from datetime import datetime, timezone, timedelta
-from uuid import uuid4
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.utils.logging_utils import log_error_with_context, log_performance, log_security_event
 
 logger = get_logger(prefix="[AdMob SSV]")
 
@@ -28,6 +34,7 @@ router = APIRouter()
 _admob_keys = {}
 ADMOB_KEYS_URL = "https://www.gstatic.com/admob/reward/verifier-keys.json"
 ADMOB_KEYS_REFRESH_INTERVAL = 60 * 60
+
 
 async def fetch_admob_keys():
     try:
@@ -45,8 +52,10 @@ async def fetch_admob_keys():
         logger.error(f"[ADMOB KEYS FETCH ERROR] {e}")
         return {}
 
+
 def get_admob_key_base64(key_id: str):
     return _admob_keys.get(str(key_id))
+
 
 @router.get(
     "/",
@@ -74,13 +83,9 @@ def get_admob_key_base64(key_id: str):
             "description": "API information retrieved successfully",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "Second Brain Database API",
-                        "version": "1.0.0",
-                        "status": "running"
-                    }
+                    "example": {"message": "Second Brain Database API", "version": "1.0.0", "status": "running"}
                 }
-            }
+            },
         },
         429: {
             "description": "Rate limit exceeded",
@@ -91,27 +96,36 @@ def get_admob_key_base64(key_id: str):
                         "error": "rate_limit_exceeded",
                         "message": "Too many requests. Please try again later",
                         "details": {"retry_after": 60},
-                        "timestamp": "2024-01-01T12:00:00Z"
+                        "timestamp": "2024-01-01T12:00:00Z",
                     }
                 }
-            }
-        }
+            },
+        },
     },
-    tags=["System"]
+    tags=["System"],
 )
+@log_performance("api_root_endpoint")
 async def root(request: Request):
     """
     Get basic API information and status.
-    
+
     Returns fundamental information about the Second Brain Database API
     including version, status, and welcome message.
     """
-    await security_manager.check_rate_limit(request, "root", rate_limit_requests=10, rate_limit_period=60)
-    return {
-        "message": "Second Brain Database API",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    try:
+        await security_manager.check_rate_limit(request, "root", rate_limit_requests=10, rate_limit_period=60)
+
+        response_data = {"message": "Second Brain Database API", "version": "1.0.0", "status": "running"}
+
+        logger.info("API root endpoint accessed successfully")
+        return response_data
+
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "api_root_endpoint", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        raise
+
 
 @router.get(
     "/health",
@@ -147,14 +161,9 @@ async def root(request: Request):
             "description": "All systems healthy",
             "content": {
                 "application/json": {
-                    "example": {
-                        "status": "healthy",
-                        "database": "connected",
-                        "redis": "connected",
-                        "api": "running"
-                    }
+                    "example": {"status": "healthy", "database": "connected", "redis": "connected", "api": "running"}
                 }
-            }
+            },
         },
         503: {
             "description": "One or more systems unhealthy",
@@ -164,26 +173,20 @@ async def root(request: Request):
                     "example": {
                         "error": "service_unavailable",
                         "message": "Database or Redis connection failed",
-                        "details": {
-                            "database": "disconnected",
-                            "redis": "connected"
-                        },
-                        "timestamp": "2024-01-01T12:00:00Z"
+                        "details": {"database": "disconnected", "redis": "connected"},
+                        "timestamp": "2024-01-01T12:00:00Z",
                     }
                 }
-            }
+            },
         },
-        429: {
-            "description": "Rate limit exceeded",
-            "model": StandardErrorResponse
-        }
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
     },
-    tags=["System"]
+    tags=["System"],
 )
 async def health_check(request: Request):
     """
     Perform comprehensive health check of all system components.
-    
+
     Checks the health of database, Redis cache, and API service
     to ensure the system is fully operational.
     """
@@ -202,22 +205,19 @@ async def health_check(request: Request):
 
         if not db_healthy or not redis_healthy:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database or Redis connection failed"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database or Redis connection failed"
             )
 
         return {
             "status": "healthy",
             "database": "connected" if db_healthy else "disconnected",
             "redis": "connected" if redis_healthy else "disconnected",
-            "api": "running"
+            "api": "running",
         }
     except Exception as e:
         logger.error("Health check failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service unavailable"
-        ) from e
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unavailable") from e
+
 
 @router.get(
     "/healthz",
@@ -249,32 +249,28 @@ async def health_check(request: Request):
     ```
     """,
     responses={
-        200: {
-            "description": "Service is alive",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "ok"
-                    }
-                }
-            }
-        },
-        429: {
-            "description": "Rate limit exceeded",
-            "model": StandardErrorResponse
-        }
+        200: {"description": "Service is alive", "content": {"application/json": {"example": {"status": "ok"}}}},
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
     },
-    tags=["System"]
+    tags=["System"],
 )
+@log_performance("kubernetes_health_check")
 async def kubernetes_health(request: Request):
     """
     Kubernetes liveness probe endpoint.
-    
+
     Lightweight health check that indicates the service is alive
     and responding to requests.
     """
-    await security_manager.check_rate_limit(request, "healthz", rate_limit_requests=20, rate_limit_period=60)
-    return {"status": "ok"}
+    try:
+        await security_manager.check_rate_limit(request, "healthz", rate_limit_requests=20, rate_limit_period=60)
+        return {"status": "ok"}
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "kubernetes_health_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        raise
+
 
 @router.get(
     "/ready",
@@ -309,13 +305,7 @@ async def kubernetes_health(request: Request):
     responses={
         200: {
             "description": "Service is ready to handle traffic",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "ready"
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"status": "ready"}}},
         },
         503: {
             "description": "Service not ready - database unavailable",
@@ -325,22 +315,19 @@ async def kubernetes_health(request: Request):
                     "example": {
                         "error": "service_unavailable",
                         "message": "Database not ready",
-                        "timestamp": "2024-01-01T12:00:00Z"
+                        "timestamp": "2024-01-01T12:00:00Z",
                     }
                 }
-            }
+            },
         },
-        429: {
-            "description": "Rate limit exceeded",
-            "model": StandardErrorResponse
-        }
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
     },
-    tags=["System"]
+    tags=["System"],
 )
 async def readiness_check(request: Request):
     """
     Kubernetes readiness probe that checks database connectivity.
-    
+
     Verifies that the service is ready to handle traffic by checking
     that the database connection is available and functional.
     """
@@ -353,6 +340,7 @@ async def readiness_check(request: Request):
     except Exception as e:
         logger.error("Readiness check failed: %s", e)
         raise HTTPException(status_code=503, detail="Service not ready") from e
+
 
 @router.get(
     "/live",
@@ -381,29 +369,21 @@ async def readiness_check(request: Request):
     responses={
         200: {
             "description": "Service is alive and responding",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "alive"
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"status": "alive"}}},
         },
-        429: {
-            "description": "Rate limit exceeded",
-            "model": StandardErrorResponse
-        }
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
     },
-    tags=["System"]
+    tags=["System"],
 )
 async def liveness_check(request: Request):
     """
     Simple liveness check that confirms the service is running.
-    
+
     Returns a basic alive status without performing any dependency checks.
     """
     await security_manager.check_rate_limit(request, "live", rate_limit_requests=15, rate_limit_period=60)
     return {"status": "alive"}
+
 
 @router.get("/rewards/admob-ssv")
 async def admob_ssv_reward(
@@ -417,7 +397,7 @@ async def admob_ssv_reward(
     signature: str = None,
     key_id: str = None,
     note: str = None,
-    request: Request = None
+    request: Request = None,
 ):
     reward_info = {
         "ad_network": ad_network,
@@ -429,7 +409,7 @@ async def admob_ssv_reward(
         "user_id": user_id,
         "signature": "<hidden>",  # Never log raw signature in prod
         "key_id": key_id,
-        "note": note
+        "note": note,
     }
     logger.info(f"[REWARD RECEIVED] {reward_info}")
     raw_url = str(request.url)
@@ -441,8 +421,10 @@ async def admob_ssv_reward(
     logger.debug(f"Signature index: {sig_idx}")
     if sig_idx == -1:
         logger.warning("[ADMOB SIGNATURE PARAM NOT FOUND]")
-        return JSONResponse({"status": "error", "detail": "Signature parameter missing"}, status_code=HTTP_400_BAD_REQUEST)
-    content_to_verify = query_string[:sig_idx-1].encode("utf-8")
+        return JSONResponse(
+            {"status": "error", "detail": "Signature parameter missing"}, status_code=HTTP_400_BAD_REQUEST
+        )
+    content_to_verify = query_string[: sig_idx - 1].encode("utf-8")
     logger.debug(f"Content to verify (raw): {content_to_verify}")
 
     pubkey_b64 = get_admob_key_base64(key_id)
@@ -452,7 +434,10 @@ async def admob_ssv_reward(
         pubkey_b64 = get_admob_key_base64(key_id)
         if not pubkey_b64:
             logger.error(f"[ADMOB KEY STILL NOT FOUND] key_id={key_id}")
-            return JSONResponse({"status": "error", "detail": "AdMob public key not found for key_id"}, status_code=HTTP_401_UNAUTHORIZED)
+            return JSONResponse(
+                {"status": "error", "detail": "AdMob public key not found for key_id"},
+                status_code=HTTP_401_UNAUTHORIZED,
+            )
     try:
         logger.debug(f"Using public key (base64): {pubkey_b64}")
         pubkey_der = base64.b64decode(pubkey_b64)
@@ -462,37 +447,33 @@ async def admob_ssv_reward(
         except Exception as e:
             logger.warning(f"Failed to load DER public key, trying PEM. Error: {e}")
             import cryptography.hazmat.primitives.serialization as serialization
+
             pubkey_pem = (
                 "-----BEGIN PUBLIC KEY-----\n" + pubkey_b64 + "\n-----END PUBLIC KEY-----"
-                if not pubkey_b64.startswith("-----BEGIN") else pubkey_b64
+                if not pubkey_b64.startswith("-----BEGIN")
+                else pubkey_b64
             )
             pubkey = serialization.load_pem_public_key(pubkey_pem.encode())
             logger.debug(f"Loaded public key as PEM: {type(pubkey)}")
         sig = signature
         logger.debug(f"Signature (raw): {sig}")
-        sig = sig.replace('-', '+').replace('_', '/')
-        sig += '=' * ((4 - len(sig) % 4) % 4)
+        sig = sig.replace("-", "+").replace("_", "/")
+        sig += "=" * ((4 - len(sig) % 4) % 4)
         logger.debug(f"Signature (base64 padded): {sig}")
         signature_bytes = base64.b64decode(sig)
         logger.debug(f"Signature (decoded bytes): {signature_bytes.hex()}")
         if isinstance(pubkey, rsa.RSAPublicKey):
             logger.debug("Verifying with RSA public key.")
-            pubkey.verify(
-                signature_bytes,
-                content_to_verify,
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
+            pubkey.verify(signature_bytes, content_to_verify, padding.PKCS1v15(), hashes.SHA256())
         elif isinstance(pubkey, ec.EllipticCurvePublicKey):
             logger.debug("Verifying with EC public key.")
-            pubkey.verify(
-                signature_bytes,
-                content_to_verify,
-                ec.ECDSA(hashes.SHA256())
-            )
+            pubkey.verify(signature_bytes, content_to_verify, ec.ECDSA(hashes.SHA256()))
         else:
             logger.error(f"[ADMOB KEY ERROR] Unsupported public key type: {type(pubkey)}")
-            return JSONResponse({"status": "error", "detail": "AdMob key is not a supported public key type"}, status_code=HTTP_401_UNAUTHORIZED)
+            return JSONResponse(
+                {"status": "error", "detail": "AdMob key is not a supported public key type"},
+                status_code=HTTP_401_UNAUTHORIZED,
+            )
         logger.info(f"[ADMOB SIGNATURE VERIFIED] user_id={user_id}, tx={transaction_id}")
     except InvalidSignature:
         logger.warning(f"[ADMOB SIGNATURE INVALID] Invalid signature for user_id={user_id}, tx={transaction_id}")
@@ -500,17 +481,20 @@ async def admob_ssv_reward(
         return JSONResponse({"status": "error", "detail": "Invalid signature"}, status_code=HTTP_401_UNAUTHORIZED)
     except Exception as e:
         logger.error(f"[ADMOB SIGNATURE VERIFY ERROR] {e}")
-        return JSONResponse({"status": "error", "detail": "Signature verification error"}, status_code=HTTP_500_INTERNAL_SERVER_ERROR)
+        return JSONResponse(
+            {"status": "error", "detail": "Signature verification error"}, status_code=HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
     # Log and drop duplicate/fraudulent requests: check for existing transaction_id for this user
     users_collection = db_manager.get_collection("users")
-    fraud_check = await users_collection.find_one({
-        "username": user_id,
-        "admob_ssv_transactions": {"$elemMatch": {"transaction_id": transaction_id}}
-    })
+    fraud_check = await users_collection.find_one(
+        {"username": user_id, "admob_ssv_transactions": {"$elemMatch": {"transaction_id": transaction_id}}}
+    )
     if fraud_check:
         logger.warning(f"[FRAUD DETECTED] Duplicate transaction_id for user_id={user_id}, tx={transaction_id}")
-        return JSONResponse({"status": "error", "detail": "Duplicate or replayed transaction"}, status_code=HTTP_401_UNAUTHORIZED)
+        return JSONResponse(
+            {"status": "error", "detail": "Duplicate or replayed transaction"}, status_code=HTTP_401_UNAUTHORIZED
+        )
 
     # Only process if reward_item is 'token' and reward_amount is 10
     if reward_item == "token" and reward_amount == 10:
@@ -525,7 +509,7 @@ async def admob_ssv_reward(
                 "from": "sbd_ads",
                 "amount": 10,
                 "timestamp": now_iso,
-                "transaction_id": txn_id
+                "transaction_id": txn_id,
             }
             if note:
                 receive_txn["note"] = note
@@ -535,30 +519,24 @@ async def admob_ssv_reward(
                     "$inc": {"sbd_tokens": 10},
                     "$push": {
                         "admob_ssv_transactions": {"transaction_id": txn_id, "timestamp": timestamp},
-                        "sbd_tokens_transactions": receive_txn
-                    }
-                }
+                        "sbd_tokens_transactions": receive_txn,
+                    },
+                },
             )
             logger.debug(f"Update result: {update_result.raw_result}")
             if update_result.modified_count:
                 logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +10 tokens, tx={txn_id}")
                 # Log the send transaction for sbd_ads
-                send_txn = {
-                    "type": "send",
-                    "to": user_id,
-                    "amount": 10,
-                    "timestamp": now_iso,
-                    "transaction_id": txn_id
-                }
+                send_txn = {"type": "send", "to": user_id, "amount": 10, "timestamp": now_iso, "transaction_id": txn_id}
                 if note:
                     send_txn["note"] = note
                 await users_collection.update_one(
                     {"username": "sbd_ads"},
                     {
                         "$setOnInsert": {"email": "sbd_ads@rohanbatra.in"},
-                        "$push": {"sbd_tokens_transactions": send_txn}
+                        "$push": {"sbd_tokens_transactions": send_txn},
                     },
-                    upsert=True
+                    upsert=True,
                 )
             else:
                 logger.warning(f"[SBD TOKENS UPDATE FAILED] User: {user_id}")
@@ -587,7 +565,7 @@ async def admob_ssv_reward(
         "emotion_tracker-deepPurple",
         "emotion_tracker-deepPurpleDark",
         "emotion_tracker-royalOrange",
-        "emotion_tracker-royalOrangeDark"
+        "emotion_tracker-royalOrangeDark",
     ]
     if reward_item in supported_themes and reward_amount == 1:
         user = await users_collection.find_one({"username": user_id})
@@ -605,30 +583,33 @@ async def admob_ssv_reward(
                 "unlocked_at": now_iso.isoformat(),
                 "duration_hours": hours,
                 "valid_till": valid_till,
-                "transaction_id": txn_id
+                "transaction_id": txn_id,
             }
             update_result = await users_collection.update_one(
-                {"username": user_id},
-                {"$push": {"themes_rented": theme_entry}}
+                {"username": user_id}, {"$push": {"themes_rented": theme_entry}}
             )
-            logger.info(f"[THEME UNLOCKED] User: {user_id}, theme: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.info(
+                f"[THEME UNLOCKED] User: {user_id}, theme: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}"
+            )
             logger.debug(f"Theme unlock update result: {update_result.raw_result}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (theme reward)")
     # Process avatar rewards for supported avatars
-    supported_avatars = set([
-        # Cat Avatars
-        *[f"emotion_tracker-static-avatar-cat-{i}" for i in range(1, 21)],
-        # Dog Avatars
-        *[f"emotion_tracker-static-avatar-dog-{i}" for i in range(1, 18)],
-        # Panda Avatars
-        *[f"emotion_tracker-static-avatar-panda-{i}" for i in list(range(1, 10)) + list(range(10, 13))],
-        # People Avatars
-        *[f"emotion_tracker-static-avatar-person-{i}" for i in list(range(1, 9)) + list(range(10, 17))],
-        # Animated Avatars
-        "emotion_tracker-animated-avatar-playful_eye",
-        "emotion_tracker-animated-avatar-floating_brain",
-    ])
+    supported_avatars = set(
+        [
+            # Cat Avatars
+            *[f"emotion_tracker-static-avatar-cat-{i}" for i in range(1, 21)],
+            # Dog Avatars
+            *[f"emotion_tracker-static-avatar-dog-{i}" for i in range(1, 18)],
+            # Panda Avatars
+            *[f"emotion_tracker-static-avatar-panda-{i}" for i in list(range(1, 10)) + list(range(10, 13))],
+            # People Avatars
+            *[f"emotion_tracker-static-avatar-person-{i}" for i in list(range(1, 9)) + list(range(10, 17))],
+            # Animated Avatars
+            "emotion_tracker-animated-avatar-playful_eye",
+            "emotion_tracker-animated-avatar-floating_brain",
+        ]
+    )
     if reward_item in supported_avatars and reward_amount == 1:
         user = await users_collection.find_one({"username": user_id})
         logger.debug(f"User lookup for avatar reward: {user}")
@@ -645,20 +626,19 @@ async def admob_ssv_reward(
                 "unlocked_at": now_iso.isoformat(),
                 "duration_hours": hours,
                 "valid_till": valid_till,
-                "transaction_id": txn_id
+                "transaction_id": txn_id,
             }
             update_result = await users_collection.update_one(
-                {"username": user_id},
-                {"$push": {"avatars_rented": avatar_entry}}
+                {"username": user_id}, {"$push": {"avatars_rented": avatar_entry}}
             )
-            logger.info(f"[AVATAR UNLOCKED] User: {user_id}, avatar: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.info(
+                f"[AVATAR UNLOCKED] User: {user_id}, avatar: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}"
+            )
             logger.debug(f"Avatar unlock update result: {update_result.raw_result}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (avatar reward)")
     # Process banner rewards for supported banners
-    supported_banners = set([
-        "emotion_tracker-static-banner-earth-1"
-    ])
+    supported_banners = set(["emotion_tracker-static-banner-earth-1"])
     if reward_item in supported_banners and reward_amount == 1:
         user = await users_collection.find_one({"username": user_id})
         logger.debug(f"User lookup for banner reward: {user}")
@@ -675,15 +655,25 @@ async def admob_ssv_reward(
                 "unlocked_at": now_iso.isoformat(),
                 "duration_hours": hours,
                 "valid_till": valid_till,
-                "transaction_id": txn_id
+                "transaction_id": txn_id,
             }
             update_result = await users_collection.update_one(
-                {"username": user_id},
-                {"$push": {"banners_rented": banner_entry}}
+                {"username": user_id}, {"$push": {"banners_rented": banner_entry}}
             )
-            logger.info(f"[BANNER UNLOCKED] User: {user_id}, banner: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}")
+            logger.info(
+                f"[BANNER UNLOCKED] User: {user_id}, banner: {reward_item}, hours: {hours}, valid_till: {valid_till}, tx={txn_id}"
+            )
             logger.debug(f"Banner unlock update result: {update_result.raw_result}")
         else:
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (banner reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 
+@router.get("/favicon.ico")
+async def favicon():
+    """Simple favicon to prevent browser errors."""
+    # Return a simple 1x1 transparent PNG
+    import base64
+    transparent_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77zgAAAABJRU5ErkJggg=="
+    )
+    return Response(content=transparent_png, media_type="image/png")

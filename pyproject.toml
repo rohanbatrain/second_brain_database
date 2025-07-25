@@ -11,7 +11,7 @@ authors = [
 ]
 description = "A Python package that serves as the foundation for my Second Brain database, designed to store and organize knowledge for easy retrieval through various applications."
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -19,17 +19,87 @@ classifiers = [
 ]
 
 dependencies = [
-"flask",
-"pymongo",
-"flask-cors",
-"PyJWT",
-"bcrypt",
-"gunicorn",
-"flask-limiter",
-"redis",
-"flask_mail",
-"mailtrap",
-"python-dotenv",
+    # Web Framework and ASGI Server
+    "fastapi>=0.115.0,<0.116.0",
+    "uvicorn[standard]>=0.34.0,<0.35.0",
+    
+    # Database and Storage
+    "motor>=3.7.0,<4.0.0",  # MongoDB async driver
+    "pymongo>=4.10.0,<5.0.0",  # MongoDB driver (used by motor)
+    "redis>=5.0.0,<6.0.0",  # Redis client
+    
+    # Data Validation and Settings
+    "pydantic>=2.11.0,<3.0.0",
+    "pydantic-settings>=2.9.0,<3.0.0",
+    "python-dotenv>=1.1.0,<2.0.0",
+    "email-validator>=2.0.0,<3.0.0",
+    
+    # Authentication and Security
+    "python-jose[cryptography]>=3.3.0,<4.0.0",  # JWT handling
+    "bcrypt>=4.0.0,<5.0.0",  # Password hashing
+    "cryptography>=41.0.0,<42.0.0",  # Cryptographic operations
+    "pyotp>=2.8.0,<3.0.0",  # TOTP/HOTP library for 2FA
+    
+    # HTTP Client
+    "httpx>=0.25.0,<1.0.0",  # HTTP client for external API calls
+    "aiohttp>=3.8.0,<4.0.0",  # Alternative HTTP client
+    
+    # QR Code Generation
+    "qrcode[pil]>=7.4.0,<8.0.0",  # QR code generation with PIL support
+    
+    # Monitoring and Metrics
+    "prometheus-fastapi-instrumentator>=7.0.0,<8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Code Quality and Linting
+    "pylint>=3.3.0,<4.0.0",
+    "black>=23.0.0,<25.0.0",
+    "isort>=5.12.0,<6.0.0",
+    "mypy>=1.5.0,<2.0.0",
+    
+    # Testing Framework
+    "pytest>=7.4.0,<8.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-asyncio>=0.21.0,<1.0.0",
+    
+    # Pre-commit Hooks
+    "pre-commit>=3.4.0,<4.0.0",
+    
+    # Development Tools
+    "python-multipart>=0.0.6,<1.0.0",  # For form data handling in development
+]
+
+monitoring = [
+    # Prometheus and Observability
+    "prometheus-client>=0.20.0,<1.0.0",
+    
+    # Optional Grafana Integration
+    "grafana-api>=1.0.0,<2.0.0",
+]
+
+docs = [
+    # Documentation Generation
+    "mkdocs>=1.5.0,<2.0.0",
+    "mkdocs-material>=9.0.0,<10.0.0",
+    
+    # API Documentation
+    "jsonschema>=4.0.0,<5.0.0",  # For OpenAPI schema validation
+]
+
+test = [
+    # Extended Testing Dependencies
+    "pytest>=7.4.0,<8.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-asyncio>=0.21.0,<1.0.0",
+    "httpx>=0.25.0,<1.0.0",  # For testing HTTP clients
+    "jsonschema>=4.0.0,<5.0.0",  # For API response validation in tests
+]
+
+all = [
+    # Include all optional dependencies
+    "second_brain_database[dev,monitoring,docs,test]",
 ]
 
 
@@ -68,17 +138,30 @@ ensure_newline_before_comments = true
 src_paths = ["src", "tests"]
 known_first_party = ["second_brain_database"]
 known_third_party = [
-    "fastapi",
-    "uvicorn",
-    "pymongo",
-    "redis",
-    "bcrypt",
-    "jose",
-    "pydantic",
-    "pytest",
-    "httpx",
     "aiohttp",
+    "bcrypt",
     "cryptography",
+    "dotenv",
+    "email_validator",
+    "fastapi",
+    "grafana_api",
+    "httpx",
+    "jose",
+    "jsonschema",
+    "mkdocs",
+    "motor",
+    "multipart",
+    "mypy",
+    "pydantic",
+    "pydantic_settings",
+    "pylint",
+    "pymongo",
+    "pyotp",
+    "pytest",
+    "qrcode",
+    "redis",
+    "uvicorn",
+    "prometheus_client",
     "prometheus_fastapi_instrumentator"
 ]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
@@ -107,12 +190,19 @@ pretty = true
 # Ignore missing imports for third-party libraries without stubs
 [[tool.mypy.overrides]]
 module = [
-    "pymongo.*",
-    "redis.*",
+    "aiohttp.*",
     "bcrypt.*",
+    "grafana_api.*",
     "jose.*",
     "loki_logger_handler.*",
-    "prometheus_fastapi_instrumentator.*"
+    "motor.*",
+    "multipart.*",
+    "prometheus_client.*",
+    "prometheus_fastapi_instrumentator.*",
+    "pymongo.*",
+    "pyotp.*",
+    "qrcode.*",
+    "redis.*"
 ]
 ignore_missing_imports = true
 

@@ -1,63 +1,26 @@
-"""
-Utility modules for Second Brain Database.
-"""
+"""Utility modules for Second Brain Database."""
 
-from .logging_utils import (
-    # Performance logging
-    log_performance,
-    PerformanceLogger,
-    
-    # Database logging
-    log_database_operation,
-    DatabaseLogger,
-    DatabaseContext,
-    
-    # Security logging
-    SecurityLogger,
-    SecurityContext,
-    log_auth_success,
-    log_auth_failure,
-    log_security_event,
-    log_access_granted,
-    log_access_denied,
-    
-    # Request logging
+from .logging_utils import (  # Performance logging; Database logging; Security logging; Request logging; Application lifecycle logging
     RequestLoggingMiddleware,
-    RequestContext,
-    request_context,
-    
-    # Context variables
-    request_id_context,
-    user_id_context,
-    ip_address_context,
+    log_application_lifecycle,
+    log_database_operation,
+    log_error_with_context,
+    log_operation_context,
+    log_performance,
+    log_security_event,
 )
 
 __all__ = [
     # Performance logging
     "log_performance",
-    "PerformanceLogger",
-    
     # Database logging
     "log_database_operation",
-    "DatabaseLogger",
-    "DatabaseContext",
-    
     # Security logging
-    "SecurityLogger",
-    "SecurityContext",
-    "log_auth_success",
-    "log_auth_failure",
     "log_security_event",
-    "log_access_granted",
-    "log_access_denied",
-    
     # Request logging
     "RequestLoggingMiddleware",
-    "RequestContext",
-    "request_context",
-    
-    # Context variables
-    "request_id_context",
-    "user_id_context",
-    "ip_address_context",
+    # Application lifecycle logging
+    "log_application_lifecycle",
+    "log_error_with_context",
+    "log_operation_context",
 ]

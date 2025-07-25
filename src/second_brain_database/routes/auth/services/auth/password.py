@@ -4,27 +4,42 @@ Password management utilities for authentication workflows.
 This module provides async functions for changing user passwords, sending password reset emails,
 and enforcing stricter rate limits and abuse detection for password reset flows.
 """
-from typing import Any, Dict, Optional
+
 from datetime import datetime, timedelta
 import hashlib
 import secrets
+from typing import Any, Dict, Optional
+
 import bcrypt
 from fastapi import HTTPException, status
-from second_brain_database.routes.auth.models import PasswordChangeRequest, validate_password_strength
+
+from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
-from second_brain_database.config import settings
-from second_brain_database.routes.auth.services.abuse.management import is_pair_whitelisted, block_reset_pair
+from second_brain_database.routes.auth.models import PasswordChangeRequest, validate_password_strength
 from second_brain_database.routes.auth.services.abuse.events import log_reset_abuse_event
+from second_brain_database.routes.auth.services.abuse.management import block_reset_pair, is_pair_whitelisted
+from second_brain_database.utils.logging_utils import (
+    DatabaseLogger,
+    SecurityLogger,
+    log_database_operation,
+    log_error_with_context,
+    log_performance,
+    log_security_event,
+)
 
 STRICTER_WHITELIST_LIMIT: int = getattr(settings, "STRICTER_WHITELIST_LIMIT", 3)
 STRICTER_WHITELIST_PERIOD: int = getattr(settings, "STRICTER_WHITELIST_PERIOD", 86400)
 ABUSE_SUSPEND_PERIOD: int = 604800  # 1 week in seconds
 
 logger = get_logger(prefix="[Auth Service Password]")
+security_logger = SecurityLogger(prefix="[AUTH-PASSWORD-SECURITY]")
+db_logger = DatabaseLogger(prefix="[AUTH-PASSWORD-DB]")
 
+
+@log_performance("change_user_password", log_args=False)
 async def change_user_password(current_user: Dict[str, Any], password_request: PasswordChangeRequest) -> bool:
     """
     Change the password for the current user after validating the old password.
@@ -45,28 +60,23 @@ async def change_user_password(current_user: Dict[str, Any], password_request: P
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 8 characters long and contain "
-                   "uppercase, lowercase, digit, and special character"
+            "uppercase, lowercase, digit, and special character",
         )
-    if not bcrypt.checkpw(password_request.old_password.encode('utf-8'),
-                          current_user["hashed_password"].encode('utf-8')):
+    if not bcrypt.checkpw(
+        password_request.old_password.encode("utf-8"), current_user["hashed_password"].encode("utf-8")
+    ):
         logger.info("Old password check failed for user %s", current_user.get("username"))
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid old password"
-        )
-    new_hashed_pw = bcrypt.hashpw(password_request.new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid old password")
+    new_hashed_pw = bcrypt.hashpw(password_request.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     result = await db_manager.get_collection("users").update_one(
-        {"username": current_user["username"]},
-        {"$set": {"hashed_password": new_hashed_pw}}
+        {"username": current_user["username"]}, {"$set": {"hashed_password": new_hashed_pw}}
     )
     if not result.modified_count:
         logger.error("Failed to update password for user %s", current_user.get("username"))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update password"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update password")
     logger.info("Password changed for user %s; tokens should be invalidated.", current_user["username"])
     return True
+
 
 async def send_password_reset_email(
     email: str,
@@ -74,7 +84,7 @@ async def send_password_reset_email(
     user_agent: Optional[str] = None,
     request_time: Optional[str] = None,
     location: Optional[str] = None,
-    isp: Optional[str] = None
+    isp: Optional[str] = None,
 ) -> Optional[Dict[str, str]]:
     """
     Send a password reset email with metadata and a real token (hashed in DB).
@@ -118,7 +128,7 @@ async def send_password_reset_email(
         expiry = datetime.utcnow() + timedelta(minutes=30)
         await db_manager.get_collection("users").update_one(
             {"_id": user["_id"]},
-            {"$set": {"password_reset_token": token_hash, "password_reset_token_expiry": expiry.isoformat()}}
+            {"$set": {"password_reset_token": token_hash, "password_reset_token_expiry": expiry.isoformat()}},
         )
         reset_link = f"{base_url}/auth/reset-password?token={reset_token}"
         meta = f"""
@@ -161,11 +171,15 @@ async def send_password_reset_email(
                 if abuse_count >= STRICTER_WHITELIST_LIMIT:
                     await db_manager.get_collection("users").update_one(
                         {"email": email},
-                        {"$set": {"is_active": False, "abuse_suspended": True, "abuse_suspended_at": datetime.utcnow()}}
+                        {
+                            "$set": {
+                                "is_active": False,
+                                "abuse_suspended": True,
+                                "abuse_suspended_at": datetime.utcnow(),
+                            }
+                        },
                     )
-                    abuse_message = (
-                        "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
-                    )
+                    abuse_message = "<b>Notice:</b> Your account has been suspended due to repeated abuse of the password reset system. Please contact support."
                     await redis_conn.sadd("abuse:reset:abuse_ips", ip)
                     await log_reset_abuse_event(
                         email=email,
@@ -177,9 +191,7 @@ async def send_password_reset_email(
                         action_taken="banned",
                     )
             elif count == stricter_limit:
-                warning_message = (
-                    "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
-                )
+                warning_message = "<b>Warning:</b> You are about to reach the maximum allowed password reset requests from this device in 24 hours. Further requests will be blocked."
         html_content = f"""
         <html>
         <body>
@@ -197,12 +209,20 @@ async def send_password_reset_email(
         """
         logger.info("Send password reset email to %s", email)
         logger.info("Password reset link: %s", reset_link)
-        logger.info("Password reset metadata: IP=%s, UA=%s, Time=%s, Location=%s, ISP=%s", ip, user_agent, request_time, location, isp)
+        logger.info(
+            "Password reset metadata: IP=%s, UA=%s, Time=%s, Location=%s, ISP=%s",
+            ip,
+            user_agent,
+            request_time,
+            location,
+            isp,
+        )
         await email_manager._send_via_console(email, "Password Reset Requested", html_content)
         return None
     except RuntimeError:
         logger.error("Failed to send password reset email for %s", email, exc_info=True)
         return {"message": "Password reset email did not sent"}
+
 
 async def send_password_reset_notification(email: str) -> None:
     """
@@ -224,7 +244,10 @@ async def send_password_reset_notification(email: str) -> None:
     logger.info("[NOTIFY EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
 
-async def send_trusted_ip_lockdown_code_email(email: str, code: str, action: str, trusted_ips: list[str], email_manager=None):
+
+async def send_trusted_ip_lockdown_code_email(
+    email: str, code: str, action: str, trusted_ips: list[str], email_manager=None
+):
     """
     Send a trusted IP lockdown confirmation code email with HTML template.
     Args:
@@ -235,9 +258,11 @@ async def send_trusted_ip_lockdown_code_email(email: str, code: str, action: str
         email_manager: Optional email manager for sending (defaults to global if not provided).
     """
     from second_brain_database.routes.auth.routes_html import render_trusted_ip_lockdown_email
+
     subject = f"Confirm Trusted IP Lockdown {action.title()}"
     html_content = render_trusted_ip_lockdown_email(code, action, trusted_ips)
     if email_manager is None:
         from second_brain_database.managers.email import email_manager as default_email_manager
+
         email_manager = default_email_manager
     await email_manager._send_via_console(email, subject, html_content)

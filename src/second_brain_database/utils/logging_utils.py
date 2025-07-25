@@ -1,667 +1,596 @@
-"""
-Logging enhancement utilities for production-ready logging.
+"""Logging utilities for comprehensive application logging.
 
-This module provides comprehensive logging utilities including:
-- Performance logging decorators for timing operations
-- Database operation logging utilities with query and timing details
-- Request context logging middleware for FastAPI
-- Security event logging utilities with proper context
-
-All utilities integrate with the existing logging_manager infrastructure.
+This module provides decorators, middleware, and utilities for adding
+detailed logging throughout the application with performance monitoring,
+security context, and error handling.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import functools
 import time
+import traceback
+from typing import Any, Callable, Dict, Optional
 import uuid
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
-from contextvars import ContextVar
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 from second_brain_database.managers.logging_manager import get_logger
 
-
-# Context variables for request tracking
-request_id_context: ContextVar[str] = ContextVar('request_id', default='')
-user_id_context: ContextVar[str] = ContextVar('user_id', default='')
-ip_address_context: ContextVar[str] = ContextVar('ip_address', default='')
-
-
-@dataclass
-class RequestContext:
-    """Request context information for logging."""
-    request_id: str
-    method: str
-    path: str
-    user_id: Optional[str] = None
-    ip_address: str = ""
-    user_agent: str = ""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    query_params: Dict[str, Any] = field(default_factory=dict)
-    path_params: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class DatabaseContext:
-    """Database operation context for logging."""
-    operation: str
-    collection: str
-    query: Dict[str, Any]
-    duration: float
-    result_count: Optional[int] = None
-    error: Optional[str] = None
-    request_id: Optional[str] = None
+# Context variables for request tracing
+request_id_context: ContextVar[str] = ContextVar("request_id", default="")
+user_id_context: ContextVar[str] = ContextVar("user_id", default="")
+ip_address_context: ContextVar[str] = ContextVar("ip_address", default="")
 
 
 @dataclass
 class SecurityContext:
     """Security event context for logging."""
+
     event_type: str
     user_id: Optional[str] = None
-    ip_address: str = ""
+    ip_address: Optional[str] = None
     success: bool = True
-    details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    request_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    timestamp: Optional[str] = None
 
 
-class PerformanceLogger:
-    """Performance logging utilities with timing and context."""
-    
-    def __init__(self, logger_name: str = "Second_Brain_Database", prefix: str = "[PERFORMANCE]"):
-        self.logger = get_logger(name=logger_name, prefix=prefix)
-    
-    def log_operation(self, operation_name: str, duration: float, context: Optional[Dict[str, Any]] = None):
-        """Log a performance operation with timing."""
-        context_str = ""
-        if context:
-            context_items = [f"{k}={v}" for k, v in context.items()]
-            context_str = f" ({', '.join(context_items)})"
-        
-        request_id = request_id_context.get('')
-        request_prefix = f"[{request_id}] " if request_id else ""
-        
-        self.logger.info(f"{request_prefix}Operation '{operation_name}' completed in {duration:.3f}s{context_str}")
-    
-    def log_slow_operation(self, operation_name: str, duration: float, threshold: float = 1.0, 
-                          context: Optional[Dict[str, Any]] = None):
-        """Log slow operations that exceed threshold."""
-        if duration > threshold:
-            context_str = ""
-            if context:
-                context_items = [f"{k}={v}" for k, v in context.items()]
-                context_str = f" ({', '.join(context_items)})"
-            
-            request_id = request_id_context.get('')
-            request_prefix = f"[{request_id}] " if request_id else ""
-            
-            self.logger.warning(f"{request_prefix}SLOW OPERATION: '{operation_name}' took {duration:.3f}s "
-                              f"(threshold: {threshold}s){context_str}")
+@dataclass
+class DatabaseContext:
+    """Database operation context for logging."""
 
-
-def log_performance(operation_name: str, slow_threshold: float = 1.0, 
-                   include_args: bool = False, logger_name: str = "Second_Brain_Database"):
-    """
-    Decorator for logging performance of functions and methods.
-    
-    Args:
-        operation_name: Name of the operation for logging
-        slow_threshold: Threshold in seconds to log as slow operation
-        include_args: Whether to include function arguments in context
-        logger_name: Logger name to use
-    """
-    def decorator(func: Callable) -> Callable:
-        perf_logger = PerformanceLogger(logger_name)
-        
-        if asyncio.iscoroutinefunction(func):
-            @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
-                start_time = time.time()
-                context = {}
-                
-                if include_args:
-                    # Sanitize arguments for logging
-                    safe_args = []
-                    for arg in args:
-                        if hasattr(arg, '__dict__'):
-                            safe_args.append(f"<{type(arg).__name__}>")
-                        else:
-                            safe_args.append(str(arg)[:100])  # Limit length
-                    
-                    safe_kwargs = {}
-                    for k, v in kwargs.items():
-                        if 'password' in k.lower() or 'token' in k.lower() or 'secret' in k.lower():
-                            safe_kwargs[k] = "[REDACTED]"
-                        elif hasattr(v, '__dict__'):
-                            safe_kwargs[k] = f"<{type(v).__name__}>"
-                        else:
-                            safe_kwargs[k] = str(v)[:100]  # Limit length
-                    
-                    context = {"args": safe_args, "kwargs": safe_kwargs}
-                
-                try:
-                    result = await func(*args, **kwargs)
-                    duration = time.time() - start_time
-                    perf_logger.log_operation(operation_name, duration, context)
-                    perf_logger.log_slow_operation(operation_name, duration, slow_threshold, context)
-                    return result
-                except Exception as e:
-                    duration = time.time() - start_time
-                    context["error"] = str(e)
-                    perf_logger.logger.error(f"Operation '{operation_name}' failed after {duration:.3f}s: {e}")
-                    raise
-            
-            return async_wrapper
-        else:
-            @functools.wraps(func)
-            def sync_wrapper(*args, **kwargs):
-                start_time = time.time()
-                context = {}
-                
-                if include_args:
-                    # Sanitize arguments for logging
-                    safe_args = []
-                    for arg in args:
-                        if hasattr(arg, '__dict__'):
-                            safe_args.append(f"<{type(arg).__name__}>")
-                        else:
-                            safe_args.append(str(arg)[:100])  # Limit length
-                    
-                    safe_kwargs = {}
-                    for k, v in kwargs.items():
-                        if 'password' in k.lower() or 'token' in k.lower() or 'secret' in k.lower():
-                            safe_kwargs[k] = "[REDACTED]"
-                        elif hasattr(v, '__dict__'):
-                            safe_kwargs[k] = f"<{type(v).__name__}>"
-                        else:
-                            safe_kwargs[k] = str(v)[:100]  # Limit length
-                    
-                    context = {"args": safe_args, "kwargs": safe_kwargs}
-                
-                try:
-                    result = func(*args, **kwargs)
-                    duration = time.time() - start_time
-                    perf_logger.log_operation(operation_name, duration, context)
-                    perf_logger.log_slow_operation(operation_name, duration, slow_threshold, context)
-                    return result
-                except Exception as e:
-                    duration = time.time() - start_time
-                    context["error"] = str(e)
-                    perf_logger.logger.error(f"Operation '{operation_name}' failed after {duration:.3f}s: {e}")
-                    raise
-            
-            return sync_wrapper
-    
-    return decorator
-
-
-class DatabaseLogger:
-    """Database operation logging utilities."""
-    
-    def __init__(self, logger_name: str = "Second_Brain_Database", prefix: str = "[DATABASE]"):
-        self.logger = get_logger(name=logger_name, prefix=prefix)
-    
-    def log_query(self, context: DatabaseContext):
-        """Log a database query operation."""
-        request_id = context.request_id or request_id_context.get('')
-        request_prefix = f"[{request_id}] " if request_id else ""
-        
-        # Sanitize query for logging
-        sanitized_query = self._sanitize_query(context.query)
-        
-        if context.error:
-            self.logger.error(f"{request_prefix}DB {context.operation} on '{context.collection}' FAILED "
-                            f"after {context.duration:.3f}s: {context.error} | Query: {sanitized_query}")
-        else:
-            result_info = f" | Results: {context.result_count}" if context.result_count is not None else ""
-            self.logger.info(f"{request_prefix}DB {context.operation} on '{context.collection}' "
-                           f"completed in {context.duration:.3f}s{result_info} | Query: {sanitized_query}")
-    
-    def log_slow_query(self, context: DatabaseContext, threshold: float = 0.5):
-        """Log slow database queries."""
-        if context.duration > threshold:
-            request_id = context.request_id or request_id_context.get('')
-            request_prefix = f"[{request_id}] " if request_id else ""
-            
-            sanitized_query = self._sanitize_query(context.query)
-            self.logger.warning(f"{request_prefix}SLOW QUERY: DB {context.operation} on '{context.collection}' "
-                              f"took {context.duration:.3f}s (threshold: {threshold}s) | Query: {sanitized_query}")
-    
-    def _sanitize_query(self, query: Dict[str, Any]) -> str:
-        """Sanitize query for safe logging."""
-        if not query:
-            return "{}"
-        
-        # Create a copy to avoid modifying original
-        sanitized = {}
-        for key, value in query.items():
-            if any(sensitive in key.lower() for sensitive in ['password', 'token', 'secret', 'key']):
-                sanitized[key] = "[REDACTED]"
-            elif isinstance(value, dict):
-                sanitized[key] = self._sanitize_dict(value)
-            elif isinstance(value, (list, tuple)):
-                sanitized[key] = self._sanitize_list(value)
-            else:
-                # Limit string length for logging
-                if isinstance(value, str) and len(value) > 200:
-                    sanitized[key] = value[:200] + "..."
-                else:
-                    sanitized[key] = value
-        
-        return str(sanitized)
-    
-    def _sanitize_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Recursively sanitize dictionary."""
-        sanitized = {}
-        for key, value in data.items():
-            if any(sensitive in key.lower() for sensitive in ['password', 'token', 'secret', 'key']):
-                sanitized[key] = "[REDACTED]"
-            elif isinstance(value, dict):
-                sanitized[key] = self._sanitize_dict(value)
-            elif isinstance(value, (list, tuple)):
-                sanitized[key] = self._sanitize_list(value)
-            else:
-                sanitized[key] = value
-        return sanitized
-    
-    def _sanitize_list(self, data: List[Any]) -> List[Any]:
-        """Sanitize list items."""
-        sanitized = []
-        for item in data:
-            if isinstance(item, dict):
-                sanitized.append(self._sanitize_dict(item))
-            elif isinstance(item, (list, tuple)):
-                sanitized.append(self._sanitize_list(item))
-            else:
-                sanitized.append(item)
-        return sanitized
-
-
-def log_database_operation(operation: str, collection: str, slow_threshold: float = 0.5):
-    """
-    Decorator for logging database operations.
-    
-    Args:
-        operation: Type of database operation (find, insert, update, delete, etc.)
-        collection: Database collection name
-        slow_threshold: Threshold in seconds to log as slow query
-    """
-    def decorator(func: Callable) -> Callable:
-        db_logger = DatabaseLogger()
-        
-        if asyncio.iscoroutinefunction(func):
-            @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
-                start_time = time.time()
-                query = kwargs.get('query', kwargs.get('filter', {}))
-                
-                try:
-                    result = await func(*args, **kwargs)
-                    duration = time.time() - start_time
-                    
-                    # Try to get result count if possible
-                    result_count = None
-                    if hasattr(result, '__len__'):
-                        try:
-                            result_count = len(result)
-                        except:
-                            pass
-                    elif hasattr(result, 'inserted_id'):
-                        result_count = 1
-                    elif hasattr(result, 'modified_count'):
-                        result_count = result.modified_count
-                    elif hasattr(result, 'deleted_count'):
-                        result_count = result.deleted_count
-                    
-                    context = DatabaseContext(
-                        operation=operation,
-                        collection=collection,
-                        query=query,
-                        duration=duration,
-                        result_count=result_count,
-                        request_id=request_id_context.get('')
-                    )
-                    
-                    db_logger.log_query(context)
-                    db_logger.log_slow_query(context, slow_threshold)
-                    
-                    return result
-                except Exception as e:
-                    duration = time.time() - start_time
-                    context = DatabaseContext(
-                        operation=operation,
-                        collection=collection,
-                        query=query,
-                        duration=duration,
-                        error=str(e),
-                        request_id=request_id_context.get('')
-                    )
-                    db_logger.log_query(context)
-                    raise
-            
-            return async_wrapper
-        else:
-            @functools.wraps(func)
-            def sync_wrapper(*args, **kwargs):
-                start_time = time.time()
-                query = kwargs.get('query', kwargs.get('filter', {}))
-                
-                try:
-                    result = func(*args, **kwargs)
-                    duration = time.time() - start_time
-                    
-                    # Try to get result count if possible
-                    result_count = None
-                    if hasattr(result, '__len__'):
-                        try:
-                            result_count = len(result)
-                        except:
-                            pass
-                    elif hasattr(result, 'inserted_id'):
-                        result_count = 1
-                    elif hasattr(result, 'modified_count'):
-                        result_count = result.modified_count
-                    elif hasattr(result, 'deleted_count'):
-                        result_count = result.deleted_count
-                    
-                    context = DatabaseContext(
-                        operation=operation,
-                        collection=collection,
-                        query=query,
-                        duration=duration,
-                        result_count=result_count,
-                        request_id=request_id_context.get('')
-                    )
-                    
-                    db_logger.log_query(context)
-                    db_logger.log_slow_query(context, slow_threshold)
-                    
-                    return result
-                except Exception as e:
-                    duration = time.time() - start_time
-                    context = DatabaseContext(
-                        operation=operation,
-                        collection=collection,
-                        query=query,
-                        duration=duration,
-                        error=str(e),
-                        request_id=request_id_context.get('')
-                    )
-                    db_logger.log_query(context)
-                    raise
-            
-            return sync_wrapper
-    
-    return decorator
+    operation: str
+    collection: str
+    query: Optional[Dict[str, Any]] = None
+    duration: Optional[float] = None
+    result_count: Optional[int] = None
+    timestamp: Optional[str] = None
 
 
 class SecurityLogger:
-    """Security event logging utilities."""
-    
-    def __init__(self, logger_name: str = "Second_Brain_Database", prefix: str = "[SECURITY]"):
-        self.logger = get_logger(name=logger_name, prefix=prefix)
-    
-    def log_auth_event(self, context: SecurityContext):
-        """Log authentication and authorization events."""
-        request_id = context.request_id or request_id_context.get('')
-        request_prefix = f"[{request_id}] " if request_id else ""
-        
-        status = "SUCCESS" if context.success else "FAILED"
-        user_info = f" | User: {context.user_id}" if context.user_id else ""
-        ip_info = f" | IP: {context.ip_address}" if context.ip_address else ""
-        
-        # Sanitize details for logging
-        sanitized_details = self._sanitize_security_details(context.details)
-        details_str = f" | Details: {sanitized_details}" if sanitized_details else ""
-        
-        if context.success:
-            self.logger.info(f"{request_prefix}AUTH {status}: {context.event_type}{user_info}{ip_info}{details_str}")
-        else:
-            self.logger.warning(f"{request_prefix}AUTH {status}: {context.event_type}{user_info}{ip_info}{details_str}")
-    
-    def log_security_violation(self, event_type: str, details: Dict[str, Any], 
-                             user_id: Optional[str] = None, ip_address: str = ""):
-        """Log security violations and suspicious activities."""
-        request_id = request_id_context.get('')
-        request_prefix = f"[{request_id}] " if request_id else ""
-        
-        user_info = f" | User: {user_id}" if user_id else ""
-        ip_info = f" | IP: {ip_address}" if ip_address else ""
-        
-        sanitized_details = self._sanitize_security_details(details)
-        details_str = f" | Details: {sanitized_details}" if sanitized_details else ""
-        
-        self.logger.error(f"{request_prefix}SECURITY VIOLATION: {event_type}{user_info}{ip_info}{details_str}")
-    
-    def log_access_attempt(self, resource: str, success: bool, user_id: Optional[str] = None, 
-                          ip_address: str = "", details: Optional[Dict[str, Any]] = None):
-        """Log resource access attempts."""
-        request_id = request_id_context.get('')
-        request_prefix = f"[{request_id}] " if request_id else ""
-        
-        status = "GRANTED" if success else "DENIED"
-        user_info = f" | User: {user_id}" if user_id else ""
-        ip_info = f" | IP: {ip_address}" if ip_address else ""
-        
-        sanitized_details = self._sanitize_security_details(details or {})
-        details_str = f" | Details: {sanitized_details}" if sanitized_details else ""
-        
-        if success:
-            self.logger.info(f"{request_prefix}ACCESS {status}: {resource}{user_info}{ip_info}{details_str}")
-        else:
-            self.logger.warning(f"{request_prefix}ACCESS {status}: {resource}{user_info}{ip_info}{details_str}")
-    
-    def _sanitize_security_details(self, details: Dict[str, Any]) -> Dict[str, Any]:
-        """Sanitize security details for safe logging."""
-        if not details:
-            return {}
-        
-        sanitized = {}
-        for key, value in details.items():
-            if any(sensitive in key.lower() for sensitive in ['password', 'token', 'secret', 'key', 'hash']):
-                sanitized[key] = "[REDACTED]"
-            elif isinstance(value, dict):
-                sanitized[key] = self._sanitize_security_details(value)
-            elif isinstance(value, str) and len(value) > 200:
-                sanitized[key] = value[:200] + "..."
+    """Specialized logger for security events."""
+
+    def __init__(self, prefix: str = "[SECURITY]"):
+        self.logger = get_logger(name="Second_Brain_Database_Security", prefix=prefix)
+
+    def log_event(self, context: SecurityContext):
+        """Log a security event with full context."""
+        event_data = {
+            "event_type": context.event_type,
+            "timestamp": context.timestamp or datetime.now(timezone.utc).isoformat(),
+            "success": context.success,
+            "user_id": context.user_id or "anonymous",
+            "ip_address": context.ip_address or "unknown",
+        }
+
+        if context.details:
+            event_data["details"] = _sanitize_security_details(context.details)
+
+        status = "SUCCESS" if context.success else "FAILURE"
+        self.logger.info("SECURITY EVENT [%s]: %s - %s", status, context.event_type, event_data)
+
+
+class DatabaseLogger:
+    """Specialized logger for database operations."""
+
+    def __init__(self, prefix: str = "[DATABASE]"):
+        self.logger = get_logger(name="Second_Brain_Database_DB_Operations", prefix=prefix)
+
+    def log_operation(self, context: DatabaseContext):
+        """Log a database operation with context."""
+        if context.duration is not None:
+            if context.result_count is not None:
+                self.logger.info(
+                    "DB %s on %s completed in %.3fs - %s records affected",
+                    context.operation,
+                    context.collection,
+                    context.duration,
+                    context.result_count,
+                )
             else:
-                sanitized[key] = value
-        
-        return sanitized
+                self.logger.info(
+                    "DB %s on %s completed in %.3fs",
+                    context.operation,
+                    context.collection,
+                    context.duration,
+                )
+        else:
+            self.logger.info("DB %s on %s", context.operation, context.collection)
+
+
+def log_auth_success(
+    event_type: str,
+    user_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+):
+    """Log successful authentication events."""
+    context = SecurityContext(
+        event_type=event_type, user_id=user_id, ip_address=ip_address, success=True, details=details
+    )
+    security_logger = SecurityLogger()
+    security_logger.log_event(context)
+
+
+def log_auth_failure(
+    event_type: str,
+    user_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+):
+    """Log failed authentication events."""
+    context = SecurityContext(
+        event_type=event_type, user_id=user_id, ip_address=ip_address, success=False, details=details
+    )
+    security_logger = SecurityLogger()
+    security_logger.log_event(context)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware for comprehensive request logging."""
-    
-    def __init__(self, app, logger_name: str = "Second_Brain_Database", prefix: str = "[REQUEST]"):
+    """
+    Comprehensive request/response logging middleware for FastAPI.
+
+    Logs all incoming requests and outgoing responses with timing,
+    status codes, and relevant context information.
+    """
+
+    def __init__(self, app: ASGIApp):
         super().__init__(app)
-        self.logger = get_logger(name=logger_name, prefix=prefix)
-    
-    async def dispatch(self, request: Request, call_next):
-        # Generate unique request ID
-        request_id = str(uuid.uuid4())
-        request_id_context.set(request_id)
-        
-        # Extract request information
+        self.logger = get_logger(name="Second_Brain_Database_Requests", prefix="[REQUEST]")
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        """Process request and response with comprehensive logging."""
+        # Generate unique request ID for tracing
+        request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
+
+        # Extract request information
         client_ip = self._get_client_ip(request)
-        user_agent = request.headers.get("user-agent", "")
-        
-        # Set context variables
-        ip_address_context.set(client_ip)
-        
-        # Create request context
-        request_context = RequestContext(
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
-            ip_address=client_ip,
-            user_agent=user_agent,
-            query_params=dict(request.query_params),
-            path_params=dict(request.path_params)
-        )
-        
+        user_agent = request.headers.get("user-agent", "unknown")
+        method = request.method
+        path = str(request.url.path)
+        query_params = str(request.url.query) if request.url.query else None
+
         # Log incoming request
-        self._log_request_start(request_context)
-        
+        query_info = f" - Query: {query_params}" if query_params else ""
+        self.logger.info(
+            "[%s] %s %s - IP: %s - User-Agent: %s...%s",
+            request_id,
+            method,
+            path,
+            client_ip,
+            user_agent[:100],
+            query_info,
+        )
+
+        # Process request and capture response
         try:
-            # Process request
             response = await call_next(request)
-            
-            # Calculate duration
             duration = time.time() - start_time
-            
+
             # Log successful response
-            self._log_request_success(request_context, response, duration)
-            
+            self.logger.info(
+                "[%s] %s %s - %s - %.3fs - %s bytes",
+                request_id,
+                method,
+                path,
+                response.status_code,
+                duration,
+                len(getattr(response, "body", b"")),
+            )
+
+            # Log slow requests
+            if duration > 1.0:
+                self.logger.warning("[%s] SLOW REQUEST: %s %s took %.3fs", request_id, method, path, duration)
+
             return response
-            
+
         except Exception as e:
-            # Calculate duration
             duration = time.time() - start_time
-            
-            # Log failed request
-            self._log_request_error(request_context, e, duration)
-            
-            # Re-raise the exception
+
+            # Log request error
+            self.logger.error("[%s] %s %s - ERROR after %.3fs: %s", request_id, method, path, duration, str(e))
             raise
-    
+
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP address from request."""
-        # Check for forwarded headers first
+        """Extract client IP address from request headers."""
+        # Check for forwarded headers first (for reverse proxy setups)
         forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for:
-            # Take the first IP in the chain
             return forwarded_for.split(",")[0].strip()
-        
+
         real_ip = request.headers.get("x-real-ip")
         if real_ip:
             return real_ip
-        
-        # Fallback to client host
-        if request.client:
-            return request.client.host
-        
-        return "unknown"
-    
-    def _log_request_start(self, context: RequestContext):
-        """Log the start of a request."""
-        query_str = f"?{dict(context.query_params)}" if context.query_params else ""
-        path_str = f"{context.path}{query_str}"
-        
-        self.logger.info(f"[{context.request_id}] {context.method} {path_str} | "
-                        f"IP: {context.ip_address} | UA: {context.user_agent[:100]}")
-    
-    def _log_request_success(self, context: RequestContext, response: Response, duration: float):
-        """Log successful request completion."""
-        self.logger.info(f"[{context.request_id}] {context.method} {context.path} | "
-                        f"Status: {response.status_code} | Duration: {duration:.3f}s")
-        
-        # Log slow requests
-        if duration > 2.0:  # 2 second threshold
-            self.logger.warning(f"[{context.request_id}] SLOW REQUEST: {context.method} {context.path} | "
-                              f"Duration: {duration:.3f}s")
-    
-    def _log_request_error(self, context: RequestContext, error: Exception, duration: float):
-        """Log failed request."""
-        self.logger.error(f"[{context.request_id}] {context.method} {context.path} | "
-                         f"ERROR after {duration:.3f}s: {str(error)}")
+
+        # Fallback to direct client IP
+        return getattr(request.client, "host", "unknown")
+
+
+def log_performance(operation_name: str, log_args: bool = False):
+    """
+    Decorator for logging function/method performance with timing.
+
+    Args:
+        operation_name: Name of the operation for logging
+        log_args: Whether to log function arguments (be careful with sensitive data)
+    """
+
+    def decorator(func: Callable) -> Callable:
+        logger = get_logger(name="Second_Brain_Database_Performance", prefix="[PERFORMANCE]")
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = time.time()
+            operation_id = str(uuid.uuid4())[:8]
+
+            # Log operation start
+            if log_args and (args or kwargs):
+                # Sanitize arguments to avoid logging sensitive data
+                safe_args = _sanitize_args(args, kwargs)
+                logger.info("[%s] Starting %s with args: %s", operation_id, operation_name, safe_args)
+            else:
+                logger.info("[%s] Starting %s", operation_id, operation_name)
+
+            try:
+                result = await func(*args, **kwargs)
+                duration = time.time() - start_time
+
+                logger.info("[%s] Completed %s in %.3fs", operation_id, operation_name, duration)
+
+                # Log slow operations
+                if duration > 2.0:
+                    logger.warning("[%s] SLOW OPERATION: %s took %.3fs", operation_id, operation_name, duration)
+
+                return result
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error("[%s] Failed %s after %.3fs: %s", operation_id, operation_name, duration, str(e))
+                raise
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            operation_id = str(uuid.uuid4())[:8]
+
+            # Log operation start
+            if log_args and (args or kwargs):
+                safe_args = _sanitize_args(args, kwargs)
+                logger.info("[%s] Starting %s with args: %s", operation_id, operation_name, safe_args)
+            else:
+                logger.info("[%s] Starting %s", operation_id, operation_name)
+
+            try:
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+
+                logger.info("[%s] Completed %s in %.3fs", operation_id, operation_name, duration)
+
+                if duration > 2.0:
+                    logger.warning("[%s] SLOW OPERATION: %s took %.3fs", operation_id, operation_name, duration)
+
+                return result
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error("[%s] Failed %s after %.3fs: %s", operation_id, operation_name, duration, str(e))
+                raise
+
+        # Return appropriate wrapper based on function type
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return sync_wrapper
+
+    return decorator
+
+
+def log_database_operation(collection_name: str, operation_type: str):
+    """
+    Decorator for logging database operations with performance metrics.
+
+    Args:
+        collection_name: Name of the MongoDB collection
+        operation_type: Type of operation (find, insert, update, delete, etc.)
+    """
+
+    def decorator(func: Callable) -> Callable:
+        logger = get_logger(name="Second_Brain_Database_DB_Operations", prefix="[DATABASE]")
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = time.time()
+            operation_id = str(uuid.uuid4())[:8]
+
+            logger.info("[%s] DB %s on %s", operation_id, operation_type, collection_name)
+
+            try:
+                result = await func(*args, **kwargs)
+                duration = time.time() - start_time
+
+                # Try to get result count if available
+                result_count = None
+                if hasattr(result, "inserted_id"):
+                    result_count = 1
+                elif hasattr(result, "modified_count"):
+                    result_count = result.modified_count
+                elif hasattr(result, "deleted_count"):
+                    result_count = result.deleted_count
+                elif isinstance(result, list):
+                    result_count = len(result)
+
+                if result_count is not None:
+                    logger.info(
+                        "[%s] DB %s on %s completed in %.3fs - %s records affected",
+                        operation_id,
+                        operation_type,
+                        collection_name,
+                        duration,
+                        result_count,
+                    )
+                else:
+                    logger.info(
+                        "[%s] DB %s on %s completed in %.3fs", operation_id, operation_type, collection_name, duration
+                    )
+
+                # Log slow database operations
+                if duration > 1.0:
+                    logger.warning(
+                        "[%s] SLOW DB OPERATION: %s on %s took %.3fs",
+                        operation_id,
+                        operation_type,
+                        collection_name,
+                        duration,
+                    )
+
+                return result
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(
+                    "[%s] DB %s on %s failed after %.3fs: %s",
+                    operation_id,
+                    operation_type,
+                    collection_name,
+                    duration,
+                    str(e),
+                )
+                raise
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            operation_id = str(uuid.uuid4())[:8]
+
+            logger.info("[%s] DB %s on %s", operation_id, operation_type, collection_name)
+
+            try:
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+
+                logger.info(
+                    "[%s] DB %s on %s completed in %.3fs", operation_id, operation_type, collection_name, duration
+                )
+
+                if duration > 1.0:
+                    logger.warning(
+                        "[%s] SLOW DB OPERATION: %s on %s took %.3fs",
+                        operation_id,
+                        operation_type,
+                        collection_name,
+                        duration,
+                    )
+
+                return result
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(
+                    "[%s] DB %s on %s failed after %.3fs: %s",
+                    operation_id,
+                    operation_type,
+                    collection_name,
+                    duration,
+                    str(e),
+                )
+                raise
+
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return sync_wrapper
+
+    return decorator
+
+
+def log_security_event(
+    event_type: str,
+    user_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    success: bool = True,
+    details: Optional[Dict[str, Any]] = None,
+):
+    """
+    Log security-related events with proper context.
+
+    Args:
+        event_type: Type of security event (login, logout, token_creation, etc.)
+        user_id: User identifier if available
+        ip_address: Client IP address if available
+        success: Whether the security event was successful
+        details: Additional event details
+    """
+    logger = get_logger(name="Second_Brain_Database_Security", prefix="[SECURITY]")
+
+    event_data = {
+        "event_type": event_type,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "success": success,
+        "user_id": user_id or "anonymous",
+        "ip_address": ip_address or "unknown",
+    }
+
+    if details:
+        # Sanitize details to avoid logging sensitive information
+        event_data["details"] = _sanitize_security_details(details)
+
+    status = "SUCCESS" if success else "FAILURE"
+    logger.info("SECURITY EVENT [%s]: %s - %s", status, event_type, event_data)
+
+
+def log_application_lifecycle(event: str, details: Optional[Dict[str, Any]] = None):
+    """
+    Log application lifecycle events (startup, shutdown, etc.).
+
+    Args:
+        event: Lifecycle event name
+        details: Additional event details
+    """
+    logger = get_logger(name="Second_Brain_Database_Lifecycle", prefix="[LIFECYCLE]")
+
+    event_data = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+    if details:
+        event_data.update(details)
+
+    logger.info("APPLICATION LIFECYCLE: %s - %s", event, event_data)
+
+
+def log_error_with_context(error: Exception, context: Optional[Dict[str, Any]] = None, operation: Optional[str] = None):
+    """
+    Log errors with full context and stack trace.
+
+    Args:
+        error: The exception that occurred
+        context: Additional context information
+        operation: Name of the operation that failed
+    """
+    logger = get_logger(name="Second_Brain_Database_Errors", prefix="[ERROR]")
+
+    error_data = {
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "stack_trace": traceback.format_exc(),
+    }
+
+    if operation:
+        error_data["operation"] = operation
+
+    if context:
+        error_data["context"] = _sanitize_args({}, context)
+
+    logger.error("ERROR OCCURRED: %s", error_data)
 
 
 @asynccontextmanager
-async def request_context(request_id: Optional[str] = None, user_id: Optional[str] = None, 
-                         ip_address: Optional[str] = None):
-    """Context manager for setting request context variables."""
-    # Store current values
-    old_request_id = request_id_context.get('')
-    old_user_id = user_id_context.get('')
-    old_ip_address = ip_address_context.get('')
-    
+async def log_operation_context(operation_name: str, **context):
+    """
+    Context manager for logging operation start/end with context preservation.
+
+    Args:
+        operation_name: Name of the operation
+        **context: Additional context to log
+    """
+    logger = get_logger(name="Second_Brain_Database_Operations", prefix="[OPERATION]")
+    operation_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+
+    logger.info("[%s] Starting %s - Context: %s", operation_id, operation_name, context)
+
     try:
-        # Set new values
-        if request_id:
-            request_id_context.set(request_id)
-        if user_id:
-            user_id_context.set(user_id)
-        if ip_address:
-            ip_address_context.set(ip_address)
-        
-        yield
-    finally:
-        # Restore old values
-        request_id_context.set(old_request_id)
-        user_id_context.set(old_user_id)
-        ip_address_context.set(old_ip_address)
+        yield operation_id
+        duration = time.time() - start_time
+        logger.info("[%s] Completed %s in %.3fs", operation_id, operation_name, duration)
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error("[%s] Failed %s after %.3fs: %s", operation_id, operation_name, duration, str(e))
+        raise
 
 
-# Convenience functions for common logging patterns
-def log_auth_success(event_type: str, user_id: str, ip_address: str = "", 
-                    details: Optional[Dict[str, Any]] = None):
-    """Log successful authentication event."""
-    security_logger = SecurityLogger()
-    context = SecurityContext(
-        event_type=event_type,
-        user_id=user_id,
-        ip_address=ip_address or ip_address_context.get(''),
-        success=True,
-        details=details or {},
-        request_id=request_id_context.get('')
-    )
-    security_logger.log_auth_event(context)
+def _sanitize_args(args: tuple, kwargs: dict) -> dict:
+    """
+    Sanitize function arguments to avoid logging sensitive data.
+
+    Args:
+        args: Positional arguments
+        kwargs: Keyword arguments
+
+    Returns:
+        Sanitized arguments dictionary
+    """
+    sensitive_keys = {
+        "password",
+        "token",
+        "secret",
+        "key",
+        "auth",
+        "credential",
+        "private",
+        "confidential",
+        "sensitive",
+        "hash",
+    }
+
+    sanitized = {}
+
+    # Handle positional args
+    if args:
+        sanitized["args"] = [
+            (
+                "<REDACTED>"
+                if any(key in str(arg).lower() for key in sensitive_keys)
+                else str(arg)[:100] + ("..." if len(str(arg)) > 100 else "")
+            )
+            for arg in args
+        ]
+
+    # Handle keyword args
+    if kwargs:
+        sanitized["kwargs"] = {}
+        for key, value in kwargs.items():
+            if any(sensitive_key in key.lower() for sensitive_key in sensitive_keys):
+                sanitized["kwargs"][key] = "<REDACTED>"
+            else:
+                str_value = str(value)
+                sanitized["kwargs"][key] = str_value[:100] + ("..." if len(str_value) > 100 else "")
+
+    return sanitized
 
 
-def log_auth_failure(event_type: str, user_id: Optional[str] = None, ip_address: str = "", 
-                    details: Optional[Dict[str, Any]] = None):
-    """Log failed authentication event."""
-    security_logger = SecurityLogger()
-    context = SecurityContext(
-        event_type=event_type,
-        user_id=user_id,
-        ip_address=ip_address or ip_address_context.get(''),
-        success=False,
-        details=details or {},
-        request_id=request_id_context.get('')
-    )
-    security_logger.log_auth_event(context)
+def _sanitize_security_details(details: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize security event details to avoid logging sensitive information.
 
+    Args:
+        details: Original details dictionary
 
-def log_security_event(event_type: str, details: Dict[str, Any], user_id: Optional[str] = None, 
-                      ip_address: str = ""):
-    """Log general security event."""
-    security_logger = SecurityLogger()
-    security_logger.log_security_violation(
-        event_type=event_type,
-        details=details,
-        user_id=user_id or user_id_context.get(''),
-        ip_address=ip_address or ip_address_context.get('')
-    )
+    Returns:
+        Sanitized details dictionary
+    """
+    sensitive_keys = {
+        "password",
+        "token",
+        "secret",
+        "key",
+        "hash",
+        "signature",
+        "private_key",
+        "public_key",
+        "credential",
+    }
 
+    sanitized = {}
+    for key, value in details.items():
+        if any(sensitive_key in key.lower() for sensitive_key in sensitive_keys):
+            sanitized[key] = "<REDACTED>"
+        else:
+            sanitized[key] = value
 
-def log_access_granted(resource: str, user_id: str, details: Optional[Dict[str, Any]] = None):
-    """Log successful resource access."""
-    security_logger = SecurityLogger()
-    security_logger.log_access_attempt(
-        resource=resource,
-        success=True,
-        user_id=user_id,
-        ip_address=ip_address_context.get(''),
-        details=details
-    )
-
-
-def log_access_denied(resource: str, user_id: Optional[str] = None, 
-                     details: Optional[Dict[str, Any]] = None):
-    """Log denied resource access."""
-    security_logger = SecurityLogger()
-    security_logger.log_access_attempt(
-        resource=resource,
-        success=False,
-        user_id=user_id or user_id_context.get(''),
-        ip_address=ip_address_context.get(''),
-        details=details
-    )
+    return sanitized

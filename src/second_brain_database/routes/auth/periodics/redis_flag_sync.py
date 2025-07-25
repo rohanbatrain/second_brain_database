@@ -16,16 +16,19 @@ Redis keys:
 - abuse:reset:whitelist (set of email:ip)
 - abuse:reset:flagged:email:ip (JSON, expires in 15 min)
 """
+
 import asyncio
 import json
 from typing import Any, Dict, Optional
+
 import pymongo.errors
 import redis.exceptions
-from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.services.abuse.management import reconcile_blocklist_whitelist
+
 from second_brain_database.config import settings
+from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
+from second_brain_database.routes.auth.services.abuse.management import reconcile_blocklist_whitelist
 
 # Import exceptions for more specific error handling
 
@@ -42,6 +45,7 @@ BLOCKLIST_KEY: str = settings.BLOCKLIST_KEY
 WHITELIST_KEY: str = settings.WHITELIST_KEY
 ABUSE_FLAG_PREFIX: str = settings.ABUSE_FLAG_PREFIX
 
+
 async def sync_password_reset_flags_to_redis() -> None:
     """
     Sync password reset blocklist, whitelist, and abuse_flags from MongoDB to Redis.
@@ -56,7 +60,7 @@ async def sync_password_reset_flags_to_redis() -> None:
             "$or": [
                 {"reset_blocklist": {"$exists": True, "$ne": []}},
                 {"reset_whitelist": {"$exists": True, "$ne": []}},
-                {"abuse_flags": {"$exists": True, "$ne": {}}}
+                {"abuse_flags": {"$exists": True, "$ne": {}}},
             ]
         }
         async for user in users.find(query):
@@ -89,6 +93,7 @@ async def sync_password_reset_flags_to_redis() -> None:
     except (TypeError, ValueError, KeyError) as exc:
         logger.error("Error during password reset flag sync: %s", exc, exc_info=True)
 
+
 async def periodic_password_reset_flag_sync(interval: Optional[int] = None) -> None:
     """
     Run sync_password_reset_flags_to_redis every `interval` seconds (from config if not provided).
@@ -102,9 +107,16 @@ async def periodic_password_reset_flag_sync(interval: Optional[int] = None) -> N
     while True:
         try:
             await sync_password_reset_flags_to_redis()
-        except (redis_manager.redis_exceptions.RedisError, db_manager.pymongo_errors.PyMongoError, TypeError, ValueError, KeyError) as exc:
+        except (
+            redis_manager.redis_exceptions.RedisError,
+            db_manager.pymongo_errors.PyMongoError,
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
             logger.error("Failed to sync password reset flags to Redis: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
 
 async def periodic_blocklist_whitelist_reconcile(interval: Optional[int] = None) -> None:
     """
@@ -119,6 +131,12 @@ async def periodic_blocklist_whitelist_reconcile(interval: Optional[int] = None)
     while True:
         try:
             await reconcile_blocklist_whitelist()
-        except (redis_manager.redis_exceptions.RedisError, db_manager.pymongo_errors.PyMongoError, TypeError, ValueError, KeyError) as exc:
+        except (
+            redis_manager.redis_exceptions.RedisError,
+            db_manager.pymongo_errors.PyMongoError,
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
             logger.error("Blocklist/whitelist reconciliation error: %s", exc, exc_info=True)
         await asyncio.sleep(interval)

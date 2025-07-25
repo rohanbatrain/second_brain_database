@@ -5,10 +5,13 @@ This module provides asynchronous functions to log, list, and resolve abuse even
 related to password reset and authentication abuse. Events are stored in MongoDB
 and support admin review, filtering, and resolution workflows.
 """
+
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
+
 from bson import ObjectId
 import pymongo
+
 from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 
@@ -17,6 +20,7 @@ logger = get_logger(prefix="[Auth Service Abuse Events]")
 # Constants
 ABUSE_EVENTS_COLLECTION: str = "abuse_events"
 DEFAULT_EVENT_LIMIT: int = 100
+
 
 class AbuseEvent(TypedDict, total=False):
     """
@@ -35,6 +39,7 @@ class AbuseEvent(TypedDict, total=False):
         timestamp (str): ISO8601 timestamp of the event.
         _id (Optional[str]): Stringified MongoDB ObjectId.
     """
+
     email: str
     ip: str
     user_agent: Optional[str]
@@ -46,6 +51,7 @@ class AbuseEvent(TypedDict, total=False):
     notes: Optional[str]
     timestamp: str
     _id: Optional[str]
+
 
 async def log_reset_abuse_event(
     email: str,
@@ -92,14 +98,12 @@ async def log_reset_abuse_event(
             "timestamp": (timestamp or datetime.utcnow()).isoformat(),
         }
         await collection.insert_one(doc)
-        logger.info(
-            "Abuse event logged for email=%s, ip=%s, type=%s",
-            email, ip, event_type
-        )
+        logger.info("Abuse event logged for email=%s, ip=%s, type=%s", email, ip, event_type)
     except ImportError:
         logger.error("Failed to import required modules for logging abuse event", exc_info=True)
     except pymongo.errors.PyMongoError:
         logger.error("Failed to log abuse event", exc_info=True)
+
 
 async def admin_list_abuse_events(
     email: Optional[str] = None,
@@ -136,14 +140,12 @@ async def admin_list_abuse_events(
         async for doc in cursor:
             doc["_id"] = str(doc["_id"])
             events.append(doc)
-        logger.debug(
-            "Admin listed %d abuse events with query: %r",
-            len(events), query
-        )
+        logger.debug("Admin listed %d abuse events with query: %r", len(events), query)
         return events
     except pymongo.errors.PyMongoError:
         logger.error("Failed to list abuse events", exc_info=True)
         return []
+
 
 async def admin_resolve_abuse_event(event_id: str, notes: Optional[str] = None) -> bool:
     """
@@ -163,8 +165,7 @@ async def admin_resolve_abuse_event(event_id: str, notes: Optional[str] = None) 
 
         collection = db_manager.get_collection(ABUSE_EVENTS_COLLECTION)
         result = await collection.update_one(
-            {"_id": ObjectId(event_id)},
-            {"$set": {"resolved_by_admin": True, "notes": notes or ""}}
+            {"_id": ObjectId(event_id)}, {"$set": {"resolved_by_admin": True, "notes": notes or ""}}
         )
         updated = result.modified_count > 0
         if updated:

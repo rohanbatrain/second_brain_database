@@ -4,42 +4,89 @@ Management utilities for password reset abuse whitelists and blocklists.
 This module provides async functions to manage (email, ip) pairs in Redis-based
 whitelists and blocklists, as well as reconciliation with MongoDB for admin review.
 """
-from typing import List, Dict
-from second_brain_database.managers.redis_manager import redis_manager
+
+from datetime import datetime
+import json
+from typing import Dict, List
+
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
-import json
-from datetime import datetime
+from second_brain_database.managers.redis_manager import redis_manager
+from second_brain_database.utils.logging_utils import (
+    DatabaseLogger,
+    SecurityLogger,
+    log_database_operation,
+    log_error_with_context,
+    log_performance,
+    log_security_event,
+)
 
 WHITELIST_KEY: str = getattr(settings, "WHITELIST_KEY", "abuse:reset:whitelist")
 BLOCKLIST_KEY: str = getattr(settings, "BLOCKLIST_KEY", "abuse:reset:blocklist")
 
 logger = get_logger(prefix="[Auth Service Abuse Management]")
+security_logger = SecurityLogger(prefix="[ABUSE-MANAGEMENT-SECURITY]")
+db_logger = DatabaseLogger(prefix="[ABUSE-MANAGEMENT-DB]")
 
+
+@log_performance("whitelist_reset_pair")
 async def whitelist_reset_pair(email: str, ip: str) -> None:
     """
     Add an (email, ip) pair to the password reset whitelist in Redis.
     Side Effects: Writes to Redis.
     """
+    logger.info("Adding pair to whitelist: %s, %s", email, ip)
+
     try:
         redis_conn = await redis_manager.get_redis()
-        await redis_conn.sadd(WHITELIST_KEY, f"{email}:{ip}")
-        logger.info("Whitelisted pair: %s, %s", email, ip)
-    except (TypeError, ValueError, RuntimeError, AttributeError):
-        logger.error("Failed to whitelist pair", exc_info=True)
+        result = await redis_conn.sadd(WHITELIST_KEY, f"{email}:{ip}")
 
+        log_security_event(
+            event_type="abuse_pair_whitelisted",
+            user_id=email,
+            ip_address=ip,
+            success=True,
+            details={"action": "whitelist_add", "pair": f"{email}:{ip}", "was_new": bool(result)},
+        )
+
+        logger.info("Successfully whitelisted pair: %s, %s (new: %s)", email, ip, bool(result))
+
+    except (TypeError, ValueError, RuntimeError, AttributeError) as e:
+        logger.error("Failed to whitelist pair %s, %s: %s", email, ip, e, exc_info=True)
+        log_error_with_context(
+            e, context={"email": email, "ip": ip, "action": "whitelist"}, operation="whitelist_reset_pair"
+        )
+
+
+@log_performance("block_reset_pair")
 async def block_reset_pair(email: str, ip: str) -> None:
     """
     Add an (email, ip) pair to the password reset blocklist in Redis.
     Side Effects: Writes to Redis.
     """
+    logger.info("Adding pair to blocklist: %s, %s", email, ip)
+
     try:
         redis_conn = await redis_manager.get_redis()
-        await redis_conn.sadd(BLOCKLIST_KEY, f"{email}:{ip}")
-        logger.info("Blocklisted pair: %s, %s", email, ip)
-    except (TypeError, ValueError, RuntimeError, AttributeError):
-        logger.error("Failed to blocklist pair", exc_info=True)
+        result = await redis_conn.sadd(BLOCKLIST_KEY, f"{email}:{ip}")
+
+        log_security_event(
+            event_type="abuse_pair_blocked",
+            user_id=email,
+            ip_address=ip,
+            success=True,
+            details={"action": "blocklist_add", "pair": f"{email}:{ip}", "was_new": bool(result)},
+        )
+
+        logger.info("Successfully blocklisted pair: %s, %s (new: %s)", email, ip, bool(result))
+
+    except (TypeError, ValueError, RuntimeError, AttributeError) as e:
+        logger.error("Failed to blocklist pair %s, %s: %s", email, ip, e, exc_info=True)
+        log_error_with_context(
+            e, context={"email": email, "ip": ip, "action": "blocklist"}, operation="block_reset_pair"
+        )
+
 
 async def admin_add_whitelist_pair(email: str, ip: str) -> bool:
     """
@@ -56,6 +103,7 @@ async def admin_add_whitelist_pair(email: str, ip: str) -> bool:
         logger.error("Failed to add whitelist pair", exc_info=True)
         return False
 
+
 async def admin_remove_whitelist_pair(email: str, ip: str) -> bool:
     """
     Remove an (email, ip) pair from the password reset whitelist (Redis).
@@ -70,6 +118,7 @@ async def admin_remove_whitelist_pair(email: str, ip: str) -> bool:
     except (TypeError, ValueError, RuntimeError, AttributeError):
         logger.error("Failed to remove whitelist pair", exc_info=True)
         return False
+
 
 async def admin_list_whitelist_pairs() -> List[Dict[str, str]]:
     """
@@ -94,6 +143,7 @@ async def admin_list_whitelist_pairs() -> List[Dict[str, str]]:
         logger.error("Failed to list whitelist pairs", exc_info=True)
         return []
 
+
 async def admin_add_blocklist_pair(email: str, ip: str) -> bool:
     """
     Add an (email, ip) pair to the password reset blocklist (Redis, fast path).
@@ -109,6 +159,7 @@ async def admin_add_blocklist_pair(email: str, ip: str) -> bool:
         logger.error("Failed to add blocklist pair", exc_info=True)
         return False
 
+
 async def admin_remove_blocklist_pair(email: str, ip: str) -> bool:
     """
     Remove an (email, ip) pair from the password reset blocklist (Redis).
@@ -123,6 +174,7 @@ async def admin_remove_blocklist_pair(email: str, ip: str) -> bool:
     except (TypeError, ValueError, RuntimeError, AttributeError):
         logger.error("Failed to remove blocklist pair", exc_info=True)
         return False
+
 
 async def admin_list_blocklist_pairs() -> List[Dict[str, str]]:
     """
@@ -147,6 +199,7 @@ async def admin_list_blocklist_pairs() -> List[Dict[str, str]]:
         logger.error("Failed to list blocklist pairs", exc_info=True)
         return []
 
+
 async def reconcile_blocklist_whitelist() -> None:
     """
     Make MongoDB the source of truth for blocklist/whitelist reconciliation.
@@ -167,17 +220,22 @@ async def reconcile_blocklist_whitelist() -> None:
                 for ip in user.get(f"reset_{list_type}", []):
                     mongo_pairs.add(f"{email}:{ip}")
             redis_members = await redis_conn.smembers(redis_key)
-            redis_pairs = set(m.decode() if hasattr(m, 'decode') else m for m in redis_members)
+            redis_pairs = set(m.decode() if hasattr(m, "decode") else m for m in redis_members)
             for pair in redis_pairs - mongo_pairs:
                 await redis_conn.srem(redis_key, pair)
                 changes["redis_removed"] += 1
             for pair in mongo_pairs - redis_pairs:
                 await redis_conn.sadd(redis_key, pair)
                 changes["mongo_to_redis"] += 1
-        logger.info(json.dumps({"event": "blocklist_whitelist_reconcile", "changes": changes, "ts": datetime.utcnow().isoformat()}))
+        logger.info(
+            json.dumps(
+                {"event": "blocklist_whitelist_reconcile", "changes": changes, "ts": datetime.utcnow().isoformat()}
+            )
+        )
         logger.info("Blocklist/whitelist reconciliation (MongoDB → Redis) complete.")
     except (TypeError, ValueError, RuntimeError, AttributeError):
         logger.error("Failed to reconcile blocklist/whitelist", exc_info=True)
+
 
 async def is_pair_whitelisted(email: str, ip: str) -> bool:
     """
@@ -191,6 +249,7 @@ async def is_pair_whitelisted(email: str, ip: str) -> bool:
     except (TypeError, ValueError, RuntimeError, AttributeError):
         logger.error("Failed to check whitelist status", exc_info=True)
         return False
+
 
 async def is_pair_blocked(email: str, ip: str) -> bool:
     """

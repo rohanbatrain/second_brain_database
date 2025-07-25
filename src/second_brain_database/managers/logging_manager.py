@@ -28,10 +28,12 @@ Logs will go to Loki if available, otherwise to console or buffer file.
 import logging
 import os
 import threading
+
 from second_brain_database.config import settings
 
 try:
     from loki_logger_handler.loki_logger_handler import LokiLoggerHandler
+
     _loki_available: bool = True
 except ImportError as e:
     LokiLoggerHandler = None  # type: ignore
@@ -71,6 +73,7 @@ def _write_to_buffer(record: logging.LogRecord) -> None:
         logging.getLogger("Second_Brain_Database").error(
             "[LoggingManager] Failed to write log to buffer file '%s': %s", BUFFER_FILE, e, exc_info=True
         )
+
 
 def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger) -> None:
     """
@@ -125,7 +128,7 @@ def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger)
                 with open(BUFFER_FILE, "w", encoding="utf-8") as f:
                     f.writelines(failed_lines)
                 logger.warning(
-                    "[LoggingManager] Some buffered logs (%d/%d) could not be resent " \
+                    "[LoggingManager] Some buffered logs (%d/%d) could not be resent "
                     "to Loki and were kept in the buffer file.",
                     len(failed_lines),
                     len(lines),
@@ -146,18 +149,14 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
     # Always attach a StreamHandler for console logging if not present
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)s in %(name)s: %(message)s"
-        )
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
         stream_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)
-        logger.info(
-            "[LoggingManager] Console StreamHandler attached to logger '%s'", name
-        )
+        logger.info("[LoggingManager] Console StreamHandler attached to logger '%s'", name)
 
     class PrefixFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
-            if prefix and not getattr(record, '_prefix_applied', False):
+            if prefix and not getattr(record, "_prefix_applied", False):
                 record.msg = f"{prefix} {record.msg}"
                 record._prefix_applied = True
             return True
@@ -188,15 +187,19 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
                 e,
                 exc_info=True,
             )
+
             class BufferHandler(logging.Handler):
                 def emit(self, record: logging.LogRecord) -> None:
                     _write_to_buffer(record)
+
             if not any(isinstance(h, BufferHandler) for h in logger.handlers):
                 logger.addHandler(BufferHandler())
     elif not _loki_available:
+
         class BufferHandler(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
                 _write_to_buffer(record)
+
         if not any(isinstance(h, BufferHandler) for h in logger.handlers):
             logger.addHandler(BufferHandler())
     return logger

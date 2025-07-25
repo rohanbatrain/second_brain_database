@@ -1,19 +1,36 @@
-from fastapi import APIRouter, Request, Depends
-from second_brain_database.database import db_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
-from second_brain_database.managers.logging_manager import get_logger
-from second_brain_database.docs.models import (
-    StandardErrorResponse, StandardSuccessResponse, ValidationErrorResponse,
-    create_error_responses, create_standard_responses
-)
 from datetime import datetime, timezone
+import time
+import uuid
+
+from fastapi import APIRouter, Depends, Request
+
+from second_brain_database.database import db_manager
+from second_brain_database.docs.models import (
+    StandardErrorResponse,
+    StandardSuccessResponse,
+    ValidationErrorResponse,
+    create_error_responses,
+    create_standard_responses,
+)
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.utils.logging_utils import (
+    ip_address_context,
+    log_database_operation,
+    log_error_with_context,
+    log_performance,
+    request_id_context,
+    user_id_context,
+)
 
 router = APIRouter()
 logger = get_logger(prefix="[AVATARS]")
 
+
 @router.get(
-    "/avatars/rented", 
-    tags=["User Profile"], 
+    "/avatars/rented",
+    tags=["User Profile"],
     summary="Get active rented avatars",
     description="""
     Retrieve all currently active rented avatars for the authenticated user.
@@ -43,47 +60,109 @@ logger = get_logger(prefix="[AVATARS]")
                                 "unlocked_at": "2024-01-01T12:00:00Z",
                                 "duration_hours": 24,
                                 "valid_till": "2024-01-02T12:00:00Z",
-                                "transaction_id": "550e8400-e29b-41d4-a716-446655440000"
+                                "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
                             },
                             {
                                 "avatar_id": "emotion_tracker-animated-avatar-playful_eye",
                                 "unlocked_at": "2024-01-01T15:00:00Z",
                                 "duration_hours": 48,
                                 "valid_till": "2024-01-03T15:00:00Z",
-                                "transaction_id": "550e8400-e29b-41d4-a716-446655440001"
-                            }
+                                "transaction_id": "550e8400-e29b-41d4-a716-446655440001",
+                            },
                         ]
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication required",
-            "model": StandardErrorResponse
-        },
-        500: {
-            "description": "Internal server error",
-            "model": StandardErrorResponse
-        }
-    }
+        401: {"description": "Authentication required", "model": StandardErrorResponse},
+        500: {"description": "Internal server error", "model": StandardErrorResponse},
+    },
 )
 async def get_rented_avatars(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    users_collection = db_manager.get_collection("users")
-    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars_rented": 1})
-    if not user or "avatars_rented" not in user:
-        return {"avatars_rented": []}
-    now = datetime.now(timezone.utc)
-    def is_active(avatar):
-        try:
-            return datetime.fromisoformat(avatar["valid_till"]) > now
-        except Exception:
-            return False
-    filtered = [avatar for avatar in user["avatars_rented"] if is_active(avatar)]
-    return {"avatars_rented": filtered}
+    # Set up logging context
+    request_id = str(uuid.uuid4())[:8]
+    client_ip = security_manager.get_client_ip(request)
+    user_agent = request.headers.get("user-agent", "")
+    username = current_user["username"]
+
+    request_id_context.set(request_id)
+    user_id_context.set(username)
+    ip_address_context.set(client_ip)
+
+    start_time = time.time()
+
+    logger.info(
+        "[%s] GET /avatars/rented - User: %s, IP: %s, User-Agent: %s", request_id, username, client_ip, user_agent[:100]
+    )
+
+    try:
+        # Database operation with logging
+        users_collection = db_manager.get_collection("users")
+
+        db_start = time.time()
+        user = await users_collection.find_one({"username": username}, {"_id": 0, "avatars_rented": 1})
+        db_duration = time.time() - db_start
+
+        logger.info("[%s] DB find_one on users completed in %.3fs - User: %s", request_id, db_duration, username)
+
+        if not user or "avatars_rented" not in user:
+            logger.info("[%s] No rented avatars found for user: %s", request_id, username)
+            duration = time.time() - start_time
+            logger.info(
+                "[%s] GET /avatars/rented completed in %.3fs - User: %s, Returned: 0 avatars",
+                request_id,
+                duration,
+                username,
+            )
+            return {"avatars_rented": []}
+
+        # Filter active avatars
+        now = datetime.now(timezone.utc)
+        total_rented = len(user.get("avatars_rented", []))
+
+        def is_active(avatar):
+            try:
+                return datetime.fromisoformat(avatar["valid_till"]) > now
+            except Exception as e:
+                logger.warning("[%s] Invalid avatar expiry format for user %s: %s", request_id, username, str(e))
+                return False
+
+        filtered = [avatar for avatar in user["avatars_rented"] if is_active(avatar)]
+        active_count = len(filtered)
+
+        logger.info(
+            "[%s] Filtered active avatars - User: %s, Total: %d, Active: %d",
+            request_id,
+            username,
+            total_rented,
+            active_count,
+        )
+
+        duration = time.time() - start_time
+        logger.info(
+            "[%s] GET /avatars/rented completed in %.3fs - User: %s, Returned: %d avatars",
+            request_id,
+            duration,
+            username,
+            active_count,
+        )
+
+        return {"avatars_rented": filtered}
+
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(
+            "[%s] GET /avatars/rented failed after %.3fs - User: %s, Error: %s", request_id, duration, username, str(e)
+        )
+        log_error_with_context(
+            e, context={"user": username, "ip": client_ip, "request_id": request_id}, operation="get_rented_avatars"
+        )
+        raise
+
 
 @router.get(
-    "/avatars/owned", 
-    tags=["User Profile"], 
+    "/avatars/owned",
+    tags=["User Profile"],
     summary="Get permanently owned avatars",
     description="""
     Retrieve all permanently owned avatars for the authenticated user.
@@ -120,7 +199,7 @@ async def get_rented_avatars(request: Request, current_user: dict = Depends(get_
                                 "source": "purchase",
                                 "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
                                 "note": "Bought from shop",
-                                "price": 100
+                                "price": 100,
                             },
                             {
                                 "avatar_id": "emotion_tracker-animated-avatar-floating_brain",
@@ -129,33 +208,84 @@ async def get_rented_avatars(request: Request, current_user: dict = Depends(get_
                                 "source": "bundle:emotion_tracker-avatars-premium-bundle",
                                 "transaction_id": "550e8400-e29b-41d4-a716-446655440001",
                                 "note": "Unlocked via premium bundle",
-                                "price": 0
-                            }
+                                "price": 0,
+                            },
                         ]
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication required",
-            "model": StandardErrorResponse
-        },
-        500: {
-            "description": "Internal server error",
-            "model": StandardErrorResponse
-        }
-    }
+        401: {"description": "Authentication required", "model": StandardErrorResponse},
+        500: {"description": "Internal server error", "model": StandardErrorResponse},
+    },
 )
 async def get_owned_avatars(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    users_collection = db_manager.get_collection("users")
-    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars_owned": 1})
-    if not user or "avatars_owned" not in user:
-        return {"avatars_owned": []}
-    return {"avatars_owned": user["avatars_owned"]}
+    # Set up logging context
+    request_id = str(uuid.uuid4())[:8]
+    client_ip = security_manager.get_client_ip(request)
+    user_agent = request.headers.get("user-agent", "")
+    username = current_user["username"]
+
+    request_id_context.set(request_id)
+    user_id_context.set(username)
+    ip_address_context.set(client_ip)
+
+    start_time = time.time()
+
+    logger.info(
+        "[%s] GET /avatars/owned - User: %s, IP: %s, User-Agent: %s", request_id, username, client_ip, user_agent[:100]
+    )
+
+    try:
+        # Database operation with logging
+        users_collection = db_manager.get_collection("users")
+
+        db_start = time.time()
+        user = await users_collection.find_one({"username": username}, {"_id": 0, "avatars_owned": 1})
+        db_duration = time.time() - db_start
+
+        logger.info("[%s] DB find_one on users completed in %.3fs - User: %s", request_id, db_duration, username)
+
+        if not user or "avatars_owned" not in user:
+            logger.info("[%s] No owned avatars found for user: %s", request_id, username)
+            duration = time.time() - start_time
+            logger.info(
+                "[%s] GET /avatars/owned completed in %.3fs - User: %s, Returned: 0 avatars",
+                request_id,
+                duration,
+                username,
+            )
+            return {"avatars_owned": []}
+
+        owned_count = len(user["avatars_owned"])
+
+        logger.info("[%s] Retrieved owned avatars - User: %s, Count: %d", request_id, username, owned_count)
+
+        duration = time.time() - start_time
+        logger.info(
+            "[%s] GET /avatars/owned completed in %.3fs - User: %s, Returned: %d avatars",
+            request_id,
+            duration,
+            username,
+            owned_count,
+        )
+
+        return {"avatars_owned": user["avatars_owned"]}
+
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(
+            "[%s] GET /avatars/owned failed after %.3fs - User: %s, Error: %s", request_id, duration, username, str(e)
+        )
+        log_error_with_context(
+            e, context={"user": username, "ip": client_ip, "request_id": request_id}, operation="get_owned_avatars"
+        )
+        raise
+
 
 @router.post(
-    "/avatars/current", 
-    tags=["User Profile"], 
+    "/avatars/current",
+    tags=["User Profile"],
     summary="Set current active avatar",
     description="""
     Set the current active avatar for the authenticated user and specific application.
@@ -186,13 +316,8 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(get_c
         200: {
             "description": "Avatar set successfully",
             "content": {
-                "application/json": {
-                    "example": {
-                        "success": True,
-                        "avatar_id": "emotion_tracker-static-avatar-cat-5"
-                    }
-                }
-            }
+                "application/json": {"example": {"success": True, "avatar_id": "emotion_tracker-static-avatar-cat-5"}}
+            },
         },
         400: {
             "description": "Invalid request or avatar not accessible",
@@ -201,87 +326,149 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(get_c
                     "examples": {
                         "missing_avatar_id": {
                             "summary": "Missing avatar ID",
-                            "value": {
-                                "error": "avatar_id is required"
-                            }
+                            "value": {"error": "avatar_id is required"},
                         },
                         "not_owned": {
                             "summary": "Avatar not owned or rental expired",
-                            "value": {
-                                "error": "avatar_id is not owned or validly rented"
-                            }
-                        }
+                            "value": {"error": "avatar_id is not owned or validly rented"},
+                        },
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication required",
-            "model": StandardErrorResponse
-        },
+        401: {"description": "Authentication required", "model": StandardErrorResponse},
         500: {
             "description": "Failed to update avatar setting",
             "content": {
                 "application/json": {
-                    "example": {
-                        "error": "Failed to set current avatar",
-                        "details": "Database update failed"
-                    }
+                    "example": {"error": "Failed to set current avatar", "details": "Database update failed"}
                 }
-            }
-        }
-    }
+            },
+        },
+    },
 )
 async def set_current_avatar(request: Request, data: dict, current_user: dict = Depends(get_current_user_dep)):
     """
     Set the current active avatar for the user and application.
-    
+
     Verifies ownership/rental status and updates the user's avatar preference
     for the specific application determined by User-Agent header.
     """
-    users_collection = db_manager.get_collection("users")
+    # Set up logging context
+    request_id = str(uuid.uuid4())[:8]
+    client_ip = security_manager.get_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown_app")
-    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
-    avatar_id = data.get("avatar_id")
     username = current_user["username"]
-    logger.info(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Attempting to set current avatar.")
-    if not avatar_id:
-        logger.warning(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key} - avatar_id is required.")
-        return {"error": "avatar_id is required"}
-    # Check if avatar_id is owned or rented and valid
-    user = await users_collection.find_one({"username": username}, {"_id": 0, "avatars": 1, "avatars_owned": 1, "avatars_rented": 1})
-    avatars = user.get("avatars", {}) if user else {}
-    # Patch: always build avatars_owned as a set of avatar_id strings
-    owned = set(a.get("avatar_id") for a in user.get("avatars_owned", []) if a.get("avatar_id")) if user else set()
-    rented = user.get("avatars_rented", []) if user else []
-    # Check owned
-    if avatar_id not in owned:
-        # Check rented and valid
-        now = datetime.now(timezone.utc)
-        valid_rented = False
-        for avatar in rented:
-            if avatar.get("avatar_id") == avatar_id:
-                try:
-                    if datetime.fromisoformat(avatar["valid_till"]) > now:
-                        valid_rented = True
-                        break
-                except Exception:
-                    continue
-        if not valid_rented:
-            logger.warning(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Not owned or validly rented.")
-            return {"error": "avatar_id is not owned or validly rented"}
-    avatars[app_key] = avatar_id
+    avatar_id = data.get("avatar_id")
+
+    request_id_context.set(request_id)
+    user_id_context.set(username)
+    ip_address_context.set(client_ip)
+
+    start_time = time.time()
+    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
+
+    logger.info(
+        "[%s] POST /avatars/current - User: %s, IP: %s, Avatar: %s, App: %s",
+        request_id,
+        username,
+        client_ip,
+        avatar_id,
+        app_key,
+    )
+
     try:
+        if not avatar_id:
+            logger.warning(
+                "[%s] POST /avatars/current validation failed - User: %s, Missing avatar_id", request_id, username
+            )
+            return {"error": "avatar_id is required"}
+
+        # Database operations with logging
+        users_collection = db_manager.get_collection("users")
+
+        db_start = time.time()
+        user = await users_collection.find_one(
+            {"username": username}, {"_id": 0, "avatars": 1, "avatars_owned": 1, "avatars_rented": 1}
+        )
+        db_duration = time.time() - db_start
+
+        logger.info(
+            "[%s] DB find_one for avatar verification completed in %.3fs - User: %s", request_id, db_duration, username
+        )
+
+        avatars = user.get("avatars", {}) if user else {}
+        owned = set(a.get("avatar_id") for a in user.get("avatars_owned", []) if a.get("avatar_id")) if user else set()
+        rented = user.get("avatars_rented", []) if user else []
+
+        # Check ownership/rental
+        if avatar_id not in owned:
+            now = datetime.now(timezone.utc)
+            valid_rented = False
+            for avatar in rented:
+                if avatar.get("avatar_id") == avatar_id:
+                    try:
+                        if datetime.fromisoformat(avatar["valid_till"]) > now:
+                            valid_rented = True
+                            break
+                    except Exception as e:
+                        logger.warning(
+                            "[%s] Invalid rental expiry format for avatar %s: %s", request_id, avatar_id, str(e)
+                        )
+                        continue
+
+            if not valid_rented:
+                logger.warning(
+                    "[%s] POST /avatars/current access denied - User: %s, Avatar: %s not owned/rented",
+                    request_id,
+                    username,
+                    avatar_id,
+                )
+                return {"error": "avatar_id is not owned or validly rented"}
+
+        # Update avatar setting
+        avatars[app_key] = avatar_id
+
+        db_start = time.time()
         await users_collection.update_one({"username": username}, {"$set": {"avatars": avatars}})
-        logger.info(f"[SET CURRENT AVATAR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id} - Successfully set current avatar.")
+        db_duration = time.time() - db_start
+
+        logger.info(
+            "[%s] DB update_one for avatar setting completed in %.3fs - User: %s", request_id, db_duration, username
+        )
+
+        duration = time.time() - start_time
+        logger.info(
+            "[%s] POST /avatars/current completed in %.3fs - User: %s, Avatar: %s set for app: %s",
+            request_id,
+            duration,
+            username,
+            avatar_id,
+            app_key,
+        )
+
         return {"success": True, "avatar_id": avatar_id}
+
     except Exception as e:
-        logger.error(f"[SET CURRENT AVATAR ERROR] User: {username}, app_key: {app_key}, avatar_id: {avatar_id}, error: {e}")
+        duration = time.time() - start_time
+        logger.error(
+            "[%s] POST /avatars/current failed after %.3fs - User: %s, Error: %s",
+            request_id,
+            duration,
+            username,
+            str(e),
+        )
+        log_error_with_context(
+            e,
+            context={"user": username, "ip": client_ip, "request_id": request_id, "avatar_id": avatar_id},
+            operation="set_current_avatar",
+        )
         return {"error": "Failed to set current avatar", "details": str(e)}
 
+
 @router.get(
-    "/avatars/current", 
-    tags=["User Profile"], 
+    "/avatars/current",
+    tags=["User Profile"],
     summary="Get current active avatar",
     description="""
     Retrieve the currently active avatar for the authenticated user and specific application.
@@ -307,36 +494,68 @@ async def set_current_avatar(request: Request, data: dict, current_user: dict = 
                     "examples": {
                         "with_avatar": {
                             "summary": "User has avatar set",
-                            "value": {
-                                "avatar_id": "emotion_tracker-static-avatar-cat-5"
-                            }
+                            "value": {"avatar_id": "emotion_tracker-static-avatar-cat-5"},
                         },
-                        "no_avatar": {
-                            "summary": "No avatar set",
-                            "value": {
-                                "avatar_id": None
-                            }
-                        }
+                        "no_avatar": {"summary": "No avatar set", "value": {"avatar_id": None}},
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication required",
-            "model": StandardErrorResponse
-        },
-        500: {
-            "description": "Internal server error",
-            "model": StandardErrorResponse
-        }
-    }
+        401: {"description": "Authentication required", "model": StandardErrorResponse},
+        500: {"description": "Internal server error", "model": StandardErrorResponse},
+    },
 )
 async def get_current_avatar(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    users_collection = db_manager.get_collection("users")
+    # Set up logging context
+    request_id = str(uuid.uuid4())[:8]
+    client_ip = security_manager.get_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown_app")
-    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
-    user = await users_collection.find_one({"username": current_user["username"]}, {"_id": 0, "avatars": 1})
-    avatars = user.get("avatars", {}) if user else {}
-    avatar_id = avatars.get(app_key)
-    return {"avatar_id": avatar_id}
+    username = current_user["username"]
 
+    request_id_context.set(request_id)
+    user_id_context.set(username)
+    ip_address_context.set(client_ip)
+
+    start_time = time.time()
+    app_key = user_agent.split("/")[0].replace(" ", "_").lower() if user_agent else "unknown_app"
+
+    logger.info("[%s] GET /avatars/current - User: %s, IP: %s, App: %s", request_id, username, client_ip, app_key)
+
+    try:
+        # Database operation with logging
+        users_collection = db_manager.get_collection("users")
+
+        db_start = time.time()
+        user = await users_collection.find_one({"username": username}, {"_id": 0, "avatars": 1})
+        db_duration = time.time() - db_start
+
+        logger.info(
+            "[%s] DB find_one for current avatar completed in %.3fs - User: %s", request_id, db_duration, username
+        )
+
+        avatars = user.get("avatars", {}) if user else {}
+        avatar_id = avatars.get(app_key)
+
+        duration = time.time() - start_time
+        logger.info(
+            "[%s] GET /avatars/current completed in %.3fs - User: %s, App: %s, Avatar: %s",
+            request_id,
+            duration,
+            username,
+            app_key,
+            avatar_id or "None",
+        )
+
+        return {"avatar_id": avatar_id}
+
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(
+            "[%s] GET /avatars/current failed after %.3fs - User: %s, Error: %s", request_id, duration, username, str(e)
+        )
+        log_error_with_context(
+            e,
+            context={"user": username, "ip": client_ip, "request_id": request_id, "app_key": app_key},
+            operation="get_current_avatar",
+        )
+        raise

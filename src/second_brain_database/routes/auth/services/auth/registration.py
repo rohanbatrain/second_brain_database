@@ -4,18 +4,33 @@ User registration and verification utilities for authentication workflows.
 This module provides async functions for registering users, sending welcome and suspension emails,
 and verifying user emails. All email sending is logged and instrumented for production.
 """
-from typing import Optional, Tuple, Dict, Any
+
 from datetime import datetime
 import secrets
-from fastapi import HTTPException, status
+from typing import Any, Dict, Optional, Tuple
+
 import bcrypt
-from second_brain_database.routes.auth.models import UserIn, validate_password_strength
+from fastapi import HTTPException, status
+
 from second_brain_database.database import db_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes.auth.models import UserIn, validate_password_strength
+from second_brain_database.utils.logging_utils import (
+    DatabaseLogger,
+    SecurityLogger,
+    log_database_operation,
+    log_error_with_context,
+    log_performance,
+    log_security_event,
+)
 
 logger = get_logger(prefix="[Auth Service Registration]")
+security_logger = SecurityLogger(prefix="[AUTH-REG-SECURITY]")
+db_logger = DatabaseLogger(prefix="[AUTH-REG-DB]")
 
+
+@log_performance("register_user", log_args=False)
 async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
     """
     Register a new user, validate password, and return user doc and verification token.
@@ -29,26 +44,60 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
     Raises:
         HTTPException: If validation fails or user already exists.
     """
+    logger.info("Registration attempt for username: %s, email: %s", user.username, user.email)
+
+    # Log security event for registration attempt
+    log_security_event(
+        event_type="registration_attempt",
+        user_id=user.username,
+        success=False,  # Will be updated to True on success
+        details={
+            "username": user.username,
+            "email": user.email,
+            "plan": user.plan,
+            "team": user.team,
+            "role": user.role,
+            "client_side_encryption": user.client_side_encryption,
+        },
+    )
+
+    # Validate password strength
     if not validate_password_strength(user.password):
         logger.info("Password strength validation failed for username=%s", user.username)
+        log_security_event(
+            event_type="registration_weak_password",
+            user_id=user.username,
+            success=False,
+            details={"username": user.username, "email": user.email},
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 8 characters long and contain "
-                   "uppercase, lowercase, digit, and special character"
+            "uppercase, lowercase, digit, and special character",
         )
-    existing_user = await db_manager.get_collection("users").find_one({
-        "$or": [
-            {"username": user.username},
-            {"email": user.email}
-        ]
-    })
+
+    # Check for existing user
+    logger.debug("Checking for existing user with username: %s or email: %s", user.username, user.email)
+    existing_user = await db_manager.get_collection("users").find_one(
+        {"$or": [{"username": user.username}, {"email": user.email}]}
+    )
     if existing_user:
         logger.info("Registration failed: username or email already exists (%s, %s)", user.username, user.email)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username or email already exists"
+        log_security_event(
+            event_type="registration_duplicate_user",
+            user_id=user.username,
+            success=False,
+            details={
+                "username": user.username,
+                "email": user.email,
+                "existing_username": existing_user.get("username"),
+                "existing_email": existing_user.get("email"),
+            },
         )
-    hashed_pw = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username or email already exists")
+    # Create user document
+    logger.debug("Creating user document for username: %s", user.username)
+    hashed_pw = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     verification_token = secrets.token_urlsafe(32)
     user_doc = {
         "username": user.username,
@@ -63,18 +112,34 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         "plan": user.plan,
         "team": user.team,
         "role": user.role,
-        "client_side_encryption": user.client_side_encryption
+        "client_side_encryption": user.client_side_encryption,
     }
+
+    # Insert user into database
+    logger.debug("Inserting user into database: %s", user.username)
     result = await db_manager.get_collection("users").insert_one(user_doc)
     if not result.inserted_id:
         logger.error("Failed to create user: %s", user.username)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user"
+        log_error_with_context(
+            RuntimeError("Database insert failed"),
+            context={"username": user.username, "email": user.email},
+            operation="register_user",
         )
-    logger.info("User registered: %s", user.username)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
+
+    # Log successful registration
+    logger.info("User registered successfully: %s", user.username)
+    log_security_event(
+        event_type="registration_success",
+        user_id=user.username,
+        success=True,
+        details={"username": user.username, "email": user.email, "plan": user.plan, "user_id": str(result.inserted_id)},
+    )
+
     return user_doc, verification_token
 
+
+@log_performance("send_welcome_email")
 async def send_welcome_email(email: str, username: Optional[str] = None) -> None:
     """
     Send a personalized welcome email after user verifies their email.
@@ -100,6 +165,8 @@ async def send_welcome_email(email: str, username: Optional[str] = None) -> None
     logger.info("[WELCOME EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
 
+
+@log_performance("verify_user_email")
 async def verify_user_email(token: str) -> Dict[str, Any]:
     """
     Verify a user's email using the provided token and send a welcome email.
@@ -118,12 +185,12 @@ async def verify_user_email(token: str) -> Dict[str, Any]:
         logger.warning("Invalid or expired verification token: %s", token)
         raise HTTPException(status_code=400, detail="Invalid or expired verification token.")
     await db_manager.get_collection("users").update_one(
-        {"_id": user["_id"]},
-        {"$set": {"is_verified": True}, "$unset": {"verification_token": ""}}
+        {"_id": user["_id"]}, {"$set": {"is_verified": True}, "$unset": {"verification_token": ""}}
     )
     await send_welcome_email(user["email"], user.get("username"))
     logger.info("User email verified: %s", user.get("username"))
     return user
+
 
 async def send_account_suspension_email(email: str, username: Optional[str] = None) -> None:
     """
@@ -148,4 +215,3 @@ async def send_account_suspension_email(email: str, username: Optional[str] = No
     """
     logger.info("[SUSPEND EMAIL] To: %s | Subject: %s", email, subject)
     await email_manager._send_via_console(email, subject, html_content)
-

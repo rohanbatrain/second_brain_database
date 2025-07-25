@@ -6,16 +6,20 @@ which handles sending emails using multiple providers (SMTP, Mailgun, SendGrid, 
 - It supports sending HTML emails for verification and other purposes,
 and is fully instrumented with production-grade logging.
 """
+
 from typing import Optional
+
 from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[EmailManager]")
+
 
 class EmailManager:
     """
     Handles sending emails using multiple providers (SMTP, Mailgun, SendGrid, etc.).
     Supports sending HTML emails for verification and other purposes.
     """
+
     def __init__(self):
         self.logger = logger
         # Placeholder for provider configs (add as needed)
@@ -40,37 +44,26 @@ class EmailManager:
         </body>
         </html>
         """
-        self.logger.info(
-            "Attempting to send verification email to %s (username=%s)", to_email, username
-        )
+        self.logger.info("Attempting to send verification email to %s (username=%s)", to_email, username)
         for provider in self.providers:
             try:
                 self.logger.debug("Trying provider: %s for %s", provider.__name__, to_email)
                 await provider(to_email, subject, html_content)
-                self.logger.info(
-                    "Verification email sent to %s using provider %s", to_email, provider.__name__
-                )
+                self.logger.info("Verification email sent to %s using provider %s", to_email, provider.__name__)
                 return True
             except RuntimeError as e:
                 self.logger.warning(
-                    "Email provider %s failed for %s: %s",
-                    provider.__name__, to_email, e, exc_info=True
+                    "Email provider %s failed for %s: %s", provider.__name__, to_email, e, exc_info=True
                 )
-        self.logger.error(
-            "All email providers failed to send verification to %s", to_email, exc_info=True
-        )
+        self.logger.error("All email providers failed to send verification to %s", to_email, exc_info=True)
         return False
 
     async def _send_via_console(self, to_email: str, subject: str, html_content: str) -> None:
         """
         For development: log the email and print to console instead of sending.
         """
-        self.logger.info(
-            "[DEV EMAIL] To: %s\nSubject: %s\nHTML:\n%s", to_email, subject, html_content
-        )
-        self.logger.debug(
-            "Email content for %s: subject=%s, html_length=%d", to_email, subject, len(html_content)
-        )
+        self.logger.info("[DEV EMAIL] To: %s\nSubject: %s\nHTML:\n%s", to_email, subject, html_content)
+        self.logger.debug("Email content for %s: subject=%s, html_length=%d", to_email, subject, len(html_content))
         print(f"\n[DEV EMAIL] To: {to_email}\nSubject: {subject}\nHTML:\n{html_content}\n")
 
 

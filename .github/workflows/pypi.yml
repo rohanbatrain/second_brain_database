@@ -70,29 +70,33 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install build & twine
-        run: pip install build twine pytest pytest-cov pylint
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies and build tools
+        run: |
+          uv sync --extra dev
+          uv add build twine
 
       - name: Build Python package from pyproject.toml
-        run: python -m build
+        run: uv run python -m build
 
-
-      - name: Install python packages
-        run: pip install -r requirements.txt
-    
       - name: Linting 
-        run: pylint src/second_brain_database
+        run: uv run pylint src/second_brain_database
 
       - name: Installing Second Brain Database
-        run: pip install .
+        run: uv sync
     
       - name: Run tests and generate coverage report
-        run: pytest --cov --cov-branch --cov-report=xml
+        run: uv run pytest --cov --cov-branch --cov-report=xml
 
       - name: Publish package to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
+        run: uv run twine upload dist/*
 
     
