@@ -1350,120 +1350,120 @@ async def block_reset_abuse(token: str):
     )
 
 
-# --- Dual Authentication Management ---
-@router.get("/auth-methods", response_model=AuthMethodsResponse)
-async def get_user_auth_methods(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    """
-    Get available authentication methods for the current user.
+# # --- Dual Authentication Management ---
+# @router.get("/auth-methods", response_model=AuthMethodsResponse)
+# async def get_user_auth_methods(request: Request, current_user: dict = Depends(get_current_user_dep)):
+#     """
+#     Get available authentication methods for the current user.
     
-    Returns information about what authentication methods are available,
-    user preferences, and usage statistics.
+#     Returns information about what authentication methods are available,
+#     user preferences, and usage statistics.
     
-    **Response includes:**
-    - Available authentication methods (password, webauthn)
-    - User's preferred authentication method
-    - WebAuthn credential count
-    - Recent authentication method usage
-    """
-    from second_brain_database.routes.auth.services.auth.login import get_user_auth_methods
+#     **Response includes:**
+#     - Available authentication methods (password, webauthn)
+#     - User's preferred authentication method
+#     - WebAuthn credential count
+#     - Recent authentication method usage
+#     """
+#     from second_brain_database.routes.auth.services.auth.login import get_user_auth_methods
     
-    user_id = str(current_user["_id"])
-    auth_methods = await get_user_auth_methods(user_id)
+#     user_id = str(current_user["_id"])
+#     auth_methods = await get_user_auth_methods(user_id)
     
-    logger.info("Retrieved auth methods for user %s: %s", current_user["username"], auth_methods)
+#     logger.info("Retrieved auth methods for user %s: %s", current_user["username"], auth_methods)
     
-    return {
-        "available_methods": auth_methods["available_methods"],
-        "preferred_method": auth_methods["preferred_method"],
-        "has_password": auth_methods["has_password"],
-        "has_webauthn": auth_methods["has_webauthn"],
-        "webauthn_credential_count": auth_methods["webauthn_credential_count"],
-        "recent_auth_methods": auth_methods["recent_auth_methods"],
-        "last_auth_method": auth_methods["last_auth_method"],
-    }
+#     return {
+#         "available_methods": auth_methods["available_methods"],
+#         "preferred_method": auth_methods["preferred_method"],
+#         "has_password": auth_methods["has_password"],
+#         "has_webauthn": auth_methods["has_webauthn"],
+#         "webauthn_credential_count": auth_methods["webauthn_credential_count"],
+#         "recent_auth_methods": auth_methods["recent_auth_methods"],
+#         "last_auth_method": auth_methods["last_auth_method"],
+#     }
 
 
-@router.put("/auth-methods/preference", response_model=AuthPreferenceResponse)
-async def set_auth_preference(
-    request: Request, 
-    preferred_method: str = Body(..., embed=True),
-    current_user: dict = Depends(get_current_user_dep)
-):
-    """
-    Set the user's preferred authentication method.
+# @router.put("/auth-methods/preference", response_model=AuthPreferenceResponse)
+# async def set_auth_preference(
+#     request: Request, 
+#     preferred_method: str = Body(..., embed=True),
+#     current_user: dict = Depends(get_current_user_dep)
+# ):
+#     """
+#     Set the user's preferred authentication method.
     
-    The preferred method will be suggested first during login flows.
-    The method must be available for the user (e.g., they must have WebAuthn credentials
-    to set webauthn as preferred).
+#     The preferred method will be suggested first during login flows.
+#     The method must be available for the user (e.g., they must have WebAuthn credentials
+#     to set webauthn as preferred).
     
-    **Supported methods:**
-    - password: Traditional password authentication
-    - webauthn: WebAuthn/FIDO2 passwordless authentication
-    """
-    from second_brain_database.routes.auth.services.auth.login import set_user_auth_preference
+#     **Supported methods:**
+#     - password: Traditional password authentication
+#     - webauthn: WebAuthn/FIDO2 passwordless authentication
+#     """
+#     from second_brain_database.routes.auth.services.auth.login import set_user_auth_preference
     
-    user_id = str(current_user["_id"])
+#     user_id = str(current_user["_id"])
     
-    # Validate method
-    if preferred_method not in ["password", "webauthn"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid authentication method. Must be 'password' or 'webauthn'"
-        )
+#     # Validate method
+#     if preferred_method not in ["password", "webauthn"]:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Invalid authentication method. Must be 'password' or 'webauthn'"
+#         )
     
-    success = await set_user_auth_preference(user_id, preferred_method)
+#     success = await set_user_auth_preference(user_id, preferred_method)
     
-    if not success:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot set preferred method. Method may not be available for your account."
-        )
+#     if not success:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Cannot set preferred method. Method may not be available for your account."
+#         )
     
-    logger.info("Updated auth preference for user %s: %s", current_user["username"], preferred_method)
+#     logger.info("Updated auth preference for user %s: %s", current_user["username"], preferred_method)
     
-    return {
-        "message": "Authentication preference updated successfully",
-        "preferred_method": preferred_method
-    }
+#     return {
+#         "message": "Authentication preference updated successfully",
+#         "preferred_method": preferred_method
+#     }
 
 
-@router.get("/auth-methods/fallback/{failed_method}", response_model=AuthFallbackResponse)
-async def check_auth_fallback(
-    request: Request,
-    failed_method: str,
-    current_user: dict = Depends(get_current_user_dep)
-):
-    """
-    Check available authentication fallback options when one method fails.
+# @router.get("/auth-methods/fallback/{failed_method}", response_model=AuthFallbackResponse)
+# async def check_auth_fallback(
+#     request: Request,
+#     failed_method: str,
+#     current_user: dict = Depends(get_current_user_dep)
+# ):
+#     """
+#     Check available authentication fallback options when one method fails.
     
-    This endpoint helps determine what alternative authentication methods
-    are available if the primary method fails or is unavailable.
+#     This endpoint helps determine what alternative authentication methods
+#     are available if the primary method fails or is unavailable.
     
-    **Parameters:**
-    - failed_method: The authentication method that failed ("password" or "webauthn")
+#     **Parameters:**
+#     - failed_method: The authentication method that failed ("password" or "webauthn")
     
-    **Response includes:**
-    - Whether fallback options are available
-    - List of available fallback methods
-    - Recommended fallback method
-    """
-    from second_brain_database.routes.auth.services.auth.login import check_auth_fallback_available
+#     **Response includes:**
+#     - Whether fallback options are available
+#     - List of available fallback methods
+#     - Recommended fallback method
+#     """
+#     from second_brain_database.routes.auth.services.auth.login import check_auth_fallback_available
     
-    user_id = str(current_user["_id"])
+#     user_id = str(current_user["_id"])
     
-    # Validate failed method
-    if failed_method not in ["password", "webauthn"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid authentication method. Must be 'password' or 'webauthn'"
-        )
+#     # Validate failed method
+#     if failed_method not in ["password", "webauthn"]:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Invalid authentication method. Must be 'password' or 'webauthn'"
+#         )
     
-    fallback_info = await check_auth_fallback_available(user_id, failed_method)
+#     fallback_info = await check_auth_fallback_available(user_id, failed_method)
     
-    logger.info("Checked auth fallback for user %s, failed method %s: %s", 
-               current_user["username"], failed_method, fallback_info)
+#     logger.info("Checked auth fallback for user %s, failed method %s: %s", 
+#                current_user["username"], failed_method, fallback_info)
     
-    return fallback_info
+#     return fallback_info
 
 
 # --- Trusted IP Lockdown: 2FA-like Enable/Disable Flow (IP-bound confirmation) ---
@@ -1776,836 +1776,844 @@ async def revoke_permanent_token(request: Request, token_id: str, current_user: 
         )
 
 
-# WebAuthn Registration Endpoints
 
 
-@router.post(
-    "/webauthn/register/begin",
-    response_model=WebAuthnRegistrationBeginResponse,
-    summary="Begin WebAuthn credential registration",
-    description="""
-    Start the WebAuthn credential registration process for the authenticated user.
+#######################################################################################################################
+#-------------------------------------------------------------------------------------------------------------------- #
+# THE TEST FOR PASSKEYS PASSED BUT PRODUCTION GOT BROKEN SO WE DO HAVE CODE HERE BUT SEIZING PASSKEY SUPPORT FOR NOW- #
+#-------------------------------------------------------------------------------------------------------------------- #
+#######################################################################################################################
+
+# # WebAuthn Registration Endpoints
+
+
+# @router.post(
+#     "/webauthn/register/begin",
+#     response_model=WebAuthnRegistrationBeginResponse,
+#     summary="Begin WebAuthn credential registration",
+#     description="""
+#     Start the WebAuthn credential registration process for the authenticated user.
     
-    **Process:**
-    1. Generates a unique cryptographic challenge
-    2. Retrieves user's existing credentials to exclude duplicates
-    3. Returns WebAuthn credential creation options for the client
+#     **Process:**
+#     1. Generates a unique cryptographic challenge
+#     2. Retrieves user's existing credentials to exclude duplicates
+#     3. Returns WebAuthn credential creation options for the client
     
-    **Security Features:**
-    - Requires valid JWT authentication
-    - Challenge expires in 5 minutes
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive security logging and monitoring
-    - Security headers for WebAuthn operations
+#     **Security Features:**
+#     - Requires valid JWT authentication
+#     - Challenge expires in 5 minutes
+#     - Rate limiting (50 requests per 60 seconds per IP)
+#     - Enhanced request validation and sanitization
+#     - Origin and referer validation
+#     - Comprehensive security logging and monitoring
+#     - Security headers for WebAuthn operations
     
-    **Usage:**
-    - Call this endpoint first to get registration options
-    - Use the response with WebAuthn API on the client side
-    - Complete registration with /webauthn/register/complete
+#     **Usage:**
+#     - Call this endpoint first to get registration options
+#     - Use the response with WebAuthn API on the client side
+#     - Complete registration with /webauthn/register/complete
     
-    **Response:**
-    Returns WebAuthn credential creation options including challenge, 
-    relying party info, user info, and supported algorithms.
-    """,
-    responses={
-        200: {
-            "description": "Registration options generated successfully",
-            "model": WebAuthnRegistrationBeginResponse,
-        },
-        400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Authentication required", "model": StandardErrorResponse},
-        403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to generate registration options", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_register_begin")
-async def webauthn_register_begin(
-    request: Request,
-    registration_request: WebAuthnRegistrationBeginRequest,
-    current_user: dict = Depends(get_current_user_dep),
-):
-    """
-    Begin WebAuthn credential registration for authenticated user.
+#     **Response:**
+#     Returns WebAuthn credential creation options including challenge, 
+#     relying party info, user info, and supported algorithms.
+#     """,
+#     responses={
+#         200: {
+#             "description": "Registration options generated successfully",
+#             "model": WebAuthnRegistrationBeginResponse,
+#         },
+#         400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
+#         401: {"description": "Authentication required", "model": StandardErrorResponse},
+#         403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
+#         429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+#         500: {"description": "Failed to generate registration options", "model": StandardErrorResponse},
+#     },
+#     tags=["WebAuthn"],
+# )
+# @log_performance("webauthn_register_begin")
+# async def webauthn_register_begin(
+#     request: Request,
+#     registration_request: WebAuthnRegistrationBeginRequest,
+#     current_user: dict = Depends(get_current_user_dep),
+# ):
+#     """
+#     Begin WebAuthn credential registration for authenticated user.
     
-    Generates WebAuthn credential creation options following existing auth patterns
-    with enhanced security validation, request sanitization, and comprehensive monitoring.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-register-begin",
-        rate_limit_requests=WEBAUTHN_REGISTER_BEGIN_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_REGISTER_BEGIN_RATE_PERIOD,
-    )
+#     Generates WebAuthn credential creation options following existing auth patterns
+#     with enhanced security validation, request sanitization, and comprehensive monitoring.
+#     """
+#     # Apply rate limiting following existing patterns
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-register-begin",
+#         rate_limit_requests=WEBAUTHN_REGISTER_BEGIN_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_REGISTER_BEGIN_RATE_PERIOD,
+#     )
 
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
+#     # Enhanced security validation using existing patterns
+#     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
     
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"],
-        additional_checks={"authenticated_user": current_user}
-    )
+#     # Apply comprehensive security validation
+#     validation_context = await webauthn_security_validator.validate_webauthn_request(
+#         request=request,
+#         operation_type="registration",
+#         user_id=current_user["username"],
+#         additional_checks={"authenticated_user": current_user}
+#     )
     
-    # Apply additional request integrity validation
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"]
-    )
+#     # Apply additional request integrity validation
+#     integrity_context = await webauthn_security_validator.validate_request_integrity(
+#         request=request,
+#         operation_type="registration",
+#         user_id=current_user["username"]
+#     )
 
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=registration_request.model_dump(),
-        operation_type="registration"
-    )
+#     # Sanitize request data following existing sanitization patterns
+#     sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
+#         data=registration_request.model_dump(),
+#         operation_type="registration"
+#     )
 
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
+#     # Extract request info and set logging context
+#     request_info = extract_request_info(request)
+#     set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
 
-    logger.info("WebAuthn registration begin for user: %s", current_user["username"])
+#     logger.info("WebAuthn registration begin for user: %s", current_user["username"])
 
-    try:
-        # Use the registration service following existing auth patterns
-        # Call the registration service with user and sanitized device name
-        options_dict = await begin_registration(
-            user=current_user,
-            device_name=sanitized_request_data.get("device_name")
-        )
+#     try:
+#         # Use the registration service following existing auth patterns
+#         # Call the registration service with user and sanitized device name
+#         options_dict = await begin_registration(
+#             user=current_user,
+#             device_name=sanitized_request_data.get("device_name")
+#         )
 
-        # Convert to response model for API consistency
-        options = WebAuthnRegistrationBeginResponse(**options_dict)
+#         # Convert to response model for API consistency
+#         options = WebAuthnRegistrationBeginResponse(**options_dict)
 
-        logger.info("WebAuthn registration options generated for user: %s", current_user["username"])
+#         logger.info("WebAuthn registration options generated for user: %s", current_user["username"])
         
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = options.model_dump()
-        response = JSONResponse(content=response_data)
+#         # Create response with enhanced security headers
+#         from fastapi.responses import JSONResponse
+#         response_data = options.model_dump()
+#         response = JSONResponse(content=response_data)
         
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "registration")
+#         # Add security headers following existing patterns
+#         response = webauthn_security_validator.add_security_headers(response, "registration")
         
-        return response
+#         return response
 
-    except HTTPException:
-        # Re-raise HTTP exceptions from service layer
-        raise
-    except Exception as e:
-        logger.error("Failed to generate WebAuthn registration options for user %s: %s", current_user["username"], e, exc_info=True)
+#     except HTTPException:
+#         # Re-raise HTTP exceptions from service layer
+#         raise
+#     except Exception as e:
+#         logger.error("Failed to generate WebAuthn registration options for user %s: %s", current_user["username"], e, exc_info=True)
         
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_registration_begin_failed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e), 
-                "device_name": sanitized_request_data.get("device_name"),
-                "validation_context": validation_context
-            },
-        )
+#         # Log authentication failure following existing patterns
+#         log_auth_failure(
+#             event_type="webauthn_registration_begin_failed",
+#             user_id=current_user["username"],
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "error": str(e), 
+#                 "device_name": sanitized_request_data.get("device_name"),
+#                 "validation_context": validation_context
+#             },
+#         )
         
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate WebAuthn registration options"
-        )
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to generate WebAuthn registration options"
+#         )
 
 
-@router.post(
-    "/webauthn/register/complete",
-    response_model=WebAuthnRegistrationCompleteResponse,
-    summary="Complete WebAuthn credential registration",
-    description="""
-    Complete the WebAuthn credential registration process.
+# @router.post(
+#     "/webauthn/register/complete",
+#     response_model=WebAuthnRegistrationCompleteResponse,
+#     summary="Complete WebAuthn credential registration",
+#     description="""
+#     Complete the WebAuthn credential registration process.
     
-    **Process:**
-    1. Validates the WebAuthn credential creation response
-    2. Verifies the challenge and attestation
-    3. Stores the credential public key and metadata
-    4. Returns confirmation with credential details
+#     **Process:**
+#     1. Validates the WebAuthn credential creation response
+#     2. Verifies the challenge and attestation
+#     3. Stores the credential public key and metadata
+#     4. Returns confirmation with credential details
     
-    **Security Features:**
-    - Challenge validation (one-time use, 5-minute expiry)
-    - Attestation verification (simplified for "none" attestation)
-    - Credential deduplication (updates existing if same authenticator)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive audit logging and monitoring
-    - Security headers for WebAuthn operations
+#     **Security Features:**
+#     - Challenge validation (one-time use, 5-minute expiry)
+#     - Attestation verification (simplified for "none" attestation)
+#     - Credential deduplication (updates existing if same authenticator)
+#     - Rate limiting (50 requests per 60 seconds per IP)
+#     - Enhanced request validation and sanitization
+#     - Origin and referer validation
+#     - Comprehensive audit logging and monitoring
+#     - Security headers for WebAuthn operations
     
-    **Usage:**
-    - Call after successful WebAuthn credential creation on client
-    - Provide the complete WebAuthn credential creation response
-    - Optionally specify a friendly device name
+#     **Usage:**
+#     - Call after successful WebAuthn credential creation on client
+#     - Provide the complete WebAuthn credential creation response
+#     - Optionally specify a friendly device name
     
-    **Response:**
-    Returns confirmation with credential metadata and registration timestamp.
-    """,
-    responses={
-        201: {
-            "description": "Credential registered successfully",
-            "model": WebAuthnRegistrationCompleteResponse,
-        },
-        400: {"description": "Invalid credential response, expired challenge, or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Authentication required", "model": StandardErrorResponse},
-        403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to register credential", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_register_complete")
-async def webauthn_register_complete(
-    request: Request,
-    registration_request: WebAuthnRegistrationCompleteRequest,
-    current_user: dict = Depends(get_current_user_dep),
-):
-    """
-    Complete WebAuthn credential registration for authenticated user.
+#     **Response:**
+#     Returns confirmation with credential metadata and registration timestamp.
+#     """,
+#     responses={
+#         201: {
+#             "description": "Credential registered successfully",
+#             "model": WebAuthnRegistrationCompleteResponse,
+#         },
+#         400: {"description": "Invalid credential response, expired challenge, or security validation failed", "model": StandardErrorResponse},
+#         401: {"description": "Authentication required", "model": StandardErrorResponse},
+#         403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
+#         429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+#         500: {"description": "Failed to register credential", "model": StandardErrorResponse},
+#     },
+#     tags=["WebAuthn"],
+# )
+# @log_performance("webauthn_register_complete")
+# async def webauthn_register_complete(
+#     request: Request,
+#     registration_request: WebAuthnRegistrationCompleteRequest,
+#     current_user: dict = Depends(get_current_user_dep),
+# ):
+#     """
+#     Complete WebAuthn credential registration for authenticated user.
     
-    Validates credential response and stores credential following existing 
-    validation and error handling patterns with enhanced security validation.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-register-complete",
-        rate_limit_requests=WEBAUTHN_REGISTER_COMPLETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_REGISTER_COMPLETE_RATE_PERIOD,
-    )
+#     Validates credential response and stores credential following existing 
+#     validation and error handling patterns with enhanced security validation.
+#     """
+#     # Apply rate limiting following existing patterns
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-register-complete",
+#         rate_limit_requests=WEBAUTHN_REGISTER_COMPLETE_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_REGISTER_COMPLETE_RATE_PERIOD,
+#     )
 
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
+#     # Enhanced security validation using existing patterns
+#     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
     
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"],
-        additional_checks={"authenticated_user": current_user}
-    )
+#     # Apply comprehensive security validation
+#     validation_context = await webauthn_security_validator.validate_webauthn_request(
+#         request=request,
+#         operation_type="registration",
+#         user_id=current_user["username"],
+#         additional_checks={"authenticated_user": current_user}
+#     )
     
-    # Apply additional request integrity validation for registration complete
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"]
-    )
+#     # Apply additional request integrity validation for registration complete
+#     integrity_context = await webauthn_security_validator.validate_request_integrity(
+#         request=request,
+#         operation_type="registration",
+#         user_id=current_user["username"]
+#     )
 
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=registration_request.model_dump(),
-        operation_type="registration"
-    )
+#     # Sanitize request data following existing sanitization patterns
+#     sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
+#         data=registration_request.model_dump(),
+#         operation_type="registration"
+#     )
 
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
+#     # Extract request info and set logging context
+#     request_info = extract_request_info(request)
+#     set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
 
-    logger.info("WebAuthn registration complete for user: %s", current_user["username"])
+#     logger.info("WebAuthn registration complete for user: %s", current_user["username"])
 
-    try:
-        # Use the complete_registration service function following existing patterns
-        from second_brain_database.routes.auth.services.webauthn.registration import complete_registration
+#     try:
+#         # Use the complete_registration service function following existing patterns
+#         from second_brain_database.routes.auth.services.webauthn.registration import complete_registration
 
-        # Convert sanitized request to dictionary format expected by service
-        credential_response = {
-            "id": sanitized_request_data.get("id"),
-            "rawId": sanitized_request_data.get("rawId"),
-            "response": sanitized_request_data.get("response"),
-            "type": sanitized_request_data.get("type")
-        }
+#         # Convert sanitized request to dictionary format expected by service
+#         credential_response = {
+#             "id": sanitized_request_data.get("id"),
+#             "rawId": sanitized_request_data.get("rawId"),
+#             "response": sanitized_request_data.get("response"),
+#             "type": sanitized_request_data.get("type")
+#         }
 
-        # Call the registration service following existing service layer patterns
-        result = await complete_registration(
-            user=current_user,
-            credential_response=credential_response,
-            device_name=sanitized_request_data.get("device_name")
-        )
+#         # Call the registration service following existing service layer patterns
+#         result = await complete_registration(
+#             user=current_user,
+#             credential_response=credential_response,
+#             device_name=sanitized_request_data.get("device_name")
+#         )
 
-        logger.info("WebAuthn credential registered successfully for user: %s", current_user["username"])
+#         logger.info("WebAuthn credential registered successfully for user: %s", current_user["username"])
         
-        # Log successful registration using existing auth success pattern
-        log_auth_success(
-            event_type="webauthn_registration_completed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "credential_id": result["credential_id"],
-                "device_name": result["device_name"],
-                "authenticator_type": result["authenticator_type"],
-                "operation": "credential_registration",
-                "validation_context": validation_context
-            },
-        )
+#         # Log successful registration using existing auth success pattern
+#         log_auth_success(
+#             event_type="webauthn_registration_completed",
+#             user_id=current_user["username"],
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "credential_id": result["credential_id"],
+#                 "device_name": result["device_name"],
+#                 "authenticator_type": result["authenticator_type"],
+#                 "operation": "credential_registration",
+#                 "validation_context": validation_context
+#             },
+#         )
 
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = WebAuthnRegistrationCompleteResponse(
-            message=result["message"],
-            credential_id=result["credential_id"],
-            device_name=result["device_name"],
-            authenticator_type=result["authenticator_type"],
-            created_at=result["created_at"]
-        ).model_dump()
+#         # Create response with enhanced security headers
+#         from fastapi.responses import JSONResponse
+#         response_data = WebAuthnRegistrationCompleteResponse(
+#             message=result["message"],
+#             credential_id=result["credential_id"],
+#             device_name=result["device_name"],
+#             authenticator_type=result["authenticator_type"],
+#             created_at=result["created_at"]
+#         ).model_dump()
         
-        response = JSONResponse(content=response_data, status_code=201)
+#         response = JSONResponse(content=response_data, status_code=201)
         
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "registration")
+#         # Add security headers following existing patterns
+#         response = webauthn_security_validator.add_security_headers(response, "registration")
         
-        return response
+#         return response
 
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to complete WebAuthn registration for user %s: %s", current_user["username"], e, exc_info=True)
+#     except HTTPException:
+#         # Re-raise HTTP exceptions (validation errors, etc.)
+#         raise
+#     except Exception as e:
+#         logger.error("Failed to complete WebAuthn registration for user %s: %s", current_user["username"], e, exc_info=True)
         
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_registration_complete_failed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "credential_id": sanitized_request_data.get("id"),
-                "device_name": sanitized_request_data.get("device_name"),
-                "validation_context": validation_context
-            },
-        )
+#         # Log authentication failure following existing patterns
+#         log_auth_failure(
+#             event_type="webauthn_registration_complete_failed",
+#             user_id=current_user["username"],
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "error": str(e),
+#                 "credential_id": sanitized_request_data.get("id"),
+#                 "device_name": sanitized_request_data.get("device_name"),
+#                 "validation_context": validation_context
+#             },
+#         )
         
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to register WebAuthn credential"
-        )
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to register WebAuthn credential"
+#         )
 
 
-# WebAuthn Credential Management Endpoints
+# # WebAuthn Credential Management Endpoints
 
 
-@router.get("/webauthn/credentials", response_model=WebAuthnCredentialListResponse)
-async def list_webauthn_credentials(request: Request, current_user: dict = Depends(get_current_user_dep)):
-    """
-    List all WebAuthn credentials for the authenticated user.
+# @router.get("/webauthn/credentials", response_model=WebAuthnCredentialListResponse)
+# async def list_webauthn_credentials(request: Request, current_user: dict = Depends(get_current_user_dep)):
+#     """
+#     List all WebAuthn credentials for the authenticated user.
 
-    Returns credential metadata (ID, device name, created date, last used, etc.)
-    but never returns sensitive cryptographic data for security.
+#     Returns credential metadata (ID, device name, created date, last used, etc.)
+#     but never returns sensitive cryptographic data for security.
     
-    **Security Features:**
-    - Requires authentication
-    - Only returns user's own credentials
-    - Excludes sensitive cryptographic data (public keys, signature counters)
-    - Comprehensive audit logging
+#     **Security Features:**
+#     - Requires authentication
+#     - Only returns user's own credentials
+#     - Excludes sensitive cryptographic data (public keys, signature counters)
+#     - Comprehensive audit logging
     
-    **Response Data:**
-    - Credential ID (for management operations)
-    - Device name (user-friendly identifier)
-    - Authenticator type (platform/cross-platform)
-    - Transport methods (usb, nfc, internal, etc.)
-    - Registration and last used timestamps
-    - Active status
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-credentials-list",
-        rate_limit_requests=WEBAUTHN_CREDENTIALS_LIST_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_CREDENTIALS_LIST_RATE_PERIOD,
-    )
+#     **Response Data:**
+#     - Credential ID (for management operations)
+#     - Device name (user-friendly identifier)
+#     - Authenticator type (platform/cross-platform)
+#     - Transport methods (usb, nfc, internal, etc.)
+#     - Registration and last used timestamps
+#     - Active status
+#     """
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-credentials-list",
+#         rate_limit_requests=WEBAUTHN_CREDENTIALS_LIST_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_CREDENTIALS_LIST_RATE_PERIOD,
+#     )
 
-    from second_brain_database.routes.auth.services.webauthn.credentials import get_user_credential_list
+#     from second_brain_database.routes.auth.services.webauthn.credentials import get_user_credential_list
 
-    try:
-        credentials = await get_user_credential_list(str(current_user["_id"]), include_inactive=False)
+#     try:
+#         credentials = await get_user_credential_list(str(current_user["_id"]), include_inactive=False)
 
-        return WebAuthnCredentialListResponse(
-            credentials=credentials,
-            total_count=len(credentials)
-        )
+#         return WebAuthnCredentialListResponse(
+#             credentials=credentials,
+#             total_count=len(credentials)
+#         )
 
-    except Exception as e:
-        logger.error("Failed to list WebAuthn credentials for user %s: %s", current_user["username"], e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve WebAuthn credentials"
-        )
+#     except Exception as e:
+#         logger.error("Failed to list WebAuthn credentials for user %s: %s", current_user["username"], e)
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve WebAuthn credentials"
+#         )
 
 
-@router.delete("/webauthn/credentials/{credential_id}", response_model=WebAuthnCredentialDeletionResponse)
-async def delete_webauthn_credential(request: Request, credential_id: str, current_user: dict = Depends(get_current_user_dep)):
-    """
-    Delete a WebAuthn credential by its ID.
+# @router.delete("/webauthn/credentials/{credential_id}", response_model=WebAuthnCredentialDeletionResponse)
+# async def delete_webauthn_credential(request: Request, credential_id: str, current_user: dict = Depends(get_current_user_dep)):
+#     """
+#     Delete a WebAuthn credential by its ID.
 
-    Only the credential owner can delete their own credentials.
-    Deleted credentials are immediately invalidated and cannot be used for authentication.
+#     Only the credential owner can delete their own credentials.
+#     Deleted credentials are immediately invalidated and cannot be used for authentication.
     
-    **Security Features:**
-    - Requires authentication
-    - Ownership verification (users can only delete their own credentials)
-    - Comprehensive security logging
-    - Cache invalidation for immediate effect
-    - Soft delete with audit trail
+#     **Security Features:**
+#     - Requires authentication
+#     - Ownership verification (users can only delete their own credentials)
+#     - Comprehensive security logging
+#     - Cache invalidation for immediate effect
+#     - Soft delete with audit trail
     
-    **Important Notes:**
-    - This action cannot be undone
-    - The credential will no longer work for authentication
-    - Consider the impact on user's ability to access their account
-    - Users should have alternative authentication methods available
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-credentials-delete",
-        rate_limit_requests=WEBAUTHN_CREDENTIALS_DELETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_CREDENTIALS_DELETE_RATE_PERIOD,
-    )
+#     **Important Notes:**
+#     - This action cannot be undone
+#     - The credential will no longer work for authentication
+#     - Consider the impact on user's ability to access their account
+#     - Users should have alternative authentication methods available
+#     """
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-credentials-delete",
+#         rate_limit_requests=WEBAUTHN_CREDENTIALS_DELETE_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_CREDENTIALS_DELETE_RATE_PERIOD,
+#     )
 
-    from second_brain_database.routes.auth.services.webauthn.credentials import delete_credential_by_id
+#     from second_brain_database.routes.auth.services.webauthn.credentials import delete_credential_by_id
 
-    try:
-        deletion_response = await delete_credential_by_id(user_id=str(current_user["_id"]), credential_id=credential_id)
+#     try:
+#         deletion_response = await delete_credential_by_id(user_id=str(current_user["_id"]), credential_id=credential_id)
 
-        if deletion_response is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found or already deleted")
+#         if deletion_response is None:
+#             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found or already deleted")
 
-        logger.info("WebAuthn credential deleted: credential_id=%s, user=%s", credential_id, current_user["username"])
+#         logger.info("WebAuthn credential deleted: credential_id=%s, user=%s", credential_id, current_user["username"])
 
-        return WebAuthnCredentialDeletionResponse(**deletion_response)
+#         return WebAuthnCredentialDeletionResponse(**deletion_response)
 
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        logger.error("Failed to delete WebAuthn credential %s for user %s: %s", credential_id, current_user["username"], e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete WebAuthn credential"
-        )
-
-
-# WebAuthn Authentication Endpoints
+#     except HTTPException:
+#         raise
+#     except ValueError as e:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+#     except Exception as e:
+#         logger.error("Failed to delete WebAuthn credential %s for user %s: %s", credential_id, current_user["username"], e)
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete WebAuthn credential"
+#         )
 
 
-@router.post(
-    "/webauthn/authenticate/begin",
-    response_model=WebAuthnAuthenticationBeginResponse,
-    summary="Begin WebAuthn passwordless authentication",
-    description="""
-    Start the WebAuthn authentication process for passwordless login.
+# # WebAuthn Authentication Endpoints
+
+
+# @router.post(
+#     "/webauthn/authenticate/begin",
+#     response_model=WebAuthnAuthenticationBeginResponse,
+#     summary="Begin WebAuthn passwordless authentication",
+#     description="""
+#     Start the WebAuthn authentication process for passwordless login.
     
-    **Process:**
-    1. Validates user exists and account is active
-    2. Retrieves user's registered WebAuthn credentials
-    3. Generates a unique cryptographic challenge
-    4. Returns WebAuthn credential request options for the client
+#     **Process:**
+#     1. Validates user exists and account is active
+#     2. Retrieves user's registered WebAuthn credentials
+#     3. Generates a unique cryptographic challenge
+#     4. Returns WebAuthn credential request options for the client
     
-    **Authentication Methods:**
-    - Username-based authentication
-    - Email-based authentication
+#     **Authentication Methods:**
+#     - Username-based authentication
+#     - Email-based authentication
     
-    **Security Features:**
-    - Account status validation (active, verified, not suspended)
-    - Challenge generation with secure randomness
-    - Credential filtering (only active credentials)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive audit logging and monitoring
-    - Security headers for WebAuthn operations
-    - IP-based security checks (if trusted IP lockdown enabled)
+#     **Security Features:**
+#     - Account status validation (active, verified, not suspended)
+#     - Challenge generation with secure randomness
+#     - Credential filtering (only active credentials)
+#     - Rate limiting (50 requests per 60 seconds per IP)
+#     - Enhanced request validation and sanitization
+#     - Origin and referer validation
+#     - Comprehensive audit logging and monitoring
+#     - Security headers for WebAuthn operations
+#     - IP-based security checks (if trusted IP lockdown enabled)
     
-    **Usage:**
-    - Call this endpoint first to get authentication options
-    - Use the response with WebAuthn API on the client side
-    - Complete authentication with /webauthn/authenticate/complete
+#     **Usage:**
+#     - Call this endpoint first to get authentication options
+#     - Use the response with WebAuthn API on the client side
+#     - Complete authentication with /webauthn/authenticate/complete
     
-    **Response:**
-    Returns WebAuthn credential request options including challenge,
-    allowed credentials, and authentication parameters.
-    """,
-    responses={
-        200: {
-            "description": "Authentication options generated successfully",
-            "model": WebAuthnAuthenticationBeginResponse,
-        },
-        400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Invalid credentials or user not found", "model": StandardErrorResponse},
-        403: {
-            "description": "Account inactive, email not verified, account suspended, or origin not allowed",
-            "model": StandardErrorResponse,
-        },
-        404: {
-            "description": "No WebAuthn credentials found for user",
-            "model": StandardErrorResponse,
-        },
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to generate authentication options", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_authenticate_begin")
-async def webauthn_authenticate_begin(
-    request: Request,
-    auth_request: WebAuthnAuthenticationBeginRequest,
-):
-    """
-    Begin WebAuthn authentication process for passwordless login.
+#     **Response:**
+#     Returns WebAuthn credential request options including challenge,
+#     allowed credentials, and authentication parameters.
+#     """,
+#     responses={
+#         200: {
+#             "description": "Authentication options generated successfully",
+#             "model": WebAuthnAuthenticationBeginResponse,
+#         },
+#         400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
+#         401: {"description": "Invalid credentials or user not found", "model": StandardErrorResponse},
+#         403: {
+#             "description": "Account inactive, email not verified, account suspended, or origin not allowed",
+#             "model": StandardErrorResponse,
+#         },
+#         404: {
+#             "description": "No WebAuthn credentials found for user",
+#             "model": StandardErrorResponse,
+#         },
+#         429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+#         500: {"description": "Failed to generate authentication options", "model": StandardErrorResponse},
+#     },
+#     tags=["WebAuthn"],
+# )
+# @log_performance("webauthn_authenticate_begin")
+# async def webauthn_authenticate_begin(
+#     request: Request,
+#     auth_request: WebAuthnAuthenticationBeginRequest,
+# ):
+#     """
+#     Begin WebAuthn authentication process for passwordless login.
     
-    Generates WebAuthn credential request options following existing auth patterns
-    with enhanced security validation, request sanitization, and comprehensive monitoring.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-authenticate-begin",
-        rate_limit_requests=WEBAUTHN_AUTH_BEGIN_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_AUTH_BEGIN_RATE_PERIOD,
-    )
+#     Generates WebAuthn credential request options following existing auth patterns
+#     with enhanced security validation, request sanitization, and comprehensive monitoring.
+#     """
+#     # Apply rate limiting following existing patterns
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-authenticate-begin",
+#         rate_limit_requests=WEBAUTHN_AUTH_BEGIN_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_AUTH_BEGIN_RATE_PERIOD,
+#     )
 
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
+#     # Enhanced security validation using existing patterns
+#     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
     
-    identifier = auth_request.username or auth_request.email or "unknown"
+#     identifier = auth_request.username or auth_request.email or "unknown"
     
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="authentication",
-        user_id=identifier,
-        additional_checks={"public_endpoint": True}  # No auth required for this endpoint
-    )
+#     # Apply comprehensive security validation
+#     validation_context = await webauthn_security_validator.validate_webauthn_request(
+#         request=request,
+#         operation_type="authentication",
+#         user_id=identifier,
+#         additional_checks={"public_endpoint": True}  # No auth required for this endpoint
+#     )
     
-    # Apply additional request integrity validation for authentication begin
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="authentication",
-        user_id=identifier
-    )
+#     # Apply additional request integrity validation for authentication begin
+#     integrity_context = await webauthn_security_validator.validate_request_integrity(
+#         request=request,
+#         operation_type="authentication",
+#         user_id=identifier
+#     )
 
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=auth_request.model_dump(),
-        operation_type="authentication"
-    )
+#     # Sanitize request data following existing sanitization patterns
+#     sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
+#         data=auth_request.model_dump(),
+#         operation_type="authentication"
+#     )
 
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=identifier, ip_address=request_info["ip_address"])
+#     # Extract request info and set logging context
+#     request_info = extract_request_info(request)
+#     set_auth_logging_context(user_id=identifier, ip_address=request_info["ip_address"])
 
-    logger.info("WebAuthn authentication begin for identifier: %s", identifier)
+#     logger.info("WebAuthn authentication begin for identifier: %s", identifier)
 
-    try:
-        # Call the authentication service following existing service layer patterns
-        options_dict = await begin_authentication(
-            username=sanitized_request_data.get("username"),
-            email=sanitized_request_data.get("email"),
-            user_verification=sanitized_request_data.get("user_verification", "preferred"),
-            ip_address=request_info["ip_address"]
-        )
+#     try:
+#         # Call the authentication service following existing service layer patterns
+#         options_dict = await begin_authentication(
+#             username=sanitized_request_data.get("username"),
+#             email=sanitized_request_data.get("email"),
+#             user_verification=sanitized_request_data.get("user_verification", "preferred"),
+#             ip_address=request_info["ip_address"]
+#         )
 
-        # Convert to response model for API consistency
-        options = WebAuthnAuthenticationBeginResponse(**options_dict)
+#         # Convert to response model for API consistency
+#         options = WebAuthnAuthenticationBeginResponse(**options_dict)
 
-        logger.info("WebAuthn authentication options generated for identifier: %s", identifier)
+#         logger.info("WebAuthn authentication options generated for identifier: %s", identifier)
 
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = options.model_dump()
-        response = JSONResponse(content=response_data)
+#         # Create response with enhanced security headers
+#         from fastapi.responses import JSONResponse
+#         response_data = options.model_dump()
+#         response = JSONResponse(content=response_data)
         
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "authentication")
+#         # Add security headers following existing patterns
+#         response = webauthn_security_validator.add_security_headers(response, "authentication")
         
-        return response
+#         return response
 
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, user not found, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to generate WebAuthn authentication options for identifier %s: %s", identifier, e, exc_info=True)
+#     except HTTPException:
+#         # Re-raise HTTP exceptions (validation errors, user not found, etc.)
+#         raise
+#     except Exception as e:
+#         logger.error("Failed to generate WebAuthn authentication options for identifier %s: %s", identifier, e, exc_info=True)
         
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_authentication_begin_failed",
-            user_id=identifier,
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "has_username": bool(sanitized_request_data.get("username")),
-                "has_email": bool(sanitized_request_data.get("email")),
-                "validation_context": validation_context
-            },
-        )
+#         # Log authentication failure following existing patterns
+#         log_auth_failure(
+#             event_type="webauthn_authentication_begin_failed",
+#             user_id=identifier,
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "error": str(e),
+#                 "has_username": bool(sanitized_request_data.get("username")),
+#                 "has_email": bool(sanitized_request_data.get("email")),
+#                 "validation_context": validation_context
+#             },
+#         )
         
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate WebAuthn authentication options"
-        )
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to generate WebAuthn authentication options"
+#         )
 
 
-@router.post(
-    "/webauthn/authenticate/complete",
-    response_model=WebAuthnAuthenticationCompleteResponse,
-    summary="Complete WebAuthn passwordless authentication",
-    description="""
-    Complete the WebAuthn authentication process and obtain JWT token.
+# @router.post(
+#     "/webauthn/authenticate/complete",
+#     response_model=WebAuthnAuthenticationCompleteResponse,
+#     summary="Complete WebAuthn passwordless authentication",
+#     description="""
+#     Complete the WebAuthn authentication process and obtain JWT token.
     
-    **Process:**
-    1. Validates the WebAuthn assertion response from the client
-    2. Verifies the challenge and cryptographic signature
-    3. Updates credential usage statistics
-    4. Generates JWT token for authenticated session
-    5. Returns authentication result with user information
+#     **Process:**
+#     1. Validates the WebAuthn assertion response from the client
+#     2. Verifies the challenge and cryptographic signature
+#     3. Updates credential usage statistics
+#     4. Generates JWT token for authenticated session
+#     5. Returns authentication result with user information
     
-    **Security Features:**
-    - Challenge validation (one-time use, 60-second expiry)
-    - Cryptographic signature verification (simulated for now)
-    - Origin validation for security
-    - Credential ownership verification
-    - Signature counter validation (replay attack prevention)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Comprehensive audit logging
-    - JWT token generation with user context
+#     **Security Features:**
+#     - Challenge validation (one-time use, 60-second expiry)
+#     - Cryptographic signature verification (simulated for now)
+#     - Origin validation for security
+#     - Credential ownership verification
+#     - Signature counter validation (replay attack prevention)
+#     - Rate limiting (50 requests per 60 seconds per IP)
+#     - Comprehensive audit logging
+#     - JWT token generation with user context
     
-    **Usage:**
-    - Call after successful WebAuthn assertion on client
-    - Provide the complete WebAuthn assertion response
-    - Receive JWT token for API access
+#     **Usage:**
+#     - Call after successful WebAuthn assertion on client
+#     - Provide the complete WebAuthn assertion response
+#     - Receive JWT token for API access
     
-    **Response:**
-    Returns JWT token and user information, similar to standard login response,
-    plus additional WebAuthn-specific metadata about the credential used.
-    """,
-    responses={
-        200: {
-            "description": "Authentication successful",
-            "model": WebAuthnAuthenticationCompleteResponse,
-        },
-        400: {
-            "description": "Invalid assertion response, expired challenge, or invalid origin",
-            "model": StandardErrorResponse,
-        },
-        401: {
-            "description": "Invalid credential or authentication failed",
-            "model": StandardErrorResponse,
-        },
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to complete authentication", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_authenticate_complete")
-async def webauthn_authenticate_complete(
-    request: Request,
-    auth_request: WebAuthnAuthenticationCompleteRequest,
-):
-    """
-    Complete WebAuthn authentication process and return JWT token.
+#     **Response:**
+#     Returns JWT token and user information, similar to standard login response,
+#     plus additional WebAuthn-specific metadata about the credential used.
+#     """,
+#     responses={
+#         200: {
+#             "description": "Authentication successful",
+#             "model": WebAuthnAuthenticationCompleteResponse,
+#         },
+#         400: {
+#             "description": "Invalid assertion response, expired challenge, or invalid origin",
+#             "model": StandardErrorResponse,
+#         },
+#         401: {
+#             "description": "Invalid credential or authentication failed",
+#             "model": StandardErrorResponse,
+#         },
+#         429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+#         500: {"description": "Failed to complete authentication", "model": StandardErrorResponse},
+#     },
+#     tags=["WebAuthn"],
+# )
+# @log_performance("webauthn_authenticate_complete")
+# async def webauthn_authenticate_complete(
+#     request: Request,
+#     auth_request: WebAuthnAuthenticationCompleteRequest,
+# ):
+#     """
+#     Complete WebAuthn authentication process and return JWT token.
     
-    Validates assertion response and generates JWT token following existing 
-    authentication patterns with enhanced security validation, request sanitization,
-    and comprehensive monitoring.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-authenticate-complete",
-        rate_limit_requests=WEBAUTHN_AUTH_COMPLETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_AUTH_COMPLETE_RATE_PERIOD,
-    )
+#     Validates assertion response and generates JWT token following existing 
+#     authentication patterns with enhanced security validation, request sanitization,
+#     and comprehensive monitoring.
+#     """
+#     # Apply rate limiting following existing patterns
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-authenticate-complete",
+#         rate_limit_requests=WEBAUTHN_AUTH_COMPLETE_RATE_LIMIT,
+#         rate_limit_period=WEBAUTHN_AUTH_COMPLETE_RATE_PERIOD,
+#     )
 
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
+#     # Enhanced security validation using existing patterns
+#     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
     
-    credential_id_short = auth_request.id[:16] + "..." if len(auth_request.id) > 16 else auth_request.id
+#     credential_id_short = auth_request.id[:16] + "..." if len(auth_request.id) > 16 else auth_request.id
     
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="authentication",
-        user_id="unknown",  # Will be determined from credential
-        additional_checks={"public_endpoint": True}  # No auth required for this endpoint
-    )
+#     # Apply comprehensive security validation
+#     validation_context = await webauthn_security_validator.validate_webauthn_request(
+#         request=request,
+#         operation_type="authentication",
+#         user_id="unknown",  # Will be determined from credential
+#         additional_checks={"public_endpoint": True}  # No auth required for this endpoint
+#     )
     
-    # Apply additional request integrity validation for authentication complete
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="authentication",
-        user_id="unknown"
-    )
+#     # Apply additional request integrity validation for authentication complete
+#     integrity_context = await webauthn_security_validator.validate_request_integrity(
+#         request=request,
+#         operation_type="authentication",
+#         user_id="unknown"
+#     )
 
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=auth_request.model_dump(),
-        operation_type="authentication"
-    )
+#     # Sanitize request data following existing sanitization patterns
+#     sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
+#         data=auth_request.model_dump(),
+#         operation_type="authentication"
+#     )
 
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id="unknown", ip_address=request_info["ip_address"])
+#     # Extract request info and set logging context
+#     request_info = extract_request_info(request)
+#     set_auth_logging_context(user_id="unknown", ip_address=request_info["ip_address"])
 
-    logger.info("WebAuthn authentication complete for credential: %s", credential_id_short)
+#     logger.info("WebAuthn authentication complete for credential: %s", credential_id_short)
 
-    try:
-        # Call the authentication service following existing service layer patterns
-        result = await complete_authentication(
-            credential_id=sanitized_request_data.get("id"),
-            authenticator_data=sanitized_request_data.get("response", {}).get("authenticatorData"),
-            client_data_json=sanitized_request_data.get("response", {}).get("clientDataJSON"),
-            signature=sanitized_request_data.get("response", {}).get("signature"),
-            user_handle=sanitized_request_data.get("response", {}).get("userHandle"),
-            ip_address=request_info["ip_address"]
-        )
+#     try:
+#         # Call the authentication service following existing service layer patterns
+#         result = await complete_authentication(
+#             credential_id=sanitized_request_data.get("id"),
+#             authenticator_data=sanitized_request_data.get("response", {}).get("authenticatorData"),
+#             client_data_json=sanitized_request_data.get("response", {}).get("clientDataJSON"),
+#             signature=sanitized_request_data.get("response", {}).get("signature"),
+#             user_handle=sanitized_request_data.get("response", {}).get("userHandle"),
+#             ip_address=request_info["ip_address"]
+#         )
 
-        # Update logging context with authenticated user
-        set_auth_logging_context(user_id=result["username"], ip_address=request_info["ip_address"])
+#         # Update logging context with authenticated user
+#         set_auth_logging_context(user_id=result["username"], ip_address=request_info["ip_address"])
 
-        logger.info("WebAuthn authentication successful for user: %s", result["username"])
+#         logger.info("WebAuthn authentication successful for user: %s", result["username"])
         
-        # Log successful authentication using existing auth success pattern
-        log_auth_success(
-            event_type="webauthn_authentication_successful",
-            user_id=result["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "credential_id": credential_id_short,
-                "authentication_method": "webauthn",
-                "device_name": result["credential_used"]["device_name"],
-                "authenticator_type": result["credential_used"]["authenticator_type"],
-                "validation_context": validation_context
-            },
-        )
+#         # Log successful authentication using existing auth success pattern
+#         log_auth_success(
+#             event_type="webauthn_authentication_successful",
+#             user_id=result["username"],
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "credential_id": credential_id_short,
+#                 "authentication_method": "webauthn",
+#                 "device_name": result["credential_used"]["device_name"],
+#                 "authenticator_type": result["credential_used"]["authenticator_type"],
+#                 "validation_context": validation_context
+#             },
+#         )
 
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = WebAuthnAuthenticationCompleteResponse(
-            access_token=result["access_token"],
-            token_type=result["token_type"],
-            client_side_encryption=result["client_side_encryption"],
-            issued_at=result["issued_at"],
-            expires_at=result["expires_at"],
-            is_verified=result["is_verified"],
-            role=result["role"],
-            username=result["username"],
-            email=result["email"],
-            authentication_method=result["authentication_method"],
-            credential_used=result["credential_used"]
-        ).model_dump()
+#         # Create response with enhanced security headers
+#         from fastapi.responses import JSONResponse
+#         response_data = WebAuthnAuthenticationCompleteResponse(
+#             access_token=result["access_token"],
+#             token_type=result["token_type"],
+#             client_side_encryption=result["client_side_encryption"],
+#             issued_at=result["issued_at"],
+#             expires_at=result["expires_at"],
+#             is_verified=result["is_verified"],
+#             role=result["role"],
+#             username=result["username"],
+#             email=result["email"],
+#             authentication_method=result["authentication_method"],
+#             credential_used=result["credential_used"]
+#         ).model_dump()
         
-        response = JSONResponse(content=response_data)
+#         response = JSONResponse(content=response_data)
         
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "authentication")
+#         # Add security headers following existing patterns
+#         response = webauthn_security_validator.add_security_headers(response, "authentication")
         
-        return response
+#         return response
 
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, authentication failures, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to complete WebAuthn authentication for credential %s: %s", credential_id_short, e, exc_info=True)
+#     except HTTPException:
+#         # Re-raise HTTP exceptions (validation errors, authentication failures, etc.)
+#         raise
+#     except Exception as e:
+#         logger.error("Failed to complete WebAuthn authentication for credential %s: %s", credential_id_short, e, exc_info=True)
         
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_authentication_complete_failed",
-            user_id="unknown",
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "credential_id": credential_id_short,
-                "validation_context": validation_context
-            },
-        )
+#         # Log authentication failure following existing patterns
+#         log_auth_failure(
+#             event_type="webauthn_authentication_complete_failed",
+#             user_id="unknown",
+#             ip_address=request_info["ip_address"],
+#             details={
+#                 "error": str(e),
+#                 "credential_id": credential_id_short,
+#                 "validation_context": validation_context
+#             },
+#         )
         
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete WebAuthn authentication"
-        )
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to complete WebAuthn authentication"
+#         )
 
 
-# WebAuthn Web Interface Endpoints
+# # WebAuthn Web Interface Endpoints
 
 
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    """
-    Serve secure login page with both password and WebAuthn authentication options.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "login-page",
-        rate_limit_requests=100,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("Login page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_login_page
-    #     return render_login_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve login page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load login page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML login page rendering is disabled.")
+# @router.get("/login", response_class=HTMLResponse)
+# async def login_page(request: Request):
+#     """
+#     Serve secure login page with both password and WebAuthn authentication options.
+#     """
+#     await security_manager.check_rate_limit(
+#         request,
+#         "login-page",
+#         rate_limit_requests=100,
+#         rate_limit_period=60,
+#     )
+#     request_info = extract_request_info(request)
+#     logger.info("Login page accessed from IP: %s", request_info["ip_address"])
+#     # Disabled: do not render HTML page
+#     # try:
+#     #     from second_brain_database.routes.auth.routes_html import render_login_page
+#     #     return render_login_page()
+#     # except Exception as e:
+#     #     logger.error("Failed to serve login page: %s", e)
+#     #     raise HTTPException(
+#     #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#     #         detail="Failed to load login page"
+#     #     )
+#     raise HTTPException(status_code=405, detail="Method not allowed: HTML login page rendering is disabled.")
 
 
-@router.get("/webauthn/setup", response_class=HTMLResponse)
-async def webauthn_setup_page(request: Request):
-    """
-    Serve web interface for passkey setup and management.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-setup-page",
-        rate_limit_requests=50,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("WebAuthn setup page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_webauthn_setup_page
-    #     return render_webauthn_setup_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve WebAuthn setup page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load passkey setup page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn setup page rendering is disabled.")
+# @router.get("/webauthn/setup", response_class=HTMLResponse)
+# async def webauthn_setup_page(request: Request):
+#     """
+#     Serve web interface for passkey setup and management.
+#     """
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-setup-page",
+#         rate_limit_requests=50,
+#         rate_limit_period=60,
+#     )
+#     request_info = extract_request_info(request)
+#     logger.info("WebAuthn setup page accessed from IP: %s", request_info["ip_address"])
+#     # Disabled: do not render HTML page
+#     # try:
+#     #     from second_brain_database.routes.auth.routes_html import render_webauthn_setup_page
+#     #     return render_webauthn_setup_page()
+#     # except Exception as e:
+#     #     logger.error("Failed to serve WebAuthn setup page: %s", e)
+#     #     raise HTTPException(
+#     #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#     #         detail="Failed to load passkey setup page"
+#     #     )
+#     raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn setup page rendering is disabled.")
 
 
-@router.get("/webauthn/manage", response_class=HTMLResponse)
-async def webauthn_manage_page(request: Request):
-    """
-    Serve web interface for passkey management.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-manage-page",
-        rate_limit_requests=50,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("WebAuthn manage page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_webauthn_manage_page
-    #     return render_webauthn_manage_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve WebAuthn manage page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load passkey management page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn manage page rendering is disabled.")
+# @router.get("/webauthn/manage", response_class=HTMLResponse)
+# async def webauthn_manage_page(request: Request):
+#     """
+#     Serve web interface for passkey management.
+#     """
+#     await security_manager.check_rate_limit(
+#         request,
+#         "webauthn-manage-page",
+#         rate_limit_requests=50,
+#         rate_limit_period=60,
+#     )
+#     request_info = extract_request_info(request)
+#     logger.info("WebAuthn manage page accessed from IP: %s", request_info["ip_address"])
+#     # Disabled: do not render HTML page
+#     # try:
+#     #     from second_brain_database.routes.auth.routes_html import render_webauthn_manage_page
+#     #     return render_webauthn_manage_page()
+#     # except Exception as e:
+#     #     logger.error("Failed to serve WebAuthn manage page: %s", e)
+#     #     raise HTTPException(
+#     #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#     #         detail="Failed to load passkey management page"
+#     #     )
+#     raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn manage page rendering is disabled.")
