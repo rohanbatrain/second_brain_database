@@ -67,5 +67,113 @@ class RedisManager:
                 ) from conn_exc
         return self._redis
 
+    async def get(self, key: str) -> Optional[str]:
+        """
+        Get value from Redis by key.
+        
+        Args:
+            key: Redis key
+            
+        Returns:
+            Value if found, None otherwise
+        """
+        try:
+            redis_conn = await self.get_redis()
+            return await redis_conn.get(key)
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to get key %s: %s", key, e)
+            return None
+
+    async def set(self, key: str, value: str) -> bool:
+        """
+        Set value in Redis.
+        
+        Args:
+            key: Redis key
+            value: Value to store
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            redis_conn = await self.get_redis()
+            result = await redis_conn.set(key, value)
+            return result is True
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to set key %s: %s", key, e)
+            return False
+
+    async def setex(self, key: str, ttl_seconds: int, value: str) -> bool:
+        """
+        Set value in Redis with expiration.
+        
+        Args:
+            key: Redis key
+            ttl_seconds: Time to live in seconds
+            value: Value to store
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            redis_conn = await self.get_redis()
+            result = await redis_conn.setex(key, ttl_seconds, value)
+            return result is True
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to setex key %s: %s", key, e)
+            return False
+
+    async def delete(self, key: str) -> int:
+        """
+        Delete key from Redis.
+        
+        Args:
+            key: Redis key to delete
+            
+        Returns:
+            Number of keys deleted
+        """
+        try:
+            redis_conn = await self.get_redis()
+            return await redis_conn.delete(key)
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to delete key %s: %s", key, e)
+            return 0
+
+    async def exists(self, key: str) -> bool:
+        """
+        Check if key exists in Redis.
+        
+        Args:
+            key: Redis key to check
+            
+        Returns:
+            True if key exists, False otherwise
+        """
+        try:
+            redis_conn = await self.get_redis()
+            result = await redis_conn.exists(key)
+            return result > 0
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to check existence of key %s: %s", key, e)
+            return False
+
+    async def keys(self, pattern: str) -> list:
+        """
+        Get keys matching pattern.
+        
+        Args:
+            pattern: Redis key pattern
+            
+        Returns:
+            List of matching keys
+        """
+        try:
+            redis_conn = await self.get_redis()
+            return await redis_conn.keys(pattern)
+        except Exception as e:
+            self.logger.error("[RedisManager] Failed to get keys with pattern %s: %s", pattern, e)
+            return []
+
 
 redis_manager = RedisManager()

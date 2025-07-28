@@ -118,6 +118,8 @@ async def periodic_password_reset_flag_sync(interval: Optional[int] = None) -> N
         await asyncio.sleep(interval)
 
 
+_task_started = False
+
 async def periodic_blocklist_whitelist_reconcile(interval: Optional[int] = None) -> None:
     """
     Periodically reconcile blocklist/whitelist between MongoDB and Redis (two-way sync).
@@ -125,8 +127,15 @@ async def periodic_blocklist_whitelist_reconcile(interval: Optional[int] = None)
         interval: How often to run the reconciliation, in seconds. Defaults to settings.BLOCKLIST_RECONCILE_INTERVAL.
     Side-effects: Runs forever as a background task.
     """
+    global _task_started
+    if _task_started:
+        logger.warning("periodic_blocklist_whitelist_reconcile already started in this process. Skipping duplicate start.")
+        return
+    _task_started = True
     if interval is None:
         interval = settings.BLOCKLIST_RECONCILE_INTERVAL
+    if interval < 5:
+        logger.warning("BLOCKLIST_RECONCILE_INTERVAL is set to %ds, which may cause log spam.", interval)
     logger.info("Starting periodic blocklist/whitelist reconciliation (interval=%ds)", interval)
     while True:
         try:

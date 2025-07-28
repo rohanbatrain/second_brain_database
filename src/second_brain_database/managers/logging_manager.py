@@ -57,19 +57,58 @@ BUFFER_LOCK = threading.Lock()
 
 def _write_to_buffer(record: logging.LogRecord) -> None:
     """
-    Write a log record to the buffer file in a thread-safe and robust way.
+    Write a log record to the buffer file in a thread-safe and robust way, with file-level deduplication and rich JSON lines for Loki/enterprise compatibility.
     Args:
         record: The log record to write.
     Side-effects:
-        Appends to BUFFER_FILE.
+        Appends to BUFFER_FILE only if the line is not identical to the last line.
     """
-    log_line = f"{record.created}|{record.levelname}|{record.name}|{record.getMessage()}\n"
+    import json
+    import socket
+    import traceback
+    log_dict = {
+        "ts": record.created,  # Unix timestamp
+        "iso_ts": record.asctime if hasattr(record, "asctime") else None,  # ISO8601 timestamp if available
+        "level": record.levelname,
+        "logger": record.name,
+        "msg": record.getMessage(),
+        "process": record.process,
+        "processName": record.processName,
+        "thread": record.thread,
+        "threadName": record.threadName,
+        "filename": record.filename,
+        "funcName": record.funcName,
+        "lineno": record.lineno,
+        "pathname": record.pathname,
+        "host": socket.gethostname(),
+        "app": os.getenv("APP_NAME", getattr(settings, "APP_NAME", "Second_Brain_Database-app")),
+        "env": os.getenv("ENV", getattr(settings, "ENV", "dev")),
+        "exception": None,
+        # Optional custom fields
+        "request_id": getattr(record, "request_id", None),
+        "user_id": getattr(record, "user_id", None),
+        "operation_id": getattr(record, "operation_id", None),
+    }
+    if record.exc_info:
+        log_dict["exception"] = "".join(traceback.format_exception(*record.exc_info))
+    log_line = json.dumps(log_dict, ensure_ascii=False) + "\n"
     try:
         with BUFFER_LOCK:
+            last_line = None
+            if os.path.exists(BUFFER_FILE):
+                with open(BUFFER_FILE, "rb") as f:
+                    try:
+                        f.seek(-4096, os.SEEK_END)
+                    except OSError:
+                        f.seek(0)
+                    lines = f.readlines()
+                    if lines:
+                        last_line = lines[-1].decode("utf-8", errors="ignore").rstrip("\n")
+            if last_line == log_line.rstrip("\n"):
+                return  # Skip writing duplicate
             with open(BUFFER_FILE, "a", encoding="utf-8") as f:
                 f.write(log_line)
     except OSError as e:
-        # Fallback: print to stderr if buffer file is not writable
         logging.getLogger("Second_Brain_Database").error(
             "[LoggingManager] Failed to write log to buffer file '%s': %s", BUFFER_FILE, e, exc_info=True
         )
@@ -141,16 +180,44 @@ def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger)
             logger.error("[LoggingManager] Failed to flush buffer to Loki: %s", flush_exc, exc_info=True)
 
 
+class DeduplicateConsecutiveFilter(logging.Filter):
+    """
+    Filter that blocks consecutive duplicate log records (same msg, level, name).
+    """
+    def __init__(self):
+        super().__init__()
+        self._last = None
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        key = (record.levelno, record.name, record.getMessage())
+        if self._last == key:
+            return False
+        self._last = key
+        return True
+
+
 def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefix: str = "") -> logging.Logger:
-    # Always get the logger and ensure at least a StreamHandler is attached
+    # Use process ID in log filename for per-worker logs
+    pid = os.getpid()
+    log_filename = f"second_brain_database_worker_{pid}.log"
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+    # Attach a FileHandler for per-worker logging if not present
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_filename) for h in logger.handlers):
+        file_handler = logging.FileHandler(log_filename)
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
+        file_handler.setFormatter(formatter)
+        file_handler.addFilter(DeduplicateConsecutiveFilter())
+        logger.addHandler(file_handler)
+        logger.info(f"[LoggingManager] FileHandler attached to logger '{name}' (file={log_filename})")
 
     # Always attach a StreamHandler for console logging if not present
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         stream_handler = logging.StreamHandler()
         formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
         stream_handler.setFormatter(formatter)
+        stream_handler.addFilter(DeduplicateConsecutiveFilter())
         logger.addHandler(stream_handler)
         logger.info("[LoggingManager] Console StreamHandler attached to logger '%s'", name)
 
@@ -173,6 +240,7 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
                 auth=None,
                 compressed=LOKI_COMPRESS,
             )
+            loki_handler.addFilter(DeduplicateConsecutiveFilter())
             logger.addHandler(loki_handler)
             logger.info(
                 "[LoggingManager] LokiLoggerHandler attached to logger '%s' (url=%s, labels=%s)",
@@ -189,6 +257,9 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
             )
 
             class BufferHandler(logging.Handler):
+                def __init__(self):
+                    super().__init__()
+                    self.addFilter(DeduplicateConsecutiveFilter())
                 def emit(self, record: logging.LogRecord) -> None:
                     _write_to_buffer(record)
 
@@ -197,6 +268,9 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
     elif not _loki_available:
 
         class BufferHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.addFilter(DeduplicateConsecutiveFilter())
             def emit(self, record: logging.LogRecord) -> None:
                 _write_to_buffer(record)
 

@@ -217,6 +217,18 @@ class Settings(BaseSettings):
     USERS_COLLECTION: str = "users"
     ABUSE_EVENTS_COLLECTION: str = "reset_abuse_events"
 
+    # Telegram configuration
+    TELEGRAM_BOT_TOKEN: str = ""  # Set in .sbd/.env or environment
+    TELEGRAM_CHAT_ID: str = ""    # Set in .sbd/.env or environment
+
+    # GPG encryption configuration
+    GPG_HOME: str = "~/.gnupg"  # Directory for GPG keyring
+    GPG_RECIPIENT: str = ""      # GPG key ID or email for encryption
+    GPG_KEY_PASSPHRASE: str = "second_brain_static_gpg_passphrase"  # Passphrase for generated key
+    GPG_KEY_EMAIL: str = "second_brain@localhost"  # Email for generated key
+    GPG_KEY_TYPE: str = "RSA"    # Key type
+    GPG_KEY_LENGTH: int = 2048   # Key length
+
     @field_validator("SECRET_KEY", "FERNET_KEY", "TURNSTILE_SITEKEY", "TURNSTILE_SECRET", mode="before")
     @classmethod
     def no_hardcoded_secrets(cls, v, info):

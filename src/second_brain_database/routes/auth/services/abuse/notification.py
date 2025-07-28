@@ -82,10 +82,10 @@ async def notify_user_of_suspicious_reset(
         user = await db_manager.get_collection("users").find_one({"email": email})
 
         log_database_operation(
-            operation="find_user_for_suspicious_notification",
-            collection="users",
-            query={"email": email},
-            result={"found": user is not None},
+            collection_name="users",
+            operation_type="find_user_for_suspicious_notification",
+            # query={"email": email},
+            # result={"found": user is not None},
         )
 
         if not user:

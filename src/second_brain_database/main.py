@@ -19,7 +19,7 @@ from second_brain_database.database import db_manager
 from second_brain_database.docs.config import docs_config
 from second_brain_database.docs.middleware import configure_documentation_middleware
 from second_brain_database.managers.logging_manager import get_logger
-from second_brain_database.routes import auth_router, main_router
+from second_brain_database.routes import auth_router, main_router, oauth2_router
 from second_brain_database.routes.auth.periodics.cleanup import (
     periodic_2fa_cleanup,
     periodic_admin_session_token_cleanup,
@@ -41,6 +41,7 @@ from second_brain_database.utils.logging_utils import (
     log_error_with_context,
     log_performance,
 )
+from second_brain_database.managers.archiving_managers import TelegramManager
 
 logger = get_logger()
 
@@ -65,6 +66,12 @@ async def lifespan(_app: FastAPI):
             "debug_mode": settings.DEBUG,
         },
     )
+    # Send Telegram notification on bootup
+    try:
+        TelegramManager().send_message(f"Second Brain Database booted up successfully at {datetime.now(timezone.utc).isoformat()}")
+        logger.info("[TelegramManager] Bootup message sent successfully")
+    except Exception as e:
+        logger.error(f"[TelegramManager] Failed to send bootup message: {e}")
 
     try:
         # Database connection with performance logging
@@ -585,6 +592,7 @@ configure_documentation_middleware(app)
 routers_config = [
     ("auth", auth_router, "Authentication and authorization endpoints"),
     ("main", main_router, "Main application endpoints and health checks"),
+    ("oauth2", oauth2_router, "OAuth2 authorization server endpoints"),
     ("sbd_tokens", sbd_tokens_router, "SBD tokens management endpoints"),
     ("themes", themes_router, "Theme management endpoints"),
     ("shop", shop_router, "Shop and purchase management endpoints"),
