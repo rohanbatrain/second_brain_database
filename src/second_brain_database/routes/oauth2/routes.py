@@ -29,11 +29,33 @@ from second_brain_database.routes.auth.routes import get_current_user_dep
 from second_brain_database.routes.auth.services.auth.login import create_access_token
 
 from .client_manager import client_manager
+from .error_handler import (
+    oauth2_error_handler,
+    OAuth2ErrorCode,
+    OAuth2ErrorSeverity,
+    invalid_request_error,
+    invalid_client_error,
+    invalid_grant_error,
+    access_denied_error,
+    server_error,
+    security_violation_error,
+)
+from .logging_utils import (
+    oauth2_logger,
+    OAuth2EventType,
+    log_authorization_flow,
+    log_token_flow,
+    log_security_violation,
+    log_oauth2_error,
+)
 from .models import (
     AuthorizationRequest,
+    ClientType,
     ConsentInfo,
     ConsentRequest,
     OAuth2Error,
+    OAuthClientRegistration,
+    OAuthClientResponse,
     ResponseType,
     get_scope_descriptions,
     validate_scopes,
@@ -104,7 +126,16 @@ async def authorize(
     Raises:
         HTTPException: For various authorization errors
     """
-    logger.info(f"OAuth2 authorization request from client {client_id} for user {current_user.get('username')}")
+    # Log authorization request
+    oauth2_logger.log_authorization_request(
+        client_id=client_id,
+        user_id=current_user.get('username'),
+        scopes=scope.split(),
+        redirect_uri=redirect_uri,
+        state=state,
+        code_challenge_method=code_challenge_method,
+        request=request
+    )
     
     try:
         # Apply rate limiting for this client
@@ -118,12 +149,15 @@ async def authorize(
         
         # Validate response_type
         if response_type != ResponseType.CODE.value:
-            logger.warning(f"Invalid response_type: {response_type}")
-            return _redirect_with_error(
-                redirect_uri=redirect_uri,
-                error="unsupported_response_type",
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.UNSUPPORTED_RESPONSE_TYPE,
                 error_description="Only 'code' response type is supported",
-                state=state
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.LOW
             )
         
         # Comprehensive security validation
@@ -139,23 +173,30 @@ async def authorize(
             requested_scopes = scope.split()
             validated_scopes = validate_scopes(requested_scopes)
         except ValueError as e:
-            logger.warning(f"Invalid scopes requested: {e}")
-            return _redirect_with_error(
-                redirect_uri=redirect_uri,
-                error="invalid_scope",
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.INVALID_SCOPE,
                 error_description=str(e),
-                state=state
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.LOW,
+                additional_context={"requested_scopes": requested_scopes}
             )
         
         # Get client information
         client = await client_manager.get_client(client_id)
         if not client:
-            logger.error(f"Client not found: {client_id}")
-            return _redirect_with_error(
-                redirect_uri=redirect_uri,
-                error="invalid_client",
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.INVALID_CLIENT,
                 error_description="Client not found",
-                state=state
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.MEDIUM
             )
         
         # Validate client scopes
@@ -163,22 +204,36 @@ async def authorize(
         requested_scopes_set = set(validated_scopes)
         if not requested_scopes_set.issubset(client_scopes):
             invalid_scopes = requested_scopes_set - client_scopes
-            logger.warning(f"Client {client_id} requested unauthorized scopes: {invalid_scopes}")
-            return _redirect_with_error(
-                redirect_uri=redirect_uri,
-                error="invalid_scope",
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.INVALID_SCOPE,
                 error_description=f"Client not authorized for scopes: {', '.join(invalid_scopes)}",
-                state=state
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.MEDIUM,
+                additional_context={
+                    "client_scopes": list(client_scopes),
+                    "requested_scopes": list(requested_scopes_set),
+                    "invalid_scopes": list(invalid_scopes)
+                }
             )
         
         # Validate PKCE parameters
         if not await oauth2_security_manager.validate_pkce_security(code_challenge, code_challenge_method):
-            logger.warning(f"Invalid PKCE parameters for client {client_id}")
-            return _redirect_with_error(
-                redirect_uri=redirect_uri,
-                error="invalid_request",
+            return oauth2_error_handler.security_error(
+                error_code=OAuth2ErrorCode.INVALID_REQUEST,
                 error_description="Invalid PKCE parameters",
-                state=state
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                security_event_type="pkce_validation_failed",
+                additional_context={
+                    "code_challenge_method": code_challenge_method,
+                    "redirect_uri": redirect_uri,
+                    "state": state
+                }
             )
         
         # Check for existing consent
@@ -206,12 +261,14 @@ async def authorize(
             )
             
             if not consent_info:
-                logger.error(f"Failed to get consent info for client {client_id}")
-                return _redirect_with_error(
+                return server_error(
+                    description="Failed to load consent information",
                     redirect_uri=redirect_uri,
-                    error="server_error",
-                    error_description="Failed to load consent information",
-                    state=state
+                    state=state,
+                    client_id=client_id,
+                    user_id=current_user.get('username'),
+                    request=request,
+                    additional_context={"operation": "get_consent_info"}
                 )
             
             # Store authorization request parameters in session/state for consent callback
@@ -258,27 +315,29 @@ async def authorize(
         )
         
         if not success:
-            logger.error(f"Failed to store authorization code for client {client_id}")
-            return _redirect_with_error(
+            return server_error(
+                description="Failed to generate authorization code",
                 redirect_uri=redirect_uri,
-                error="server_error",
-                error_description="Failed to generate authorization code",
-                state=state
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                additional_context={"operation": "store_authorization_code"}
             )
         
         # Log successful authorization
-        await oauth2_security_manager.log_oauth2_security_event(
-            event_type="authorization_granted",
+        oauth2_logger.log_authorization_granted(
             client_id=client_id,
             user_id=current_user["username"],
-            details={
-                "scopes": validated_scopes,
+            scopes=validated_scopes,
+            authorization_code=auth_code,
+            expires_in=600,
+            request=request,
+            additional_context={
                 "redirect_uri": redirect_uri,
                 "code_challenge_method": code_challenge_method
             }
         )
-        
-        logger.info(f"Authorization code generated for client {client_id}, user {current_user['username']}")
         
         # Redirect back to client with authorization code
         return _redirect_with_code(
@@ -291,21 +350,29 @@ async def authorize(
         # Re-raise HTTP exceptions (like rate limiting)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in OAuth2 authorization: {e}", exc_info=True)
-        
-        # Log security event for unexpected errors
-        await oauth2_security_manager.log_oauth2_security_event(
-            event_type="authorization_error",
+        # Log unexpected error with full context
+        oauth2_logger.log_error_event(
+            event_type=OAuth2EventType.SYSTEM_ERROR,
+            error_code="server_error",
+            error_description=f"Unexpected error in OAuth2 authorization: {str(e)}",
             client_id=client_id,
             user_id=current_user.get("username"),
-            details={"error": str(e)}
+            request=request,
+            additional_context={
+                "exception_type": type(e).__name__,
+                "redirect_uri": redirect_uri,
+                "state": state
+            }
         )
         
-        return _redirect_with_error(
+        return server_error(
+            description="Internal server error",
             redirect_uri=redirect_uri,
-            error="server_error",
-            error_description="Internal server error",
-            state=state
+            state=state,
+            client_id=client_id,
+            user_id=current_user.get("username"),
+            request=request,
+            additional_context={"exception": str(e)}
         )
 
 
@@ -334,38 +401,7 @@ def _redirect_with_code(redirect_uri: str, code: str, state: str) -> RedirectRes
     return RedirectResponse(url=redirect_url, status_code=302)
 
 
-def _redirect_with_error(
-    redirect_uri: str,
-    error: str,
-    error_description: str,
-    state: Optional[str] = None
-) -> RedirectResponse:
-    """
-    Create redirect response with OAuth2 error.
-    
-    Args:
-        redirect_uri: Client redirect URI
-        error: OAuth2 error code
-        error_description: Human-readable error description
-        state: Client state parameter (optional)
-        
-    Returns:
-        RedirectResponse with error parameters
-    """
-    params = {
-        "error": error,
-        "error_description": error_description
-    }
-    
-    if state:
-        params["state"] = state
-    
-    # Build redirect URL with error parameters
-    separator = "&" if "?" in redirect_uri else "?"
-    redirect_url = f"{redirect_uri}{separator}{urlencode(params)}"
-    
-    logger.debug(f"Redirecting to client with error: {error}")
-    return RedirectResponse(url=redirect_url, status_code=302)
+# Old _redirect_with_error function removed - now using oauth2_error_handler
 
 
 @router.post(
@@ -440,12 +476,14 @@ async def handle_consent(
             )
             
             if not consent_granted:
-                logger.error(f"Failed to grant consent for client {client_id}")
-                return _redirect_with_error(
+                return server_error(
+                    description="Failed to process consent",
                     redirect_uri=auth_params["redirect_uri"],
-                    error="server_error",
-                    error_description="Failed to process consent",
-                    state=auth_params["state"]
+                    state=auth_params["state"],
+                    client_id=client_id,
+                    user_id=current_user.get('username'),
+                    request=request,
+                    additional_context={"operation": "grant_consent"}
                 )
             
             # Generate authorization code
@@ -464,12 +502,14 @@ async def handle_consent(
             )
             
             if not success:
-                logger.error(f"Failed to store authorization code for client {client_id}")
-                return _redirect_with_error(
+                return server_error(
+                    description="Failed to generate authorization code",
                     redirect_uri=auth_params["redirect_uri"],
-                    error="server_error",
-                    error_description="Failed to generate authorization code",
-                    state=auth_params["state"]
+                    state=auth_params["state"],
+                    client_id=client_id,
+                    user_id=current_user.get('username'),
+                    request=request,
+                    additional_context={"operation": "store_authorization_code_consent"}
                 )
             
             # Log successful authorization
@@ -504,11 +544,14 @@ async def handle_consent(
             )
             
             # Redirect with access denied error
-            return _redirect_with_error(
+            return access_denied_error(
                 redirect_uri=auth_params["redirect_uri"],
-                error="access_denied",
-                error_description="User denied authorization",
-                state=auth_params["state"]
+                state=auth_params["state"],
+                description="User denied authorization",
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                additional_context={"scopes": requested_scopes}
             )
             
     except Exception as e:
@@ -519,11 +562,14 @@ async def handle_consent(
         state_param = auth_params.get("state") if auth_params else None
         
         if redirect_uri:
-            return _redirect_with_error(
+            return server_error(
+                description="Internal server error",
                 redirect_uri=redirect_uri,
-                error="server_error",
-                error_description="Internal server error",
-                state=state_param
+                state=state_param,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                additional_context={"exception": str(e), "operation": "consent_handling"}
             )
         else:
             error_html = render_consent_error("An unexpected error occurred. Please try again.")
@@ -569,6 +615,61 @@ async def list_user_consents(
         )
 
 
+@router.get(
+    "/consents/manage",
+    summary="OAuth2 Consent Management UI",
+    description="Web interface for managing OAuth2 consents",
+    responses={
+        200: {"description": "Consent management interface", "content": {"text/html": {}}}
+    }
+)
+async def consent_management_ui(
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    OAuth2 consent management web interface.
+    
+    Provides a user-friendly web interface for viewing and managing OAuth2 consents.
+    Users can see all applications they've granted access to and revoke access as needed.
+    
+    Args:
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        HTMLResponse: Consent management interface
+    """
+    try:
+        # Get user's consents
+        consents = await consent_manager.list_user_consents(current_user["username"])
+        
+        # Log consent management access
+        oauth2_logger.log_consent_event(
+            event_type=OAuth2EventType.CONSENT_SHOWN,
+            client_id="consent_management_ui",
+            user_id=current_user["username"],
+            scopes=[],
+            additional_context={
+                "action": "consent_management_ui_accessed",
+                "consent_count": len(consents)
+            }
+        )
+        
+        # Render consent management UI
+        from .templates import render_consent_management_ui
+        consent_html = render_consent_management_ui(
+            consents=consents,
+            user_id=current_user["username"]
+        )
+        
+        return HTMLResponse(content=consent_html)
+        
+    except Exception as e:
+        logger.error(f"Failed to render consent management UI: {e}", exc_info=True)
+        from .templates import render_consent_error
+        error_html = render_consent_error("Failed to load consent management interface. Please try again.")
+        return HTMLResponse(content=error_html, status_code=500)
+
+
 @router.delete(
     "/consents/{client_id}",
     summary="Revoke User Consent",
@@ -604,12 +705,16 @@ async def revoke_user_consent(
                 detail="Consent not found or already revoked"
             )
         
-        # Log consent revocation
-        await oauth2_security_manager.log_oauth2_security_event(
-            event_type="consent_revoked",
+        # Enhanced consent revocation logging
+        oauth2_logger.log_consent_event(
+            event_type=OAuth2EventType.CONSENT_REVOKED,
             client_id=client_id,
             user_id=current_user["username"],
-            details={"revoked_by_user": True}
+            scopes=[],  # Scopes will be logged by consent_manager
+            additional_context={
+                "revoked_by_user": True,
+                "revocation_method": "api_endpoint"
+            }
         )
         
         return StandardSuccessResponse(
@@ -691,7 +796,17 @@ async def token(
     Returns:
         TokenResponse: Access token, refresh token, and metadata
     """
-    logger.info(f"OAuth2 token request from client {client_id}, grant_type: {grant_type}")
+    # Log token request
+    oauth2_logger.log_token_request(
+        client_id=client_id,
+        grant_type=grant_type,
+        request=request,
+        additional_context={
+            "has_code": code is not None,
+            "has_refresh_token": refresh_token is not None,
+            "has_client_secret": client_secret is not None
+        }
+    )
     
     try:
         # Apply rate limiting for this client
@@ -705,14 +820,24 @@ async def token(
         
         # Validate grant type
         if grant_type not in ["authorization_code", "refresh_token"]:
-            logger.warning(f"Unsupported grant type: {grant_type}")
-            return _token_error("unsupported_grant_type", f"Grant type '{grant_type}' is not supported")
+            return oauth2_error_handler.token_error(
+                error_code=OAuth2ErrorCode.UNSUPPORTED_GRANT_TYPE,
+                error_description=f"Grant type '{grant_type}' is not supported",
+                client_id=client_id,
+                request=request,
+                severity=OAuth2ErrorSeverity.LOW,
+                additional_context={"provided_grant_type": grant_type}
+            )
         
         # Validate client credentials
         client = await client_manager.validate_client(client_id, client_secret)
         if not client:
-            logger.error(f"Client authentication failed: {client_id}")
-            return _token_error("invalid_client", "Client authentication failed")
+            return invalid_client_error(
+                description="Client authentication failed",
+                client_id=client_id,
+                request=request,
+                additional_context={"has_client_secret": client_secret is not None}
+            )
         
         if grant_type == "authorization_code":
             return await _handle_authorization_code_grant(
@@ -733,17 +858,25 @@ async def token(
         # Re-raise HTTP exceptions (like rate limiting)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in OAuth2 token endpoint: {e}", exc_info=True)
-        
-        # Log security event for unexpected errors
-        await oauth2_security_manager.log_oauth2_security_event(
-            event_type="token_error",
+        # Log unexpected error with full context
+        oauth2_logger.log_error_event(
+            event_type=OAuth2EventType.SYSTEM_ERROR,
+            error_code="server_error",
+            error_description=f"Unexpected error in OAuth2 token endpoint: {str(e)}",
             client_id=client_id,
-            user_id=None,
-            details={"error": str(e), "grant_type": grant_type}
+            request=request,
+            additional_context={
+                "exception_type": type(e).__name__,
+                "grant_type": grant_type
+            }
         )
         
-        return _token_error("server_error", "Internal server error")
+        return server_error(
+            description="Internal server error",
+            client_id=client_id,
+            request=request,
+            additional_context={"exception": str(e), "grant_type": grant_type}
+        )
 
 
 async def _handle_authorization_code_grant(
@@ -756,32 +889,69 @@ async def _handle_authorization_code_grant(
     """Handle authorization code grant flow."""
     # Validate required parameters
     if not code:
-        logger.warning("Missing authorization code in token request")
-        return _token_error("invalid_request", "Authorization code is required")
+        return invalid_request_error(
+            description="Authorization code is required",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.LOW
+        )
     
     if not redirect_uri:
-        logger.warning("Missing redirect_uri in token request")
-        return _token_error("invalid_request", "Redirect URI is required")
+        return invalid_request_error(
+            description="Redirect URI is required",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.LOW
+        )
     
     if not code_verifier:
-        logger.warning("Missing PKCE code verifier in token request")
-        return _token_error("invalid_request", "PKCE code verifier is required")
+        return invalid_request_error(
+            description="PKCE code verifier is required",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.LOW
+        )
     
     # Use authorization code (marks it as used and prevents replay)
     auth_code = await auth_code_manager.use_authorization_code(code)
     if not auth_code:
-        logger.error(f"Invalid or expired authorization code: {code}")
-        return _token_error("invalid_grant", "Invalid or expired authorization code")
+        return invalid_grant_error(
+            description="Invalid or expired authorization code",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.MEDIUM,
+            additional_context={"provided_code": code[:8] + "***" if len(code) > 8 else "***"}
+        )
     
     # Validate client matches
     if auth_code.client_id != client.client_id:
-        logger.error(f"Client mismatch in authorization code: expected {auth_code.client_id}, got {client.client_id}")
-        return _token_error("invalid_grant", "Authorization code was issued to a different client")
+        return oauth2_error_handler.security_error(
+            error_code=OAuth2ErrorCode.INVALID_GRANT,
+            error_description="Authorization code was issued to a different client",
+            client_id=client.client_id,
+            user_id=auth_code.user_id,
+            request=request,
+            security_event_type="client_mismatch",
+            additional_context={
+                "expected_client": auth_code.client_id,
+                "provided_client": client.client_id
+            }
+        )
     
     # Validate redirect URI matches
     if auth_code.redirect_uri != redirect_uri:
-        logger.error(f"Redirect URI mismatch: expected {auth_code.redirect_uri}, got {redirect_uri}")
-        return _token_error("invalid_grant", "Redirect URI does not match authorization request")
+        return oauth2_error_handler.security_error(
+            error_code=OAuth2ErrorCode.INVALID_GRANT,
+            error_description="Redirect URI does not match authorization request",
+            client_id=client.client_id,
+            user_id=auth_code.user_id,
+            request=request,
+            security_event_type="redirect_uri_mismatch",
+            additional_context={
+                "expected_redirect_uri": auth_code.redirect_uri,
+                "provided_redirect_uri": redirect_uri
+            }
+        )
     
     # Validate PKCE code verifier
     try:
@@ -791,14 +961,37 @@ async def _handle_authorization_code_grant(
             method=auth_code.code_challenge_method.value
         )
         if not pkce_valid:
-            logger.error(f"PKCE validation failed for client {client.client_id}")
-            return _token_error("invalid_grant", "PKCE code verifier validation failed")
+            return oauth2_error_handler.security_error(
+                error_code=OAuth2ErrorCode.INVALID_GRANT,
+                error_description="PKCE code verifier validation failed",
+                client_id=client.client_id,
+                user_id=auth_code.user_id,
+                request=request,
+                security_event_type="pkce_validation_failed",
+                additional_context={
+                    "code_challenge_method": auth_code.code_challenge_method.value
+                }
+            )
     except Exception as e:
-        logger.error(f"PKCE validation error: {e}")
-        return _token_error("invalid_grant", "PKCE code verifier validation failed")
+        return oauth2_error_handler.security_error(
+            error_code=OAuth2ErrorCode.INVALID_GRANT,
+            error_description="PKCE code verifier validation failed",
+            client_id=client.client_id,
+            user_id=auth_code.user_id,
+            request=request,
+            security_event_type="pkce_validation_error",
+            additional_context={
+                "exception": str(e),
+                "exception_type": type(e).__name__
+            }
+        )
     
-    # Generate access token using existing JWT system
-    access_token = await create_access_token({"sub": auth_code.user_id})
+    # Generate access token using existing JWT system with OAuth2 claims
+    access_token = await create_access_token({
+        "sub": auth_code.user_id,
+        "aud": client.client_id,
+        "scope": " ".join(auth_code.scopes)
+    })
     
     # Generate refresh token
     refresh_token = await token_manager.generate_refresh_token(
@@ -808,18 +1001,18 @@ async def _handle_authorization_code_grant(
     )
     
     # Log successful token issuance
-    await oauth2_security_manager.log_oauth2_security_event(
-        event_type="token_issued",
+    oauth2_logger.log_token_issued(
         client_id=client.client_id,
         user_id=auth_code.user_id,
-        details={
+        scopes=auth_code.scopes,
+        access_token_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        has_refresh_token=bool(refresh_token),
+        request=request,
+        additional_context={
             "grant_type": "authorization_code",
-            "scopes": auth_code.scopes,
-            "has_refresh_token": bool(refresh_token)
+            "redirect_uri": auth_code.redirect_uri
         }
     )
-    
-    logger.info(f"Access token issued for client {client.client_id}, user {auth_code.user_id}")
     
     # Return token response
     from .models import TokenResponse
@@ -840,55 +1033,42 @@ async def _handle_refresh_token_grant(
     """Handle refresh token grant flow."""
     # Validate required parameters
     if not refresh_token:
-        logger.warning("Missing refresh token in token request")
-        return _token_error("invalid_request", "Refresh token is required")
+        return invalid_request_error(
+            description="Refresh token is required",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.LOW
+        )
     
     # Use token manager to refresh access token
     token_response = await token_manager.refresh_access_token(refresh_token, client.client_id)
     if not token_response:
-        logger.error(f"Failed to refresh access token for client {client.client_id}")
-        return _token_error("invalid_grant", "Invalid refresh token")
+        return invalid_grant_error(
+            description="Invalid refresh token",
+            client_id=client.client_id,
+            request=request,
+            severity=OAuth2ErrorSeverity.MEDIUM,
+            additional_context={"provided_refresh_token": refresh_token[:8] + "***" if len(refresh_token) > 8 else "***"}
+        )
     
     # Log successful token refresh
-    await oauth2_security_manager.log_oauth2_security_event(
-        event_type="token_refreshed",
+    oauth2_logger.log_token_issued(
         client_id=client.client_id,
-        user_id=token_response.scope.split()[0] if token_response.scope else "unknown",  # Extract user from scope or use placeholder
-        details={
+        user_id="unknown",  # User ID not available in refresh token response
+        scopes=token_response.scope.split() if token_response.scope else [],
+        access_token_expires_in=token_response.expires_in,
+        has_refresh_token=bool(token_response.refresh_token),
+        request=request,
+        additional_context={
             "grant_type": "refresh_token",
-            "scopes": token_response.scope.split(),
             "token_rotated": True
         }
     )
     
-    logger.info(f"Access token refreshed for client {client.client_id}")
-    
     return token_response
 
 
-def _token_error(error: str, error_description: str) -> JSONResponse:
-    """
-    Create OAuth2 token error response.
-    
-    Args:
-        error: OAuth2 error code
-        error_description: Human-readable error description
-        
-    Returns:
-        JSONResponse with OAuth2 error format
-    """
-    from .models import OAuth2Error
-    
-    error_response = OAuth2Error(
-        error=error,
-        error_description=error_description
-    )
-    
-    logger.debug(f"Token error response: {error}")
-    return JSONResponse(
-        status_code=400,
-        content=error_response.model_dump()
-    )
+# Old _token_error function removed - now using oauth2_error_handler
 
 
 @router.get(
@@ -1139,8 +1319,12 @@ async def revoke_token(
         # Validate client credentials
         client = await client_manager.validate_client(client_id, client_secret)
         if not client:
-            logger.error(f"Client authentication failed for revocation: {client_id}")
-            return _token_error("invalid_client", "Client authentication failed")
+            return invalid_client_error(
+                description="Client authentication failed",
+                client_id=client_id,
+                request=request,
+                additional_context={"operation": "token_revocation"}
+            )
         
         # Determine token type and revoke accordingly
         revoked = False
@@ -1226,3 +1410,784 @@ async def _revoke_refresh_token(refresh_token: str) -> bool:
         True if revoked successfully, False otherwise
     """
     return await token_manager.revoke_refresh_token(refresh_token)
+
+
+# OAuth2 Client Management Endpoints
+
+@router.post(
+    "/clients",
+    summary="Register OAuth2 Client",
+    description="Register a new OAuth2 client application for developers",
+    responses={
+        201: {
+            "description": "Client registered successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "client_id": "oauth2_client_1234567890abcdef",
+                        "client_secret": "cs_1234567890abcdef1234567890abcdef",
+                        "name": "My Web Application",
+                        "client_type": "confidential",
+                        "redirect_uris": ["https://myapp.com/oauth/callback"],
+                        "scopes": ["read:profile", "write:data"],
+                        "created_at": "2024-01-01T12:00:00Z",
+                        "is_active": True
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid registration data"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Admin privileges required"},
+        **create_error_responses()
+    }
+)
+async def register_client(
+    request: Request,
+    registration: OAuthClientRegistration,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Register a new OAuth2 client application.
+    
+    This endpoint allows developers to register OAuth2 client applications
+    that can authenticate users through the Second Brain Database OAuth2 provider.
+    Only authenticated users can register clients, and the client will be
+    associated with the registering user.
+    
+    Args:
+        request: FastAPI request object
+        registration: Client registration data
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        OAuthClientResponse: Client credentials and metadata
+        
+    Raises:
+        HTTPException: For various registration errors
+    """
+    logger.info(f"User {current_user['username']} registering OAuth2 client: {registration.name}")
+    
+    try:
+        # Apply rate limiting for client registration
+        await oauth2_security_manager.rate_limit_client(
+            request=request,
+            client_id=f"registration_{current_user['username']}",
+            endpoint="client_registration",
+            rate_limit_requests=10,   # 10 registrations per period
+            rate_limit_period=3600    # 1 hour
+        )
+        
+        # Register the client with the current user as owner
+        client_response = await client_manager.register_client(
+            registration=registration,
+            owner_user_id=current_user["username"]
+        )
+        
+        # Log successful client registration
+        oauth2_logger.log_client_registered(
+            client_id=client_response.client_id,
+            client_name=registration.name,
+            owner_user_id=current_user["username"],
+            client_type=registration.client_type.value,
+            scopes=registration.scopes,
+            request=request,
+            additional_context={
+                "redirect_uris": registration.redirect_uris,
+                "website_url": registration.website_url
+            }
+        )
+        
+        logger.info(f"Successfully registered OAuth2 client {client_response.client_id} for user {current_user['username']}")
+        
+        return JSONResponse(
+            status_code=201,
+            content=client_response.model_dump()
+        )
+        
+    except ValueError as e:
+        logger.warning(f"Invalid client registration data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (like rate limiting)
+        raise
+    except Exception as e:
+        logger.error(f"Failed to register OAuth2 client: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to register client"
+        )
+
+
+@router.get(
+    "/clients",
+    summary="List OAuth2 Clients",
+    description="List OAuth2 clients owned by the current user or all clients (admin only)",
+    responses=create_standard_responses()
+)
+async def list_clients(
+    request: Request,
+    all_clients: bool = Query(False, description="List all clients (admin only)"),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    List OAuth2 clients.
+    
+    Regular users can list their own clients. Admin users can list all clients
+    by setting the all_clients parameter to true.
+    
+    Args:
+        request: FastAPI request object
+        all_clients: Whether to list all clients (admin only)
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: List of OAuth2 clients
+    """
+    try:
+        # Check admin privileges for listing all clients
+        if all_clients and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required to list all clients"
+            )
+        
+        # Determine owner filter
+        owner_user_id = None if all_clients else current_user["username"]
+        
+        # Get clients from database
+        clients = await client_manager.list_clients(owner_user_id=owner_user_id)
+        
+        # Convert to response format (without sensitive data)
+        client_list = []
+        for client in clients:
+            client_data = {
+                "client_id": client.client_id,
+                "name": client.name,
+                "description": client.description,
+                "client_type": client.client_type,
+                "redirect_uris": client.redirect_uris,
+                "scopes": client.scopes,
+                "website_url": client.website_url,
+                "owner_user_id": client.owner_user_id,
+                "created_at": client.created_at,
+                "updated_at": client.updated_at,
+                "is_active": client.is_active
+            }
+            client_list.append(client_data)
+        
+        logger.info(f"Listed {len(client_list)} OAuth2 clients for user {current_user['username']} (all_clients={all_clients})")
+        
+        return StandardSuccessResponse(
+            message=f"Retrieved {len(client_list)} OAuth2 clients",
+            data={
+                "clients": client_list,
+                "total_count": len(client_list),
+                "owner_filter": owner_user_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list OAuth2 clients: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve clients"
+        )
+
+
+@router.get(
+    "/clients/{client_id}",
+    summary="Get OAuth2 Client",
+    description="Get details of a specific OAuth2 client",
+    responses=create_standard_responses()
+)
+async def get_client(
+    client_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get OAuth2 client details.
+    
+    Users can only access their own clients unless they are admin.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 client details
+    """
+    try:
+        # Get client from database
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Convert to response format (without sensitive data)
+        client_data = {
+            "client_id": client.client_id,
+            "name": client.name,
+            "description": client.description,
+            "client_type": client.client_type,
+            "redirect_uris": client.redirect_uris,
+            "scopes": client.scopes,
+            "website_url": client.website_url,
+            "owner_user_id": client.owner_user_id,
+            "created_at": client.created_at,
+            "updated_at": client.updated_at,
+            "is_active": client.is_active
+        }
+        
+        return StandardSuccessResponse(
+            message="Client retrieved successfully",
+            data={"client": client_data}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve client"
+        )
+
+
+@router.put(
+    "/clients/{client_id}",
+    summary="Update OAuth2 Client",
+    description="Update OAuth2 client configuration",
+    responses=create_standard_responses()
+)
+async def update_client(
+    client_id: str,
+    updates: dict,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Update OAuth2 client configuration.
+    
+    Users can only update their own clients unless they are admin.
+    Client secrets cannot be updated through this endpoint.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        updates: Dictionary of fields to update
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Update confirmation
+    """
+    try:
+        # Get client from database to check ownership
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Remove sensitive fields that shouldn't be updated via this endpoint
+        forbidden_fields = ["client_id", "client_secret", "client_secret_hash", "owner_user_id", "created_at"]
+        for field in forbidden_fields:
+            if field in updates:
+                del updates[field]
+        
+        # Add updated timestamp
+        updates["updated_at"] = datetime.utcnow()
+        
+        # Update client
+        success = await client_manager.update_client(client_id, updates)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update client"
+            )
+        
+        logger.info(f"Updated OAuth2 client {client_id} by user {current_user['username']}")
+        
+        return StandardSuccessResponse(
+            message="Client updated successfully",
+            data={
+                "client_id": client_id,
+                "updated_fields": list(updates.keys())
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"Invalid client update data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Failed to update OAuth2 client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update client"
+        )
+
+
+@router.delete(
+    "/clients/{client_id}",
+    summary="Delete OAuth2 Client",
+    description="Delete OAuth2 client application",
+    responses=create_standard_responses()
+)
+async def delete_client(
+    client_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Delete OAuth2 client application.
+    
+    Users can only delete their own clients unless they are admin.
+    This will immediately invalidate all tokens issued to this client.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Deletion confirmation
+    """
+    try:
+        # Get client from database to check ownership
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Delete client
+        success = await client_manager.delete_client(client_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete client"
+            )
+        
+        # Log client deletion
+        await oauth2_security_manager.log_oauth2_security_event(
+            event_type="client_deleted",
+            client_id=client_id,
+            user_id=current_user["username"],
+            details={
+                "client_name": client.name,
+                "deleted_by": current_user["username"]
+            }
+        )
+        
+        logger.info(f"Deleted OAuth2 client {client_id} by user {current_user['username']}")
+        
+        return StandardSuccessResponse(
+            message="Client deleted successfully",
+            data={
+                "client_id": client_id,
+                "deleted": True
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete OAuth2 client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete client"
+        )
+
+
+@router.post(
+    "/clients/{client_id}/regenerate-secret",
+    summary="Regenerate Client Secret",
+    description="Regenerate client secret for confidential OAuth2 clients",
+    responses={
+        200: {
+            "description": "Client secret regenerated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Client secret regenerated successfully",
+                        "data": {
+                            "client_id": "oauth2_client_1234567890abcdef",
+                            "client_secret": "cs_new1234567890abcdef1234567890abcdef",
+                            "regenerated_at": "2024-01-01T12:00:00Z"
+                        }
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request (e.g., public client)"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Access denied"},
+        404: {"description": "Client not found"},
+        **create_error_responses()
+    }
+)
+async def regenerate_client_secret(
+    client_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Regenerate client secret for confidential OAuth2 clients.
+    
+    This endpoint allows regenerating the client secret for confidential clients.
+    The old secret will be immediately invalidated. Only works for confidential clients.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: New client secret (shown only once)
+    """
+    try:
+        # Get client from database to check ownership and type
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Check if client is confidential
+        if client.client_type != ClientType.CONFIDENTIAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client secret can only be regenerated for confidential clients"
+            )
+        
+        # Regenerate client secret
+        new_secret = await client_manager.regenerate_client_secret(client_id)
+        if not new_secret:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to regenerate client secret"
+            )
+        
+        # Log secret regeneration
+        await oauth2_security_manager.log_oauth2_security_event(
+            event_type="client_secret_regenerated",
+            client_id=client_id,
+            user_id=current_user["username"],
+            details={
+                "client_name": client.name,
+                "regenerated_by": current_user["username"]
+            }
+        )
+        
+        logger.info(f"Regenerated client secret for {client_id} by user {current_user['username']}")
+        
+        return StandardSuccessResponse(
+            message="Client secret regenerated successfully",
+            data={
+                "client_id": client_id,
+                "client_secret": new_secret,  # Only shown once
+                "regenerated_at": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate client secret for {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate client secret"
+        )
+
+
+@router.post(
+    "/clients/{client_id}/deactivate",
+    summary="Deactivate OAuth2 Client",
+    description="Deactivate OAuth2 client (soft delete)",
+    responses=create_standard_responses()
+)
+async def deactivate_client(
+    client_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Deactivate OAuth2 client (soft delete).
+    
+    This will prevent the client from being used for new authorization flows
+    but preserves the client record for audit purposes.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Deactivation confirmation
+    """
+    try:
+        # Get client from database to check ownership
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Deactivate client
+        success = await client_manager.deactivate_client(client_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to deactivate client"
+            )
+        
+        # Log client deactivation
+        await oauth2_security_manager.log_oauth2_security_event(
+            event_type="client_deactivated",
+            client_id=client_id,
+            user_id=current_user["username"],
+            details={
+                "client_name": client.name,
+                "deactivated_by": current_user["username"]
+            }
+        )
+        
+        logger.info(f"Deactivated OAuth2 client {client_id} by user {current_user['username']}")
+        
+        return StandardSuccessResponse(
+            message="Client deactivated successfully",
+            data={
+                "client_id": client_id,
+                "is_active": False
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to deactivate OAuth2 client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate client"
+        )
+
+
+@router.post(
+    "/clients/{client_id}/reactivate",
+    summary="Reactivate OAuth2 Client",
+    description="Reactivate a previously deactivated OAuth2 client",
+    responses=create_standard_responses()
+)
+async def reactivate_client(
+    client_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Reactivate a previously deactivated OAuth2 client.
+    
+    This will allow the client to be used for authorization flows again.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Reactivation confirmation
+    """
+    try:
+        # Get client from database to check ownership
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client not found"
+            )
+        
+        # Check ownership or admin privileges
+        if client.owner_user_id != current_user["username"] and current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this client"
+            )
+        
+        # Reactivate client
+        success = await client_manager.reactivate_client(client_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to reactivate client"
+            )
+        
+        # Log client reactivation
+        await oauth2_security_manager.log_oauth2_security_event(
+            event_type="client_reactivated",
+            client_id=client_id,
+            user_id=current_user["username"],
+            details={
+                "client_name": client.name,
+                "reactivated_by": current_user["username"]
+            }
+        )
+        
+        logger.info(f"Reactivated OAuth2 client {client_id} by user {current_user['username']}")
+        
+        return StandardSuccessResponse(
+            message="Client reactivated successfully",
+            data={
+                "client_id": client_id,
+                "is_active": True
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reactivate OAuth2 client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reactivate client"
+        )
+
+
+@router.get(
+    "/.well-known/oauth-authorization-server",
+    summary="OAuth2 Authorization Server Metadata",
+    description="OAuth2 authorization server metadata endpoint as per RFC 8414",
+    responses={
+        200: {
+            "description": "OAuth2 authorization server metadata",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "issuer": "https://example.com",
+                        "authorization_endpoint": "https://example.com/oauth2/authorize",
+                        "token_endpoint": "https://example.com/oauth2/token",
+                        "response_types_supported": ["code"],
+                        "grant_types_supported": ["authorization_code", "refresh_token"],
+                        "scopes_supported": ["read:profile", "write:profile", "read:data", "write:data"]
+                    }
+                }
+            }
+        }
+    },
+    tags=["OAuth2", "Metadata"]
+)
+async def oauth2_authorization_server_metadata():
+    """
+    OAuth2 Authorization Server Metadata endpoint.
+    
+    This endpoint provides metadata about the OAuth2 authorization server
+    as specified in RFC 8414 (OAuth 2.0 Authorization Server Metadata).
+    
+    The metadata includes information about supported endpoints, grant types,
+    response types, scopes, and other capabilities of the authorization server.
+    
+    Returns:
+        dict: OAuth2 authorization server metadata
+    """
+    try:
+        # Get OAuth2 endpoints from settings
+        endpoints = settings.oauth2_endpoints
+        
+        # Build metadata response according to RFC 8414
+        metadata = {
+            # Required fields
+            "issuer": endpoints["issuer"],
+            "authorization_endpoint": endpoints["authorization_endpoint"],
+            "token_endpoint": endpoints["token_endpoint"],
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            
+            # Optional but recommended fields
+            "scopes_supported": settings.oauth2_available_scopes_list,
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "code_challenge_methods_supported": ["S256"] if not settings.OAUTH2_ALLOW_PLAIN_PKCE else ["S256", "plain"],
+            
+            # Additional endpoints
+            "revocation_endpoint": endpoints["revocation_endpoint"],
+            "introspection_endpoint": endpoints["introspection_endpoint"],
+            "userinfo_endpoint": endpoints["userinfo_endpoint"],
+            "jwks_uri": endpoints["jwks_uri"],
+            
+            # Capabilities
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["HS256"],
+            "response_modes_supported": ["query", "fragment"],
+            
+            # Security features
+            "require_request_uri_registration": False,
+            "require_pushed_authorization_requests": False,
+            "pushed_authorization_request_endpoint": None,
+            
+            # Token configuration
+            "token_endpoint_auth_signing_alg_values_supported": ["HS256"],
+            "service_documentation": f"{settings.BASE_URL}/docs",
+            
+            # Custom fields for Second Brain Database
+            "sbd_oauth2_version": "1.0",
+            "sbd_features": {
+                "pkce_required": settings.OAUTH2_REQUIRE_PKCE,
+                "client_registration_enabled": settings.OAUTH2_CLIENT_REGISTRATION_ENABLED,
+                "consent_management_enabled": True,
+                "refresh_token_rotation": True
+            }
+        }
+        
+        # Add client registration endpoint if enabled
+        if settings.OAUTH2_CLIENT_REGISTRATION_ENABLED:
+            metadata["registration_endpoint"] = f"{endpoints['issuer']}/oauth2/clients"
+        
+        # Log metadata request
+        logger.info("OAuth2 authorization server metadata requested")
+        
+        return metadata
+        
+    except Exception as e:
+        logger.error(f"Failed to generate OAuth2 metadata: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate authorization server metadata"
+        )

@@ -82,17 +82,49 @@ class ConsentManager:
         try:
             if not consent_request.approved:
                 logger.info(f"User {user_id} denied consent for client {consent_request.client_id}")
+                # Log consent denial for audit trail
+                await self._log_consent_audit_event(
+                    event_type="consent_denied",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "denial_reason": "user_denied",
+                        "state": consent_request.state
+                    }
+                )
                 return False
             
             # Validate client exists
             client = await oauth2_db.get_client(consent_request.client_id)
             if not client:
                 logger.error(f"Cannot grant consent for non-existent client: {consent_request.client_id}")
+                await self._log_consent_audit_event(
+                    event_type="consent_grant_failed",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "failure_reason": "client_not_found",
+                        "state": consent_request.state
+                    }
+                )
                 return False
             
             # Validate client is active
             if not client.is_active:
                 logger.error(f"Cannot grant consent for inactive client: {consent_request.client_id}")
+                await self._log_consent_audit_event(
+                    event_type="consent_grant_failed",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "failure_reason": "client_inactive",
+                        "client_name": client.name,
+                        "state": consent_request.state
+                    }
+                )
                 return False
             
             # Validate requested scopes are allowed for this client
@@ -101,7 +133,24 @@ class ConsentManager:
             if not requested_scopes_set.issubset(client_scopes):
                 invalid_scopes = requested_scopes_set - client_scopes
                 logger.error(f"Client {consent_request.client_id} requested unauthorized scopes: {invalid_scopes}")
+                await self._log_consent_audit_event(
+                    event_type="consent_grant_failed",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "failure_reason": "unauthorized_scopes",
+                        "invalid_scopes": list(invalid_scopes),
+                        "client_scopes": list(client_scopes),
+                        "client_name": client.name,
+                        "state": consent_request.state
+                    }
+                )
                 return False
+            
+            # Check if this is updating existing consent
+            existing_consent = await oauth2_db.get_user_consent(user_id, consent_request.client_id)
+            is_update = existing_consent is not None and existing_consent.is_active
             
             # Create consent record
             consent = UserConsent(
@@ -116,11 +165,49 @@ class ConsentManager:
             success = await oauth2_db.store_user_consent(consent)
             if success:
                 logger.info(f"Granted consent for client {consent_request.client_id}, user {user_id}, scopes: {consent_request.scopes}")
+                
+                # Log successful consent grant for audit trail
+                await self._log_consent_audit_event(
+                    event_type="consent_granted" if not is_update else "consent_updated",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "client_name": client.name,
+                        "client_type": client.client_type.value,
+                        "is_update": is_update,
+                        "previous_scopes": existing_consent.scopes if existing_consent else [],
+                        "state": consent_request.state,
+                        "granted_at": consent.granted_at.isoformat()
+                    }
+                )
+            else:
+                await self._log_consent_audit_event(
+                    event_type="consent_grant_failed",
+                    user_id=user_id,
+                    client_id=consent_request.client_id,
+                    scopes=consent_request.scopes,
+                    additional_context={
+                        "failure_reason": "database_error",
+                        "client_name": client.name,
+                        "state": consent_request.state
+                    }
+                )
             
             return success
             
         except Exception as e:
             logger.error(f"Failed to grant consent for client {consent_request.client_id}: {e}")
+            await self._log_consent_audit_event(
+                event_type="consent_grant_error",
+                user_id=user_id,
+                client_id=consent_request.client_id,
+                scopes=consent_request.scopes,
+                additional_context={
+                    "error": str(e),
+                    "exception_type": type(e).__name__
+                }
+            )
             return False
     
     async def check_existing_consent(self, user_id: str, client_id: str, requested_scopes: List[str]) -> Optional[UserConsent]:
@@ -241,11 +328,31 @@ class ConsentManager:
             bool: True if revoked successfully
         """
         try:
+            # Get existing consent for audit logging
+            existing_consent = await oauth2_db.get_user_consent(user_id, client_id)
+            if not existing_consent or not existing_consent.is_active:
+                logger.warning(f"Attempted to revoke non-existent or inactive consent: client {client_id}, user {user_id}")
+                await self._log_consent_audit_event(
+                    event_type="consent_revocation_failed",
+                    user_id=user_id,
+                    client_id=client_id,
+                    scopes=[],
+                    additional_context={
+                        "failure_reason": "consent_not_found_or_inactive"
+                    }
+                )
+                return False
+            
+            # Get client info for audit logging
+            client = await oauth2_db.get_client(client_id)
+            client_name = client.name if client else "Unknown Client"
+            
             # Revoke consent in database
             success = await oauth2_db.revoke_user_consent(user_id, client_id)
             
             if success:
                 # Also revoke all refresh tokens for this user-client pair
+                revoked_tokens = 0
                 try:
                     from .token_manager import token_manager
                     revoked_tokens = await token_manager.revoke_all_user_tokens(user_id, client_id)
@@ -255,11 +362,47 @@ class ConsentManager:
                     # Don't fail the consent revocation if token revocation fails
                 
                 logger.info(f"Revoked consent for client {client_id}, user {user_id}")
+                
+                # Log successful consent revocation for audit trail
+                await self._log_consent_audit_event(
+                    event_type="consent_revoked",
+                    user_id=user_id,
+                    client_id=client_id,
+                    scopes=existing_consent.scopes,
+                    additional_context={
+                        "client_name": client_name,
+                        "revoked_tokens_count": revoked_tokens,
+                        "original_grant_date": existing_consent.granted_at.isoformat(),
+                        "last_used_at": existing_consent.last_used_at.isoformat() if existing_consent.last_used_at else None,
+                        "revocation_timestamp": datetime.utcnow().isoformat()
+                    }
+                )
+            else:
+                await self._log_consent_audit_event(
+                    event_type="consent_revocation_failed",
+                    user_id=user_id,
+                    client_id=client_id,
+                    scopes=existing_consent.scopes,
+                    additional_context={
+                        "failure_reason": "database_error",
+                        "client_name": client_name
+                    }
+                )
             
             return success
             
         except Exception as e:
             logger.error(f"Failed to revoke consent for client {client_id}: {e}")
+            await self._log_consent_audit_event(
+                event_type="consent_revocation_error",
+                user_id=user_id,
+                client_id=client_id,
+                scopes=[],
+                additional_context={
+                    "error": str(e),
+                    "exception_type": type(e).__name__
+                }
+            )
             return False
     
     async def revoke_all_user_consents(self, user_id: str) -> bool:
@@ -319,6 +462,73 @@ class ConsentManager:
         except Exception as e:
             logger.error(f"Failed to validate consent for authorization: {e}")
             return False
+    
+    async def _log_consent_audit_event(
+        self,
+        event_type: str,
+        user_id: str,
+        client_id: str,
+        scopes: List[str],
+        additional_context: Optional[Dict] = None
+    ) -> None:
+        """
+        Log consent audit events for comprehensive tracking.
+        
+        Args:
+            event_type: Type of consent event
+            user_id: User identifier
+            client_id: Client identifier
+            scopes: Scopes involved in the event
+            additional_context: Additional context information
+        """
+        try:
+            # Import here to avoid circular imports
+            from ..logging_utils import oauth2_logger, OAuth2EventType
+            
+            # Map event types to OAuth2EventType enum
+            event_type_mapping = {
+                "consent_granted": OAuth2EventType.CONSENT_GRANTED,
+                "consent_updated": OAuth2EventType.CONSENT_GRANTED,  # Use same type for updates
+                "consent_denied": OAuth2EventType.CONSENT_DENIED,
+                "consent_revoked": OAuth2EventType.CONSENT_REVOKED,
+                "consent_grant_failed": OAuth2EventType.VALIDATION_ERROR,
+                "consent_grant_error": OAuth2EventType.SYSTEM_ERROR,
+                "consent_revocation_failed": OAuth2EventType.VALIDATION_ERROR,
+                "consent_revocation_error": OAuth2EventType.SYSTEM_ERROR
+            }
+            
+            oauth2_event_type = event_type_mapping.get(event_type, OAuth2EventType.SYSTEM_ERROR)
+            
+            # Log the consent event
+            oauth2_logger.log_consent_event(
+                event_type=oauth2_event_type,
+                client_id=client_id,
+                user_id=user_id,
+                scopes=scopes,
+                additional_context={
+                    "consent_event_subtype": event_type,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    **(additional_context or {})
+                }
+            )
+            
+            # Also log to the general audit trail for critical events
+            if event_type in ["consent_granted", "consent_revoked", "consent_updated"]:
+                logger.info(
+                    f"AUDIT: Consent {event_type} - User: {user_id}, Client: {client_id}, Scopes: {scopes}",
+                    extra={
+                        "audit_event": True,
+                        "event_type": event_type,
+                        "user_id": user_id,
+                        "client_id": client_id,
+                        "scopes": scopes,
+                        "additional_context": additional_context
+                    }
+                )
+            
+        except Exception as e:
+            logger.error(f"Failed to log consent audit event: {e}")
+            # Don't raise exception to avoid breaking the main flow
 
 
 # Global instance

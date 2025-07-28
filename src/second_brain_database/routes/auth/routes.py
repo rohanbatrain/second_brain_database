@@ -222,6 +222,23 @@ async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     return await get_current_user(token)
 
 
+def require_oauth2_scopes(required_scopes: List[str]):
+    """
+    Create a dependency that requires specific OAuth2 scopes.
+    
+    Args:
+        required_scopes: List of required OAuth2 scopes
+        
+    Returns:
+        Dependency function that validates OAuth2 scopes
+    """
+    async def oauth2_scope_dependency(token: str = Depends(oauth2_scheme)):
+        """Dependency that validates OAuth2 scopes."""
+        return await get_current_user(token, required_scopes=required_scopes)
+    
+    return oauth2_scope_dependency
+
+
 async def require_admin(current_user: dict = Depends(get_current_user_dep)):
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin privileges required.")

@@ -504,11 +504,12 @@ class OAuth2Error(BaseDocumentedModel):
     OAuth2 error response following RFC 6749.
     
     Standard error response format for OAuth2 authorization and token endpoints.
+    Enhanced with additional fields for better error tracking and debugging.
     """
     
     error: str = Field(
         ...,
-        description="OAuth2 error code",
+        description="OAuth2 error code as defined in RFC 6749",
         example="invalid_request"
     )
     
@@ -540,6 +541,37 @@ class OAuth2Error(BaseDocumentedModel):
             }
         }
     }
+
+
+class OAuth2ErrorDetail(BaseDocumentedModel):
+    """
+    Extended OAuth2 error response with additional debugging information.
+    
+    Used internally for comprehensive error logging and monitoring.
+    Not exposed to clients to avoid information leakage.
+    """
+    
+    error: str = Field(..., description="OAuth2 error code")
+    error_description: Optional[str] = Field(None, description="Human-readable error description")
+    error_uri: Optional[str] = Field(None, description="URI for additional error information")
+    state: Optional[str] = Field(None, description="Client state parameter")
+    
+    # Additional fields for internal use
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Error timestamp")
+    client_id: Optional[str] = Field(None, description="OAuth2 client identifier")
+    user_id: Optional[str] = Field(None, description="User identifier")
+    request_id: Optional[str] = Field(None, description="Request tracking ID")
+    severity: Optional[str] = Field(None, description="Error severity level")
+    
+    # Security context
+    client_ip: Optional[str] = Field(None, description="Client IP address")
+    user_agent: Optional[str] = Field(None, description="Client user agent")
+    
+    # Additional context for debugging
+    additional_context: Optional[Dict[str, Any]] = Field(
+        None, 
+        description="Additional context information for debugging"
+    )
 
 
 # Utility Functions

@@ -432,7 +432,7 @@ class TokenManager:
                 logger.error(f"Invalid refresh token for client {client_id}")
                 return None
             
-            # Generate new access token
+            # Generate new access token with OAuth2 claims
             access_token = await create_access_token({
                 "sub": refresh_data.user_id,
                 "aud": client_id,
