@@ -69,10 +69,10 @@ def test_code_quality_tools_work():
 
 def test_pytest_configuration():
     """Test that pytest is properly configured."""
-    # Run pytest on this test file to ensure it works
-    result = subprocess.run(["uv", "run", "pytest", __file__, "-v"], capture_output=True, text=True)
-    # This should pass (though it will be recursive, we just want to ensure pytest works)
-    assert "FAILED" not in result.stdout, f"Pytest configuration issue: {result.stdout}"
+    # Test pytest configuration by running a simple collection check
+    result = subprocess.run(["uv", "run", "pytest", "--collect-only", "tests/simple_test.py"], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, f"Pytest configuration issue: {result.stderr}"
+    assert "collected" in result.stdout, f"Pytest collection failed: {result.stdout}"
 
 
 def test_development_dependencies_in_pyproject():

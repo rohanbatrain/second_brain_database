@@ -10,8 +10,8 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.second_brain_database.routes.oauth2.models import AuthorizationCode, PKCEMethod
-from src.second_brain_database.routes.oauth2.services.auth_code_manager import (
+from second_brain_database.routes.oauth2.models import AuthorizationCode, PKCEMethod
+from second_brain_database.routes.oauth2.services.auth_code_manager import (
     AuthorizationCodeManager,
     DEFAULT_AUTH_CODE_TTL,
     OAUTH2_AUTH_CODE_PREFIX,
@@ -59,7 +59,7 @@ class TestAuthorizationCodeManager:
         """Test successful authorization code storage."""
         code = "auth_code_test123456789012345678901234"
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.setex = AsyncMock(return_value=True)
             
             result = await auth_code_manager.store_authorization_code(
@@ -89,7 +89,7 @@ class TestAuthorizationCodeManager:
         """Test authorization code storage failure."""
         code = "auth_code_test123456789012345678901234"
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.setex = AsyncMock(return_value=False)
             
             result = await auth_code_manager.store_authorization_code(
@@ -112,7 +112,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.get = AsyncMock(return_value=auth_code_data.model_dump_json())
             
             result = await auth_code_manager.get_authorization_code(code)
@@ -130,7 +130,7 @@ class TestAuthorizationCodeManager:
         """Test authorization code retrieval when code doesn't exist."""
         code = "auth_code_nonexistent"
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.get = AsyncMock(return_value=None)
             
             result = await auth_code_manager.get_authorization_code(code)
@@ -150,7 +150,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.get = AsyncMock(return_value=auth_code_data.model_dump_json())
             mock_redis.delete = AsyncMock(return_value=1)
             
@@ -173,7 +173,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.get = AsyncMock(return_value=auth_code_data.model_dump_json())
             
             result = await auth_code_manager.get_authorization_code(code)
@@ -193,7 +193,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Mock get_authorization_code flow - need to handle multiple get calls
             mock_redis.get = AsyncMock(side_effect=[
                 auth_code_data.model_dump_json(),  # First call in get_authorization_code
@@ -233,7 +233,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Mock get_authorization_code flow
             mock_redis.get = AsyncMock(side_effect=[
                 auth_code_data.model_dump_json(),  # First call for get_authorization_code
@@ -262,7 +262,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Mock get_authorization_code flow
             mock_redis.get = AsyncMock(side_effect=[
                 auth_code_data.model_dump_json(),  # First call for get_authorization_code
@@ -288,7 +288,7 @@ class TestAuthorizationCodeManager:
         """Test authorization code revocation."""
         code = "auth_code_revoke"
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             mock_redis.delete = AsyncMock(return_value=1)
             
             result = await auth_code_manager.revoke_authorization_code(code)
@@ -315,7 +315,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Mock keys discovery
             mock_redis.keys = AsyncMock(return_value=[
                 f"{OAUTH2_AUTH_CODE_PREFIX}auth_code_expired",
@@ -362,7 +362,7 @@ class TestAuthorizationCodeManager:
             **sample_auth_code_data
         )
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Mock keys discovery
             mock_redis.keys = AsyncMock(return_value=[
                 f"{OAUTH2_AUTH_CODE_PREFIX}auth_code_expired",
@@ -389,7 +389,7 @@ class TestAuthorizationCodeManager:
         """Test error handling in various scenarios."""
         code = "auth_code_error"
         
-        with patch('src.second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
+        with patch('second_brain_database.routes.oauth2.services.auth_code_manager.redis_manager') as mock_redis:
             # Test Redis connection error
             mock_redis.get = AsyncMock(side_effect=Exception("Redis connection error"))
             

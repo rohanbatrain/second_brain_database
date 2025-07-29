@@ -326,8 +326,8 @@ class OAuth2ErrorHandler:
         """
         status_code_mapping = {
             OAuth2ErrorCode.INVALID_REQUEST: 400,
-            OAuth2ErrorCode.INVALID_CLIENT: 401,
-            OAuth2ErrorCode.UNAUTHORIZED_CLIENT: 401,
+            OAuth2ErrorCode.INVALID_CLIENT: 400,  # Changed from 401 to 400 for OAuth2 spec compliance
+            OAuth2ErrorCode.UNAUTHORIZED_CLIENT: 400,  # Changed from 401 to 400 for OAuth2 spec compliance
             OAuth2ErrorCode.ACCESS_DENIED: 403,
             OAuth2ErrorCode.INVALID_GRANT: 400,
             OAuth2ErrorCode.UNSUPPORTED_GRANT_TYPE: 400,

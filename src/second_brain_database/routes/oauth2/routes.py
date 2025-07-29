@@ -25,7 +25,7 @@ from second_brain_database.docs.models import (
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.routes.auth.routes import get_current_user_dep, get_current_user, oauth2_scheme
 from second_brain_database.routes.auth.services.auth.login import create_access_token
 
 from .client_manager import client_manager
@@ -47,7 +47,23 @@ from .logging_utils import (
     log_token_flow,
     log_security_violation,
     log_oauth2_error,
+    log_performance_event,
+    log_rate_limit_event,
+    log_client_management_event,
+    log_token_lifecycle_event
 )
+
+# Import audit and monitoring capabilities
+try:
+    from .audit_manager import oauth2_audit_manager, record_audit_event
+    from .monitoring import oauth2_monitoring, record_performance_metric, record_error_event, record_security_event
+    from .metrics import oauth2_metrics, time_request, time_token_generation
+    AUDIT_MONITORING_AVAILABLE = True
+except ImportError:
+    oauth2_audit_manager = None
+    oauth2_monitoring = None
+    oauth2_metrics = None
+    AUDIT_MONITORING_AVAILABLE = False
 from .models import (
     AuthorizationRequest,
     ClientType,
@@ -60,7 +76,12 @@ from .models import (
     get_scope_descriptions,
     validate_scopes,
 )
+from .utils import get_client_type_string
 from .security_manager import oauth2_security_manager
+from .security_middleware import oauth2_security_middleware
+from .token_encryption import oauth2_token_encryption
+from .security_middleware import oauth2_security_middleware
+from .token_encryption import oauth2_token_encryption
 from .services.auth_code_manager import auth_code_manager
 from .services.consent_manager import consent_manager
 from .services.pkce_validator import PKCEValidator
@@ -72,15 +93,43 @@ logger = get_logger(prefix="[OAuth2 Routes]")
 router = APIRouter(prefix="/oauth2", tags=["OAuth2"])
 
 
+def create_oauth2_user_dependency(client_id_param: str):
+    """
+    Create a custom dependency that applies rate limiting before authentication.
+    This ensures rate limiting is checked before authentication failures.
+    """
+    async def get_current_user_with_rate_limiting(
+        request: Request,
+        token: str = Depends(oauth2_scheme)
+    ):
+        # Extract client_id from request query parameters
+        client_id = request.query_params.get("client_id")
+        if client_id:
+            # Apply rate limiting first
+            await oauth2_security_manager.rate_limit_client(
+                request=request,
+                client_id=client_id,
+                endpoint="authorize",
+                rate_limit_requests=100,  # 100 requests per period
+                rate_limit_period=300     # 5 minutes
+            )
+        
+        # Then get the current user
+        return await get_current_user(token)
+    
+    return get_current_user_with_rate_limiting
+
+
 @router.get(
     "/authorize",
     summary="OAuth2 Authorization Endpoint",
-    description="Initiate OAuth2 authorization code flow with PKCE",
+    description="Initiate OAuth2 authorization code flow with PKCE and enhanced security",
     responses={
         200: {"description": "Authorization successful, redirect to client"},
         400: {"description": "Invalid request parameters"},
         401: {"description": "User not authenticated"},
         403: {"description": "User denied authorization"},
+        429: {"description": "Rate limit exceeded"},
         **create_error_responses()
     }
 )
@@ -93,7 +142,7 @@ async def authorize(
     state: str = Query(..., description="Client state parameter for CSRF protection"),
     code_challenge: str = Query(..., description="PKCE code challenge"),
     code_challenge_method: str = Query(default="S256", description="PKCE challenge method"),
-    current_user: dict = Depends(get_current_user_dep)
+    current_user: dict = Depends(create_oauth2_user_dependency("client_id"))
 ):
     """
     OAuth2 authorization endpoint implementing the authorization code flow with PKCE.
@@ -126,6 +175,41 @@ async def authorize(
     Raises:
         HTTPException: For various authorization errors
     """
+    # Apply enhanced security validation and sanitization
+    input_data = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method
+    }
+    
+    try:
+        sanitized_data = await oauth2_security_manager.validate_and_sanitize_input(
+            input_data=input_data,
+            client_id=client_id,
+            request=request
+        )
+        
+        # Use sanitized data
+        client_id = sanitized_data["client_id"]
+        redirect_uri = sanitized_data["redirect_uri"]
+        scope = sanitized_data["scope"]
+        state = sanitized_data["state"]
+        code_challenge = sanitized_data["code_challenge"]
+        code_challenge_method = sanitized_data["code_challenge_method"]
+        
+    except HTTPException as e:
+        # Log security violation
+        await oauth2_security_manager._log_security_violation(
+            event_type="input_validation_failed",
+            client_id=client_id,
+            request=request,
+            details={"error": e.detail}
+        )
+        raise
+    
     # Log authorization request
     oauth2_logger.log_authorization_request(
         client_id=client_id,
@@ -138,14 +222,31 @@ async def authorize(
     )
     
     try:
-        # Apply rate limiting for this client
-        await oauth2_security_manager.rate_limit_client(
-            request=request,
+        # Enhanced input validation and sanitization
+        input_params = {
+            "response_type": response_type,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": scope,
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method
+        }
+        
+        sanitized_params = await oauth2_security_manager.validate_and_sanitize_input(
+            input_params,
             client_id=client_id,
-            endpoint="authorize",
-            rate_limit_requests=100,  # 100 requests per period
-            rate_limit_period=300     # 5 minutes
+            request=request
         )
+        
+        # Use sanitized parameters
+        response_type = sanitized_params["response_type"]
+        client_id = sanitized_params["client_id"]
+        redirect_uri = sanitized_params["redirect_uri"]
+        scope = sanitized_params["scope"]
+        state = sanitized_params["state"]
+        code_challenge = sanitized_params["code_challenge"]
+        code_challenge_method = sanitized_params["code_challenge_method"]
         
         # Validate response_type
         if response_type != ResponseType.CODE.value:
@@ -160,6 +261,25 @@ async def authorize(
                 severity=OAuth2ErrorSeverity.LOW
             )
         
+        # Enhanced redirect URI security validation
+        redirect_uri_valid = await oauth2_security_manager.validate_redirect_uri_security(
+            redirect_uri=redirect_uri,
+            client_id=client_id,
+            request=request
+        )
+        
+        if not redirect_uri_valid:
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.INVALID_REDIRECT_URI,
+                error_description="Invalid or suspicious redirect URI",
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.HIGH
+            )
+        
         # Comprehensive security validation
         await oauth2_security_manager.validate_client_request_security(
             request=request,
@@ -167,6 +287,23 @@ async def authorize(
             redirect_uri=redirect_uri,
             state=state
         )
+        
+        # Enhanced redirect URI security validation
+        if not await oauth2_security_manager.validate_redirect_uri_security(
+            redirect_uri=redirect_uri,
+            client_id=client_id,
+            request=request
+        ):
+            return oauth2_error_handler.authorization_error(
+                error_code=OAuth2ErrorCode.INVALID_REQUEST,
+                error_description="Redirect URI failed security validation",
+                redirect_uri=redirect_uri,
+                state=state,
+                client_id=client_id,
+                user_id=current_user.get('username'),
+                request=request,
+                severity=OAuth2ErrorSeverity.HIGH
+            )
         
         # Validate and parse scopes
         try:
@@ -302,17 +439,37 @@ async def authorize(
         # Generate authorization code (for existing consent path)
         auth_code = auth_code_manager.generate_authorization_code()
         
-        # Store authorization code with metadata
-        success = await auth_code_manager.store_authorization_code(
-            code=auth_code,
-            client_id=client_id,
-            user_id=current_user["username"],  # Using username as user_id
-            redirect_uri=redirect_uri,
-            scopes=validated_scopes,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method,
-            ttl_seconds=600  # 10 minutes as per RFC 6749
+        # Store authorization code with encrypted metadata
+        auth_code_data = {
+            "code": auth_code,
+            "client_id": client_id,
+            "user_id": current_user["username"],
+            "redirect_uri": redirect_uri,
+            "scopes": validated_scopes,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method
+        }
+        
+        # Store with encryption for enhanced security
+        success = await oauth2_token_encryption.store_encrypted_token(
+            key=f"auth_code:{auth_code}",
+            token_data=auth_code_data,
+            ttl_seconds=600,  # 10 minutes as per RFC 6749
+            key_prefix="oauth2:encrypted_auth_codes"
         )
+        
+        # Also store in the traditional way for backward compatibility
+        if success:
+            success = await auth_code_manager.store_authorization_code(
+                code=auth_code,
+                client_id=client_id,
+                user_id=current_user["username"],
+                redirect_uri=redirect_uri,
+                scopes=validated_scopes,
+                code_challenge=code_challenge,
+                code_challenge_method=code_challenge_method,
+                ttl_seconds=600
+            )
         
         if not success:
             return server_error(
@@ -340,11 +497,14 @@ async def authorize(
         )
         
         # Redirect back to client with authorization code
-        return _redirect_with_code(
+        redirect_response = _redirect_with_code(
             redirect_uri=redirect_uri,
             code=auth_code,
             state=state
         )
+        
+        # Apply security headers to redirect response
+        return oauth2_security_manager.apply_security_headers(redirect_response)
         
     except HTTPException:
         # Re-raise HTTP exceptions (like rate limiting)
@@ -407,10 +567,11 @@ def _redirect_with_code(redirect_uri: str, code: str, state: str) -> RedirectRes
 @router.post(
     "/consent",
     summary="OAuth2 User Consent Endpoint",
-    description="Handle user consent approval or denial for OAuth2 authorization",
+    description="Handle user consent approval or denial for OAuth2 authorization with enhanced security",
     responses={
         302: {"description": "Redirect to client with authorization code or error"},
         400: {"description": "Invalid consent request"},
+        429: {"description": "Rate limit exceeded"},
         **create_error_responses()
     }
 )
@@ -443,6 +604,25 @@ async def handle_consent(
     logger.info(f"Processing consent for client {client_id}, user {current_user.get('username')}, approved: {approved}")
     
     try:
+        # Enhanced input validation and sanitization
+        consent_input = {
+            "client_id": client_id,
+            "state": state,
+            "scopes": scopes,
+            "approved": approved
+        }
+        
+        sanitized_input = await oauth2_security_manager.validate_and_sanitize_input(
+            consent_input,
+            client_id=client_id,
+            request=request
+        )
+        
+        # Use sanitized parameters
+        client_id = sanitized_input["client_id"]
+        state = sanitized_input["state"]
+        scopes = sanitized_input["scopes"]
+        approved = sanitized_input["approved"]
         # Retrieve stored authorization parameters
         auth_params = await oauth2_security_manager.get_authorization_state(state)
         if not auth_params:
@@ -526,11 +706,14 @@ async def handle_consent(
             logger.info(f"Consent granted and authorization code generated for client {client_id}")
             
             # Redirect with authorization code
-            return _redirect_with_code(
+            redirect_response = _redirect_with_code(
                 redirect_uri=auth_params["redirect_uri"],
                 code=auth_code,
                 state=auth_params["state"]
             )
+            
+            # Apply security headers
+            return oauth2_security_manager.apply_security_headers(redirect_response)
         else:
             # User denied consent
             logger.info(f"User {current_user['username']} denied consent for client {client_id}")
@@ -544,7 +727,7 @@ async def handle_consent(
             )
             
             # Redirect with access denied error
-            return access_denied_error(
+            error_response = access_denied_error(
                 redirect_uri=auth_params["redirect_uri"],
                 state=auth_params["state"],
                 description="User denied authorization",
@@ -553,6 +736,9 @@ async def handle_consent(
                 request=request,
                 additional_context={"scopes": requested_scopes}
             )
+            
+            # Apply security headers
+            return oauth2_security_manager.apply_security_headers(error_response)
             
     except Exception as e:
         logger.error(f"Unexpected error in consent handling: {e}", exc_info=True)
@@ -599,13 +785,18 @@ async def list_user_consents(
     try:
         consents = await consent_manager.list_user_consents(current_user["username"])
         
-        return StandardSuccessResponse(
+        response_data = StandardSuccessResponse(
             message=f"Retrieved {len(consents)} consents",
             data={
                 "consents": consents,
                 "total_count": len(consents)
             }
         )
+        
+        # Create JSON response with security headers
+        from fastapi.responses import JSONResponse
+        json_response = JSONResponse(content=response_data.model_dump())
+        return oauth2_security_manager.apply_security_headers(json_response)
         
     except Exception as e:
         logger.error(f"Failed to list user consents: {e}", exc_info=True)
@@ -661,7 +852,8 @@ async def consent_management_ui(
             user_id=current_user["username"]
         )
         
-        return HTMLResponse(content=consent_html)
+        html_response = HTMLResponse(content=consent_html)
+        return oauth2_security_manager.apply_security_headers(html_response)
         
     except Exception as e:
         logger.error(f"Failed to render consent management UI: {e}", exc_info=True)
@@ -717,10 +909,14 @@ async def revoke_user_consent(
             }
         )
         
-        return StandardSuccessResponse(
+        response_data = StandardSuccessResponse(
             message=f"Consent revoked for client {client_id}",
             data={"client_id": client_id, "revoked": True}
         )
+        
+        # Create JSON response with security headers
+        json_response = JSONResponse(content=response_data.model_dump())
+        return oauth2_security_manager.apply_security_headers(json_response)
         
     except HTTPException:
         raise
@@ -1484,12 +1680,52 @@ async def register_client(
             owner_user_id=current_user["username"]
         )
         
+        # Convert client_type safely for logging
+        try:
+            client_type_str = get_client_type_string(registration.client_type)
+            
+            # Log successful conversion for monitoring
+            logger.debug(
+                f"Client type conversion successful for registration: {registration.client_type} -> {client_type_str}",
+                extra={
+                    "operation": "oauth2_client_registration",
+                    "client_name": registration.name,
+                    "owner_user_id": current_user["username"],
+                    "original_client_type": str(registration.client_type),
+                    "converted_client_type": client_type_str,
+                    "conversion_success": True,
+                    "audit_event": True
+                }
+            )
+            
+        except (ValueError, TypeError) as e:
+            # Enhanced error logging for client_type conversion failures
+            logger.error(
+                f"Client type conversion failed during OAuth2 client registration: {str(e)}",
+                extra={
+                    "operation": "oauth2_client_registration",
+                    "client_name": registration.name,
+                    "owner_user_id": current_user["username"],
+                    "original_client_type": str(registration.client_type),
+                    "original_client_type_type": type(registration.client_type).__name__,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "conversion_success": False,
+                    "audit_event": True,
+                    "security_relevant": True
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid client_type: {str(e)}"
+            )
+        
         # Log successful client registration
         oauth2_logger.log_client_registered(
             client_id=client_response.client_id,
             client_name=registration.name,
             owner_user_id=current_user["username"],
-            client_type=registration.client_type.value,
+            client_type=client_type_str,
             scopes=registration.scopes,
             request=request,
             additional_context={
@@ -1502,7 +1738,7 @@ async def register_client(
         
         return JSONResponse(
             status_code=201,
-            content=client_response.model_dump()
+            content=client_response.model_dump(mode='json')
         )
         
     except ValueError as e:
@@ -2190,4 +2426,584 @@ async def oauth2_authorization_server_metadata():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate authorization server metadata"
+        )
+
+
+# OAuth2 Monitoring and Audit Endpoints
+
+@router.get(
+    "/monitoring/health",
+    summary="OAuth2 Provider Health Status",
+    description="Get comprehensive health status of OAuth2 provider",
+    responses=create_standard_responses()
+)
+async def get_oauth2_health_status(
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get comprehensive OAuth2 provider health status.
+    
+    Returns detailed health information including component status,
+    performance metrics, and active alerts.
+    
+    Args:
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 provider health status
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 monitoring not available",
+                data={
+                    "status": "limited",
+                    "message": "Audit and monitoring modules not available",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+        
+        # Get health status from monitoring system
+        health_status = await oauth2_monitoring.get_health_status()
+        
+        # Get basic OAuth2 component health
+        component_health = {
+            "authorization_endpoint": "healthy",
+            "token_endpoint": "healthy",
+            "consent_management": "healthy",
+            "client_management": "healthy"
+        }
+        
+        # Add component health to status
+        health_status["oauth2_components"] = component_health
+        
+        # Log health check access
+        log_client_management_event(
+            event_type="health_check_accessed",
+            client_id="monitoring_system",
+            owner_user_id=current_user["username"]
+        )
+        
+        return StandardSuccessResponse(
+            message="OAuth2 provider health status retrieved",
+            data=health_status
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 health status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve health status"
+        )
+
+
+@router.get(
+    "/monitoring/metrics",
+    summary="OAuth2 Performance Metrics",
+    description="Get OAuth2 performance metrics and statistics",
+    responses=create_standard_responses()
+)
+async def get_oauth2_metrics(
+    time_window: int = Query(3600, description="Time window in seconds (default: 1 hour)"),
+    metric_name: Optional[str] = Query(None, description="Specific metric name to retrieve"),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get OAuth2 performance metrics and statistics.
+    
+    Returns performance metrics for monitoring and analysis,
+    including request durations, error rates, and throughput.
+    
+    Args:
+        time_window: Time window in seconds for metrics
+        metric_name: Specific metric name to retrieve
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 performance metrics
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 metrics not available",
+                data={
+                    "metrics": {},
+                    "message": "Metrics collection not available"
+                }
+            )
+        
+        # Get performance metrics
+        metrics_data = await oauth2_monitoring.get_performance_metrics(
+            metric_name=metric_name,
+            time_window=time_window
+        )
+        
+        # Get fallback metrics if Prometheus not available
+        if oauth2_metrics:
+            fallback_metrics = oauth2_metrics.get_fallback_metrics()
+            metrics_data["fallback_metrics"] = fallback_metrics
+        
+        # Log metrics access
+        log_performance_event(
+            operation="metrics_access",
+            duration=0.1,  # Quick operation
+            client_id="monitoring_system",
+            user_id=current_user["username"],
+            success=True,
+            time_window=time_window,
+            metric_name=metric_name
+        )
+        
+        return StandardSuccessResponse(
+            message=f"OAuth2 metrics retrieved for {time_window}s window",
+            data=metrics_data
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 metrics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve metrics"
+        )
+
+
+@router.get(
+    "/audit/trail",
+    summary="OAuth2 Audit Trail",
+    description="Get OAuth2 audit trail for compliance and security monitoring",
+    responses=create_standard_responses()
+)
+async def get_oauth2_audit_trail(
+    client_id: Optional[str] = Query(None, description="Filter by client ID"),
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    hours: int = Query(24, description="Number of hours to look back (default: 24)"),
+    limit: int = Query(100, description="Maximum number of events to return"),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get OAuth2 audit trail for compliance and security monitoring.
+    
+    Returns comprehensive audit trail with filtering capabilities
+    for compliance reporting and security analysis.
+    
+    Args:
+        client_id: Filter by OAuth2 client ID
+        user_id: Filter by user ID
+        event_type: Filter by event type
+        hours: Number of hours to look back
+        limit: Maximum number of events to return
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 audit trail
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 audit trail not available",
+                data={
+                    "audit_trail": [],
+                    "message": "Audit logging not available"
+                }
+            )
+        
+        # Calculate time range
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours)
+        
+        # Get audit trail
+        audit_trail = await oauth2_audit_manager.get_audit_trail(
+            client_id=client_id,
+            user_id=user_id,
+            event_type=event_type,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
+        
+        # Log audit trail access
+        await record_audit_event(
+            event_type="audit_trail_accessed",
+            client_id="audit_system",
+            user_id=current_user["username"],
+            event_data={
+                "filters": {
+                    "client_id": client_id,
+                    "user_id": user_id,
+                    "event_type": event_type,
+                    "hours": hours,
+                    "limit": limit
+                },
+                "results_count": len(audit_trail)
+            },
+            severity="info",
+            compliance_relevant=True
+        )
+        
+        return StandardSuccessResponse(
+            message=f"Retrieved {len(audit_trail)} audit events",
+            data={
+                "audit_trail": audit_trail,
+                "filters": {
+                    "client_id": client_id,
+                    "user_id": user_id,
+                    "event_type": event_type,
+                    "time_range": {
+                        "start_time": start_time.isoformat(),
+                        "end_time": end_time.isoformat(),
+                        "hours": hours
+                    }
+                },
+                "total_events": len(audit_trail),
+                "limit": limit
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 audit trail: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve audit trail"
+        )
+
+
+@router.get(
+    "/audit/security-events",
+    summary="OAuth2 Security Events",
+    description="Get OAuth2 security events for threat monitoring",
+    responses=create_standard_responses()
+)
+async def get_oauth2_security_events(
+    severity: Optional[str] = Query(None, description="Filter by severity (low/medium/high/critical)"),
+    hours: int = Query(24, description="Number of hours to look back (default: 24)"),
+    limit: int = Query(50, description="Maximum number of events to return"),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get OAuth2 security events for threat monitoring.
+    
+    Returns security-relevant events for threat detection,
+    incident response, and security monitoring.
+    
+    Args:
+        severity: Filter by severity level
+        hours: Number of hours to look back
+        limit: Maximum number of events to return
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 security events
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 security events not available",
+                data={
+                    "security_events": [],
+                    "message": "Security event monitoring not available"
+                }
+            )
+        
+        # Calculate time range
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours)
+        
+        # Get security events
+        security_events = await oauth2_audit_manager.get_security_events(
+            severity=severity,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
+        
+        # Categorize events by severity
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for event in security_events:
+            event_severity = event.get("severity", "low")
+            if event_severity in severity_counts:
+                severity_counts[event_severity] += 1
+        
+        # Log security events access
+        await record_audit_event(
+            event_type="security_events_accessed",
+            client_id="security_system",
+            user_id=current_user["username"],
+            event_data={
+                "filters": {
+                    "severity": severity,
+                    "hours": hours,
+                    "limit": limit
+                },
+                "results_count": len(security_events),
+                "severity_distribution": severity_counts
+            },
+            severity="info",
+            compliance_relevant=True
+        )
+        
+        return StandardSuccessResponse(
+            message=f"Retrieved {len(security_events)} security events",
+            data={
+                "security_events": security_events,
+                "summary": {
+                    "total_events": len(security_events),
+                    "severity_distribution": severity_counts,
+                    "time_range": {
+                        "start_time": start_time.isoformat(),
+                        "end_time": end_time.isoformat(),
+                        "hours": hours
+                    }
+                },
+                "filters": {
+                    "severity": severity,
+                    "limit": limit
+                }
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 security events: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve security events"
+        )
+
+
+@router.get(
+    "/audit/compliance-report",
+    summary="OAuth2 Compliance Report",
+    description="Generate OAuth2 compliance report for regulatory requirements",
+    responses=create_standard_responses()
+)
+async def generate_oauth2_compliance_report(
+    standard: str = Query(..., description="Compliance standard (sox/gdpr/iso27001/hipaa/pci_dss/nist)"),
+    days: int = Query(30, description="Number of days to include in report (default: 30)"),
+    client_id: Optional[str] = Query(None, description="Filter by client ID"),
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Generate OAuth2 compliance report for regulatory requirements.
+    
+    Creates comprehensive compliance reports for various standards
+    including SOX, GDPR, ISO 27001, HIPAA, PCI DSS, and NIST.
+    
+    Args:
+        standard: Compliance standard to report against
+        days: Number of days to include in report
+        client_id: Optional client filter
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: OAuth2 compliance report
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 compliance reporting not available",
+                data={
+                    "compliance_report": {},
+                    "message": "Compliance reporting not available"
+                }
+            )
+        
+        # Validate compliance standard
+        try:
+            compliance_standard = ComplianceStandard(standard.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid compliance standard: {standard}. Supported: sox, gdpr, iso27001, hipaa, pci_dss, nist"
+            )
+        
+        # Calculate time range
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=days)
+        
+        # Generate compliance report
+        compliance_report = await oauth2_audit_manager.generate_compliance_report(
+            standard=compliance_standard,
+            start_time=start_time,
+            end_time=end_time,
+            client_id=client_id
+        )
+        
+        # Log compliance report generation
+        await record_audit_event(
+            event_type="compliance_report_generated",
+            client_id="compliance_system",
+            user_id=current_user["username"],
+            event_data={
+                "compliance_standard": standard,
+                "report_period_days": days,
+                "client_filter": client_id,
+                "report_size": len(str(compliance_report))
+            },
+            severity="info",
+            compliance_relevant=True
+        )
+        
+        return StandardSuccessResponse(
+            message=f"OAuth2 compliance report generated for {standard.upper()}",
+            data=compliance_report
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate OAuth2 compliance report: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate compliance report"
+        )
+
+
+@router.get(
+    "/monitoring/alerts",
+    summary="OAuth2 Active Alerts",
+    description="Get active OAuth2 monitoring alerts",
+    responses=create_standard_responses()
+)
+async def get_oauth2_active_alerts(
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Get active OAuth2 monitoring alerts.
+    
+    Returns current active alerts for OAuth2 operations,
+    including performance, security, and availability alerts.
+    
+    Args:
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Active OAuth2 alerts
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            return StandardSuccessResponse(
+                message="OAuth2 alerts not available",
+                data={
+                    "active_alerts": [],
+                    "message": "Alert monitoring not available"
+                }
+            )
+        
+        # Get active alerts
+        active_alerts = await oauth2_monitoring.get_active_alerts()
+        
+        # Categorize alerts by severity and type
+        alert_summary = {
+            "total_alerts": len(active_alerts),
+            "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "by_type": {}
+        }
+        
+        for alert in active_alerts:
+            severity = alert.get("severity", "low")
+            alert_type = alert.get("alert_type", "unknown")
+            
+            if severity in alert_summary["by_severity"]:
+                alert_summary["by_severity"][severity] += 1
+            
+            alert_summary["by_type"][alert_type] = alert_summary["by_type"].get(alert_type, 0) + 1
+        
+        # Log alerts access
+        log_client_management_event(
+            event_type="alerts_accessed",
+            client_id="monitoring_system",
+            owner_user_id=current_user["username"],
+            changes={"alerts_count": len(active_alerts)}
+        )
+        
+        return StandardSuccessResponse(
+            message=f"Retrieved {len(active_alerts)} active alerts",
+            data={
+                "active_alerts": active_alerts,
+                "summary": alert_summary,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get OAuth2 active alerts: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve active alerts"
+        )
+
+
+@router.post(
+    "/monitoring/alerts/{alert_id}/acknowledge",
+    summary="Acknowledge OAuth2 Alert",
+    description="Acknowledge an active OAuth2 monitoring alert",
+    responses=create_standard_responses()
+)
+async def acknowledge_oauth2_alert(
+    alert_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """
+    Acknowledge an active OAuth2 monitoring alert.
+    
+    Marks an alert as acknowledged to prevent repeated notifications
+    and track alert handling.
+    
+    Args:
+        alert_id: Alert identifier to acknowledge
+        current_user: Authenticated user from dependency injection
+        
+    Returns:
+        StandardSuccessResponse: Alert acknowledgment confirmation
+    """
+    try:
+        if not AUDIT_MONITORING_AVAILABLE:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OAuth2 alert acknowledgment not available"
+            )
+        
+        # Acknowledge the alert
+        success = await oauth2_monitoring.acknowledge_alert(
+            alert_id=alert_id,
+            acknowledged_by=current_user["username"]
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Alert not found or already acknowledged"
+            )
+        
+        # Log alert acknowledgment
+        await record_audit_event(
+            event_type="alert_acknowledged",
+            client_id="monitoring_system",
+            user_id=current_user["username"],
+            event_data={
+                "alert_id": alert_id,
+                "acknowledged_by": current_user["username"],
+                "acknowledged_at": datetime.utcnow().isoformat()
+            },
+            severity="info",
+            compliance_relevant=False
+        )
+        
+        return StandardSuccessResponse(
+            message=f"Alert {alert_id} acknowledged successfully",
+            data={
+                "alert_id": alert_id,
+                "acknowledged": True,
+                "acknowledged_by": current_user["username"],
+                "acknowledged_at": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to acknowledge OAuth2 alert: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to acknowledge alert"
         )

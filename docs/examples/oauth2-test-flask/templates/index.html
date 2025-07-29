@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}OAuth2 Test App - Home{% endblock %}
+
+{% block content %}
+<div class="info-box">
+    <h3>OAuth2 Test Application</h3>
+    <p>This application tests OAuth2 integration with the Second Brain Database provider.</p>
+    
+    {% if is_authenticated %}
+        <p><span class="status-badge status-success">✓ Authenticated</span></p>
+    {% else %}
+        <p><span class="status-badge status-warning">⚠ Not Authenticated</span></p>
+    {% endif %}
+</div>
+
+{% if not is_authenticated %}
+<div class="info-box">
+    <h3>Getting Started</h3>
+    <ol>
+        <li>Click "Login with OAuth2" to start the authorization flow</li>
+        <li>You'll be redirected to the OAuth2 provider</li>
+        <li>Grant consent for the requested permissions</li>
+        <li>You'll be redirected back with an access token</li>
+        <li>Test API endpoints and token functionality</li>
+    </ol>
+    
+    <p><a href="{{ url_for('login') }}" style="display: inline-block; padding: 12px 24px; background: #28a745; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">🔐 Login with OAuth2</a></p>
+</div>
+{% endif %}
+
+{% if user_info %}
+<div class="info-box">
+    <h3>User Information</h3>
+    {% if user_info.error %}
+        <p><span class="status-badge status-error">Error loading profile: {{ user_info.error }}</span></p>
+    {% else %}
+        <table>
+            {% for key, value in user_info.items() %}
+            <tr>
+                <th>{{ key|title }}</th>
+                <td>{{ value }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if token_info %}
+<div class="info-box">
+    <h3>Token Information</h3>
+    <table>
+        <tr>
+            <th>Token Type</th>
+            <td>{{ token_info.token_type }}</td>
+        </tr>
+        <tr>
+            <th>Expires At</th>
+            <td>{{ token_info.expires_at|int }} ({{ (token_info.expires_at - now())|int }} seconds from now)</td>
+        </tr>
+        <tr>
+            <th>Expires In</th>
+            <td>{{ token_info.expires_in }} seconds</td>
+        </tr>
+        <tr>
+            <th>Scopes</th>
+            <td>
+                {% for scope in token_info.scope %}
+                    <span class="status-badge status-success">{{ scope }}</span>
+                {% endfor %}
+            </td>
+        </tr>
+    </table>
+</div>
+{% endif %}
+
+<div class="info-box">
+    <h3>Available Actions</h3>
+    <ul>
+        {% if is_authenticated %}
+            <li><a href="{{ url_for('profile') }}">View Profile</a> - See detailed user and token information</li>
+            <li><a href="{{ url_for('api_test') }}" target="_blank">Test API</a> - Test various API endpoints with your token</li>
+            <li><a href="{{ url_for('refresh_token') }}">Refresh Token</a> - Manually refresh your access token</li>
+            <li><a href="{{ url_for('logout') }}">Logout</a> - Revoke tokens and clear session</li>
+        {% else %}
+            <li><a href="{{ url_for('login') }}">Login</a> - Start OAuth2 authorization flow</li>
+        {% endif %}
+        <li><a href="{{ url_for('health') }}" target="_blank">Health Check</a> - View application health status</li>
+    </ul>
+</div>
+
+<div class="info-box">
+    <h3>OAuth2 Flow Testing</h3>
+    <p>This application implements the OAuth2 Authorization Code flow with PKCE for security. The flow includes:</p>
+    <ol>
+        <li><strong>Authorization Request</strong> - Redirect to OAuth2 provider with PKCE challenge</li>
+        <li><strong>User Consent</strong> - User grants permission for requested scopes</li>
+        <li><strong>Authorization Code</strong> - Provider redirects back with authorization code</li>
+        <li><strong>Token Exchange</strong> - Exchange code for access and refresh tokens using PKCE verifier</li>
+        <li><strong>API Access</strong> - Use access token to make authenticated API requests</li>
+        <li><strong>Token Refresh</strong> - Use refresh token to get new access tokens</li>
+        <li><strong>Token Revocation</strong> - Revoke tokens when logging out</li>
+    </ol>
+</div>
+{% endblock %}

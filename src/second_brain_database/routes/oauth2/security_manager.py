@@ -6,26 +6,154 @@ This module provides OAuth2-specific security operations including:
 - State parameter generation and validation for CSRF protection
 - Integration with existing security_manager for rate limiting
 - OAuth2-specific security validations and protections
+- Security headers and input sanitization
+- Token encryption and secure storage
+- Abuse prevention and monitoring
 
 The OAuth2SecurityManager integrates with the existing security infrastructure
 while providing OAuth2-specific security features and validations.
 """
 
 import hashlib
+import html
+import re
 import secrets
 import string
-from typing import Optional
+import time
+from typing import Dict, List, Optional, Pattern
 from urllib.parse import urlparse
 
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Response, status
+from cryptography.fernet import Fernet
 
+from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.security_manager import security_manager
+# Crypto utilities will be handled by Fernet directly
 
 from .client_manager import client_manager
 
 logger = get_logger(prefix="[OAuth2 SecurityManager]")
+
+
+class OAuth2SecurityHardening:
+    """
+    OAuth2 security hardening utilities and constants.
+    
+    Contains security patterns, validation rules, and hardening configurations
+    for OAuth2 implementation security.
+    """
+    
+    # Input validation patterns
+    CLIENT_ID_PATTERN: Pattern[str] = re.compile(r'^[a-zA-Z0-9_-]{8,64}$')
+    STATE_PATTERN: Pattern[str] = re.compile(r'^[a-zA-Z0-9_.-]{8,128}$')
+    CODE_PATTERN: Pattern[str] = re.compile(r'^[a-zA-Z0-9_-]{32,128}$')
+    SCOPE_PATTERN: Pattern[str] = re.compile(r'^[a-zA-Z0-9_:.-]+$')
+    
+    # Dangerous patterns to detect in input
+    XSS_PATTERNS: List[Pattern[str]] = [
+        re.compile(r'<script[^>]*>.*?</script>', re.IGNORECASE | re.DOTALL),
+        re.compile(r'javascript:', re.IGNORECASE),
+        re.compile(r'data:', re.IGNORECASE),
+        re.compile(r'vbscript:', re.IGNORECASE),
+        re.compile(r'on\w+\s*=', re.IGNORECASE),
+        re.compile(r'<iframe[^>]*>', re.IGNORECASE),
+        re.compile(r'<object[^>]*>', re.IGNORECASE),
+        re.compile(r'<embed[^>]*>', re.IGNORECASE),
+    ]
+    
+    # SQL injection patterns
+    SQL_INJECTION_PATTERNS: List[Pattern[str]] = [
+        re.compile(r'(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)', re.IGNORECASE),
+        re.compile(r'(\b(OR|AND)\s+\d+\s*=\s*\d+)', re.IGNORECASE),
+        re.compile(r'[\'";]', re.IGNORECASE),
+    ]
+    
+    # Security headers for OAuth2 endpoints
+    SECURITY_HEADERS: Dict[str, str] = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "1; mode=block",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "object-src 'none'; "
+            "media-src 'none'; "
+            "frame-src 'none'; "
+            "base-uri 'self'"
+        ),
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+    
+    # Rate limiting thresholds for abuse detection
+    ABUSE_DETECTION_THRESHOLDS = {
+        "failed_auth_attempts": 10,  # Failed authentication attempts per hour
+        "invalid_client_requests": 20,  # Invalid client requests per hour
+        "malformed_requests": 50,  # Malformed requests per hour
+        "suspicious_redirects": 5,  # Suspicious redirect attempts per hour
+    }
+    
+    @staticmethod
+    def sanitize_input(value: str, max_length: int = 1000) -> str:
+        """
+        Sanitize input string to prevent XSS and injection attacks.
+        
+        Args:
+            value: Input string to sanitize
+            max_length: Maximum allowed length
+            
+        Returns:
+            Sanitized string
+        """
+        if not value or not isinstance(value, str):
+            return ""
+        
+        # Truncate to max length
+        value = value[:max_length]
+        
+        # HTML escape
+        value = html.escape(value, quote=True)
+        
+        # Remove null bytes and control characters
+        value = ''.join(char for char in value if ord(char) >= 32 or char in '\t\n\r')
+        
+        return value.strip()
+    
+    @staticmethod
+    def detect_malicious_patterns(value: str) -> List[str]:
+        """
+        Detect malicious patterns in input.
+        
+        Args:
+            value: Input string to check
+            
+        Returns:
+            List of detected pattern types
+        """
+        detected_patterns = []
+        
+        # Check for XSS patterns
+        for pattern in OAuth2SecurityHardening.XSS_PATTERNS:
+            if pattern.search(value):
+                detected_patterns.append("xss")
+                break
+        
+        # Check for SQL injection patterns
+        for pattern in OAuth2SecurityHardening.SQL_INJECTION_PATTERNS:
+            if pattern.search(value):
+                detected_patterns.append("sql_injection")
+                break
+        
+        return detected_patterns
 
 
 class OAuth2SecurityManager:
@@ -37,6 +165,10 @@ class OAuth2SecurityManager:
     - State parameter generation and validation for CSRF protection
     - Rate limiting integration for OAuth2 endpoints
     - OAuth2-specific security validations
+    - Input sanitization and malicious pattern detection
+    - Security headers for OAuth2 endpoints
+    - Token encryption and secure storage
+    - Abuse detection and prevention
     """
     
     def __init__(self):
@@ -44,7 +176,42 @@ class OAuth2SecurityManager:
         self.redis_manager = redis_manager
         self.security_manager = security_manager
         self.client_manager = client_manager
-        logger.info("OAuth2SecurityManager initialized")
+        self.hardening = OAuth2SecurityHardening()
+        
+        # Initialize encryption for token storage
+        try:
+            self.fernet = self._get_fernet_instance()
+        except Exception as e:
+            logger.error(f"Failed to initialize token encryption: {e}")
+            raise
+        
+        logger.info("OAuth2SecurityManager initialized with security hardening")
+    
+    def _get_fernet_instance(self) -> Fernet:
+        """
+        Get properly configured Fernet instance using the same logic as crypto utils.
+        
+        Returns:
+            Configured Fernet instance
+        """
+        import base64
+        import hashlib
+        
+        key_raw = settings.FERNET_KEY.get_secret_value()
+        key_material = key_raw.encode("utf-8")
+        
+        # Try to decode as base64; if it fails, hash and encode
+        try:
+            decoded = base64.urlsafe_b64decode(key_material)
+            if len(decoded) == 32:
+                return Fernet(key_material)
+        except base64.binascii.Error:
+            pass
+        
+        # If not valid, hash and encode
+        hashed_key = hashlib.sha256(key_material).digest()
+        encoded_key = base64.urlsafe_b64encode(hashed_key)
+        return Fernet(encoded_key)
     
     async def validate_redirect_uri(
         self,
@@ -213,8 +380,18 @@ class OAuth2SecurityManager:
             rate_limit_period: Custom period in seconds (optional)
             
         Raises:
-            HTTPException: If rate limit is exceeded
+            HTTPException: If rate limit is exceeded with 429 status code
         """
+        # Import here to avoid circular imports
+        from second_brain_database.config import settings
+        
+        # Only skip rate limiting if explicitly disabled via environment variable
+        # This allows tests to still verify rate limiting functionality
+        import os
+        if os.environ.get('DISABLE_OAUTH2_RATE_LIMITING') == 'true':
+            logger.debug(f"OAuth2 rate limiting disabled via environment variable for client {client_id}")
+            return
+        
         # Create client-specific action for rate limiting
         action = f"oauth2_{endpoint}_{client_id}"
         
@@ -230,6 +407,11 @@ class OAuth2SecurityManager:
             )
             
         except HTTPException as e:
+            # Ensure rate limiting always returns 429 status code
+            if e.status_code != 429:
+                logger.warning(f"Rate limiting returned non-429 status code: {e.status_code}, correcting to 429")
+                e.status_code = 429
+                
             # Log OAuth2-specific rate limit events
             logger.warning(f"Rate limit exceeded for OAuth2 client {client_id} on endpoint {endpoint}")
             raise e
@@ -492,6 +674,368 @@ class OAuth2SecurityManager:
         except Exception as e:
             logger.error(f"Failed to get authorization state: {e}", exc_info=True)
             return None
+    
+    def apply_security_headers(self, response: Response) -> Response:
+        """
+        Apply OAuth2-specific security headers to response.
+        
+        Args:
+            response: FastAPI response object
+            
+        Returns:
+            Response with security headers applied
+        """
+        for header_name, header_value in OAuth2SecurityHardening.SECURITY_HEADERS.items():
+            response.headers[header_name] = header_value
+        
+        logger.debug("Applied OAuth2 security headers to response")
+        return response
+    
+    async def validate_and_sanitize_input(
+        self,
+        input_data: Dict[str, str],
+        client_id: Optional[str] = None,
+        request: Optional[Request] = None
+    ) -> Dict[str, str]:
+        """
+        Validate and sanitize OAuth2 input parameters.
+        
+        Args:
+            input_data: Dictionary of input parameters to validate
+            client_id: OAuth2 client identifier (for logging)
+            request: FastAPI request object (for logging)
+            
+        Returns:
+            Dictionary of sanitized input parameters
+            
+        Raises:
+            HTTPException: If input validation fails or malicious patterns detected
+        """
+        sanitized_data = {}
+        validation_errors = []
+        
+        for key, value in input_data.items():
+            if not isinstance(value, str):
+                validation_errors.append(f"Parameter {key} must be a string")
+                continue
+            
+            # Check for malicious patterns
+            malicious_patterns = OAuth2SecurityHardening.detect_malicious_patterns(value)
+            if malicious_patterns:
+                await self._log_security_violation(
+                    event_type="malicious_input_detected",
+                    client_id=client_id,
+                    request=request,
+                    details={
+                        "parameter": key,
+                        "patterns": malicious_patterns,
+                        "value_length": len(value)
+                    }
+                )
+                validation_errors.append(f"Invalid characters in parameter {key}")
+                continue
+            
+            # Sanitize the input
+            sanitized_value = OAuth2SecurityHardening.sanitize_input(value)
+            
+            # Validate specific parameter formats
+            if key == "client_id" and not OAuth2SecurityHardening.CLIENT_ID_PATTERN.match(sanitized_value):
+                validation_errors.append("Invalid client_id format")
+            elif key == "state" and not OAuth2SecurityHardening.STATE_PATTERN.match(sanitized_value):
+                validation_errors.append("Invalid state parameter format")
+            elif key == "code" and not OAuth2SecurityHardening.CODE_PATTERN.match(sanitized_value):
+                validation_errors.append("Invalid authorization code format")
+            elif key == "scope":
+                # Validate individual scopes
+                scopes = sanitized_value.split()
+                for scope in scopes:
+                    if not OAuth2SecurityHardening.SCOPE_PATTERN.match(scope):
+                        validation_errors.append(f"Invalid scope format: {scope}")
+            
+            sanitized_data[key] = sanitized_value
+        
+        if validation_errors:
+            await self._log_security_violation(
+                event_type="input_validation_failed",
+                client_id=client_id,
+                request=request,
+                details={
+                    "validation_errors": validation_errors,
+                    "parameter_count": len(input_data)
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Input validation failed: {'; '.join(validation_errors)}"
+            )
+        
+        logger.debug(f"Successfully validated and sanitized {len(sanitized_data)} parameters")
+        return sanitized_data
+    
+    async def encrypt_token_data(self, token_data: Dict[str, str]) -> str:
+        """
+        Encrypt token data for secure storage.
+        
+        Args:
+            token_data: Token data to encrypt
+            
+        Returns:
+            Encrypted token data as string
+        """
+        try:
+            # Convert dict to JSON string and encrypt
+            import json
+            json_data = json.dumps(token_data, sort_keys=True)
+            encrypted_data = self.fernet.encrypt(json_data.encode())
+            
+            logger.debug("Successfully encrypted token data")
+            return encrypted_data.decode()
+            
+        except Exception as e:
+            logger.error(f"Failed to encrypt token data: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Token encryption failed"
+            )
+    
+    async def decrypt_token_data(self, encrypted_data: str) -> Dict[str, str]:
+        """
+        Decrypt token data from secure storage.
+        
+        Args:
+            encrypted_data: Encrypted token data string
+            
+        Returns:
+            Decrypted token data dictionary
+        """
+        try:
+            # Decrypt and parse JSON
+            import json
+            decrypted_bytes = self.fernet.decrypt(encrypted_data.encode())
+            token_data = json.loads(decrypted_bytes.decode())
+            
+            logger.debug("Successfully decrypted token data")
+            return token_data
+            
+        except Exception as e:
+            logger.error(f"Failed to decrypt token data: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Token decryption failed"
+            )
+    
+    async def detect_abuse_patterns(
+        self,
+        client_id: str,
+        request: Request,
+        event_type: str
+    ) -> bool:
+        """
+        Detect abuse patterns and rate limit violations.
+        
+        Args:
+            client_id: OAuth2 client identifier
+            request: FastAPI request object
+            event_type: Type of event to track
+            
+        Returns:
+            True if abuse detected, False otherwise
+        """
+        try:
+            redis_conn = await self.redis_manager.get_redis()
+            client_ip = request.client.host if request.client else "unknown"
+            
+            # Create tracking keys
+            hour_key = f"oauth2:abuse:{event_type}:{client_id}:{int(time.time() // 3600)}"
+            ip_hour_key = f"oauth2:abuse:{event_type}:ip:{client_ip}:{int(time.time() // 3600)}"
+            
+            # Increment counters
+            current_count = await redis_conn.incr(hour_key)
+            ip_count = await redis_conn.incr(ip_hour_key)
+            
+            # Set expiration (1 hour + buffer)
+            await redis_conn.expire(hour_key, 3900)
+            await redis_conn.expire(ip_hour_key, 3900)
+            
+            # Check thresholds
+            threshold = OAuth2SecurityHardening.ABUSE_DETECTION_THRESHOLDS.get(event_type, 100)
+            
+            if current_count > threshold or ip_count > threshold * 2:
+                await self._log_security_violation(
+                    event_type="abuse_pattern_detected",
+                    client_id=client_id,
+                    request=request,
+                    details={
+                        "abuse_type": event_type,
+                        "client_count": current_count,
+                        "ip_count": ip_count,
+                        "threshold": threshold
+                    }
+                )
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error in abuse detection: {e}")
+            return False
+    
+    async def enhanced_rate_limiting(
+        self,
+        request: Request,
+        client_id: str,
+        endpoint: str,
+        custom_limits: Optional[Dict[str, int]] = None
+    ) -> None:
+        """
+        Enhanced rate limiting with abuse detection.
+        
+        Args:
+            request: FastAPI request object
+            client_id: OAuth2 client identifier
+            endpoint: OAuth2 endpoint name
+            custom_limits: Custom rate limits (optional)
+            
+        Raises:
+            HTTPException: If rate limit exceeded or abuse detected
+        """
+        # Check for abuse patterns first
+        abuse_detected = await self.detect_abuse_patterns(
+            client_id=client_id,
+            request=request,
+            event_type=f"{endpoint}_requests"
+        )
+        
+        if abuse_detected:
+            await self._log_security_violation(
+                event_type="rate_limit_abuse",
+                client_id=client_id,
+                request=request,
+                details={"endpoint": endpoint}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded due to abuse detection"
+            )
+        
+        # Apply standard rate limiting
+        await self.rate_limit_client(
+            request=request,
+            client_id=client_id,
+            endpoint=endpoint,
+            rate_limit_requests=custom_limits.get("requests") if custom_limits else None,
+            rate_limit_period=custom_limits.get("period") if custom_limits else None
+        )
+    
+    async def validate_redirect_uri_security(
+        self,
+        redirect_uri: str,
+        client_id: str,
+        request: Optional[Request] = None
+    ) -> bool:
+        """
+        Enhanced redirect URI security validation.
+        
+        Args:
+            redirect_uri: Redirect URI to validate
+            client_id: OAuth2 client identifier
+            request: FastAPI request object (for logging)
+            
+        Returns:
+            True if redirect URI is secure, False otherwise
+        """
+        # Basic validation first
+        if not await self.validate_redirect_uri(client_id, redirect_uri):
+            return False
+        
+        # Additional security checks
+        parsed_uri = urlparse(redirect_uri)
+        
+        # Check for suspicious patterns
+        suspicious_patterns = [
+            "javascript:",
+            "data:",
+            "vbscript:",
+            "file:",
+            "ftp:",
+        ]
+        
+        if any(pattern in redirect_uri.lower() for pattern in suspicious_patterns):
+            await self._log_security_violation(
+                event_type="suspicious_redirect_uri",
+                client_id=client_id,
+                request=request,
+                details={
+                    "redirect_uri": redirect_uri,
+                    "reason": "suspicious_scheme"
+                }
+            )
+            return False
+        
+        # Check for open redirects
+        if parsed_uri.hostname and parsed_uri.hostname.lower() in [
+            "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly"
+        ]:
+            await self._log_security_violation(
+                event_type="suspicious_redirect_uri",
+                client_id=client_id,
+                request=request,
+                details={
+                    "redirect_uri": redirect_uri,
+                    "reason": "url_shortener"
+                }
+            )
+            return False
+        
+        return True
+    
+    async def _log_security_violation(
+        self,
+        event_type: str,
+        client_id: Optional[str] = None,
+        request: Optional[Request] = None,
+        details: Optional[Dict] = None
+    ) -> None:
+        """
+        Log security violations with comprehensive context.
+        
+        Args:
+            event_type: Type of security violation
+            client_id: OAuth2 client identifier
+            request: FastAPI request object
+            details: Additional violation details
+        """
+        violation_context = {
+            "event_type": event_type,
+            "client_id": client_id,
+            "timestamp": time.time(),
+            "details": details or {}
+        }
+        
+        if request:
+            violation_context.update({
+                "client_ip": request.client.host if request.client else None,
+                "user_agent": request.headers.get("user-agent"),
+                "request_method": request.method,
+                "request_url": str(request.url),
+                "request_headers": dict(request.headers)
+            })
+        
+        logger.error(
+            f"OAuth2 security violation: {event_type}",
+            extra={"security_violation": violation_context}
+        )
+        
+        # Store in Redis for monitoring
+        try:
+            redis_conn = await self.redis_manager.get_redis()
+            violation_key = f"oauth2:security_violations:{int(time.time())}"
+            await redis_conn.hset(violation_key, mapping={
+                k: str(v) for k, v in violation_context.items()
+            })
+            await redis_conn.expire(violation_key, 86400)  # 24 hours
+        except Exception as e:
+            logger.error(f"Failed to store security violation: {e}")
 
 
 # Global instance

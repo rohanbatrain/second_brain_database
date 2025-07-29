@@ -1,0 +1,1291 @@
+openapi: 3.0.3
+info:
+  title: Second Brain Database OAuth2 Provider
+  description: |
+    OAuth2 2.1 compliant authorization server for the Second Brain Database.
+    
+    This API provides OAuth2 authorization services including:
+    - Authorization code flow with PKCE
+    - Client credentials flow
+    - Token refresh and revocation
+    - Client management
+    - Consent management
+    
+    ## Security Features
+    - PKCE (Proof Key for Code Exchange) required for all flows
+    - State parameter validation for CSRF protection
+    - Rate limiting on all endpoints
+    - Comprehensive audit logging
+    - Token encryption at rest
+    
+    ## Supported Flows
+    - **Authorization Code Flow with PKCE**: For web applications, SPAs, and mobile apps
+    - **Client Credentials Flow**: For server-to-server authentication
+    - **Refresh Token Flow**: For token renewal
+    
+    ## Base URL
+    All endpoints are prefixed with `/oauth2`
+    
+  version: 1.0.0
+  contact:
+    name: Second Brain Database Support
+    url: https://github.com/your-org/second-brain-database
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://your-sbd-instance.com/oauth2
+    description: Production server
+  - url: https://staging.your-sbd-instance.com/oauth2
+    description: Staging server
+  - url: http://localhost:8000/oauth2
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth2 Authorization Server Metadata
+      description: |
+        Retrieve OAuth2 authorization server metadata as per RFC 8414.
+        This endpoint provides discovery information about the OAuth2 server
+        capabilities, endpoints, and supported features.
+      operationId: getAuthorizationServerMetadata
+      tags:
+        - Discovery
+      security: []
+      responses:
+        '200':
+          description: Authorization server metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationServerMetadata'
+              example:
+                issuer: "https://your-sbd-instance.com"
+                authorization_endpoint: "https://your-sbd-instance.com/oauth2/authorize"
+                token_endpoint: "https://your-sbd-instance.com/oauth2/token"
+                response_types_supported: ["code"]
+                grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"]
+                scopes_supported: ["read:profile", "write:profile", "read:data", "write:data"]
+                token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"]
+                code_challenge_methods_supported: ["S256"]
+                revocation_endpoint: "https://your-sbd-instance.com/oauth2/revoke"
+
+  /authorize:
+    get:
+      summary: OAuth2 Authorization Endpoint
+      description: |
+        Initiate OAuth2 authorization code flow with PKCE.
+        
+        This endpoint handles the initial authorization request from OAuth2 clients.
+        It validates the request parameters, checks user authentication, and either
+        shows a consent screen or redirects back to the client with an authorization code.
+        
+        **Flow:**
+        1. Validate request parameters (client_id, redirect_uri, scopes, PKCE)
+        2. Check if user is authenticated
+        3. Check if user has previously granted consent
+        4. If consent exists, generate authorization code and redirect
+        5. If no consent, show consent screen
+        
+        **Security Features:**
+        - PKCE required for all requests
+        - State parameter validation for CSRF protection
+        - Rate limiting per client
+        - Comprehensive input validation and sanitization
+      operationId: authorize
+      tags:
+        - Authorization
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          description: Must be "code"
+          schema:
+            type: string
+            enum: [code]
+          example: code
+        - name: client_id
+          in: query
+          required: true
+          description: OAuth2 client identifier
+          schema:
+            type: string
+            pattern: '^oauth2_client_[a-zA-Z0-9]{16}$'
+          example: oauth2_client_1234567890abcdef
+        - name: redirect_uri
+          in: query
+          required: true
+          description: Client redirect URI for authorization code delivery
+          schema:
+            type: string
+            format: uri
+          example: https://myapp.com/oauth/callback
+        - name: scope
+          in: query
+          required: true
+          description: Space-separated list of requested scopes
+          schema:
+            type: string
+          example: "read:profile write:data"
+        - name: state
+          in: query
+          required: true
+          description: Client state parameter for CSRF protection
+          schema:
+            type: string
+            minLength: 32
+          example: xyz123abc456def789
+        - name: code_challenge
+          in: query
+          required: true
+          description: PKCE code challenge
+          schema:
+            type: string
+            minLength: 43
+            maxLength: 128
+          example: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+        - name: code_challenge_method
+          in: query
+          required: false
+          description: PKCE challenge method
+          schema:
+            type: string
+            enum: [S256]
+            default: S256
+          example: S256
+      responses:
+        '302':
+          description: Redirect to client with authorization code or error
+          headers:
+            Location:
+              description: Redirect URL with authorization code or error
+              schema:
+                type: string
+                format: uri
+              examples:
+                success:
+                  value: "https://myapp.com/callback?code=auth_code_123&state=xyz123abc456def789"
+                error:
+                  value: "https://myapp.com/callback?error=access_denied&error_description=User%20denied%20authorization&state=xyz123abc456def789"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /consent:
+    post:
+      summary: OAuth2 User Consent Endpoint
+      description: |
+        Handle user consent approval or denial for OAuth2 authorization.
+        
+        This endpoint processes the consent form submission from the consent screen.
+        It validates the consent request, stores the consent decision, and either
+        generates an authorization code (if approved) or redirects with an error (if denied).
+      operationId: handleConsent
+      tags:
+        - Authorization
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - client_id
+                - state
+                - scopes
+                - approved
+              properties:
+                client_id:
+                  type: string
+                  description: OAuth2 client identifier
+                  example: oauth2_client_1234567890abcdef
+                state:
+                  type: string
+                  description: Consent state parameter
+                  example: consent_xyz123abc456def789
+                scopes:
+                  type: string
+                  description: Comma-separated list of requested scopes
+                  example: "read:profile,write:data"
+                approved:
+                  type: string
+                  enum: ["true", "false"]
+                  description: Whether consent was approved
+                  example: "true"
+      responses:
+        '302':
+          description: Redirect to client with authorization code or error
+          headers:
+            Location:
+              description: Redirect URL
+              schema:
+                type: string
+                format: uri
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /token:
+    post:
+      summary: OAuth2 Token Endpoint
+      description: |
+        Exchange authorization code for access tokens or refresh existing tokens.
+        
+        Supports multiple grant types:
+        - **authorization_code**: Exchange authorization code for tokens
+        - **refresh_token**: Refresh access token using refresh token
+        - **client_credentials**: Server-to-server authentication
+        
+        **Security Features:**
+        - PKCE validation for authorization code grants
+        - Client authentication for confidential clients
+        - Rate limiting per client
+        - Token encryption at rest
+      operationId: token
+      tags:
+        - Token Management
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/AuthorizationCodeTokenRequest'
+                - $ref: '#/components/schemas/RefreshTokenRequest'
+                - $ref: '#/components/schemas/ClientCredentialsRequest'
+            examples:
+              authorization_code:
+                summary: Authorization Code Grant
+                value:
+                  grant_type: authorization_code
+                  code: auth_code_123
+                  redirect_uri: https://myapp.com/callback
+                  client_id: oauth2_client_123
+                  client_secret: cs_secret123
+                  code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+              refresh_token:
+                summary: Refresh Token Grant
+                value:
+                  grant_type: refresh_token
+                  refresh_token: rt_1234567890abcdef
+                  client_id: oauth2_client_123
+                  client_secret: cs_secret123
+              client_credentials:
+                summary: Client Credentials Grant
+                value:
+                  grant_type: client_credentials
+                  client_id: oauth2_client_123
+                  client_secret: cs_secret123
+                  scope: "read:data write:data"
+      responses:
+        '200':
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                access_token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+                token_type: "Bearer"
+                expires_in: 3600
+                refresh_token: "rt_1234567890abcdef1234567890abcdef"
+                scope: "read:profile write:data"
+        '400':
+          $ref: '#/components/responses/OAuth2Error'
+        '401':
+          $ref: '#/components/responses/OAuth2Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /revoke:
+    post:
+      summary: OAuth2 Token Revocation Endpoint
+      description: |
+        Revoke OAuth2 access tokens or refresh tokens.
+        
+        This endpoint allows clients to revoke tokens when they are no longer needed,
+        improving security by ensuring tokens cannot be used after they are no longer required.
+      operationId: revokeToken
+      tags:
+        - Token Management
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRevocationRequest'
+            example:
+              token: rt_1234567890abcdef1234567890abcdef
+              token_type_hint: refresh_token
+              client_id: oauth2_client_123
+              client_secret: cs_secret123
+      responses:
+        '200':
+          description: Token revocation successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+                    example: true
+        '400':
+          $ref: '#/components/responses/OAuth2Error'
+        '401':
+          $ref: '#/components/responses/OAuth2Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /clients:
+    post:
+      summary: Register OAuth2 Client
+      description: |
+        Register a new OAuth2 client application.
+        
+        This endpoint allows users to register new OAuth2 client applications
+        that can authenticate users and access protected resources.
+      operationId: registerClient
+      tags:
+        - Client Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRegistrationRequest'
+            example:
+              name: "My Web Application"
+              description: "A web application for managing user data"
+              redirect_uris: ["https://myapp.com/oauth/callback"]
+              client_type: "confidential"
+              scopes: ["read:profile", "write:data"]
+              website_url: "https://myapp.com"
+      responses:
+        '201':
+          description: Client registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+    get:
+      summary: List OAuth2 Clients
+      description: |
+        List OAuth2 clients owned by the current user.
+        
+        Administrators can list all clients by setting the `all_clients` parameter.
+      operationId: listClients
+      tags:
+        - Client Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: all_clients
+          in: query
+          required: false
+          description: List all clients (admin only)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of OAuth2 clients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /clients/{client_id}:
+    get:
+      summary: Get OAuth2 Client Details
+      description: Get details of a specific OAuth2 client
+      operationId: getClient
+      tags:
+        - Client Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          description: OAuth2 client identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientDetailsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Update OAuth2 Client
+      description: Update OAuth2 client configuration
+      operationId: updateClient
+      tags:
+        - Client Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          description: OAuth2 client identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUpdateRequest'
+      responses:
+        '200':
+          description: Client updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUpdateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete OAuth2 Client
+      description: Delete OAuth2 client application
+      operationId: deleteClient
+      tags:
+        - Client Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          description: OAuth2 client identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Client deleted successfully"
+                  data:
+                    type: object
+                    properties:
+                      client_id:
+                        type: string
+                        example: oauth2_client_123
+                      deleted:
+                        type: boolean
+                        example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /consents:
+    get:
+      summary: List User OAuth2 Consents
+      description: List user's OAuth2 consents
+      operationId: listConsents
+      tags:
+        - Consent Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of user consents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /consents/manage:
+    get:
+      summary: OAuth2 Consent Management Interface
+      description: Web interface for managing OAuth2 consents
+      operationId: manageConsents
+      tags:
+        - Consent Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: HTML consent management interface
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /consents/{client_id}:
+    delete:
+      summary: Revoke OAuth2 Consent
+      description: Revoke OAuth2 consent for a specific client
+      operationId: revokeConsent
+      tags:
+        - Consent Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          description: OAuth2 client identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consent revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Consent revoked for client oauth2_client_123"
+                  data:
+                    type: object
+                    properties:
+                      client_id:
+                        type: string
+                        example: oauth2_client_123
+                      revoked:
+                        type: boolean
+                        example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /health:
+    get:
+      summary: OAuth2 Provider Health Check
+      description: Check OAuth2 provider health and status
+      operationId: healthCheck
+      tags:
+        - Health & Monitoring
+      security: []
+      responses:
+        '200':
+          description: Health check response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+              example:
+                message: "OAuth2 provider is healthy"
+                data:
+                  status: "healthy"
+                  timestamp: "2024-01-01T12:00:00Z"
+                  components:
+                    client_manager: "healthy"
+                    auth_code_manager: "healthy"
+                    security_manager: "healthy"
+                    pkce_validator: "healthy"
+                  statistics:
+                    authorization_codes:
+                      active: 5
+                      expired: 12
+
+  /cleanup:
+    post:
+      summary: Clean Up Expired OAuth2 Tokens
+      description: Clean up expired OAuth2 tokens (admin only)
+      operationId: cleanupTokens
+      tags:
+        - Health & Monitoring
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cleanup completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Cleaned up 15 expired tokens"
+                  data:
+                    type: object
+                    properties:
+                      cleaned_tokens:
+                        type: integer
+                        example: 15
+                      cleanup_timestamp:
+                        type: string
+                        format: date-time
+                        example: "2024-01-01T12:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /tokens/stats:
+    get:
+      summary: Get OAuth2 Token Statistics
+      description: Get statistics about OAuth2 tokens (admin only)
+      operationId: getTokenStats
+      tags:
+        - Health & Monitoring
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenStatsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token for authentication
+
+  schemas:
+    AuthorizationServerMetadata:
+      type: object
+      properties:
+        issuer:
+          type: string
+          format: uri
+          example: "https://your-sbd-instance.com"
+        authorization_endpoint:
+          type: string
+          format: uri
+          example: "https://your-sbd-instance.com/oauth2/authorize"
+        token_endpoint:
+          type: string
+          format: uri
+          example: "https://your-sbd-instance.com/oauth2/token"
+        response_types_supported:
+          type: array
+          items:
+            type: string
+          example: ["code"]
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+          example: ["authorization_code", "refresh_token", "client_credentials"]
+        scopes_supported:
+          type: array
+          items:
+            type: string
+          example: ["read:profile", "write:profile", "read:data", "write:data"]
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+          example: ["client_secret_post", "client_secret_basic"]
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+          example: ["S256"]
+        revocation_endpoint:
+          type: string
+          format: uri
+          example: "https://your-sbd-instance.com/oauth2/revoke"
+
+    AuthorizationCodeTokenRequest:
+      type: object
+      required:
+        - grant_type
+        - code
+        - redirect_uri
+        - client_id
+        - code_verifier
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code]
+        code:
+          type: string
+          description: Authorization code
+        redirect_uri:
+          type: string
+          format: uri
+          description: Must match authorization request
+        client_id:
+          type: string
+          description: OAuth2 client identifier
+        client_secret:
+          type: string
+          description: Client secret (required for confidential clients)
+        code_verifier:
+          type: string
+          description: PKCE code verifier
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - grant_type
+        - refresh_token
+        - client_id
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token]
+        refresh_token:
+          type: string
+          description: Refresh token
+        client_id:
+          type: string
+          description: OAuth2 client identifier
+        client_secret:
+          type: string
+          description: Client secret (required for confidential clients)
+
+    ClientCredentialsRequest:
+      type: object
+      required:
+        - grant_type
+        - client_id
+        - client_secret
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        client_id:
+          type: string
+          description: OAuth2 client identifier
+        client_secret:
+          type: string
+          description: Client secret
+        scope:
+          type: string
+          description: Space-separated list of requested scopes
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+        refresh_token:
+          type: string
+          description: Refresh token (if applicable)
+        scope:
+          type: string
+          description: Space-separated list of granted scopes
+
+    TokenRevocationRequest:
+      type: object
+      required:
+        - token
+        - client_id
+      properties:
+        token:
+          type: string
+          description: Token to revoke
+        token_type_hint:
+          type: string
+          enum: [access_token, refresh_token]
+          description: Hint about token type
+        client_id:
+          type: string
+          description: OAuth2 client identifier
+        client_secret:
+          type: string
+          description: Client secret (required for confidential clients)
+
+    ClientRegistrationRequest:
+      type: object
+      required:
+        - name
+        - redirect_uris
+        - client_type
+        - scopes
+      properties:
+        name:
+          type: string
+          description: Human-readable client name
+          maxLength: 100
+        description:
+          type: string
+          description: Client description
+          maxLength: 500
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: List of valid redirect URIs
+        client_type:
+          type: string
+          enum: [confidential, public]
+          description: Client type
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of requested scopes
+        website_url:
+          type: string
+          format: uri
+          description: Client website URL
+
+    ClientRegistrationResponse:
+      type: object
+      properties:
+        client_id:
+          type: string
+          description: Generated client identifier
+        client_secret:
+          type: string
+          description: Generated client secret (confidential clients only)
+        name:
+          type: string
+          description: Client name
+        client_type:
+          type: string
+          enum: [confidential, public]
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    ClientListResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            clients:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClientSummary'
+            total_count:
+              type: integer
+
+    ClientSummary:
+      type: object
+      properties:
+        client_id:
+          type: string
+        name:
+          type: string
+        client_type:
+          type: string
+          enum: [confidential, public]
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    ClientDetailsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            client:
+              $ref: '#/components/schemas/ClientDetails'
+
+    ClientDetails:
+      type: object
+      properties:
+        client_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        client_type:
+          type: string
+          enum: [confidential, public]
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+        website_url:
+          type: string
+          format: uri
+        owner_user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    ClientUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+
+    ClientUpdateResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            client_id:
+              type: string
+            updated_fields:
+              type: array
+              items:
+                type: string
+
+    ConsentListResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            consents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConsentSummary'
+            total_count:
+              type: integer
+
+    ConsentSummary:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        granted_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    HealthCheckResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy, degraded, unhealthy]
+            timestamp:
+              type: string
+              format: date-time
+            components:
+              type: object
+              additionalProperties:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+            statistics:
+              type: object
+              additionalProperties: true
+
+    TokenStatsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            refresh_tokens:
+              type: object
+              properties:
+                active:
+                  type: integer
+                expired:
+                  type: integer
+                total:
+                  type: integer
+            authorization_codes:
+              type: object
+              properties:
+                active:
+                  type: integer
+                expired:
+                  type: integer
+                total:
+                  type: integer
+
+    OAuth2ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: OAuth2 error code
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+            - invalid_scope
+            - access_denied
+            - server_error
+            - temporarily_unavailable
+        error_description:
+          type: string
+          description: Human-readable error description
+        error_uri:
+          type: string
+          format: uri
+          description: URI with error information
+
+    StandardErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message
+        error:
+          type: string
+          description: Error code
+        details:
+          type: object
+          description: Additional error details
+
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Invalid request parameters"
+            error: "bad_request"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Authentication required"
+            error: "unauthorized"
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Insufficient permissions"
+            error: "forbidden"
+
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Resource not found"
+            error: "not_found"
+
+    TooManyRequests:
+      description: Too Many Requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Rate limit exceeded"
+            error: "rate_limit_exceeded"
+      headers:
+        X-RateLimit-Limit:
+          description: Request limit per time window
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          description: Remaining requests in current window
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          description: Time when rate limit resets (Unix timestamp)
+          schema:
+            type: integer
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardErrorResponse'
+          example:
+            message: "Internal server error"
+            error: "internal_error"
+
+    OAuth2Error:
+      description: OAuth2 Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OAuth2ErrorResponse'
+          examples:
+            invalid_client:
+              summary: Invalid Client
+              value:
+                error: "invalid_client"
+                error_description: "Client authentication failed"
+            invalid_grant:
+              summary: Invalid Grant
+              value:
+                error: "invalid_grant"
+                error_description: "Invalid authorization code"
+            invalid_scope:
+              summary: Invalid Scope
+              value:
+                error: "invalid_scope"
+                error_description: "Requested scope is invalid"
+
+tags:
+  - name: Discovery
+    description: OAuth2 server discovery and metadata
+  - name: Authorization
+    description: OAuth2 authorization flow endpoints
+  - name: Token Management
+    description: Token issuance, refresh, and revocation
+  - name: Client Management
+    description: OAuth2 client registration and management
+  - name: Consent Management
+    description: User consent management
+  - name: Health & Monitoring
+    description: Health checks and monitoring endpoints

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - OAuth2 Test App{% endblock %}
+
+{% block content %}
+<div class="info-box">
+    <h3>{{ title }}</h3>
+    <p>{{ message }}</p>
+    
+    <div style="margin-top: 20px;">
+        <a href="{{ url_for('index') }}" style="display: inline-block; padding: 8px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">🏠 Go Home</a>
+    </div>
+</div>
+
+<div class="info-box">
+    <h3>Troubleshooting</h3>
+    <p>If you're experiencing issues, try the following:</p>
+    <ul>
+        <li>Check that your OAuth2 provider is running and accessible</li>
+        <li>Verify your client configuration in the .env file</li>
+        <li>Ensure your redirect URI matches the registered client</li>
+        <li>Check the application logs for detailed error information</li>
+    </ul>
+    
+    <p><a href="{{ url_for('health') }}" target="_blank">Check Application Health</a></p>
+</div>
+{% endblock %}

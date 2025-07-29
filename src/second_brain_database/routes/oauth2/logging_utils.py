@@ -17,6 +17,14 @@ from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[OAuth2 Logging]")
 
+# Import metrics for integrated logging and monitoring
+try:
+    from .metrics import oauth2_metrics
+    METRICS_AVAILABLE = True
+except ImportError:
+    oauth2_metrics = None
+    METRICS_AVAILABLE = False
+
 
 class OAuth2EventType(str, Enum):
     """OAuth2 event types for structured logging."""
@@ -103,10 +111,26 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced audit logging with security context
         self.logger.info(
             f"OAuth2 authorization request from client {client_id}",
-            extra={"oauth2_context": context}
+            extra={
+                "oauth2_context": context,
+                "audit_event": True,
+                "security_relevant": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"auth_req_{client_id}_{datetime.utcnow().timestamp()}"
+            }
         )
+        
+        # Record metrics
+        if METRICS_AVAILABLE and oauth2_metrics:
+            oauth2_metrics.record_authorization_request(
+                client_id=client_id,
+                response_type="code",
+                status="requested"
+            )
     
     def log_authorization_granted(
         self,
@@ -143,10 +167,28 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced audit logging for successful authorization
         self.logger.info(
             f"OAuth2 authorization granted to client {client_id} for user {user_id}",
-            extra={"oauth2_context": context}
+            extra={
+                "oauth2_context": context,
+                "audit_event": True,
+                "security_relevant": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"auth_granted_{client_id}_{user_id}_{datetime.utcnow().timestamp()}",
+                "scope_count": len(scopes),
+                "authorization_success": True
+            }
         )
+        
+        # Record metrics
+        if METRICS_AVAILABLE and oauth2_metrics:
+            oauth2_metrics.record_authorization_request(
+                client_id=client_id,
+                response_type="code",
+                status="success"
+            )
     
     def log_token_request(
         self,
@@ -180,10 +222,27 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced audit logging for token requests
         self.logger.info(
             f"OAuth2 token request from client {client_id}, grant_type: {grant_type}",
-            extra={"oauth2_context": context}
+            extra={
+                "oauth2_context": context,
+                "audit_event": True,
+                "security_relevant": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"token_req_{client_id}_{grant_type}_{datetime.utcnow().timestamp()}",
+                "grant_type": grant_type
+            }
         )
+        
+        # Record metrics
+        if METRICS_AVAILABLE and oauth2_metrics:
+            oauth2_metrics.record_token_request(
+                client_id=client_id,
+                grant_type=grant_type,
+                status="requested"
+            )
     
     def log_token_issued(
         self,
@@ -220,10 +279,44 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced audit logging for token issuance
         self.logger.info(
             f"OAuth2 tokens issued to client {client_id} for user {user_id}",
-            extra={"oauth2_context": context}
+            extra={
+                "oauth2_context": context,
+                "audit_event": True,
+                "security_relevant": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"token_issued_{client_id}_{user_id}_{datetime.utcnow().timestamp()}",
+                "token_success": True,
+                "scope_count": len(scopes),
+                "has_refresh_token": has_refresh_token
+            }
         )
+        
+        # Record metrics
+        if METRICS_AVAILABLE and oauth2_metrics:
+            grant_type = additional_context.get("grant_type", "authorization_code") if additional_context else "authorization_code"
+            
+            oauth2_metrics.record_token_request(
+                client_id=client_id,
+                grant_type=grant_type,
+                status="success"
+            )
+            
+            oauth2_metrics.record_token_issued(
+                client_id=client_id,
+                token_type="access_token",
+                grant_type=grant_type
+            )
+            
+            if has_refresh_token:
+                oauth2_metrics.record_token_issued(
+                    client_id=client_id,
+                    token_type="refresh_token",
+                    grant_type=grant_type
+                )
     
     def log_consent_event(
         self,
@@ -296,26 +389,49 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced security event logging with operation ID
+        operation_id = f"security_{event_type.value}_{client_id or 'unknown'}_{datetime.utcnow().timestamp()}"
+        
+        log_extra = {
+            "oauth2_context": context,
+            "audit_event": True,
+            "security_event": True,
+            "security_relevant": True,
+            "user_id": user_id,
+            "client_id": client_id,
+            "operation_id": operation_id,
+            "severity": severity,
+            "event_type": event_type.value
+        }
+        
         # Log with appropriate level based on severity
         if severity == "critical":
             self.logger.critical(
-                f"OAuth2 security event: {event_type.value} - {description}",
-                extra={"oauth2_context": context}
+                f"OAuth2 CRITICAL security event: {event_type.value} - {description}",
+                extra=log_extra
             )
         elif severity == "high":
             self.logger.error(
-                f"OAuth2 security event: {event_type.value} - {description}",
-                extra={"oauth2_context": context}
+                f"OAuth2 HIGH security event: {event_type.value} - {description}",
+                extra=log_extra
             )
         elif severity == "medium":
             self.logger.warning(
-                f"OAuth2 security event: {event_type.value} - {description}",
-                extra={"oauth2_context": context}
+                f"OAuth2 MEDIUM security event: {event_type.value} - {description}",
+                extra=log_extra
             )
         else:
             self.logger.info(
-                f"OAuth2 security event: {event_type.value} - {description}",
-                extra={"oauth2_context": context}
+                f"OAuth2 LOW security event: {event_type.value} - {description}",
+                extra=log_extra
+            )
+        
+        # Record security metrics
+        if METRICS_AVAILABLE and oauth2_metrics and client_id:
+            oauth2_metrics.record_security_violation(
+                client_id=client_id,
+                violation_type=event_type.value,
+                severity=severity
             )
     
     def log_error_event(
@@ -352,10 +468,38 @@ class OAuth2Logger:
         
         self._add_request_context(context, request)
         
+        # Enhanced error logging with operation ID and audit context
+        operation_id = f"error_{event_type.value}_{error_code}_{client_id or 'unknown'}_{datetime.utcnow().timestamp()}"
+        
         self.logger.error(
             f"OAuth2 error: {error_code} - {error_description}",
-            extra={"oauth2_context": context}
+            extra={
+                "oauth2_context": context,
+                "audit_event": True,
+                "error_event": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": operation_id,
+                "error_code": error_code,
+                "event_type": event_type.value
+            }
         )
+        
+        # Record error metrics
+        if METRICS_AVAILABLE and oauth2_metrics and client_id:
+            if event_type == OAuth2EventType.AUTHORIZATION_ERROR:
+                oauth2_metrics.record_authorization_error(
+                    client_id=client_id,
+                    error_code=error_code,
+                    severity="medium"
+                )
+            elif event_type == OAuth2EventType.TOKEN_ERROR:
+                grant_type = additional_context.get("grant_type", "unknown") if additional_context else "unknown"
+                oauth2_metrics.record_token_error(
+                    client_id=client_id,
+                    error_code=error_code,
+                    grant_type=grant_type
+                )
     
     def log_client_event(
         self,
@@ -565,4 +709,232 @@ def log_oauth2_error(
         user_id=user_id,
         additional_context={"endpoint": endpoint},
         **kwargs
+    )
+
+
+def log_performance_event(
+    operation: str,
+    duration: float,
+    client_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    success: bool = True,
+    **kwargs
+) -> None:
+    """
+    Log OAuth2 performance events for monitoring and alerting.
+    
+    Args:
+        operation: Operation name (e.g., 'token_generation', 'authorization_code_validation')
+        duration: Operation duration in seconds
+        client_id: OAuth2 client identifier
+        user_id: User identifier
+        success: Whether the operation was successful
+        **kwargs: Additional context
+    """
+    context = {
+        "event_type": "performance_event",
+        "operation": operation,
+        "duration_seconds": duration,
+        "client_id": client_id,
+        "user_id": user_id,
+        "success": success,
+        "timestamp": datetime.utcnow().isoformat(),
+        **kwargs
+    }
+    
+    # Log performance warnings for slow operations
+    if duration > 5.0:  # More than 5 seconds
+        logger.warning(
+            f"OAuth2 slow operation: {operation} took {duration:.2f}s",
+            extra={
+                "oauth2_context": context,
+                "performance_event": True,
+                "slow_operation": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"perf_{operation}_{client_id or 'unknown'}_{datetime.utcnow().timestamp()}"
+            }
+        )
+    elif duration > 2.0:  # More than 2 seconds
+        logger.info(
+            f"OAuth2 operation performance: {operation} took {duration:.2f}s",
+            extra={
+                "oauth2_context": context,
+                "performance_event": True,
+                "user_id": user_id,
+                "client_id": client_id,
+                "operation_id": f"perf_{operation}_{client_id or 'unknown'}_{datetime.utcnow().timestamp()}"
+            }
+        )
+
+
+def log_rate_limit_event(
+    client_id: str,
+    endpoint: str,
+    limit_type: str,
+    current_count: int,
+    limit_value: int,
+    reset_time: Optional[datetime] = None,
+    **kwargs
+) -> None:
+    """
+    Log OAuth2 rate limiting events.
+    
+    Args:
+        client_id: OAuth2 client identifier
+        endpoint: Endpoint that was rate limited
+        limit_type: Type of rate limit (requests/tokens)
+        current_count: Current request count
+        limit_value: Rate limit threshold
+        reset_time: When the rate limit resets
+        **kwargs: Additional context
+    """
+    context = {
+        "event_type": "rate_limit_event",
+        "client_id": client_id,
+        "endpoint": endpoint,
+        "limit_type": limit_type,
+        "current_count": current_count,
+        "limit_value": limit_value,
+        "reset_time": reset_time.isoformat() if reset_time else None,
+        "timestamp": datetime.utcnow().isoformat(),
+        **kwargs
+    }
+    
+    logger.warning(
+        f"OAuth2 rate limit hit for client {client_id} on {endpoint}: {current_count}/{limit_value}",
+        extra={
+            "oauth2_context": context,
+            "rate_limit_event": True,
+            "security_relevant": True,
+            "client_id": client_id,
+            "operation_id": f"rate_limit_{client_id}_{endpoint}_{datetime.utcnow().timestamp()}"
+        }
+    )
+    
+    # Record rate limit metrics
+    if METRICS_AVAILABLE and oauth2_metrics:
+        oauth2_metrics.record_rate_limit_hit(
+            client_id=client_id,
+            endpoint=endpoint,
+            limit_type=limit_type
+        )
+
+
+def log_client_management_event(
+    event_type: str,
+    client_id: str,
+    client_name: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    changes: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> None:
+    """
+    Log OAuth2 client management events.
+    
+    Args:
+        event_type: Type of client event (registered/updated/disabled/deleted)
+        client_id: OAuth2 client identifier
+        client_name: Client application name
+        owner_user_id: User who owns/manages the client
+        changes: Dictionary of changes made (for update events)
+        **kwargs: Additional context
+    """
+    context = {
+        "event_type": f"client_{event_type}",
+        "client_id": client_id,
+        "client_name": client_name,
+        "owner_user_id": owner_user_id,
+        "changes": changes,
+        "timestamp": datetime.utcnow().isoformat(),
+        **kwargs
+    }
+    
+    logger.info(
+        f"OAuth2 client {event_type}: {client_name or client_id}",
+        extra={
+            "oauth2_context": context,
+            "audit_event": True,
+            "client_management_event": True,
+            "user_id": owner_user_id,
+            "client_id": client_id,
+            "operation_id": f"client_{event_type}_{client_id}_{datetime.utcnow().timestamp()}"
+        }
+    )
+
+
+def log_token_lifecycle_event(
+    event_type: str,
+    token_type: str,
+    client_id: str,
+    user_id: str,
+    scopes: Optional[List[str]] = None,
+    expires_at: Optional[datetime] = None,
+    **kwargs
+) -> None:
+    """
+    Log OAuth2 token lifecycle events.
+    
+    Args:
+        event_type: Type of token event (issued/refreshed/revoked/expired)
+        token_type: Type of token (access_token/refresh_token/authorization_code)
+        client_id: OAuth2 client identifier
+        user_id: User identifier
+        scopes: Token scopes
+        expires_at: Token expiration time
+        **kwargs: Additional context
+    """
+    context = {
+        "event_type": f"token_{event_type}",
+        "token_type": token_type,
+        "client_id": client_id,
+        "user_id": user_id,
+        "scopes": scopes,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "timestamp": datetime.utcnow().isoformat(),
+        **kwargs
+    }
+    
+    logger.info(
+        f"OAuth2 token {event_type}: {token_type} for client {client_id}, user {user_id}",
+        extra={
+            "oauth2_context": context,
+            "audit_event": True,
+            "token_lifecycle_event": True,
+            "user_id": user_id,
+            "client_id": client_id,
+            "operation_id": f"token_{event_type}_{token_type}_{client_id}_{user_id}_{datetime.utcnow().timestamp()}"
+        }
+    )
+
+
+def log_audit_summary(
+    time_period: str,
+    summary_data: Dict[str, Any],
+    **kwargs
+) -> None:
+    """
+    Log OAuth2 audit summary for periodic reporting.
+    
+    Args:
+        time_period: Time period for the summary (e.g., 'hourly', 'daily')
+        summary_data: Summary statistics and metrics
+        **kwargs: Additional context
+    """
+    context = {
+        "event_type": "audit_summary",
+        "time_period": time_period,
+        "summary_data": summary_data,
+        "timestamp": datetime.utcnow().isoformat(),
+        **kwargs
+    }
+    
+    logger.info(
+        f"OAuth2 audit summary ({time_period}): {json.dumps(summary_data, default=str)}",
+        extra={
+            "oauth2_context": context,
+            "audit_event": True,
+            "audit_summary": True,
+            "operation_id": f"audit_summary_{time_period}_{datetime.utcnow().timestamp()}"
+        }
     )

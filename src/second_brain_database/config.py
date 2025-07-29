@@ -320,6 +320,26 @@ class Settings(BaseSettings):
         return not self.DEBUG
 
     @property
+    def is_testing(self) -> bool:
+        """Check if running in test environment."""
+        import sys
+        import os
+        
+        # Check if pytest is running
+        if 'pytest' in sys.modules or 'pytest' in sys.argv[0] if sys.argv else False:
+            return True
+            
+        # Check for test environment variables
+        if os.environ.get('TESTING') == 'true' or os.environ.get('PYTEST_CURRENT_TEST'):
+            return True
+            
+        # Check if running from tests directory
+        if any('test' in arg for arg in sys.argv):
+            return True
+            
+        return False
+
+    @property
     def docs_should_be_enabled(self) -> bool:
         """Determine if documentation should be enabled based on environment."""
         return self.DEBUG or self.DOCS_ENABLED

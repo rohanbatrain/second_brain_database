@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bcrypt
 
-from src.second_brain_database.routes.oauth2.client_manager import ClientManager, client_manager
-from src.second_brain_database.routes.oauth2.models import (
+from second_brain_database.routes.oauth2.client_manager import ClientManager, client_manager
+from second_brain_database.routes.oauth2.models import (
     ClientType,
     OAuthClient,
     OAuthClientRegistration,

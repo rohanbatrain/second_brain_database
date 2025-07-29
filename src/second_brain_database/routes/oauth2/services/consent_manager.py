@@ -210,6 +210,36 @@ class ConsentManager:
             )
             return False
     
+    async def has_valid_consent(self, user_id: str, client_id: str, requested_scopes: List[str]) -> bool:
+        """
+        Check if user has valid consent for the requested scopes.
+        
+        This method wraps check_existing_consent and returns a boolean indicating
+        whether the user has valid consent for all requested scopes.
+        
+        Args:
+            user_id: User identifier
+            client_id: Client identifier
+            requested_scopes: List of scopes being requested
+            
+        Returns:
+            bool: True if user has valid consent for all requested scopes, False otherwise
+        """
+        try:
+            consent = await self.check_existing_consent(user_id, client_id, requested_scopes)
+            has_consent = consent is not None
+            
+            if has_consent:
+                logger.debug(f"User {user_id} has valid consent for client {client_id} with scopes {requested_scopes}")
+            else:
+                logger.debug(f"User {user_id} does not have valid consent for client {client_id} with scopes {requested_scopes}")
+            
+            return has_consent
+            
+        except Exception as e:
+            logger.error(f"Failed to check if user has valid consent for client {client_id}: {e}")
+            return False
+
     async def check_existing_consent(self, user_id: str, client_id: str, requested_scopes: List[str]) -> Optional[UserConsent]:
         """
         Check if user has existing valid consent for the requested scopes.

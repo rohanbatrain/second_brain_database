@@ -142,7 +142,7 @@ class TestOAuth2RouteIntegration:
             "code_challenge_method": pkce_params["code_challenge_method"]
         }
         
-        response = client.get("/oauth2/authorize", params=params)
+        response = client.get("/oauth2/authorize", params=params, headers={"Authorization": "Bearer test_token"})
         assert response.status_code == 302  # Redirect with error
         
         # Check redirect URL contains error
