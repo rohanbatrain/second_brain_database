@@ -217,66 +217,6 @@ class Settings(BaseSettings):
     USERS_COLLECTION: str = "users"
     ABUSE_EVENTS_COLLECTION: str = "reset_abuse_events"
 
-    # Telegram configuration
-    TELEGRAM_BOT_TOKEN: str = ""  # Set in .sbd/.env or environment
-    TELEGRAM_CHAT_ID: str = ""    # Set in .sbd/.env or environment
-
-    # GPG encryption configuration
-    GPG_HOME: str = "~/.gnupg"  # Directory for GPG keyring
-    GPG_RECIPIENT: str = ""      # GPG key ID or email for encryption
-    GPG_KEY_PASSPHRASE: str = "second_brain_static_gpg_passphrase"  # Passphrase for generated key
-    GPG_KEY_EMAIL: str = "second_brain@localhost"  # Email for generated key
-    GPG_KEY_TYPE: str = "RSA"    # Key type
-    GPG_KEY_LENGTH: int = 2048   # Key length
-
-    # OAuth2 Provider Configuration
-    OAUTH2_ENABLED: bool = True  # Enable/disable OAuth2 provider functionality
-    OAUTH2_AUTHORIZATION_CODE_EXPIRE_MINUTES: int = 10  # Authorization code expiration (RFC 6749 recommends max 10 min)
-    OAUTH2_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # OAuth2 access token expiration (1 hour)
-    OAUTH2_REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # Refresh token expiration (30 days)
-    OAUTH2_CONSENT_EXPIRE_DAYS: int = 365  # User consent expiration (1 year)
-    
-    # OAuth2 Security Configuration
-    OAUTH2_REQUIRE_PKCE: bool = True  # Require PKCE for all OAuth2 flows
-    OAUTH2_ALLOW_PLAIN_PKCE: bool = False  # Allow plain PKCE method (less secure)
-    OAUTH2_MAX_CLIENTS_PER_USER: int = 10  # Maximum OAuth2 clients per user
-    OAUTH2_CLIENT_SECRET_LENGTH: int = 32  # Length of generated client secrets
-    OAUTH2_AUTHORIZATION_CODE_LENGTH: int = 32  # Length of authorization codes
-    OAUTH2_REFRESH_TOKEN_LENGTH: int = 32  # Length of refresh tokens
-    
-    # OAuth2 Rate Limiting
-    OAUTH2_AUTHORIZE_RATE_LIMIT: int = 100  # Max authorization requests per period
-    OAUTH2_AUTHORIZE_RATE_PERIOD: int = 300  # Authorization rate limit period (5 minutes)
-    OAUTH2_TOKEN_RATE_LIMIT: int = 50  # Max token requests per period
-    OAUTH2_TOKEN_RATE_PERIOD: int = 300  # Token rate limit period (5 minutes)
-    OAUTH2_CLIENT_REGISTRATION_RATE_LIMIT: int = 5  # Max client registrations per period
-    OAUTH2_CLIENT_REGISTRATION_RATE_PERIOD: int = 3600  # Client registration rate limit period (1 hour)
-    
-    # OAuth2 Supported Scopes
-    OAUTH2_DEFAULT_SCOPES: str = "read:profile"  # Default scopes for new clients
-    OAUTH2_AVAILABLE_SCOPES: str = "read:profile,write:profile,read:data,write:data,read:tokens,write:tokens,admin"  # Available scopes
-    OAUTH2_ADMIN_ONLY_SCOPES: str = "admin"  # Scopes restricted to admin users
-    
-    # OAuth2 Provider Metadata
-    OAUTH2_ISSUER: str = ""  # OAuth2 issuer URL (will default to BASE_URL if empty)
-    OAUTH2_AUTHORIZATION_ENDPOINT: str = "/oauth2/authorize"  # Authorization endpoint path
-    OAUTH2_TOKEN_ENDPOINT: str = "/oauth2/token"  # Token endpoint path
-    OAUTH2_REVOCATION_ENDPOINT: str = "/oauth2/revoke"  # Token revocation endpoint path
-    OAUTH2_INTROSPECTION_ENDPOINT: str = "/oauth2/introspect"  # Token introspection endpoint path
-    OAUTH2_USERINFO_ENDPOINT: str = "/oauth2/userinfo"  # User info endpoint path
-    OAUTH2_JWKS_ENDPOINT: str = "/oauth2/jwks"  # JSON Web Key Set endpoint path
-    
-    # OAuth2 Client Management
-    OAUTH2_CLIENT_REGISTRATION_ENABLED: bool = True  # Enable client registration endpoint
-    OAUTH2_CLIENT_REGISTRATION_REQUIRE_AUTH: bool = True  # Require authentication for client registration
-    OAUTH2_CLIENT_MANAGEMENT_ENABLED: bool = True  # Enable client management endpoints
-    OAUTH2_AUTO_APPROVE_INTERNAL_CLIENTS: bool = False  # Auto-approve consent for internal clients
-    
-    # OAuth2 Cleanup and Maintenance
-    OAUTH2_CLEANUP_INTERVAL_HOURS: int = 6  # Interval for cleaning up expired codes/tokens
-    OAUTH2_AUDIT_LOG_RETENTION_DAYS: int = 90  # Days to keep OAuth2 audit logs
-    OAUTH2_METRICS_RETENTION_DAYS: int = 30  # Days to keep OAuth2 metrics
-
     @field_validator("SECRET_KEY", "FERNET_KEY", "TURNSTILE_SITEKEY", "TURNSTILE_SECRET", mode="before")
     @classmethod
     def no_hardcoded_secrets(cls, v, info):
@@ -291,53 +231,10 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name} must be set via environment or .sbd and not empty!")
         return v
 
-    @field_validator("OAUTH2_AVAILABLE_SCOPES", mode="before")
-    @classmethod
-    def validate_oauth2_scopes(cls, v):
-        """Validate OAuth2 scopes format."""
-        if not v:
-            return v
-        
-        # Split scopes and validate format
-        scopes = [scope.strip() for scope in str(v).split(",") if scope.strip()]
-        for scope in scopes:
-            if not scope.replace(":", "").replace("_", "").isalnum():
-                raise ValueError(f"Invalid OAuth2 scope format: {scope}")
-        
-        return v
-
-    @field_validator("OAUTH2_AUTHORIZATION_CODE_EXPIRE_MINUTES", mode="before")
-    @classmethod
-    def validate_auth_code_expiry(cls, v):
-        """Validate authorization code expiry is within RFC 6749 recommendations."""
-        if v and int(v) > 10:
-            raise ValueError("OAuth2 authorization code expiry should not exceed 10 minutes per RFC 6749")
-        return v
-
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return not self.DEBUG
-
-    @property
-    def is_testing(self) -> bool:
-        """Check if running in test environment."""
-        import sys
-        import os
-        
-        # Check if pytest is running
-        if 'pytest' in sys.modules or 'pytest' in sys.argv[0] if sys.argv else False:
-            return True
-            
-        # Check for test environment variables
-        if os.environ.get('TESTING') == 'true' or os.environ.get('PYTEST_CURRENT_TEST'):
-            return True
-            
-        # Check if running from tests directory
-        if any('test' in arg for arg in sys.argv):
-            return True
-            
-        return False
 
     @property
     def docs_should_be_enabled(self) -> bool:
@@ -348,40 +245,6 @@ class Settings(BaseSettings):
     def should_cache_docs(self) -> bool:
         """Determine if documentation should be cached."""
         return self.is_production and self.DOCS_CACHE_ENABLED
-
-    @property
-    def oauth2_issuer_url(self) -> str:
-        """Get OAuth2 issuer URL, defaulting to BASE_URL if not set."""
-        return self.OAUTH2_ISSUER if self.OAUTH2_ISSUER else self.BASE_URL
-
-    @property
-    def oauth2_available_scopes_list(self) -> list[str]:
-        """Get OAuth2 available scopes as a list."""
-        return [scope.strip() for scope in self.OAUTH2_AVAILABLE_SCOPES.split(",") if scope.strip()]
-
-    @property
-    def oauth2_default_scopes_list(self) -> list[str]:
-        """Get OAuth2 default scopes as a list."""
-        return [scope.strip() for scope in self.OAUTH2_DEFAULT_SCOPES.split(",") if scope.strip()]
-
-    @property
-    def oauth2_admin_only_scopes_list(self) -> list[str]:
-        """Get OAuth2 admin-only scopes as a list."""
-        return [scope.strip() for scope in self.OAUTH2_ADMIN_ONLY_SCOPES.split(",") if scope.strip()]
-
-    @property
-    def oauth2_endpoints(self) -> dict[str, str]:
-        """Get OAuth2 endpoint URLs."""
-        base_url = self.oauth2_issuer_url.rstrip("/")
-        return {
-            "issuer": base_url,
-            "authorization_endpoint": f"{base_url}{self.OAUTH2_AUTHORIZATION_ENDPOINT}",
-            "token_endpoint": f"{base_url}{self.OAUTH2_TOKEN_ENDPOINT}",
-            "revocation_endpoint": f"{base_url}{self.OAUTH2_REVOCATION_ENDPOINT}",
-            "introspection_endpoint": f"{base_url}{self.OAUTH2_INTROSPECTION_ENDPOINT}",
-            "userinfo_endpoint": f"{base_url}{self.OAUTH2_USERINFO_ENDPOINT}",
-            "jwks_uri": f"{base_url}{self.OAUTH2_JWKS_ENDPOINT}",
-        }
 
 
 # Global settings instance

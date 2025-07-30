@@ -8,7 +8,7 @@ All functions are comprehensively logged for production monitoring and security 
 
 import contextvars
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import bcrypt
 from fastapi import HTTPException, status
@@ -615,23 +615,21 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     return encoded_jwt
 
 
-async def get_current_user(token: str, required_scopes: Optional[List[str]] = None) -> Dict[str, Any]:
+async def get_current_user(token: str) -> Dict[str, Any]:
     """
     Get the current authenticated user from a JWT token.
 
-    Supports both regular JWT tokens, OAuth2 access tokens, and permanent tokens.
-    OAuth2 tokens include additional validation for audience (client_id) and scope claims.
+    Supports both regular JWT tokens (with expiration) and permanent tokens (without expiration).
     Permanent tokens are validated using Redis cache-first approach with database fallback.
 
     Args:
-        token (str): JWT access token (regular, OAuth2, or permanent).
-        required_scopes (Optional[List[str]]): Required OAuth2 scopes for authorization.
+        token (str): JWT access token (regular or permanent).
 
     Returns:
-        Dict[str, Any]: The user document with additional OAuth2 metadata if applicable.
+        Dict[str, Any]: The user document if token is valid.
 
     Raises:
-        HTTPException: If the token is invalid, expired, user not found, or insufficient scopes.
+        HTTPException: If the token is invalid, expired, or user not found.
     """
     from second_brain_database.routes.auth.services.permanent_tokens import is_permanent_token, validate_permanent_token
 
@@ -658,19 +656,9 @@ async def get_current_user(token: str, required_scopes: Optional[List[str]] = No
             if user is None:
                 logger.warning("Permanent token validation failed")
                 raise credentials_exception
-            
-            # Permanent tokens don't support OAuth2 scopes
-            if required_scopes:
-                logger.warning("OAuth2 scopes not supported for permanent tokens")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Insufficient permissions",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            
             return user
 
-        # Regular JWT token validation (existing logic + OAuth2 support)
+        # Regular JWT token validation (existing logic)
         secret_key = getattr(settings, "SECRET_KEY", None)
         if hasattr(secret_key, "get_secret_value"):
             secret_key = secret_key.get_secret_value()
@@ -678,14 +666,9 @@ async def get_current_user(token: str, required_scopes: Optional[List[str]] = No
             logger.error("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
             raise credentials_exception
 
-        # Decode JWT without audience validation first to check if it has OAuth2 claims
-        payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM], options={"verify_aud": False})
+        payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM])
         username: Optional[str] = payload.get("sub")
         token_version_claim = payload.get("token_version")
-        
-        # OAuth2 specific claims
-        audience = payload.get("aud")  # OAuth2 client_id
-        token_scopes = payload.get("scope", "").split() if payload.get("scope") else []
 
         if username is None:
             logger.warning("JWT payload missing 'sub' claim")
@@ -707,38 +690,7 @@ async def get_current_user(token: str, required_scopes: Optional[List[str]] = No
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-        # OAuth2 scope validation
-        if required_scopes:
-            if not token_scopes:
-                logger.warning("OAuth2 scopes required but token has no scopes")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Insufficient permissions",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            
-            # Check if all required scopes are present in token
-            missing_scopes = set(required_scopes) - set(token_scopes)
-            if missing_scopes:
-                logger.warning(f"Missing required OAuth2 scopes for user {username}: {missing_scopes}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Insufficient permissions",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            
-            logger.debug(f"OAuth2 scope validation passed for user {username}: {token_scopes}")
-
-        # Add OAuth2 metadata to user document if this is an OAuth2 token
-        if audience or token_scopes:
-            user["oauth2_client_id"] = audience
-            user["oauth2_scopes"] = token_scopes
-            user["is_oauth2_token"] = True
-            logger.debug(f"OAuth2 JWT validated for user: {username}, client: {audience}, scopes: {token_scopes}")
-        else:
-            user["is_oauth2_token"] = False
-            logger.debug(f"Regular JWT validated for user: {username}")
-
+        logger.debug("Regular JWT validated for user: %s", username)
         return user
 
     except jwt.ExpiredSignatureError as exc:
@@ -758,9 +710,6 @@ async def get_current_user(token: str, required_scopes: Optional[List[str]] = No
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-    except HTTPException:
-        # Re-raise HTTPExceptions (like 403 for insufficient scopes) without modification
-        raise
     except Exception as e:
         from jose.exceptions import JWTError
 

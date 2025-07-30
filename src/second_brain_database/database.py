@@ -256,27 +256,27 @@ class DatabaseManager:
             await self._create_index_if_not_exists(permanent_tokens_collection, "created_at", {})
             await self._create_index_if_not_exists(permanent_tokens_collection, "last_used_at", {})
 
-            # # WebAuthn credentials collection indexes
-            # db_logger.info("Creating indexes for 'webauthn_credentials' collection")
-            # webauthn_credentials_collection = self.get_collection("webauthn_credentials")
+            # WebAuthn credentials collection indexes
+            db_logger.info("Creating indexes for 'webauthn_credentials' collection")
+            webauthn_credentials_collection = self.get_collection("webauthn_credentials")
 
-            # await self._create_index_if_not_exists(webauthn_credentials_collection, "credential_id", {"unique": True})
-            # await self._create_index_if_not_exists(
-            #     webauthn_credentials_collection, [("user_id", 1), ("is_active", 1)], {}
-            # )
-            # await self._create_index_if_not_exists(webauthn_credentials_collection, "created_at", {})
-            # await self._create_index_if_not_exists(webauthn_credentials_collection, "last_used_at", {})
+            await self._create_index_if_not_exists(webauthn_credentials_collection, "credential_id", {"unique": True})
+            await self._create_index_if_not_exists(
+                webauthn_credentials_collection, [("user_id", 1), ("is_active", 1)], {}
+            )
+            await self._create_index_if_not_exists(webauthn_credentials_collection, "created_at", {})
+            await self._create_index_if_not_exists(webauthn_credentials_collection, "last_used_at", {})
 
-            # # WebAuthn challenges collection indexes
-            # db_logger.info("Creating indexes for 'webauthn_challenges' collection")
-            # webauthn_challenges_collection = self.get_collection("webauthn_challenges")
+            # WebAuthn challenges collection indexes
+            db_logger.info("Creating indexes for 'webauthn_challenges' collection")
+            webauthn_challenges_collection = self.get_collection("webauthn_challenges")
 
-            # await self._create_index_if_not_exists(webauthn_challenges_collection, "challenge", {"unique": True})
-            # await self._create_index_if_not_exists(
-            #     webauthn_challenges_collection, "expires_at", {"expireAfterSeconds": 0}
-            # )
-            # await self._create_index_if_not_exists(webauthn_challenges_collection, "user_id", {})
-            # await self._create_index_if_not_exists(webauthn_challenges_collection, [("type", 1), ("created_at", 1)], {})
+            await self._create_index_if_not_exists(webauthn_challenges_collection, "challenge", {"unique": True})
+            await self._create_index_if_not_exists(
+                webauthn_challenges_collection, "expires_at", {"expireAfterSeconds": 0}
+            )
+            await self._create_index_if_not_exists(webauthn_challenges_collection, "user_id", {})
+            await self._create_index_if_not_exists(webauthn_challenges_collection, [("type", 1), ("created_at", 1)], {})
 
             total_duration = time.time() - start_time
             perf_logger.info("Database index creation completed successfully in %.3fs", total_duration)

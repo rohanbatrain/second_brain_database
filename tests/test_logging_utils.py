@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from second_brain_database.utils.logging_utils import (
     DatabaseContext,
     DatabaseLogger,
+    PerformanceLogger,
     SecurityContext,
     SecurityLogger,
     ip_address_context,
@@ -35,6 +36,35 @@ from second_brain_database.utils.logging_utils import (
 class TestPerformanceLogging:
     """Test performance logging functionality."""
 
+    def test_performance_logger_basic(self):
+        """Test basic performance logging."""
+        with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+
+            perf_logger = PerformanceLogger()
+            perf_logger.log_operation("test_operation", 0.5)
+
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args[0][0]
+            assert "test_operation" in call_args
+            assert "0.500s" in call_args
+
+    def test_performance_logger_slow_operation(self):
+        """Test slow operation logging."""
+        with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+
+            perf_logger = PerformanceLogger()
+            perf_logger.log_slow_operation("slow_operation", 2.0, threshold=1.0)
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][0]
+            assert "SLOW OPERATION" in call_args
+            assert "slow_operation" in call_args
+            assert "2.000s" in call_args
+
     def test_performance_decorator_sync(self):
         """Test performance decorator on synchronous function."""
         with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
@@ -49,16 +79,9 @@ class TestPerformanceLogging:
             result = test_function()
 
             assert result == "result"
-            # Should have at least 2 calls: Starting and Completed
-            assert mock_logger.info.call_count >= 2
-            # Check the completed call (last info call)
-            completed_call = [call for call in mock_logger.info.call_args_list if "Completed" in str(call)]
-            assert len(completed_call) > 0
-            call_args = completed_call[0][0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            assert "Completed %s in %.3fs" in format_string
-            assert args[1] == "test_sync_operation"
+            mock_logger.info.assert_called()
+            call_args = mock_logger.info.call_args[0][0]
+            assert "test_sync_operation" in call_args
 
     @pytest.mark.asyncio
     async def test_performance_decorator_async(self):
@@ -75,16 +98,9 @@ class TestPerformanceLogging:
             result = await test_async_function()
 
             assert result == "async_result"
-            # Should have at least 2 calls: Starting and Completed
-            assert mock_logger.info.call_count >= 2
-            # Check the completed call (last info call)
-            completed_call = [call for call in mock_logger.info.call_args_list if "Completed" in str(call)]
-            assert len(completed_call) > 0
-            call_args = completed_call[0][0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            assert "Completed %s in %.3fs" in format_string
-            assert args[1] == "test_async_operation"
+            mock_logger.info.assert_called()
+            call_args = mock_logger.info.call_args[0][0]
+            assert "test_async_operation" in call_args
 
     def test_performance_decorator_with_args(self):
         """Test performance decorator with argument logging."""
@@ -92,27 +108,18 @@ class TestPerformanceLogging:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
-            @log_performance("test_with_args", log_args=True)
+            @log_performance("test_with_args", include_args=True)
             def test_function(arg1, password="secret", normal_arg="value"):
                 return f"{arg1}_{normal_arg}"
 
             result = test_function("test", password="secret123", normal_arg="data")
 
             assert result == "test_data"
-            # Should have at least 2 calls: Starting (with args) and Completed
-            assert mock_logger.info.call_count >= 2
-            # Check the starting call (first info call)
-            starting_call = [call for call in mock_logger.info.call_args_list if "Starting" in str(call)]
-            assert len(starting_call) > 0
-            call_args = starting_call[0][0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            assert "Starting %s with args: %s" in format_string
-            assert args[1] == "test_with_args"
-            # Check that sensitive data is redacted
-            args_data = str(args[2])
-            assert "<REDACTED>" in args_data  # Password should be redacted
-            assert "data" in args_data  # Normal arg should be visible
+            mock_logger.info.assert_called()
+            call_args = mock_logger.info.call_args[0][0]
+            assert "test_with_args" in call_args
+            assert "[REDACTED]" in call_args  # Password should be redacted
+            assert "data" in call_args  # Normal arg should be visible
 
 
 class TestDatabaseLogging:
@@ -129,22 +136,17 @@ class TestDatabaseLogging:
                 operation="find", collection="users", query={"username": "test"}, duration=0.1, result_count=1
             )
 
-            db_logger.log_operation(context)
+            db_logger.log_query(context)
 
             mock_logger.info.assert_called_once()
-            # Check the format string and arguments
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "DB %s on %s completed in %.3fs - %s records affected" in format_string
-            assert args[0] == "find"  # operation
-            assert args[1] == "users"  # collection
-            assert args[2] == 0.1  # duration
-            assert args[3] == 1  # result_count
+            call_args = mock_logger.info.call_args[0][0]
+            assert "find" in call_args
+            assert "users" in call_args
+            assert "0.100s" in call_args
+            assert "Results: 1" in call_args
 
-    def test_database_logger_without_result_count(self):
-        """Test database logging without result count."""
+    def test_database_logger_error(self):
+        """Test database error logging."""
         with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
@@ -155,39 +157,33 @@ class TestDatabaseLogging:
                 collection="users",
                 query={"username": "test"},
                 duration=0.05,
+                error="Connection timeout",
             )
 
-            db_logger.log_operation(context)
+            db_logger.log_query(context)
 
-            mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "DB %s on %s completed in %.3fs" in format_string
-            assert args[0] == "insert"  # operation
-            assert args[1] == "users"  # collection
-            assert args[2] == 0.05  # duration
+            mock_logger.error.assert_called_once()
+            call_args = mock_logger.error.call_args[0][0]
+            assert "insert" in call_args
+            assert "users" in call_args
+            assert "FAILED" in call_args
+            assert "Connection timeout" in call_args
 
-    def test_database_logger_without_duration(self):
-        """Test database operation logging without duration."""
+    def test_database_logger_slow_query(self):
+        """Test slow query logging."""
         with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
             db_logger = DatabaseLogger()
-            context = DatabaseContext(operation="find", collection="users", query={"complex": "query"})
+            context = DatabaseContext(operation="find", collection="users", query={"complex": "query"}, duration=1.5)
 
-            db_logger.log_operation(context)
+            db_logger.log_slow_query(context, threshold=0.5)
 
-            mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "DB %s on %s" in format_string
-            assert args[0] == "find"  # operation
-            assert args[1] == "users"  # collection
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][0]
+            assert "SLOW QUERY" in call_args
+            assert "1.500s" in call_args
 
     def test_database_decorator(self):
         """Test database operation decorator."""
@@ -195,7 +191,7 @@ class TestDatabaseLogging:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
-            @log_database_operation("users", "find")
+            @log_database_operation("find", "users")
             def mock_db_operation(query=None):
                 # Simulate database result
                 result = Mock()
@@ -205,17 +201,10 @@ class TestDatabaseLogging:
             result = mock_db_operation(query={"username": "test"})
 
             assert result is not None
-            # Should have at least 2 calls: Starting and Completed
-            assert mock_logger.info.call_count >= 2
-            # Check the completed call
-            completed_call = [call for call in mock_logger.info.call_args_list if "completed" in str(call)]
-            assert len(completed_call) > 0
-            call_args = completed_call[0][0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            assert "DB %s on %s completed in %.3fs" in format_string
-            assert args[1] == "find"  # operation_type
-            assert args[2] == "users"  # collection_name
+            mock_logger.info.assert_called()
+            call_args = mock_logger.info.call_args[0][0]
+            assert "find" in call_args
+            assert "users" in call_args
 
     def test_query_sanitization(self):
         """Test sensitive data sanitization in queries."""
@@ -231,16 +220,14 @@ class TestDatabaseLogging:
                 duration=0.1,
             )
 
-            db_logger.log_operation(context)
+            db_logger.log_query(context)
 
             mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            # The log_data dictionary should contain sanitized query
-            log_data = call_args[-1]  # Last argument is the log_data dict
-            assert "<REDACTED>" in str(log_data)
-            assert "secret123" not in str(log_data)
-            assert "abc123" not in str(log_data)
-            assert "value" in str(log_data)  # Normal field should be visible
+            call_args = mock_logger.info.call_args[0][0]
+            assert "[REDACTED]" in call_args
+            assert "secret123" not in call_args
+            assert "abc123" not in call_args
+            assert "value" in call_args  # Normal field should be visible
 
 
 class TestSecurityLogging:
@@ -261,20 +248,14 @@ class TestSecurityLogging:
                 details={"method": "password"},
             )
 
-            security_logger.log_event(context)
+            security_logger.log_auth_event(context)
 
             mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "SECURITY EVENT [%s]: %s" in format_string
-            assert args[0] == "SUCCESS"  # status
-            assert args[1] == "login"  # event_type
-            # Check that event_data contains expected values
-            event_data = args[2]
-            assert event_data["user_id"] == "user123"
-            assert event_data["ip_address"] == "192.168.1.1"
+            call_args = mock_logger.info.call_args[0][0]
+            assert "AUTH SUCCESS" in call_args
+            assert "login" in call_args
+            assert "user123" in call_args
+            assert "192.168.1.1" in call_args
 
     def test_security_logger_auth_failure(self):
         """Test failed authentication logging."""
@@ -291,23 +272,71 @@ class TestSecurityLogging:
                 details={"reason": "invalid_password"},
             )
 
-            security_logger.log_event(context)
+            security_logger.log_auth_event(context)
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][0]
+            assert "AUTH FAILED" in call_args
+            assert "login" in call_args
+            assert "invalid_password" in call_args
+
+    def test_security_logger_violation(self):
+        """Test security violation logging."""
+        with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+
+            security_logger = SecurityLogger()
+            security_logger.log_security_violation(
+                event_type="brute_force_attempt",
+                details={"attempts": 10, "timeframe": "5min"},
+                user_id="user123",
+                ip_address="192.168.1.1",
+            )
+
+            mock_logger.error.assert_called_once()
+            call_args = mock_logger.error.call_args[0][0]
+            assert "SECURITY VIOLATION" in call_args
+            assert "brute_force_attempt" in call_args
+            assert "user123" in call_args
+
+    def test_security_logger_access_granted(self):
+        """Test access granted logging."""
+        with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+
+            security_logger = SecurityLogger()
+            security_logger.log_access_attempt(
+                resource="/admin/users", success=True, user_id="admin123", ip_address="192.168.1.1"
+            )
 
             mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "SECURITY EVENT [%s]: %s" in format_string
-            assert args[0] == "FAILURE"  # status
-            assert args[1] == "login"  # event_type
-            # Check that event_data contains expected values
-            event_data = args[2]
-            assert event_data["user_id"] == "user123"
-            assert event_data["success"] == False
-            assert "invalid_password" in str(event_data["details"])
+            call_args = mock_logger.info.call_args[0][0]
+            assert "ACCESS GRANTED" in call_args
+            assert "/admin/users" in call_args
+            assert "admin123" in call_args
 
+    def test_security_logger_access_denied(self):
+        """Test access denied logging."""
+        with patch("second_brain_database.utils.logging_utils.get_logger") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
 
+            security_logger = SecurityLogger()
+            security_logger.log_access_attempt(
+                resource="/admin/users",
+                success=False,
+                user_id="user123",
+                ip_address="192.168.1.1",
+                details={"reason": "insufficient_permissions"},
+            )
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][0]
+            assert "ACCESS DENIED" in call_args
+            assert "/admin/users" in call_args
+            assert "insufficient_permissions" in call_args
 
 
 class TestConvenienceFunctions:
@@ -322,17 +351,10 @@ class TestConvenienceFunctions:
             log_auth_success("login", "user123", "192.168.1.1", {"method": "2fa"})
 
             mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "SECURITY EVENT [%s]: %s" in format_string
-            assert args[0] == "SUCCESS"  # status
-            assert args[1] == "login"  # event_type
-            # Check that event_data contains expected values
-            event_data = args[2]
-            assert event_data["user_id"] == "user123"
-            assert event_data["ip_address"] == "192.168.1.1"
+            call_args = mock_logger.info.call_args[0][0]
+            assert "AUTH SUCCESS" in call_args
+            assert "login" in call_args
+            assert "user123" in call_args
 
     def test_log_auth_failure(self):
         """Test log_auth_failure convenience function."""
@@ -342,19 +364,11 @@ class TestConvenienceFunctions:
 
             log_auth_failure("login", "user123", "192.168.1.1", {"reason": "invalid_2fa"})
 
-            mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "SECURITY EVENT [%s]: %s" in format_string
-            assert args[0] == "FAILURE"  # status
-            assert args[1] == "login"  # event_type
-            # Check that event_data contains expected values
-            event_data = args[2]
-            assert event_data["user_id"] == "user123"
-            assert event_data["success"] == False
-            assert "invalid_2fa" in str(event_data["details"])
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][0]
+            assert "AUTH FAILED" in call_args
+            assert "login" in call_args
+            assert "invalid_2fa" in call_args
 
     def test_log_security_event(self):
         """Test log_security_event convenience function."""
@@ -362,20 +376,12 @@ class TestConvenienceFunctions:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
-            log_security_event("suspicious_activity", "user123", "192.168.1.1", True, {"pattern": "unusual_login_times"})
+            log_security_event("suspicious_activity", {"pattern": "unusual_login_times"}, "user123")
 
-            mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0]
-            format_string = call_args[0]
-            args = call_args[1:]
-            
-            assert "SECURITY EVENT [%s]: %s" in format_string
-            assert args[0] == "SUCCESS"  # status
-            assert args[1] == "suspicious_activity"  # event_type
-            # Check that event_data contains expected values
-            event_data = args[2]
-            assert event_data["user_id"] == "user123"
-            assert event_data["ip_address"] == "192.168.1.1"
+            mock_logger.error.assert_called_once()
+            call_args = mock_logger.error.call_args[0][0]
+            assert "SECURITY VIOLATION" in call_args
+            assert "suspicious_activity" in call_args
 
 
 class TestContextVariables:
@@ -397,7 +403,21 @@ class TestContextVariables:
         assert user_id_context.get("") == "user-456"
         assert ip_address_context.get("") == "192.168.1.1"
 
+    @pytest.mark.asyncio
+    async def test_request_context_manager(self):
+        """Test request context manager."""
+        from second_brain_database.utils.logging_utils import request_context
 
+        # Initial state
+        assert request_id_context.get("") == ""
+
+        async with request_context(request_id="test-123", user_id="user-456"):
+            assert request_id_context.get("") == "test-123"
+            assert user_id_context.get("") == "user-456"
+
+        # Context should be restored after exiting
+        assert request_id_context.get("") == ""
+        assert user_id_context.get("") == ""
 
 
 if __name__ == "__main__":

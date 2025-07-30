@@ -942,7 +942,7 @@ name = "importlib-metadata"
 version = "6.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp", marker = "python_full_version < '3.10'" },
+    { name = "zipp" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a3/82/f6e29c8d5c098b6be61460371c2c5591f4a335923639edec43b3830650a4/importlib_metadata-6.7.0.tar.gz", hash = "sha256:1aaf550d4f73e5d6783e7acb77aec43d49da8017410afae93822cc9cca98c4d4", size = 53569, upload-time = "2023-06-18T21:44:35.024Z" }
 wheels = [
@@ -2028,15 +2028,6 @@ wheels = [
 ]
 
 [[package]]
-name = "python-gnupg"
-version = "0.5.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/3e/ba0dc69c9f4e0aeb24d93175230ef057c151790a7516012f61014918992d/python-gnupg-0.5.4.tar.gz", hash = "sha256:f2fdb5fb29615c77c2743e1cb3d9314353a6e87b10c37d238d91ae1c6feae086", size = 65705, upload-time = "2025-01-07T11:58:34.073Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/5b/6666ed5a0d3ce4d5444af62e373d5ba8ab253a03487c86f2f9f1078e7c31/python_gnupg-0.5.4-py2.py3-none-any.whl", hash = "sha256:40ce25cde9df29af91fe931ce9df3ce544e14a37f62b13ca878c897217b2de6c", size = 21730, upload-time = "2025-01-07T11:58:32.249Z" },
-]
-
-[[package]]
 name = "python-jose"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2371,12 +2362,9 @@ dependencies = [
     { name = "pymongo" },
     { name = "pyotp" },
     { name = "python-dotenv" },
-    { name = "python-gnupg" },
     { name = "python-jose", extra = ["cryptography"] },
-    { name = "python-multipart" },
     { name = "qrcode", extra = ["pil"] },
     { name = "redis" },
-    { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -2459,13 +2447,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0,<5.0.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.1.0,<5.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.0,<2.0.0" },
-    { name = "python-gnupg" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0,<4.0.0" },
-    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "python-multipart", marker = "extra == 'dev'", specifier = ">=0.0.6,<1.0.0" },
     { name = "qrcode", extras = ["pil"], specifier = ">=7.4.0,<8.0.0" },
     { name = "redis", specifier = ">=5.0.0,<6.0.0" },
-    { name = "requests" },
     { name = "second-brain-database", extras = ["dev", "monitoring", "docs", "test"], marker = "extra == 'all'" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0,<0.35.0" },
 ]
