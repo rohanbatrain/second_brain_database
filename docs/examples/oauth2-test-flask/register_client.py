@@ -46,7 +46,7 @@ def register_oauth2_client():
         # Try to get access token via login
         try:
             login_response = requests.post(
-                f"{base_url}/auth/login",
+                f"{base_url}/oauth/login",
                 json={"username": username, "password": password},
                 timeout=30
             )

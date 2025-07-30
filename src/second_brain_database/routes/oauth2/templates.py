@@ -21,6 +21,7 @@ def render_consent_screen(
     requested_scopes: List[Dict[str, str]],
     client_id: str,
     state: str,
+    csrf_token: str,
     existing_consent: bool = False
 ) -> str:
     """
@@ -33,6 +34,7 @@ def render_consent_screen(
         requested_scopes: List of scope dictionaries with 'scope' and 'description' keys
         client_id: OAuth2 client identifier
         state: OAuth2 state parameter
+        csrf_token: CSRF protection token
         existing_consent: Whether user has previously granted consent
         
     Returns:
@@ -43,8 +45,8 @@ def render_consent_screen(
     scope_items = ""
     for scope_info in requested_scopes:
         scope_items += f"""
-        <li class="scope-item">
-            <div class="scope-name">{scope_info['scope']}</div>
+        <li class="scope-item" role="listitem">
+            <div class="scope-name" aria-label="Permission: {scope_info['scope']}">{scope_info['scope']}</div>
             <div class="scope-description">{scope_info['description']}</div>
         </li>
         """
@@ -79,7 +81,7 @@ def render_consent_screen(
             
             body {{
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
                 min-height: 100vh;
                 display: flex;
                 align-items: center;
@@ -92,9 +94,48 @@ def render_consent_screen(
                 border-radius: 12px;
                 box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
                 max-width: 500px;
-                width: 100%;
+                width: 100%%;
                 padding: 40px;
                 text-align: center;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .consent-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            /* Screen reader only content */
+            .sr-only {{
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
             }}
             
             .logo {{
@@ -271,14 +312,14 @@ def render_consent_screen(
                 }}
                 
                 .btn {{
-                    width: 100%;
+                    width: 100%%;
                 }}
             }}
         </style>
     </head>
     <body>
-        <div class="consent-container">
-            <div class="logo">SBD</div>
+        <main class="consent-container" role="main">
+            <div class="logo" aria-hidden="true">SBD</div>
             
             <h1 class="title">Authorize Application</h1>
             <p class="subtitle">Second Brain Database</p>
@@ -291,26 +332,29 @@ def render_consent_screen(
             
             {consent_status}
             
-            <div class="permissions-section">
-                <div class="permissions-title">This application is requesting access to:</div>
-                <ul class="scope-list">
+            <section class="permissions-section" aria-labelledby="permissions-title">
+                <h2 id="permissions-title" class="permissions-title">This application is requesting access to:</h2>
+                <ul class="scope-list" role="list">
                     {scope_items}
                 </ul>
-            </div>
+            </section>
             
-            <form method="post" action="/oauth2/consent">
+            <form method="post" action="/oauth2/consent" aria-label="Authorization consent form">
+                <input type="hidden" name="csrf_token" value="{csrf_token}">
                 <input type="hidden" name="client_id" value="{client_id}">
                 <input type="hidden" name="state" value="{state}">
                 <input type="hidden" name="scopes" value="{','.join([s['scope'] for s in requested_scopes])}">
                 
-                <div class="actions">
-                    <button type="submit" name="approved" value="true" class="btn btn-approve">
+                <div class="actions" role="group" aria-label="Authorization decision">
+                    <button type="submit" name="approved" value="true" class="btn btn-approve" aria-describedby="approve-help">
                         Approve
                     </button>
-                    <button type="submit" name="approved" value="false" class="btn btn-deny">
+                    <button type="submit" name="approved" value="false" class="btn btn-deny" aria-describedby="deny-help">
                         Deny
                     </button>
                 </div>
+                <div id="approve-help" class="sr-only">Grant the requested permissions to this application</div>
+                <div id="deny-help" class="sr-only">Refuse to grant permissions to this application</div>
             </form>
             
             <div class="security-notice">
@@ -327,581 +371,6 @@ def render_consent_screen(
     return html_template
 
 
-def render_consent_management_ui(consents: List[Dict], user_id: str) -> str:
-    """
-    Render OAuth2 consent management UI HTML.
-    
-    Args:
-        consents: List of user consents with client information
-        user_id: User identifier
-        
-    Returns:
-        HTML string for consent management interface
-    """
-    
-    # Generate consent items HTML
-    consent_items = ""
-    if consents:
-        for consent in consents:
-            # Format granted date
-            granted_date = consent.get('granted_at', datetime.utcnow()).strftime('%B %d, %Y')
-            last_used = consent.get('last_used_at')
-            last_used_text = last_used.strftime('%B %d, %Y') if last_used else 'Never'
-            
-            # Generate scope list
-            scope_list = ""
-            for scope_info in consent.get('scope_descriptions', []):
-                scope_list += f"""
-                <li class="scope-item">
-                    <span class="scope-name">{scope_info['scope']}</span>
-                    <span class="scope-description">{scope_info['description']}</span>
-                </li>
-                """
-            
-            # Website link
-            website_link = ""
-            if consent.get('website_url'):
-                website_link = f'<a href="{consent["website_url"]}" target="_blank" rel="noopener noreferrer" class="website-link">Visit website</a>'
-            
-            consent_items += f"""
-            <div class="consent-card" data-client-id="{consent['client_id']}">
-                <div class="consent-header">
-                    <div class="client-info">
-                        <h3 class="client-name">{consent['client_name']}</h3>
-                        {f'<p class="client-description">{consent["client_description"]}</p>' if consent.get('client_description') else ''}
-                        {website_link}
-                    </div>
-                    <div class="consent-actions">
-                        <button class="btn btn-danger revoke-btn" data-client-id="{consent['client_id']}" data-client-name="{consent['client_name']}">
-                            Revoke Access
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="consent-details">
-                    <div class="detail-row">
-                        <span class="detail-label">Granted:</span>
-                        <span class="detail-value">{granted_date}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Last Used:</span>
-                        <span class="detail-value">{last_used_text}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Status:</span>
-                        <span class="detail-value status-active">Active</span>
-                    </div>
-                </div>
-                
-                <div class="permissions-section">
-                    <h4 class="permissions-title">Granted Permissions:</h4>
-                    <ul class="scope-list">
-                        {scope_list}
-                    </ul>
-                </div>
-            </div>
-            """
-    else:
-        consent_items = """
-        <div class="empty-state">
-            <div class="empty-icon">🔐</div>
-            <h3>No Active Consents</h3>
-            <p>You haven't granted access to any OAuth2 applications yet.</p>
-        </div>
-        """
-    
-    html_template = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Manage OAuth2 Consents - Second Brain Database</title>
-        <style>
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-            
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                background: #f8fafc;
-                min-height: 100vh;
-                padding: 20px;
-            }}
-            
-            .container {{
-                max-width: 800px;
-                margin: 0 auto;
-            }}
-            
-            .header {{
-                background: white;
-                border-radius: 12px;
-                padding: 30px;
-                margin-bottom: 20px;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            }}
-            
-            .title {{
-                font-size: 28px;
-                font-weight: 600;
-                color: #2d3748;
-                margin-bottom: 8px;
-            }}
-            
-            .subtitle {{
-                color: #718096;
-                font-size: 16px;
-                margin-bottom: 20px;
-            }}
-            
-            .user-info {{
-                background: #edf2f7;
-                border-radius: 8px;
-                padding: 15px;
-                display: inline-block;
-            }}
-            
-            .user-label {{
-                font-size: 14px;
-                color: #4a5568;
-                margin-bottom: 4px;
-            }}
-            
-            .user-value {{
-                font-weight: 600;
-                color: #2d3748;
-            }}
-            
-            .consent-card {{
-                background: white;
-                border-radius: 12px;
-                padding: 25px;
-                margin-bottom: 20px;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                border: 1px solid #e2e8f0;
-            }}
-            
-            .consent-header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 20px;
-            }}
-            
-            .client-info {{
-                flex: 1;
-            }}
-            
-            .client-name {{
-                font-size: 20px;
-                font-weight: 600;
-                color: #2d3748;
-                margin-bottom: 8px;
-            }}
-            
-            .client-description {{
-                color: #4a5568;
-                margin-bottom: 8px;
-                line-height: 1.5;
-            }}
-            
-            .website-link {{
-                color: #667eea;
-                text-decoration: none;
-                font-weight: 500;
-                font-size: 14px;
-            }}
-            
-            .website-link:hover {{
-                text-decoration: underline;
-            }}
-            
-            .consent-actions {{
-                margin-left: 20px;
-            }}
-            
-            .btn {{
-                padding: 10px 20px;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                cursor: pointer;
-                border: none;
-                transition: all 0.2s;
-            }}
-            
-            .btn-danger {{
-                background: #e53e3e;
-                color: white;
-            }}
-            
-            .btn-danger:hover {{
-                background: #c53030;
-                transform: translateY(-1px);
-            }}
-            
-            .btn-danger:disabled {{
-                background: #cbd5e0;
-                color: #a0aec0;
-                cursor: not-allowed;
-                transform: none;
-            }}
-            
-            .consent-details {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
-                margin-bottom: 20px;
-                padding: 15px;
-                background: #f7fafc;
-                border-radius: 8px;
-            }}
-            
-            .detail-row {{
-                display: flex;
-                flex-direction: column;
-            }}
-            
-            .detail-label {{
-                font-size: 12px;
-                color: #718096;
-                text-transform: uppercase;
-                font-weight: 600;
-                margin-bottom: 4px;
-            }}
-            
-            .detail-value {{
-                color: #2d3748;
-                font-weight: 500;
-            }}
-            
-            .status-active {{
-                color: #38a169;
-            }}
-            
-            .permissions-section {{
-                border-top: 1px solid #e2e8f0;
-                padding-top: 20px;
-            }}
-            
-            .permissions-title {{
-                font-size: 16px;
-                font-weight: 600;
-                color: #2d3748;
-                margin-bottom: 15px;
-            }}
-            
-            .scope-list {{
-                list-style: none;
-                display: grid;
-                gap: 8px;
-            }}
-            
-            .scope-item {{
-                background: #f7fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 10px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }}
-            
-            .scope-name {{
-                font-weight: 600;
-                color: #2d3748;
-                font-size: 14px;
-            }}
-            
-            .scope-description {{
-                color: #4a5568;
-                font-size: 13px;
-                margin-left: 15px;
-            }}
-            
-            .empty-state {{
-                text-align: center;
-                padding: 60px 20px;
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            }}
-            
-            .empty-icon {{
-                font-size: 48px;
-                margin-bottom: 20px;
-            }}
-            
-            .empty-state h3 {{
-                font-size: 20px;
-                color: #2d3748;
-                margin-bottom: 10px;
-            }}
-            
-            .empty-state p {{
-                color: #718096;
-            }}
-            
-            .loading {{
-                text-align: center;
-                padding: 20px;
-                color: #718096;
-            }}
-            
-            .error {{
-                background: #fed7d7;
-                border: 1px solid #feb2b2;
-                color: #742a2a;
-                padding: 15px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-            }}
-            
-            .success {{
-                background: #c6f6d5;
-                border: 1px solid #9ae6b4;
-                color: #22543d;
-                padding: 15px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-            }}
-            
-            .modal {{
-                display: none;
-                position: fixed;
-                z-index: 1000;
-                left: 0;
-                top: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.5);
-            }}
-            
-            .modal-content {{
-                background-color: white;
-                margin: 15% auto;
-                padding: 30px;
-                border-radius: 12px;
-                width: 90%;
-                max-width: 500px;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-            }}
-            
-            .modal-header {{
-                margin-bottom: 20px;
-            }}
-            
-            .modal-title {{
-                font-size: 20px;
-                font-weight: 600;
-                color: #2d3748;
-                margin-bottom: 8px;
-            }}
-            
-            .modal-description {{
-                color: #4a5568;
-                line-height: 1.5;
-            }}
-            
-            .modal-actions {{
-                display: flex;
-                gap: 12px;
-                justify-content: flex-end;
-                margin-top: 25px;
-            }}
-            
-            .btn-secondary {{
-                background: #e2e8f0;
-                color: #4a5568;
-            }}
-            
-            .btn-secondary:hover {{
-                background: #cbd5e0;
-            }}
-            
-            @media (max-width: 768px) {{
-                .consent-header {{
-                    flex-direction: column;
-                    align-items: stretch;
-                }}
-                
-                .consent-actions {{
-                    margin-left: 0;
-                    margin-top: 15px;
-                }}
-                
-                .consent-details {{
-                    grid-template-columns: 1fr;
-                }}
-                
-                .scope-item {{
-                    flex-direction: column;
-                    align-items: flex-start;
-                }}
-                
-                .scope-description {{
-                    margin-left: 0;
-                    margin-top: 4px;
-                }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1 class="title">OAuth2 Consent Management</h1>
-                <p class="subtitle">Manage applications that have access to your Second Brain Database account</p>
-                
-                <div class="user-info">
-                    <div class="user-label">Logged in as:</div>
-                    <div class="user-value">{user_id}</div>
-                </div>
-            </div>
-            
-            <div id="message-container"></div>
-            
-            <div id="consents-container">
-                {consent_items}
-            </div>
-        </div>
-        
-        <!-- Revocation Confirmation Modal -->
-        <div id="revoke-modal" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title">Revoke Access</h2>
-                    <p class="modal-description">
-                        Are you sure you want to revoke access for <strong id="revoke-client-name"></strong>? 
-                        This will immediately invalidate all tokens and prevent the application from accessing your data.
-                    </p>
-                </div>
-                <div class="modal-actions">
-                    <button id="cancel-revoke" class="btn btn-secondary">Cancel</button>
-                    <button id="confirm-revoke" class="btn btn-danger">Revoke Access</button>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-            // Global variables
-            let currentClientId = null;
-            let currentClientName = null;
-            
-            // DOM elements
-            const modal = document.getElementById('revoke-modal');
-            const messageContainer = document.getElementById('message-container');
-            const consentsContainer = document.getElementById('consents-container');
-            
-            // Event listeners
-            document.addEventListener('DOMContentLoaded', function() {{
-                // Add click listeners to revoke buttons
-                document.querySelectorAll('.revoke-btn').forEach(button => {{
-                    button.addEventListener('click', handleRevokeClick);
-                }});
-                
-                // Modal event listeners
-                document.getElementById('cancel-revoke').addEventListener('click', closeModal);
-                document.getElementById('confirm-revoke').addEventListener('click', confirmRevoke);
-                
-                // Close modal when clicking outside
-                modal.addEventListener('click', function(e) {{
-                    if (e.target === modal) {{
-                        closeModal();
-                    }}
-                }});
-            }});
-            
-            function handleRevokeClick(e) {{
-                currentClientId = e.target.dataset.clientId;
-                currentClientName = e.target.dataset.clientName;
-                
-                document.getElementById('revoke-client-name').textContent = currentClientName;
-                modal.style.display = 'block';
-            }}
-            
-            function closeModal() {{
-                modal.style.display = 'none';
-                currentClientId = null;
-                currentClientName = null;
-            }}
-            
-            async function confirmRevoke() {{
-                if (!currentClientId) return;
-                
-                const confirmButton = document.getElementById('confirm-revoke');
-                confirmButton.disabled = true;
-                confirmButton.textContent = 'Revoking...';
-                
-                try {{
-                    const response = await fetch(`/oauth2/consents/${{currentClientId}}`, {{
-                        method: 'DELETE',
-                        headers: {{
-                            'Content-Type': 'application/json',
-                        }}
-                    }});
-                    
-                    if (response.ok) {{
-                        showMessage('success', `Access revoked for ${{currentClientName}}`);
-                        removeConsentCard(currentClientId);
-                        closeModal();
-                    }} else {{
-                        const errorData = await response.json();
-                        showMessage('error', errorData.detail || 'Failed to revoke access');
-                    }}
-                }} catch (error) {{
-                    showMessage('error', 'Network error occurred while revoking access');
-                }} finally {{
-                    confirmButton.disabled = false;
-                    confirmButton.textContent = 'Revoke Access';
-                }}
-            }}
-            
-            function removeConsentCard(clientId) {{
-                const card = document.querySelector(`[data-client-id="${{clientId}}"]`);
-                if (card) {{
-                    card.remove();
-                    
-                    // Check if no consents remain
-                    const remainingCards = document.querySelectorAll('.consent-card');
-                    if (remainingCards.length === 0) {{
-                        consentsContainer.innerHTML = `
-                            <div class="empty-state">
-                                <div class="empty-icon">🔐</div>
-                                <h3>No Active Consents</h3>
-                                <p>You haven't granted access to any OAuth2 applications yet.</p>
-                            </div>
-                        `;
-                    }}
-                }}
-            }}
-            
-            function showMessage(type, message) {{
-                const messageDiv = document.createElement('div');
-                messageDiv.className = type;
-                messageDiv.textContent = message;
-                
-                messageContainer.innerHTML = '';
-                messageContainer.appendChild(messageDiv);
-                
-                // Auto-hide success messages
-                if (type === 'success') {{
-                    setTimeout(() => {{
-                        messageDiv.remove();
-                    }}, 5000);
-                }}
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    
-    logger.debug(f"Rendered consent management UI for user {user_id} with {len(consents)} consents")
-    return html_template
-
-
 def render_consent_error(error_message: str, client_name: str = None) -> str:
     """
     Render OAuth2 consent error screen HTML.
@@ -911,10 +380,12 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
         client_name: Optional client name for context
         
     Returns:
-        HTML string for error screen
+        HTML string for consent error screen
     """
     
-    client_context = f" for {client_name}" if client_name else ""
+    # Use client name if provided, otherwise generic title
+    page_title = f"Authorization Error - {client_name}" if client_name else "Authorization Error"
+    client_info = f"<p class=\"client-name\">Application: {client_name}</p>" if client_name else ""
     
     html_template = f"""
     <!DOCTYPE html>
@@ -922,7 +393,7 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Authorization Error - Second Brain Database</title>
+        <title>{page_title} - Second Brain Database</title>
         <style>
             * {{
                 margin: 0;
@@ -932,7 +403,7 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
             
             body {{
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
                 min-height: 100vh;
                 display: flex;
                 align-items: center;
@@ -944,8 +415,8 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
                 background: white;
                 border-radius: 12px;
                 box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-                max-width: 400px;
-                width: 100%;
+                max-width: 500px;
+                width: 100%%;
                 padding: 40px;
                 text-align: center;
             }}
@@ -954,13 +425,14 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
                 width: 60px;
                 height: 60px;
                 background: #e53e3e;
-                border-radius: 50%;
+                border-radius: 50%%;
                 margin: 0 auto 20px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 color: white;
                 font-size: 24px;
+                font-weight: bold;
             }}
             
             .title {{
@@ -972,47 +444,2785 @@ def render_consent_error(error_message: str, client_name: str = None) -> str:
             
             .subtitle {{
                 color: #718096;
-                margin-bottom: 20px;
+                margin-bottom: 30px;
                 font-size: 16px;
+            }}
+            
+            .client-name {{
+                color: #4a5568;
+                margin-bottom: 20px;
+                font-weight: 500;
             }}
             
             .error-message {{
                 background: #fed7d7;
                 border: 1px solid #feb2b2;
-                color: #742a2a;
-                padding: 15px;
                 border-radius: 8px;
-                margin-bottom: 20px;
+                padding: 20px;
+                margin-bottom: 30px;
+                color: #742a2a;
+                line-height: 1.5;
+            }}
+            
+            .actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 14px;
+                text-decoration: none;
+                cursor: pointer;
+                border: none;
+                transition: all 0.2s;
+                min-width: 120px;
+                display: inline-block;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a67d8;
+                transform: translateY(-1px);
+            }}
+            
+            .btn-secondary {{
+                background: #e2e8f0;
+                color: #4a5568;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #cbd5e0;
+                transform: translateY(-1px);
+            }}
+            
+            .help-text {{
+                margin-top: 30px;
+                padding: 15px;
+                background: #edf2f7;
+                border-radius: 8px;
+                font-size: 14px;
+                color: #4a5568;
                 text-align: left;
             }}
             
-            .back-link {{
-                color: #667eea;
-                text-decoration: none;
-                font-weight: 500;
+            .help-text strong {{
+                color: #2d3748;
             }}
             
-            .back-link:hover {{
-                text-decoration: underline;
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .actions {{
+                    flex-direction: column;
+                }}
+                
+                .btn {{
+                    width: 100%%;
+                }}
             }}
         </style>
     </head>
     <body>
-        <div class="error-container">
-            <div class="error-icon">!</div>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">!</div>
             
             <h1 class="title">Authorization Error</h1>
-            <p class="subtitle">Unable to process authorization{client_context}</p>
+            <p class="subtitle">Second Brain Database</p>
             
-            <div class="error-message">
+            {client_info}
+            
+            <div class="error-message" role="alert">
                 {error_message}
             </div>
             
-            <a href="javascript:history.back()" class="back-link">← Go Back</a>
-        </div>
+            <div class="actions" role="group" aria-label="Available actions">
+                <button onclick="history.back()" class="btn btn-secondary" aria-label="Go back to previous page">
+                    Go Back
+                </button>
+                <a href="/auth/login" class="btn btn-primary" aria-label="Return to login page">
+                    Return to Login
+                </a>
+            </div>
+            
+            <div class="help-text" role="complementary" aria-labelledby="help-title">
+                <strong id="help-title">Need Help?</strong> If you continue to experience issues, please contact the application developer or system administrator. 
+                Make sure you're using a supported browser and that cookies are enabled.
+            </div>
+        </main>
     </body>
     </html>
     """
     
     logger.debug(f"Rendered consent error screen: {error_message}")
+    return html_template
+
+
+def render_generic_oauth2_error(
+    title: str,
+    message: str,
+    icon: str = "⚠️",
+    show_login_button: bool = True,
+    show_back_button: bool = True,
+    additional_info: str = None
+) -> str:
+    """
+    Render generic OAuth2 error screen HTML with customizable content.
+    
+    Args:
+        title: Error title to display
+        message: Error message to display
+        icon: Emoji icon for the error
+        show_login_button: Whether to show login button
+        show_back_button: Whether to show back button
+        additional_info: Optional additional information HTML
+        
+    Returns:
+        HTML string for generic OAuth2 error screen
+    """
+    
+    # Action buttons
+    action_buttons = []
+    if show_back_button:
+        action_buttons.append('<button onclick="history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</button>')
+    if show_login_button:
+        action_buttons.append('<a href="/auth/login" class="btn btn-primary" aria-label="Go to login page">Login</a>')
+    
+    actions_html = ""
+    if action_buttons:
+        actions_html = f"""
+        <div class="error-actions" role="group" aria-label="Available actions">
+            {' '.join(action_buttons)}
+        </div>
+        """
+    
+    # Additional info section
+    additional_info_html = ""
+    if additional_info:
+        additional_info_html = f"""
+        <div class="additional-info" role="complementary">
+            {additional_info}
+        </div>
+        """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{title} - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+                position: relative;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                margin-bottom: 20px;
+                animation: pulse 2s infinite;
+            }}
+            
+            @keyframes pulse {{
+                0%% {{ transform: scale(1); }}
+                50%% {{ transform: scale(1.05); }}
+                100%% {{ transform: scale(1); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .additional-info {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 100px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-notice {{
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 12px;
+                color: #999;
+                opacity: 0.7;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+                
+                .security-notice {{
+                    position: static;
+                    margin-top: 20px;
+                    text-align: center;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="security-notice" aria-label="Secure connection indicator">🔒 Secure</div>
+            <div class="error-icon" aria-hidden="true">{icon}</div>
+            <h1 class="error-title">{title}</h1>
+            <p class="error-message" role="alert">
+                {message}
+            </p>
+            {additional_info_html}
+            {actions_html}
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered generic OAuth2 error screen: {title}")
+    return html_template
+
+
+def render_authorization_failed_error(
+    message: str = None,
+    client_name: str = None,
+    error_details: str = None,
+    show_retry_button: bool = True
+) -> str:
+    """
+    Render OAuth2 authorization failed error screen HTML.
+    
+    Args:
+        message: Optional custom message
+        client_name: Optional client name for context
+        error_details: Optional detailed error information
+        show_retry_button: Whether to show retry button
+        
+    Returns:
+        HTML string for authorization failed error screen
+    """
+    
+    default_message = "The authorization process failed. This could be due to an invalid request, expired session, or server error."
+    if client_name:
+        default_message = f"The authorization process for {client_name} failed. This could be due to an invalid request, expired session, or server error."
+    
+    display_message = message or default_message
+    
+    # Client info section
+    client_info_html = ""
+    if client_name:
+        client_info_html = f'<p class="client-name">Application: {client_name}</p>'
+    
+    # Error details section
+    error_details_html = ""
+    if error_details:
+        error_details_html = f"""
+        <div class="error-details">
+            <strong>Error Details:</strong><br>
+            {error_details}
+        </div>
+        """
+    
+    # Action buttons
+    action_buttons = ['<button onclick="history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</button>']
+    if show_retry_button:
+        action_buttons.append('<a href="javascript:location.reload()" class="btn btn-primary" aria-label="Retry the authorization process">Retry</a>')
+    
+    actions_html = f"""
+    <div class="error-actions" role="group" aria-label="Available actions">
+        {' '.join(action_buttons)}
+    </div>
+    """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Authorization Failed - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+                position: relative;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: shake 0.5s ease-in-out;
+            }}
+            
+            @keyframes shake {{
+                0%%, 100%% {{ transform: translateX(0); }}
+                25%% {{ transform: translateX(-5px); }}
+                75%% {{ transform: translateX(5px); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .client-name {{
+                color: #4a5568;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .error-details {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+                word-break: break-word;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 100px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-notice {{
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 12px;
+                color: #999;
+                opacity: 0.7;
+            }}
+            
+            .troubleshooting {{
+                background: #e3f2fd;
+                border: 1px solid #bbdefb;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #1976d2;
+                text-align: left;
+            }}
+            
+            .troubleshooting strong {{
+                color: #0d47a1;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+                
+                .security-notice {{
+               
+
+"""
+
+def render_oauth2_authorization_error(error_message: str, error_details: str = None, client_name: str = None) -> str:
+    """
+    Render OAuth2 authorization error screen HTML.
+    
+    Args:
+        error_message: Main error message to display
+        error_details: Optional detailed error information
+        client_name: Optional client name for context
+        
+    Returns:
+        HTML string for OAuth2 authorization error screen
+    """
+    
+    # Use client name if provided, otherwise generic title
+    page_title = f"Authorization Error - {client_name}" if client_name else "OAuth2 Authorization Error"
+    client_info = f"<p class=\"client-name\">Application: {client_name}</p>" if client_name else ""
+    
+    # Error details section
+    error_details_html = ""
+    if error_details:
+        error_details_html = f"""
+        <div class="error-details">
+            <strong>Error Details:</strong><br>
+            {error_details}
+        </div>
+        """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{page_title} - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+                position: relative;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: pulse 2s infinite;
+            }}
+            
+            @keyframes pulse {{
+                0%% {{ transform: scale(1); }}
+                50%% {{ transform: scale(1.05); }}
+                100%% {{ transform: scale(1); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .client-name {{
+                color: #4a5568;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .error-details {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+                word-break: break-word;
+            }}
+            
+            .error-help {{
+                background: #e3f2fd;
+                border: 1px solid #bbdefb;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #1976d2;
+                text-align: left;
+            }}
+            
+            .error-help strong {{
+                color: #0d47a1;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 100px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-notice {{
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 12px;
+                color: #999;
+                opacity: 0.7;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+                
+                .security-notice {{
+                    position: static;
+                    margin-top: 20px;
+                    text-align: center;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="security-notice" aria-label="Secure connection indicator">🔒 Secure</div>
+            <div class="error-icon" aria-hidden="true">⚠️</div>
+            <h1 class="error-title">OAuth2 Authorization Error</h1>
+            {client_info}
+            <p class="error-message" role="alert">
+                {error_message}
+            </p>
+            {error_details_html}
+            <section class="error-help" role="complementary" aria-labelledby="help-title">
+                <strong id="help-title">What can you do?</strong><br>
+                • Check that the application URL is correct<br>
+                • Ensure you're using a supported browser<br>
+                • Try clearing your browser cookies and cache<br>
+                • Contact the application developer if the problem persists
+            </section>
+            <div class="error-actions" role="group" aria-label="Available actions">
+                <a href="javascript:history.back()" class="btn btn-primary" aria-label="Go back to previous page">Go Back</a>
+                <a href="/auth/login" class="btn btn-secondary" aria-label="Go to login page">Login</a>
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered OAuth2 authorization error screen: {error_message}")
+    return html_template
+
+
+def render_session_expired_error(message: str = None, show_login_button: bool = True) -> str:
+    """
+    Render OAuth2 session expired error screen HTML.
+    
+    Args:
+        message: Optional custom message, defaults to standard session expired message
+        show_login_button: Whether to show the login button
+        
+    Returns:
+        HTML string for session expired error screen
+    """
+    
+    default_message = "Your authorization session has expired for security reasons. Please start the authorization process again."
+    display_message = message or default_message
+    
+    login_button = ""
+    if show_login_button:
+        login_button = '<a href="/auth/login" class="btn btn-primary" aria-label="Go to login page to sign in again">Login Again</a>'
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Session Expired - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                color: #f39c12;
+                margin-bottom: 20px;
+                animation: fadeIn 1s ease-in;
+            }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: scale(0.8); }}
+                to {{ opacity: 1; transform: scale(1); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-info {{
+                margin-top: 30px;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+            }}
+            
+            .security-info strong {{
+                color: #495057;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">⏰</div>
+            <h1 class="error-title">Session Expired</h1>
+            <p class="error-message" role="alert">
+                {display_message}
+            </p>
+            <div class="error-actions" role="group" aria-label="Available actions">
+                {login_button}
+                <a href="javascript:history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</a>
+            </div>
+            <section class="security-info" role="complementary" aria-labelledby="security-title">
+                <strong id="security-title">Security Notice:</strong> Sessions expire automatically to protect your account. 
+                This is a normal security measure to prevent unauthorized access.
+            </section>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered session expired error screen: {display_message}")
+    return html_template
+
+
+def render_authorization_failed_error(
+    message: str = None,
+    client_name: str = None,
+    error_details: str = None,
+    show_retry_button: bool = True
+) -> str:
+    """
+    Render OAuth2 authorization failed error screen HTML.
+    
+    Args:
+        message: Optional custom message, defaults to standard authorization failed message
+        show_retry_button: Whether to show the retry button
+        
+    Returns:
+        HTML string for authorization failed error screen
+    """
+    
+    default_message = "Failed to resume the authorization process. This may be due to a temporary system issue. Please try starting the authorization again."
+    display_message = message or default_message
+    
+    retry_button = ""
+    if show_retry_button:
+        retry_button = '<a href="/auth/login" class="btn btn-primary" aria-label="Try authorization process again">Try Again</a>'
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Authorization Failed - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: shake 0.5s ease-in-out;
+            }}
+            
+            @keyframes shake {{
+                0%%, 100%% {{ transform: translateX(0); }}
+                25%% {{ transform: translateX(-5px); }}
+                75%% {{ transform: translateX(5px); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .troubleshooting {{
+                margin-top: 30px;
+                padding: 15px;
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 8px;
+                font-size: 14px;
+                color: #856404;
+                text-align: left;
+            }}
+            
+            .troubleshooting strong {{
+                color: #533f03;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">❌</div>
+            <h1 class="error-title">Authorization Failed</h1>
+            <p class="error-message" role="alert">
+                {display_message}
+            </p>
+            <div class="error-actions" role="group" aria-label="Available actions">
+                {retry_button}
+                <a href="javascript:history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</a>
+            </div>
+            <section class="troubleshooting" role="complementary" aria-labelledby="troubleshooting-title">
+                <strong id="troubleshooting-title">Troubleshooting Tips:</strong><br>
+                • Check your internet connection<br>
+                • Try refreshing the page<br>
+                • Clear your browser cache and cookies<br>
+                • Contact support if the problem persists
+            </section>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered authorization failed error screen: {display_message}")
+    return html_template
+
+
+def render_generic_oauth2_error(
+    title: str,
+    message: str,
+    icon: str = "⚠️",
+    show_login_button: bool = True,
+    show_back_button: bool = True,
+    additional_info: str = None
+) -> str:
+    """
+    Render a generic OAuth2 error screen HTML with customizable content.
+    
+    Args:
+        title: Error page title
+        message: Main error message
+        icon: Emoji icon to display (default: ⚠️)
+        show_login_button: Whether to show login button
+        show_back_button: Whether to show back button
+        additional_info: Optional additional information to display
+        
+    Returns:
+        HTML string for generic OAuth2 error screen
+    """
+    
+    login_button = ""
+    if show_login_button:
+        login_button = '<a href="/auth/login" class="btn btn-primary" aria-label="Return to login page">Return to Login</a>'
+    
+    back_button = ""
+    if show_back_button:
+        back_button = '<a href="javascript:history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</a>'
+    
+    additional_info_html = ""
+    if additional_info:
+        additional_info_html = f"""
+        <section class="additional-info" role="complementary">
+            {additional_info}
+        </section>
+        """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{title} - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                margin-bottom: 20px;
+                animation: fadeIn 1s ease-in;
+            }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: scale(0.8); }}
+                to {{ opacity: 1; transform: scale(1); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .additional-info {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="security-notice" aria-label="Secure connection indicator">🔒 Secure</div>
+            <div class="error-icon" aria-hidden="true">{icon}</div>
+            <h1 class="error-title">{title}</h1>
+            <p class="error-message" role="alert">
+                {message}
+            </p>
+            {additional_info_html}
+            <div class="error-actions" role="group" aria-label="Available actions">
+                {login_button}
+                {back_button}
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered generic OAuth2 error screen: {title}")
+    return html_template
+
+
+def render_invalid_client_error(client_name: str = None, client_id: str = None) -> str:
+    """
+    Render OAuth2 invalid client error screen HTML.
+    
+    Args:
+        client_name: Human-readable name of the client application
+        client_id: OAuth2 client identifier
+        
+    Returns:
+        HTML string for invalid client error screen
+    """
+    
+    display_name = client_name or client_id or "Unknown Application"
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Application Not Found - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 64px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: bounce 2s infinite;
+            }}
+            
+            @keyframes bounce {{
+                0%%, 20%%, 50%%, 80%%, 100%% {{ transform: translateY(0); }}
+                40%% {{ transform: translateY(-10px); }}
+                60%% {{ transform: translateY(-5px); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 28px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .client-name {{
+                color: #666;
+                font-size: 18px;
+                margin-bottom: 20px;
+                font-weight: 500;
+                background: #f8f9fa;
+                padding: 12px;
+                border-radius: 8px;
+                border: 1px solid #e9ecef;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.6;
+                margin-bottom: 30px;
+            }}
+            
+            .error-reasons {{
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 30px;
+                text-align: left;
+            }}
+            
+            .error-reasons h3 {{
+                color: #856404;
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 12px;
+            }}
+            
+            .error-reasons ul {{
+                color: #856404;
+                font-size: 14px;
+                line-height: 1.5;
+                margin-left: 20px;
+            }}
+            
+            .error-reasons li {{
+                margin-bottom: 8px;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .help-section {{
+                margin-top: 30px;
+                padding: 20px;
+                background: #e3f2fd;
+                border: 1px solid #bbdefb;
+                border-radius: 8px;
+                text-align: left;
+            }}
+            
+            .help-section h3 {{
+                color: #1976d2;
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 12px;
+            }}
+            
+            .help-section p {{
+                color: #1976d2;
+                font-size: 14px;
+                line-height: 1.5;
+                margin-bottom: 8px;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 24px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">🚫</div>
+            <h1 class="error-title">Application Not Found</h1>
+            <div class="client-name">Application: {display_name}</div>
+            <p class="error-message" role="alert">
+                The application you're trying to authorize is not available or has been disabled. 
+                This could be due to several reasons listed below.
+            </p>
+            
+            <section class="error-reasons" role="complementary" aria-labelledby="reasons-title">
+                <h3 id="reasons-title">Possible Reasons:</h3>
+                <ul>
+                    <li>The application has been removed or disabled by its developer</li>
+                    <li>The application is not properly registered with our system</li>
+                    <li>The authorization link you used is incorrect or outdated</li>
+                    <li>The application is temporarily unavailable for maintenance</li>
+                </ul>
+            </section>
+            
+            <div class="error-actions" role="group" aria-label="Available actions">
+                <a href="javascript:history.back()" class="btn btn-primary" aria-label="Go back to previous page">Go Back</a>
+                <a href="/auth/login" class="btn btn-secondary" aria-label="Go to login page">Login</a>
+            </div>
+            
+            <section class="help-section" role="complementary" aria-labelledby="help-title">
+                <h3 id="help-title">Need Help?</h3>
+                <p><strong>For Users:</strong> Contact the application developer or check their website for updated authorization links.</p>
+                <p><strong>For Developers:</strong> Ensure your application is properly registered and active in the developer console.</p>
+                <p><strong>Still Having Issues?</strong> Contact our support team with the application name and this error message.</p>
+            </section>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered invalid client error screen for: {display_name}")
+    return html_template
+
+
+def render_rate_limit_error(retry_after: int = None) -> str:
+    """
+    Render OAuth2 rate limit error screen HTML.
+    
+    Args:
+        retry_after: Optional seconds until retry is allowed
+        
+    Returns:
+        HTML string for rate limit error screen
+    """
+    
+    retry_message = ""
+    if retry_after:
+        minutes = retry_after // 60
+        seconds = retry_after % 60
+        if minutes > 0:
+            retry_message = f"Please wait {minutes} minute{'s' if minutes != 1 else ''} and {seconds} second{'s' if seconds != 1 else ''} before trying again."
+        else:
+            retry_message = f"Please wait {seconds} second{'s' if seconds != 1 else ''} before trying again."
+    else:
+        retry_message = "Please wait a few minutes before trying again."
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Too Many Requests - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 64px;
+                color: #f39c12;
+                margin-bottom: 20px;
+                animation: pulse 2s infinite;
+            }}
+            
+            @keyframes pulse {{
+                0%% {{ transform: scale(1); opacity: 1; }}
+                50%% {{ transform: scale(1.1); opacity: 0.7; }}
+                100%% {{ transform: scale(1); opacity: 1; }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 28px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.6;
+                margin-bottom: 20px;
+            }}
+            
+            .retry-message {{
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                color: #856404;
+                font-weight: 500;
+            }}
+            
+            .countdown {{
+                font-size: 24px;
+                font-weight: 600;
+                color: #f39c12;
+                margin: 20px 0;
+                font-family: 'Courier New', monospace;
+            }}
+            
+            .explanation {{
+                background: #e3f2fd;
+                border: 1px solid #bbdefb;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 30px;
+                text-align: left;
+            }}
+            
+            .explanation h3 {{
+                color: #1976d2;
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 12px;
+            }}
+            
+            .explanation p {{
+                color: #1976d2;
+                font-size: 14px;
+                line-height: 1.5;
+                margin-bottom: 8px;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .btn:disabled {{
+                opacity: 0.6;
+                cursor: not-allowed;
+                transform: none !important;
+                box-shadow: none !important;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 24px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">⏱️</div>
+            <h1 class="error-title">Too Many Requests</h1>
+            <p class="error-message" role="alert">
+                You've made too many authorization attempts in a short period. 
+                This security measure helps protect against automated attacks.
+            </p>
+            
+            <div class="retry-message" role="status" aria-live="polite">
+                {retry_message}
+            </div>
+            
+            <section class="explanation" role="complementary" aria-labelledby="explanation-title">
+                <h3 id="explanation-title">Why did this happen?</h3>
+                <p><strong>Security Protection:</strong> We limit the number of authorization requests to prevent abuse and protect user accounts.</p>
+                <p><strong>Common Causes:</strong> Repeatedly clicking authorization links, browser refresh loops, or automated scripts.</p>
+                <p><strong>What to do:</strong> Wait for the specified time, then try again. Avoid repeatedly clicking links.</p>
+            </section>
+            
+            <div class="error-actions" role="group" aria-label="Available actions">
+                <button onclick="location.reload()" class="btn btn-primary" aria-label="Refresh this page">Refresh Page</button>
+                <a href="javascript:history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</a>
+            </div>
+        </main>
+        
+        <script>
+            // Auto-refresh after rate limit expires (if retry_after is provided)
+            {f'setTimeout(() => {{ location.reload(); }}, {retry_after * 1000});' if retry_after and retry_after < 300 else ''}
+        </script>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered rate limit error screen with retry_after: {retry_after}")
+    return html_template
+
+
+def render_scope_error(invalid_scopes: list, client_name: str = None) -> str:
+    """
+    Render OAuth2 invalid scope error screen HTML.
+    
+    Args:
+        invalid_scopes: List of invalid scope names
+        client_name: Optional client name for context
+        
+    Returns:
+        HTML string for scope error screen
+    """
+    
+    client_context = f" ({client_name})" if client_name else ""
+    scope_list = ", ".join(invalid_scopes) if invalid_scopes else "unknown scopes"
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Invalid Permissions Request - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+            }}
+            
+            .error-icon {{
+                font-size: 64px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: shake 0.5s ease-in-out;
+            }}
+            
+            @keyframes shake {{
+                0%%, 100%% {{ transform: translateX(0); }}
+                25%% {{ transform: translateX(-5px); }}
+                75%% {{ transform: translateX(5px); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 28px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .client-name {{
+                color: #666;
+                font-size: 16px;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.6;
+                margin-bottom: 20px;
+            }}
+            
+            .invalid-scopes {{
+                background: #fed7d7;
+                border: 1px solid #feb2b2;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                color: #742a2a;
+            }}
+            
+            .invalid-scopes h3 {{
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }}
+            
+            .scope-list {{
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                background: #fff;
+                padding: 8px;
+                border-radius: 4px;
+                border: 1px solid #feb2b2;
+                word-break: break-all;
+            }}
+            
+            .explanation {{
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 30px;
+                text-align: left;
+            }}
+            
+            .explanation h3 {{
+                color: #856404;
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 12px;
+            }}
+            
+            .explanation p {{
+                color: #856404;
+                font-size: 14px;
+                line-height: 1.5;
+                margin-bottom: 8px;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 120px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 24px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="error-icon" aria-hidden="true">🔐</div>
+            <h1 class="error-title">Invalid Permissions Request</h1>
+            {f'<div class="client-name">Application: {client_name}</div>' if client_name else ''}
+            <p class="error-message" role="alert">
+                The application{client_context} is requesting permissions it's not authorized to access. 
+                This is a configuration issue that needs to be resolved by the application developer.
+            </p>
+            
+            <section class="invalid-scopes" role="complementary" aria-labelledby="scopes-title">
+                <h3 id="scopes-title">Invalid Permissions:</h3>
+                <div class="scope-list">{scope_list}</div>
+            </section>
+            
+            <section class="explanation" role="complementary" aria-labelledby="explanation-title">
+                <h3 id="explanation-title">What does this mean?</h3>
+                <p><strong>For Users:</strong> The application is trying to access data or features it's not allowed to use. This is not your fault.</p>
+                <p><strong>For Developers:</strong> Your application is requesting scopes that haven't been approved for your client registration.</p>
+                <p><strong>Resolution:</strong> Contact the application developer to fix their permission configuration, or update your client registration to include the required scopes.</p>
+            </section>
+            
+            <div class="error-actions" role="group" aria-label="Available actions">
+                <a href="javascript:history.back()" class="btn btn-primary" aria-label="Go back to previous page">Go Back</a>
+                <a href="/auth/login" class="btn btn-secondary" aria-label="Go to login page">Login</a>
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered scope error screen for scopes: {scope_list}")
+    return html_template
+
+def render_generic_oauth2_error(
+    title: str,
+    message: str,
+    icon: str = "⚠️",
+    show_login_button: bool = True,
+    show_back_button: bool = True,
+    additional_info: str = None
+) -> str:
+    """
+    Render generic OAuth2 error screen HTML with customizable content.
+    
+    Args:
+        title: Error title to display
+        message: Error message to display
+        icon: Emoji icon for the error
+        show_login_button: Whether to show login button
+        show_back_button: Whether to show back button
+        additional_info: Optional additional information HTML
+        
+    Returns:
+        HTML string for generic OAuth2 error screen
+    """
+    
+    # Action buttons
+    action_buttons = []
+    if show_back_button:
+        action_buttons.append('<button onclick="history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</button>')
+    if show_login_button:
+        action_buttons.append('<a href="/auth/login" class="btn btn-primary" aria-label="Go to login page">Login</a>')
+    
+    actions_html = ""
+    if action_buttons:
+        actions_html = f"""
+        <div class="error-actions" role="group" aria-label="Available actions">
+            {' '.join(action_buttons)}
+        </div>
+        """
+    
+    # Additional info section
+    additional_info_html = ""
+    if additional_info:
+        additional_info_html = f"""
+        <div class="additional-info" role="complementary">
+            {additional_info}
+        </div>
+        """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{title} - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+                position: relative;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                margin-bottom: 20px;
+                animation: pulse 2s infinite;
+            }}
+            
+            @keyframes pulse {{
+                0%% {{ transform: scale(1); }}
+                50%% {{ transform: scale(1.05); }}
+                100%% {{ transform: scale(1); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .additional-info {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 100px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-notice {{
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 12px;
+                color: #999;
+                opacity: 0.7;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+                
+                .security-notice {{
+                    position: static;
+                    margin-top: 20px;
+                    text-align: center;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="security-notice" aria-label="Secure connection indicator">🔒 Secure</div>
+            <div class="error-icon" aria-hidden="true">{icon}</div>
+            <h1 class="error-title">{title}</h1>
+            <p class="error-message" role="alert">
+                {message}
+            </p>
+            {additional_info_html}
+            {actions_html}
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered generic OAuth2 error screen: {title}")
+    return html_template
+
+
+def render_authorization_failed_error(
+    message: str = None,
+    client_name: str = None,
+    error_details: str = None,
+    show_retry_button: bool = True
+) -> str:
+    """
+    Render OAuth2 authorization failed error screen HTML.
+    
+    Args:
+        message: Optional custom message
+        client_name: Optional client name for context
+        error_details: Optional detailed error information
+        show_retry_button: Whether to show retry button
+        
+    Returns:
+        HTML string for authorization failed error screen
+    """
+    
+    default_message = "The authorization process failed. This could be due to an invalid request, expired session, or server error."
+    if client_name:
+        default_message = f"The authorization process for {client_name} failed. This could be due to an invalid request, expired session, or server error."
+    
+    display_message = message or default_message
+    
+    # Client info section
+    client_info_html = ""
+    if client_name:
+        client_info_html = f'<p class="client-name">Application: {client_name}</p>'
+    
+    # Error details section
+    error_details_html = ""
+    if error_details:
+        error_details_html = f"""
+        <div class="error-details">
+            <strong>Error Details:</strong><br>
+            {error_details}
+        </div>
+        """
+    
+    # Action buttons
+    action_buttons = ['<button onclick="history.back()" class="btn btn-secondary" aria-label="Go back to previous page">Go Back</button>']
+    if show_retry_button:
+        action_buttons.append('<a href="javascript:location.reload()" class="btn btn-primary" aria-label="Retry the authorization process">Retry</a>')
+    
+    actions_html = f"""
+    <div class="error-actions" role="group" aria-label="Available actions">
+        {' '.join(action_buttons)}
+    </div>
+    """
+    
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Authorization Failed - Second Brain Database</title>
+        <meta name="robots" content="noindex, nofollow">
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .error-container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+                padding: 40px;
+                width: 100%%;
+                max-width: 500px;
+                text-align: center;
+                position: relative;
+            }}
+            
+            .error-icon {{
+                font-size: 48px;
+                color: #e74c3c;
+                margin-bottom: 20px;
+                animation: shake 0.5s ease-in-out;
+            }}
+            
+            @keyframes shake {{
+                0%%, 100%% {{ transform: translateX(0); }}
+                25%% {{ transform: translateX(-5px); }}
+                75%% {{ transform: translateX(5px); }}
+            }}
+            
+            .error-title {{
+                color: #333;
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }}
+            
+            .client-name {{
+                color: #4a5568;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }}
+            
+            .error-message {{
+                color: #666;
+                font-size: 16px;
+                line-height: 1.5;
+                margin-bottom: 30px;
+            }}
+            
+            .error-details {{
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #6c757d;
+                text-align: left;
+                word-break: break-word;
+            }}
+            
+            .error-actions {{
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .btn {{
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.2s;
+                min-width: 100px;
+            }}
+            
+            .btn-primary {{
+                background: #667eea;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #5a6fd8;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            
+            .btn-secondary {{
+                background: #6c757d;
+                color: white;
+            }}
+            
+            .btn-secondary:hover {{
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+            }}
+            
+            .security-notice {{
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 12px;
+                color: #999;
+                opacity: 0.7;
+            }}
+            
+            .troubleshooting {{
+                background: #e3f2fd;
+                border: 1px solid #bbdefb;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 30px;
+                font-size: 14px;
+                color: #1976d2;
+                text-align: left;
+            }}
+            
+            .troubleshooting strong {{
+                color: #0d47a1;
+            }}
+            
+            /* Focus styles for accessibility */
+            .btn:focus {{
+                outline: 2px solid #667eea;
+                outline-offset: 2px;
+            }}
+            
+            /* High contrast mode support */
+            @media (prefers-contrast: high) {{
+                .error-container {{
+                    border: 2px solid #000;
+                }}
+                
+                .btn {{
+                    border: 2px solid currentColor;
+                }}
+            }}
+            
+            /* Reduced motion support */
+            @media (prefers-reduced-motion: reduce) {{
+                * {{
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                .error-container {{
+                    padding: 30px 20px;
+                }}
+                
+                .error-title {{
+                    font-size: 20px;
+                }}
+                
+                .error-actions {{
+                    flex-direction: column;
+                }}
+                
+                .security-notice {{
+                    position: static;
+                    margin-top: 20px;
+                    text-align: center;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class="error-container" role="main">
+            <div class="security-notice" aria-label="Secure connection indicator">🔒 Secure</div>
+            <div class="error-icon" aria-hidden="true">❌</div>
+            <h1 class="error-title">Authorization Failed</h1>
+            {client_info_html}
+            <p class="error-message" role="alert">
+                {display_message}
+            </p>
+            {error_details_html}
+            <div class="troubleshooting" role="complementary" aria-labelledby="troubleshooting-title">
+                <strong id="troubleshooting-title">Troubleshooting Steps:</strong><br>
+                • Check that you're using the correct authorization link<br>
+                • Ensure your browser has cookies and JavaScript enabled<br>
+                • Try clearing your browser cache and cookies<br>
+                • Make sure you're not using an incognito/private browsing window<br>
+                • Contact the application developer if the problem persists
+            </div>
+            {actions_html}
+        </main>
+    </body>
+    </html>
+    """
+    
+    logger.debug(f"Rendered authorization failed error screen: {display_message}")
     return html_template

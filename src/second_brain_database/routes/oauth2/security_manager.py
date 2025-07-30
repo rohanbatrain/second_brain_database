@@ -716,8 +716,11 @@ class OAuth2SecurityManager:
         
         for key, value in input_data.items():
             if not isinstance(value, str):
-                validation_errors.append(f"Parameter {key} must be a string")
-                continue
+                # Immediately raise a clear error for non-string input
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Parameter '{key}' must be a string, got {type(value).__name__}. This usually means the request body was not parsed as form data."
+                )
             
             # Check for malicious patterns
             malicious_patterns = OAuth2SecurityHardening.detect_malicious_patterns(value)
@@ -765,7 +768,7 @@ class OAuth2SecurityManager:
                 }
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Input validation failed: {'; '.join(validation_errors)}"
             )
         

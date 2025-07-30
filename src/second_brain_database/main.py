@@ -30,6 +30,7 @@ from second_brain_database.routes.auth.periodics.cleanup import (
     periodic_trusted_ip_lockdown_code_cleanup,
 )
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
+from second_brain_database.routes.oauth2.session_manager import session_manager
 from second_brain_database.routes.avatars.routes import router as avatars_router
 from second_brain_database.routes.banners.routes import router as banners_router
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
@@ -129,6 +130,9 @@ async def lifespan(_app: FastAPI):
                 "admin_session_cleanup": asyncio.create_task(periodic_admin_session_token_cleanup()),
             }
         )
+        
+        # Start OAuth2 session cleanup task
+        await session_manager.start_cleanup_task()
 
         tasks_duration = time.time() - task_start_time
         log_application_lifecycle(
@@ -195,6 +199,15 @@ async def lifespan(_app: FastAPI):
             failed_cleanups.append({"task": task_name, "error": str(e)})
 
     cleanup_duration = time.time() - cleanup_start
+
+    # Stop OAuth2 session manager cleanup task
+    try:
+        logger.info("Stopping OAuth2 session manager cleanup task...")
+        await session_manager.stop_cleanup_task()
+        logger.info("OAuth2 session manager cleanup task stopped successfully")
+    except Exception as e:
+        logger.error(f"Failed to stop OAuth2 session manager cleanup task: {e}")
+        failed_cleanups.append({"task": "oauth2_session_manager", "error": str(e)})
 
     # Database disconnection with logging
     db_disconnect_start = time.time()

@@ -1,462 +1,552 @@
 """
-OAuth2 metrics collection for audit logging and monitoring.
+OAuth2 metrics collection system for comprehensive monitoring and analytics.
 
-This module provides comprehensive metrics collection for OAuth2 operations,
-focusing on audit logging and in-memory metrics without Prometheus integration
-to avoid conflicts with app-wide metrics.
+This module provides enterprise-grade metrics collection for OAuth2 flows,
+including completion rates, performance metrics, and operational insights.
+
+Features:
+- OAuth2 flow completion rate tracking by authentication method
+- Performance metrics for all OAuth2 operations
+- Security metrics and violation tracking
+- Template rendering performance monitoring
+- Real-time metrics for dashboards and alerting
+- Integration with monitoring systems (Prometheus, etc.)
 """
 
 import time
-from contextlib import contextmanager
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Set
+from dataclasses import dataclass, field
 from enum import Enum
+import threading
 
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.redis_manager import redis_manager
 
 logger = get_logger(prefix="[OAuth2 Metrics]")
 
-# Disable Prometheus metrics to avoid conflicts with app-wide metrics
-PROMETHEUS_AVAILABLE = False
+
+class MetricType(str, Enum):
+    """Types of metrics collected."""
+    COUNTER = "counter"
+    GAUGE = "gauge"
+    HISTOGRAM = "histogram"
+    TIMER = "timer"
 
 
-class OAuth2MetricType(str, Enum):
-    """OAuth2 metric types for categorization."""
-    
-    # Request metrics
-    AUTHORIZATION_REQUESTS = "authorization_requests"
-    TOKEN_REQUESTS = "token_requests"
-    CONSENT_REQUESTS = "consent_requests"
-    
-    # Success metrics
-    AUTHORIZATION_GRANTED = "authorization_granted"
-    TOKENS_ISSUED = "tokens_issued"
-    TOKENS_REFRESHED = "tokens_refreshed"
-    CONSENT_GRANTED = "consent_granted"
-    
-    # Error metrics
-    AUTHORIZATION_ERRORS = "authorization_errors"
-    TOKEN_ERRORS = "token_errors"
-    VALIDATION_ERRORS = "validation_errors"
-    
-    # Security metrics
-    RATE_LIMIT_HITS = "rate_limit_hits"
-    SECURITY_VIOLATIONS = "security_violations"
-    PKCE_FAILURES = "pkce_failures"
-    
-    # Performance metrics
-    REQUEST_DURATION = "request_duration"
-    TOKEN_GENERATION_TIME = "token_generation_time"
-    DATABASE_OPERATION_TIME = "database_operation_time"
+class AuthMethod(str, Enum):
+    """Authentication methods for metrics."""
+    JWT_TOKEN = "jwt_token"
+    BROWSER_SESSION = "browser_session"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class MetricPoint:
+    """Individual metric data point."""
+    name: str
+    value: float
+    timestamp: datetime
+    labels: Dict[str, str] = field(default_factory=dict)
+    metric_type: MetricType = MetricType.GAUGE
+
+
+@dataclass
+class FlowMetric:
+    """OAuth2 flow completion metrics."""
+    client_id: str
+    auth_method: AuthMethod
+    response_type: str
+    status: str  # success/failure/timeout
+    duration: Optional[float] = None
+    error_code: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class OAuth2MetricsCollector:
     """
-    OAuth2 metrics collector using in-memory storage for audit logging.
+    Comprehensive metrics collection system for OAuth2 operations.
     
-    Collects detailed metrics about OAuth2 operations for audit trails
-    and monitoring without Prometheus integration.
+    Collects and aggregates metrics for monitoring, alerting, and analytics.
     """
     
-    _instance = None
-    _initialized = False
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(OAuth2MetricsCollector, cls).__new__(cls)
-        return cls._instance
-    
     def __init__(self):
-        if OAuth2MetricsCollector._initialized:
-            return
-            
         self.logger = get_logger(prefix="[OAuth2 Metrics Collector]")
         
-        # In-memory metrics storage
-        self._metrics: Dict[str, Any] = {
-            "counters": {},
-            "histograms": {},
-            "gauges": {},
-            "last_updated": datetime.utcnow(),
-            "system_info": {
-                "version": "2.1",
-                "supported_flows": "authorization_code",
-                "pkce_required": True,
-                "prometheus_available": False
-            }
+        # Thread safety
+        self._lock = threading.Lock()
+        
+        # Metrics storage
+        self.metrics: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
+        self.counters: Dict[str, int] = defaultdict(int)
+        self.gauges: Dict[str, float] = defaultdict(float)
+        self.histograms: Dict[str, List[float]] = defaultdict(list)
+        
+        # Flow completion tracking
+        self.flow_completions: deque = deque(maxlen=5000)
+        self.completion_rates: Dict[str, Dict[str, int]] = {
+            "jwt_token": {"total": 0, "success": 0, "failure": 0},
+            "browser_session": {"total": 0, "success": 0, "failure": 0},
+            "mixed": {"total": 0, "success": 0, "failure": 0}
         }
         
-        OAuth2MetricsCollector._initialized = True
-        self.logger.info("OAuth2 metrics collector initialized with in-memory storage")
+        # Performance metrics
+        self.performance_metrics: Dict[str, deque] = defaultdict(lambda: deque(maxlen=500))
+        
+        # Security metrics
+        self.security_violations: deque = deque(maxlen=1000)
+        self.rate_limit_hits: deque = deque(maxlen=500)
+        
+        # Template metrics
+        self.template_metrics: Dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        
+        # Error tracking
+        self.error_counts: Dict[str, int] = defaultdict(int)
+        self.error_details: deque = deque(maxlen=1000)
+        
+        # Health metrics
+        self.health_metrics = {
+            "last_updated": datetime.now(timezone.utc),
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "avg_response_time": 0.0,
+            "error_rate": 0.0
+        }
     
     def record_authorization_request(
         self,
         client_id: str,
         response_type: str,
         status: str,
-        duration: Optional[float] = None
+        auth_method: str = "unknown",
+        duration: Optional[float] = None,
+        error_code: Optional[str] = None
     ) -> None:
         """Record OAuth2 authorization request metrics."""
-        try:
-            key = f"authorization_requests_{client_id}_{response_type}_{status}"
-            self._increment_counter(key)
+        with self._lock:
+            # Record flow metric
+            flow_metric = FlowMetric(
+                client_id=client_id,
+                auth_method=AuthMethod(auth_method) if auth_method in AuthMethod.__members__.values() else AuthMethod.UNKNOWN,
+                response_type=response_type,
+                status=status,
+                duration=duration,
+                error_code=error_code
+            )
             
+            self.flow_completions.append(flow_metric)
+            
+            # Update completion rates
+            auth_key = auth_method if auth_method in self.completion_rates else "browser_session"
+            if auth_key not in self.completion_rates:
+                self.completion_rates[auth_key] = {"total": 0, "success": 0, "failure": 0}
+            
+            if status == "requested":
+                self.completion_rates[auth_key]["total"] += 1
+            elif status == "success":
+                self.completion_rates[auth_key]["success"] += 1
+                self.completion_rates[auth_key]["total"] += 1  # Also increment total for success
+            elif status == "failure":
+                self.completion_rates[auth_key]["failure"] += 1
+                self.completion_rates[auth_key]["total"] += 1  # Also increment total for failure
+            
+            # Record counters
+            self.counters[f"oauth2_authorization_requests_total"] += 1
+            self.counters[f"oauth2_authorization_requests_{status}"] += 1
+            self.counters[f"oauth2_authorization_requests_{auth_method}_{status}"] += 1
+            
+            # Record duration if provided
             if duration is not None:
-                self._record_histogram("authorization_request_duration", duration, {
+                self.performance_metrics["authorization_duration"].append(duration)
+                self.histograms["oauth2_authorization_duration_seconds"].append(duration)
+            
+            # Record error if applicable
+            if error_code:
+                self.error_counts[f"authorization_{error_code}"] += 1
+                self.error_details.append({
+                    "timestamp": datetime.now(timezone.utc),
+                    "operation": "authorization",
+                    "error_code": error_code,
                     "client_id": client_id,
-                    "response_type": response_type,
-                    "status": status
+                    "auth_method": auth_method
                 })
             
-            self._update_timestamp()
+            # Update health metrics
+            self.health_metrics["total_requests"] += 1
+            if status == "success":
+                self.health_metrics["successful_requests"] += 1
+            elif status == "failure":
+                self.health_metrics["failed_requests"] += 1
             
-        except Exception as e:
-            self.logger.error(f"Failed to record authorization request metrics: {e}")
+            self._update_health_metrics()
     
     def record_token_request(
         self,
         client_id: str,
         grant_type: str,
         status: str,
-        duration: Optional[float] = None
+        duration: Optional[float] = None,
+        error_code: Optional[str] = None
     ) -> None:
         """Record OAuth2 token request metrics."""
-        try:
-            key = f"token_requests_{client_id}_{grant_type}_{status}"
-            self._increment_counter(key)
+        with self._lock:
+            # Record counters
+            self.counters[f"oauth2_token_requests_total"] += 1
+            self.counters[f"oauth2_token_requests_{status}"] += 1
+            self.counters[f"oauth2_token_requests_{grant_type}_{status}"] += 1
             
+            # Record duration if provided
             if duration is not None:
-                self._record_histogram("token_request_duration", duration, {
+                self.performance_metrics["token_duration"].append(duration)
+                self.histograms["oauth2_token_duration_seconds"].append(duration)
+            
+            # Record error if applicable
+            if error_code:
+                self.error_counts[f"token_{error_code}"] += 1
+                self.error_details.append({
+                    "timestamp": datetime.now(timezone.utc),
+                    "operation": "token",
+                    "error_code": error_code,
                     "client_id": client_id,
-                    "grant_type": grant_type,
-                    "status": status
-                })
-            
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record token request metrics: {e}")
-    
-    def record_token_issued(
-        self,
-        client_id: str,
-        token_type: str,
-        grant_type: str,
-        generation_duration: Optional[float] = None
-    ) -> None:
-        """Record OAuth2 token issuance metrics."""
-        try:
-            key = f"tokens_issued_{client_id}_{token_type}_{grant_type}"
-            self._increment_counter(key)
-            
-            if generation_duration is not None:
-                self._record_histogram("token_generation_duration", generation_duration, {
-                    "client_id": client_id,
-                    "token_type": token_type,
                     "grant_type": grant_type
                 })
             
-            self._update_timestamp()
+            # Update health metrics
+            self.health_metrics["total_requests"] += 1
+            if status == "success":
+                self.health_metrics["successful_requests"] += 1
+            elif status == "failure":
+                self.health_metrics["failed_requests"] += 1
             
-        except Exception as e:
-            self.logger.error(f"Failed to record token issued metrics: {e}")
+            self._update_health_metrics()
     
-    def record_consent_event(
+    def record_template_render_time(
         self,
-        client_id: str,
-        action: str,
-        status: str,
-        scope_count: int = 0
+        template_name: str,
+        render_time: float,
+        client_id: Optional[str] = None
     ) -> None:
-        """Record OAuth2 consent event metrics."""
-        try:
-            key = f"consent_events_{client_id}_{action}_{status}"
-            self._increment_counter(key)
+        """Record template rendering performance metrics."""
+        with self._lock:
+            # Record template-specific metrics
+            self.template_metrics[template_name].append(render_time)
+            self.histograms[f"oauth2_template_render_duration_{template_name}"].append(render_time)
             
-            if action == "granted" and status == "success":
-                granted_key = f"consents_granted_{client_id}_{scope_count}"
-                self._increment_counter(granted_key)
+            # Record general template metrics
+            self.performance_metrics["template_render_time"].append(render_time)
+            self.counters["oauth2_template_renders_total"] += 1
             
-            self._update_timestamp()
+            # Record slow renders
+            if render_time > 0.5:  # More than 500ms
+                self.counters["oauth2_template_renders_slow"] += 1
             
-        except Exception as e:
-            self.logger.error(f"Failed to record consent event metrics: {e}")
-    
-    def record_authorization_error(
-        self,
-        client_id: str,
-        error_code: str,
-        severity: str
-    ) -> None:
-        """Record OAuth2 authorization error metrics."""
-        try:
-            key = f"authorization_errors_{client_id}_{error_code}_{severity}"
-            self._increment_counter(key)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record authorization error metrics: {e}")
-    
-    def record_token_error(
-        self,
-        client_id: str,
-        error_code: str,
-        grant_type: str
-    ) -> None:
-        """Record OAuth2 token error metrics."""
-        try:
-            key = f"token_errors_{client_id}_{error_code}_{grant_type}"
-            self._increment_counter(key)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record token error metrics: {e}")
+            if render_time > 2.0:  # More than 2 seconds
+                self.counters["oauth2_template_renders_very_slow"] += 1
     
     def record_security_violation(
         self,
         client_id: str,
         violation_type: str,
-        severity: str
+        severity: str,
+        details: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Record OAuth2 security violation metrics."""
-        try:
-            key = f"security_violations_{client_id}_{violation_type}_{severity}"
-            self._increment_counter(key)
-            self._update_timestamp()
+        """Record security violation metrics."""
+        with self._lock:
+            # Record security violation
+            violation_record = {
+                "timestamp": datetime.now(timezone.utc),
+                "client_id": client_id,
+                "violation_type": violation_type,
+                "severity": severity,
+                "details": details
+            }
             
-        except Exception as e:
-            self.logger.error(f"Failed to record security violation metrics: {e}")
+            self.security_violations.append(violation_record)
+            
+            # Record counters
+            self.counters["oauth2_security_violations_total"] += 1
+            self.counters[f"oauth2_security_violations_{violation_type}"] += 1
+            self.counters[f"oauth2_security_violations_{severity}"] += 1
     
     def record_rate_limit_hit(
         self,
         client_id: str,
         endpoint: str,
-        limit_type: str
+        limit_type: str,
+        current_count: Optional[int] = None,
+        limit_value: Optional[int] = None
     ) -> None:
-        """Record OAuth2 rate limit hit metrics."""
-        try:
-            key = f"rate_limit_hits_{client_id}_{endpoint}_{limit_type}"
-            self._increment_counter(key)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record rate limit hit metrics: {e}")
-    
-    def record_pkce_failure(
-        self,
-        client_id: str,
-        failure_type: str
-    ) -> None:
-        """Record PKCE validation failure metrics."""
-        try:
-            key = f"pkce_failures_{client_id}_{failure_type}"
-            self._increment_counter(key)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record PKCE failure metrics: {e}")
-    
-    def record_database_operation(
-        self,
-        operation_type: str,
-        collection: str,
-        duration: float
-    ) -> None:
-        """Record OAuth2 database operation metrics."""
-        try:
-            self._record_histogram("database_operation_duration", duration, {
-                "operation_type": operation_type,
-                "collection": collection
-            })
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to record database operation metrics: {e}")
-    
-    def update_active_counts(
-        self,
-        client_id: str,
-        authorization_codes: int,
-        refresh_tokens: int,
-        consents: int
-    ) -> None:
-        """Update active resource count metrics."""
-        try:
-            self._set_gauge(f"active_authorization_codes_{client_id}", authorization_codes)
-            self._set_gauge(f"active_refresh_tokens_{client_id}", refresh_tokens)
-            self._set_gauge(f"active_consents_{client_id}", consents)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to update active count metrics: {e}")
-    
-    def update_client_counts(
-        self,
-        confidential_active: int,
-        confidential_inactive: int,
-        public_active: int,
-        public_inactive: int
-    ) -> None:
-        """Update registered client count metrics."""
-        try:
-            self._set_gauge("registered_clients_confidential_active", confidential_active)
-            self._set_gauge("registered_clients_confidential_inactive", confidential_inactive)
-            self._set_gauge("registered_clients_public_active", public_active)
-            self._set_gauge("registered_clients_public_inactive", public_inactive)
-            self._update_timestamp()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to update client count metrics: {e}")
-    
-    @contextmanager
-    def time_request(self, endpoint: str, method: str):
-        """Context manager for timing OAuth2 requests."""
-        start_time = time.time()
-        status = "success"
-        
-        try:
-            yield
-        except Exception:
-            status = "error"
-            raise
-        finally:
-            duration = time.time() - start_time
-            try:
-                self._record_histogram("request_duration", duration, {
-                    "endpoint": endpoint,
-                    "method": method,
-                    "status": status
-                })
-            except Exception as e:
-                self.logger.error(f"Failed to record request timing: {e}")
-    
-    @contextmanager
-    def time_token_generation(self, token_type: str, grant_type: str):
-        """Context manager for timing token generation."""
-        start_time = time.time()
-        
-        try:
-            yield
-        finally:
-            duration = time.time() - start_time
-            try:
-                self._record_histogram("token_generation_duration", duration, {
-                    "token_type": token_type,
-                    "grant_type": grant_type
-                })
-            except Exception as e:
-                self.logger.error(f"Failed to record token generation timing: {e}")
-    
-    @contextmanager
-    def time_database_operation(self, operation_type: str, collection: str):
-        """Context manager for timing database operations."""
-        start_time = time.time()
-        
-        try:
-            yield
-        finally:
-            duration = time.time() - start_time
-            try:
-                self.record_database_operation(operation_type, collection, duration)
-            except Exception as e:
-                self.logger.error(f"Failed to record database operation timing: {e}")
-    
-    def get_metrics_summary(self) -> Dict[str, Any]:
-        """Get summary of all collected metrics."""
-        try:
-            return {
-                "counters": dict(self._metrics["counters"]),
-                "histograms": {
-                    name: {
-                        "count": len(values),
-                        "avg": sum(v["value"] for v in values) / len(values) if values else 0,
-                        "min": min(v["value"] for v in values) if values else 0,
-                        "max": max(v["value"] for v in values) if values else 0,
-                        "recent_values": values[-10:]  # Last 10 values
-                    }
-                    for name, values in self._metrics["histograms"].items()
-                },
-                "gauges": dict(self._metrics["gauges"]),
-                "system_info": self._metrics["system_info"],
-                "last_updated": self._metrics["last_updated"].isoformat(),
-                "prometheus_available": PROMETHEUS_AVAILABLE
+        """Record rate limit hit metrics."""
+        with self._lock:
+            # Record rate limit hit
+            rate_limit_record = {
+                "timestamp": datetime.now(timezone.utc),
+                "client_id": client_id,
+                "endpoint": endpoint,
+                "limit_type": limit_type,
+                "current_count": current_count,
+                "limit_value": limit_value
             }
-        except Exception as e:
-            self.logger.error(f"Failed to get metrics summary: {e}")
-            return {}
+            
+            self.rate_limit_hits.append(rate_limit_record)
+            
+            # Record counters
+            self.counters["oauth2_rate_limits_hit_total"] += 1
+            self.counters[f"oauth2_rate_limits_hit_{endpoint}"] += 1
+            self.counters[f"oauth2_rate_limits_hit_{limit_type}"] += 1
     
-    def get_fallback_metrics(self) -> Dict[str, Any]:
-        """Get fallback metrics (same as metrics summary for this implementation)."""
-        return self.get_metrics_summary()
+    def get_completion_rates(self) -> Dict[str, Dict[str, float]]:
+        """Get OAuth2 flow completion rates by authentication method."""
+        with self._lock:
+            rates = {}
+            
+            for auth_method, stats in self.completion_rates.items():
+                total = stats["total"]
+                if total > 0:
+                    success_rate = (stats["success"] / total) * 100
+                    failure_rate = (stats["failure"] / total) * 100
+                else:
+                    success_rate = 0.0
+                    failure_rate = 0.0
+                
+                rates[auth_method] = {
+                    "success_rate": success_rate,
+                    "failure_rate": failure_rate,
+                    "total_flows": total,
+                    "successful_flows": stats["success"],
+                    "failed_flows": stats["failure"]
+                }
+            
+            return rates
     
-    def _increment_counter(self, key: str) -> None:
-        """Increment a counter metric."""
-        self._metrics["counters"][key] = self._metrics["counters"].get(key, 0) + 1
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """Get performance metrics summary."""
+        with self._lock:
+            summary = {}
+            
+            # Authorization performance
+            auth_durations = list(self.performance_metrics["authorization_duration"])
+            if auth_durations:
+                summary["authorization"] = {
+                    "avg_duration": sum(auth_durations) / len(auth_durations),
+                    "max_duration": max(auth_durations),
+                    "min_duration": min(auth_durations),
+                    "p95_duration": self._calculate_percentile(auth_durations, 95),
+                    "p99_duration": self._calculate_percentile(auth_durations, 99)
+                }
+            
+            # Token performance
+            token_durations = list(self.performance_metrics["token_duration"])
+            if token_durations:
+                summary["token"] = {
+                    "avg_duration": sum(token_durations) / len(token_durations),
+                    "max_duration": max(token_durations),
+                    "min_duration": min(token_durations),
+                    "p95_duration": self._calculate_percentile(token_durations, 95),
+                    "p99_duration": self._calculate_percentile(token_durations, 99)
+                }
+            
+            # Template performance
+            template_summary = {}
+            for template_name, render_times in self.template_metrics.items():
+                if render_times:
+                    times_list = list(render_times)
+                    template_summary[template_name] = {
+                        "avg_render_time": sum(times_list) / len(times_list),
+                        "max_render_time": max(times_list),
+                        "min_render_time": min(times_list),
+                        "render_count": len(times_list),
+                        "slow_renders": sum(1 for t in times_list if t > 0.5)
+                    }
+            
+            summary["templates"] = template_summary
+            
+            return summary
     
-    def _record_histogram(self, name: str, value: float, labels: Dict[str, str]) -> None:
-        """Record a histogram value."""
-        if name not in self._metrics["histograms"]:
-            self._metrics["histograms"][name] = []
+    def get_security_summary(self) -> Dict[str, Any]:
+        """Get security metrics summary."""
+        with self._lock:
+            violations_by_type = defaultdict(int)
+            violations_by_severity = defaultdict(int)
+            
+            for violation in self.security_violations:
+                violations_by_type[violation["violation_type"]] += 1
+                violations_by_severity[violation["severity"]] += 1
+            
+            rate_limits_by_endpoint = defaultdict(int)
+            rate_limits_by_type = defaultdict(int)
+            
+            for rate_limit in self.rate_limit_hits:
+                rate_limits_by_endpoint[rate_limit["endpoint"]] += 1
+                rate_limits_by_type[rate_limit["limit_type"]] += 1
+            
+            return {
+                "security_violations": {
+                    "total": len(self.security_violations),
+                    "by_type": dict(violations_by_type),
+                    "by_severity": dict(violations_by_severity)
+                },
+                "rate_limits": {
+                    "total": len(self.rate_limit_hits),
+                    "by_endpoint": dict(rate_limits_by_endpoint),
+                    "by_type": dict(rate_limits_by_type)
+                }
+            }
+    
+    def get_health_metrics(self) -> Dict[str, Any]:
+        """Get system health metrics."""
+        with self._lock:
+            return self.health_metrics.copy()
+    
+    def get_all_metrics(self) -> Dict[str, Any]:
+        """Get all collected metrics."""
+        return {
+            "completion_rates": self.get_completion_rates(),
+            "performance": self.get_performance_summary(),
+            "security": self.get_security_summary(),
+            "health": self.get_health_metrics(),
+            "counters": dict(self.counters),
+            "error_counts": dict(self.error_counts)
+        }
+    
+    def _calculate_percentile(self, values: List[float], percentile: int) -> float:
+        """Calculate percentile value from list of values."""
+        if not values:
+            return 0.0
         
-        self._metrics["histograms"][name].append({
-            "value": value,
-            "labels": labels,
-            "timestamp": datetime.utcnow().timestamp()
-        })
+        sorted_values = sorted(values)
+        index = int((percentile / 100.0) * len(sorted_values))
+        if index >= len(sorted_values):
+            index = len(sorted_values) - 1
         
-        # Keep only last 1000 values per histogram
-        if len(self._metrics["histograms"][name]) > 1000:
-            self._metrics["histograms"][name] = self._metrics["histograms"][name][-1000:]
+        return sorted_values[index]
     
-    def _set_gauge(self, key: str, value: float) -> None:
-        """Set a gauge metric value."""
-        self._metrics["gauges"][key] = value
-    
-    def _update_timestamp(self) -> None:
-        """Update the last updated timestamp."""
-        self._metrics["last_updated"] = datetime.utcnow()
+    def _update_health_metrics(self) -> None:
+        """Update health metrics calculations."""
+        total = self.health_metrics["total_requests"]
+        if total > 0:
+            self.health_metrics["error_rate"] = (
+                self.health_metrics["failed_requests"] / total
+            ) * 100
+        
+        # Update average response time
+        all_durations = []
+        all_durations.extend(self.performance_metrics["authorization_duration"])
+        all_durations.extend(self.performance_metrics["token_duration"])
+        
+        if all_durations:
+            self.health_metrics["avg_response_time"] = sum(all_durations) / len(all_durations)
+        
+        self.health_metrics["last_updated"] = datetime.now(timezone.utc)
 
 
-# Global OAuth2 metrics collector instance
+# Global metrics collector instance
 oauth2_metrics = OAuth2MetricsCollector()
 
 
-# Convenience functions for common metrics operations
-def record_authorization_request(client_id: str, response_type: str, status: str, duration: Optional[float] = None) -> None:
-    """Record authorization request metrics."""
-    oauth2_metrics.record_authorization_request(client_id, response_type, status, duration)
+# Convenience functions for common metric operations
+def record_auth_request(
+    client_id: str,
+    response_type: str,
+    status: str,
+    auth_method: str = "unknown",
+    duration: Optional[float] = None,
+    error_code: Optional[str] = None
+) -> None:
+    """Record authorization request metric."""
+    oauth2_metrics.record_authorization_request(
+        client_id, response_type, status, auth_method, duration, error_code
+    )
 
 
-def record_token_request(client_id: str, grant_type: str, status: str, duration: Optional[float] = None) -> None:
-    """Record token request metrics."""
-    oauth2_metrics.record_token_request(client_id, grant_type, status, duration)
+def record_token_request(
+    client_id: str,
+    grant_type: str,
+    status: str,
+    duration: Optional[float] = None,
+    error_code: Optional[str] = None
+) -> None:
+    """Record token request metric."""
+    oauth2_metrics.record_token_request(client_id, grant_type, status, duration, error_code)
 
 
-def record_token_issued(client_id: str, token_type: str, grant_type: str, generation_duration: Optional[float] = None) -> None:
-    """Record token issuance metrics."""
-    oauth2_metrics.record_token_issued(client_id, token_type, grant_type, generation_duration)
+def record_template_performance(
+    template_name: str,
+    render_time: float,
+    client_id: Optional[str] = None
+) -> None:
+    """Record template rendering performance."""
+    oauth2_metrics.record_template_render_time(template_name, render_time, client_id)
 
 
-def record_security_violation(client_id: str, violation_type: str, severity: str = "high") -> None:
-    """Record security violation metrics."""
-    oauth2_metrics.record_security_violation(client_id, violation_type, severity)
+def record_security_violation(
+    client_id: str,
+    violation_type: str,
+    severity: str,
+    details: Optional[Dict[str, Any]] = None
+) -> None:
+    """Record security violation."""
+    oauth2_metrics.record_security_violation(client_id, violation_type, severity, details)
 
 
-def record_rate_limit_hit(client_id: str, endpoint: str, limit_type: str = "requests") -> None:
-    """Record rate limit hit metrics."""
-    oauth2_metrics.record_rate_limit_hit(client_id, endpoint, limit_type)
+def record_rate_limit_hit(
+    client_id: str,
+    endpoint: str,
+    limit_type: str,
+    current_count: Optional[int] = None,
+    limit_value: Optional[int] = None
+) -> None:
+    """Record rate limit hit."""
+    oauth2_metrics.record_rate_limit_hit(client_id, endpoint, limit_type, current_count, limit_value)
 
 
-def time_request(endpoint: str, method: str = "GET"):
-    """Time OAuth2 request execution."""
-    return oauth2_metrics.time_request(endpoint, method)
+# Context managers for timing operations
+class time_request:
+    """Context manager for timing OAuth2 requests."""
+    
+    def __init__(self, client_id: str, operation: str):
+        self.client_id = client_id
+        self.operation = operation
+        self.start_time = None
+    
+    def __enter__(self):
+        self.start_time = time.time()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.start_time:
+            duration = time.time() - self.start_time
+            
+            if self.operation == "authorization":
+                status = "failure" if exc_type else "success"
+                oauth2_metrics.record_authorization_request(
+                    self.client_id, "code", status, auth_method="browser_session", duration=duration
+                )
+            elif self.operation == "token":
+                status = "failure" if exc_type else "success"
+                oauth2_metrics.record_token_request(
+                    self.client_id, "authorization_code", status, duration=duration
+                )
 
 
-def time_token_generation(token_type: str, grant_type: str):
-    """Time token generation execution."""
-    return oauth2_metrics.time_token_generation(token_type, grant_type)
-
-
-def time_database_operation(operation_type: str, collection: str):
-    """Time database operation execution."""
-    return oauth2_metrics.time_database_operation(operation_type, collection)
+class time_template_render:
+    """Context manager for timing template rendering."""
+    
+    def __init__(self, template_name: str, client_id: Optional[str] = None):
+        self.template_name = template_name
+        self.client_id = client_id
+        self.start_time = None
+    
+    def __enter__(self):
+        self.start_time = time.time()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.start_time:
+            duration = time.time() - self.start_time
+            oauth2_metrics.record_template_render_time(
+                self.template_name, duration, self.client_id
+            )
