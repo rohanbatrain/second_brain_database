@@ -28,6 +28,7 @@ Logs will go to Loki if available, otherwise to console or buffer file.
 import logging
 import os
 import threading
+from datetime import datetime, timezone
 
 from second_brain_database.config import settings
 
@@ -54,22 +55,111 @@ LOKI_VERSION: str = getattr(settings, "LOKI_VERSION", "1")
 LOKI_COMPRESS: bool = getattr(settings, "LOKI_COMPRESS", True)
 BUFFER_LOCK = threading.Lock()
 
+import requests
+import time
+import threading
+
+LOKI_HEALTH_URL = os.getenv("LOKI_HEALTH_URL", LOKI_URL.replace("/loki/api/v1/push", "/ready"))
+LOKI_PING_INTERVAL_SECONDS = 24 * 60 * 60  # Once per day
+
+LOKI_BUFFER_FLUSH_ENABLED = True  # Global admin toggle
+
+def set_loki_buffer_flush_enabled(enabled: bool):
+    global LOKI_BUFFER_FLUSH_ENABLED
+    LOKI_BUFFER_FLUSH_ENABLED = enabled
+
+def ping_loki_and_flush_if_available():
+    """
+    Ping Loki's health endpoint. If available, flush buffer and switch to Loki logging.
+    Schedules itself to run again in 24 hours.
+    """
+    logger = get_logger()
+    try:
+        resp = requests.get(LOKI_HEALTH_URL, timeout=5)
+        if resp.status_code == 200:
+            logger.info("[LoggingManager] Loki is available. Flushing buffer and switching to Loki logging.")
+            if LOKI_BUFFER_FLUSH_ENABLED:
+                # Attach Loki handler if not present
+                if _loki_available and LokiLoggerHandler:
+                    handler_types = [type(h) for h in logger.handlers]
+                    if LokiLoggerHandler not in handler_types:
+                        loki_handler = LokiLoggerHandler(
+                            url=LOKI_URL,
+                            labels=LOKI_TAGS,
+                            auth=None,
+                            compressed=LOKI_COMPRESS,
+                        )
+                        logger.addHandler(loki_handler)
+                    else:
+                        loki_handler = [h for h in logger.handlers if isinstance(h, LokiLoggerHandler)][0]
+                    _flush_buffer_to_loki(loki_handler, logger)
+                    archive_worker_logs(logger)
+            else:
+                logger.info("[LoggingManager] Buffer flush is disabled by admin toggle.")
+        else:
+            logger.warning(f"[LoggingManager] Loki health check failed: status {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"[LoggingManager] Loki health check exception: {e}")
+    # Schedule next ping
+    threading.Timer(LOKI_PING_INTERVAL_SECONDS, ping_loki_and_flush_if_available).start()
+
+# Start the daily ping/flush scheduler at import
+threading.Timer(10, ping_loki_and_flush_if_available).start()  # Delay 10s to avoid race at startup
 
 def _write_to_buffer(record: logging.LogRecord) -> None:
     """
-    Write a log record to the buffer file in a thread-safe and robust way.
+    Write a log record to the buffer file in a thread-safe and robust way, with file-level deduplication and rich JSON lines for Loki/enterprise compatibility.
     Args:
         record: The log record to write.
     Side-effects:
-        Appends to BUFFER_FILE.
+        Appends to BUFFER_FILE only if the line is not identical to the last line.
     """
-    log_line = f"{record.created}|{record.levelname}|{record.name}|{record.getMessage()}\n"
+    import json
+    import socket
+    import traceback
+    log_dict = {
+        "ts": record.created,  # Unix timestamp
+        "iso_ts": record.asctime if hasattr(record, "asctime") else None,  # ISO8601 timestamp if available
+        "level": record.levelname,
+        "logger": record.name,
+        "msg": record.getMessage(),
+        "process": record.process,
+        "processName": record.processName,
+        "thread": record.thread,
+        "threadName": record.threadName,
+        "filename": record.filename,
+        "funcName": record.funcName,
+        "lineno": record.lineno,
+        "pathname": record.pathname,
+        "host": socket.gethostname(),
+        "app": os.getenv("APP_NAME", getattr(settings, "APP_NAME", "Second_Brain_Database-app")),
+        "env": os.getenv("ENV", getattr(settings, "ENV", "dev")),
+        "exception": None,
+        # Optional custom fields
+        "request_id": getattr(record, "request_id", None),
+        "user_id": getattr(record, "user_id", None),
+        "operation_id": getattr(record, "operation_id", None),
+    }
+    if record.exc_info:
+        log_dict["exception"] = "".join(traceback.format_exception(*record.exc_info))
+    log_line = json.dumps(log_dict, ensure_ascii=False) + "\n"
     try:
         with BUFFER_LOCK:
+            last_line = None
+            if os.path.exists(BUFFER_FILE):
+                with open(BUFFER_FILE, "rb") as f:
+                    try:
+                        f.seek(-4096, os.SEEK_END)
+                    except OSError:
+                        f.seek(0)
+                    lines = f.readlines()
+                    if lines:
+                        last_line = lines[-1].decode("utf-8", errors="ignore").rstrip("\n")
+            if last_line == log_line.rstrip("\n"):
+                return  # Skip writing duplicate
             with open(BUFFER_FILE, "a", encoding="utf-8") as f:
                 f.write(log_line)
     except OSError as e:
-        # Fallback: print to stderr if buffer file is not writable
         logging.getLogger("Second_Brain_Database").error(
             "[LoggingManager] Failed to write log to buffer file '%s': %s", BUFFER_FILE, e, exc_info=True
         )
@@ -136,15 +226,77 @@ def _flush_buffer_to_loki(loki_handler: logging.Handler, logger: logging.Logger)
             else:
                 os.remove(BUFFER_FILE)
                 logger.info("[LoggingManager] Flushed all buffered logs to Loki and deleted buffer file.")
+                archive_worker_logs(logger)
 
         except (OSError, ValueError) as flush_exc:
             logger.error("[LoggingManager] Failed to flush buffer to Loki: %s", flush_exc, exc_info=True)
 
 
+def archive_worker_logs(logger: logging.Logger = None):
+    """
+    Move all per-worker log files from logs/ to logs/archive/ after successful Loki delivery.
+    """
+    import shutil
+    logs_dir = os.path.join("logs")
+    archive_dir = os.path.join(logs_dir, "archive")
+    os.makedirs(archive_dir, exist_ok=True)
+    for fname in os.listdir(logs_dir):
+        if fname.startswith("worker_") and fname.endswith(".log"):
+            src = os.path.join(logs_dir, fname)
+            dst = os.path.join(archive_dir, fname)
+            try:
+                shutil.move(src, dst)
+                if logger:
+                    logger.info(f"[LoggingManager] Archived worker log file: {fname}")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"[LoggingManager] Failed to archive worker log file {fname}: {e}")
+
+
+def get_worker_log_filename():
+    import os
+    pid = os.getpid()
+    return os.path.join("logs", f"worker_{pid}.log")
+
+def get_worker_registry_filename():
+    return os.path.join("logs", "worker_registry.json")
+
 def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefix: str = "") -> logging.Logger:
-    # Always get the logger and ensure at least a StreamHandler is attached
+    import json
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+    # Per-worker log file in logs/
+    log_filename = get_worker_log_filename()
+    os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_filename) for h in logger.handlers):
+        file_handler = logging.FileHandler(log_filename)
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        # Register worker in registry
+        reg_file = get_worker_registry_filename()
+        worker_info = {
+            "pid": os.getpid(),
+            "log_file": log_filename,
+            "start_time": datetime.now(timezone.utc).isoformat(),
+            "hostname": os.getenv("HOSTNAME", os.uname().nodename),
+        }
+        try:
+            if os.path.exists(reg_file):
+                with open(reg_file, "r", encoding="utf-8") as f:
+                    reg = json.load(f)
+            else:
+                reg = {}
+            reg[str(os.getpid())] = worker_info
+            with open(reg_file, "w", encoding="utf-8") as f:
+                json.dump(reg, f, indent=2)
+        except Exception as e:
+            logger.warning("[LoggingManager] Could not update worker registry: %s", e)
+
+    # Shared Loki buffer file in logs/
+    global BUFFER_FILE
+    BUFFER_FILE = os.path.join("logs", "loki_buffer.log")
 
     # Always attach a StreamHandler for console logging if not present
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):

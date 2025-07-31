@@ -59,48 +59,48 @@ class SecurityLogger:
         self.logger = get_logger(name="Second_Brain_Database_Security", prefix=prefix)
 
     def log_event(self, context: SecurityContext):
-        """Log a security event with full context."""
+        """Log a security event with full context (structured JSON)."""
+        import os
         event_data = {
+            "event": "security_event",
             "event_type": context.event_type,
             "timestamp": context.timestamp or datetime.now(timezone.utc).isoformat(),
             "success": context.success,
             "user_id": context.user_id or "anonymous",
             "ip_address": context.ip_address or "unknown",
+            "details": _sanitize_security_details(context.details) if context.details else None,
+            "process": os.getpid(),
+            "host": os.getenv("HOSTNAME", "unknown"),
+            "app": os.getenv("APP_NAME", "Second_Brain_Database-app"),
+            "env": os.getenv("ENV", "dev"),
         }
-
-        if context.details:
-            event_data["details"] = _sanitize_security_details(context.details)
-
         status = "SUCCESS" if context.success else "FAILURE"
-        self.logger.info("SECURITY EVENT [%s]: %s - %s", status, context.event_type, event_data)
+        event_data["status"] = status
+        self.logger.info(event_data)
 
 
 class DatabaseLogger:
-    """Specialized logger for database operations."""
+    """Specialized logger for database operations (structured JSON)."""
 
     def __init__(self, prefix: str = "[DATABASE]"):
         self.logger = get_logger(name="Second_Brain_Database_DB_Operations", prefix=prefix)
 
     def log_operation(self, context: DatabaseContext):
-        """Log a database operation with context."""
-        if context.duration is not None:
-            if context.result_count is not None:
-                self.logger.info(
-                    "DB %s on %s completed in %.3fs - %s records affected",
-                    context.operation,
-                    context.collection,
-                    context.duration,
-                    context.result_count,
-                )
-            else:
-                self.logger.info(
-                    "DB %s on %s completed in %.3fs",
-                    context.operation,
-                    context.collection,
-                    context.duration,
-                )
-        else:
-            self.logger.info("DB %s on %s", context.operation, context.collection)
+        import os
+        log_data = {
+            "event": "database_operation",
+            "operation": context.operation,
+            "collection": context.collection,
+            "query": _sanitize_security_details(context.query) if context.query else None,
+            "duration": context.duration,
+            "result_count": context.result_count,
+            "timestamp": context.timestamp or datetime.now(timezone.utc).isoformat(),
+            "process": os.getpid(),
+            "host": os.getenv("HOSTNAME", "unknown"),
+            "app": os.getenv("APP_NAME", "Second_Brain_Database-app"),
+            "env": os.getenv("ENV", "dev"),
+        }
+        self.logger.info(log_data)
 
 
 def log_auth_success(
@@ -144,7 +144,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         self.logger = get_logger(name="Second_Brain_Database_Requests", prefix="[REQUEST]")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Process request and response with comprehensive logging."""
+        """Process request and response with comprehensive logging (structured JSON)."""
+        import os
+        from datetime import datetime, timezone
+        import traceback
         # Generate unique request ID for tracing
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
@@ -156,45 +159,77 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         path = str(request.url.path)
         query_params = str(request.url.query) if request.url.query else None
 
-        # Log incoming request
-        query_info = f" - Query: {query_params}" if query_params else ""
-        self.logger.info(
-            "[%s] %s %s - IP: %s - User-Agent: %s...%s",
-            request_id,
-            method,
-            path,
-            client_ip,
-            user_agent[:100],
-            query_info,
-        )
+        # Log incoming request (structured JSON)
+        log_data = {
+            "event": "request_received",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": request_id,
+            "method": method,
+            "path": path,
+            "query_params": query_params,
+            "client_ip": client_ip,
+            "user_agent": user_agent,
+            "process": os.getpid(),
+            "thread": None,  # Optionally add threading.get_ident() if needed
+            "host": os.getenv("HOSTNAME", "unknown"),
+            "app": os.getenv("APP_NAME", "Second_Brain_Database-app"),
+            "env": os.getenv("ENV", "dev"),
+        }
+        self.logger.info(log_data)
 
         # Process request and capture response
         try:
             response = await call_next(request)
             duration = time.time() - start_time
 
-            # Log successful response
-            self.logger.info(
-                "[%s] %s %s - %s - %.3fs - %s bytes",
-                request_id,
-                method,
-                path,
-                response.status_code,
-                duration,
-                len(getattr(response, "body", b"")),
-            )
+            # Log successful response (structured JSON)
+            response_log = {
+                "event": "response_sent",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "status_code": response.status_code,
+                "duration": duration,
+                "response_size": len(getattr(response, "body", b"")),
+                "client_ip": client_ip,
+                "user_agent": user_agent,
+                "process": os.getpid(),
+                "thread": None,
+                "host": os.getenv("HOSTNAME", "unknown"),
+                "app": os.getenv("APP_NAME", "Second_Brain_Database-app"),
+                "env": os.getenv("ENV", "dev"),
+            }
+            self.logger.info(response_log)
 
             # Log slow requests
             if duration > 1.0:
-                self.logger.warning("[%s] SLOW REQUEST: %s %s took %.3fs", request_id, method, path, duration)
+                slow_log = response_log.copy()
+                slow_log["event"] = "slow_request"
+                self.logger.warning(slow_log)
 
             return response
 
         except Exception as e:
             duration = time.time() - start_time
-
-            # Log request error
-            self.logger.error("[%s] %s %s - ERROR after %.3fs: %s", request_id, method, path, duration, str(e))
+            error_log = {
+                "event": "request_error",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "duration": duration,
+                "exception": str(e),
+                "stack_trace": traceback.format_exc(),
+                "client_ip": client_ip,
+                "user_agent": user_agent,
+                "process": os.getpid(),
+                "thread": None,
+                "host": os.getenv("HOSTNAME", "unknown"),
+                "app": os.getenv("APP_NAME", "Second_Brain_Database-app"),
+                "env": os.getenv("ENV", "dev"),
+            }
+            self.logger.error(error_log)
             raise
 
     def _get_client_ip(self, request: Request) -> str:

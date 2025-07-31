@@ -22,33 +22,30 @@ dependencies = [
     # Web Framework and ASGI Server
     "fastapi>=0.115.0,<0.116.0",
     "uvicorn[standard]>=0.34.0,<0.35.0",
-    
     # Database and Storage
-    "motor>=3.7.0,<4.0.0",  # MongoDB async driver
-    "pymongo>=4.10.0,<5.0.0",  # MongoDB driver (used by motor)
-    "redis>=5.0.0,<6.0.0",  # Redis client
-    
+    "motor>=3.7.0,<4.0.0", # MongoDB async driver
+    "pymongo>=4.10.0,<5.0.0", # MongoDB driver (used by motor)
+    "redis>=5.0.0,<6.0.0", # Redis client
     # Data Validation and Settings
     "pydantic>=2.11.0,<3.0.0",
     "pydantic-settings>=2.9.0,<3.0.0",
     "python-dotenv>=1.1.0,<2.0.0",
     "email-validator>=2.0.0,<3.0.0",
-    
     # Authentication and Security
-    "python-jose[cryptography]>=3.3.0,<4.0.0",  # JWT handling
-    "bcrypt>=4.0.0,<5.0.0",  # Password hashing
-    "cryptography>=41.0.0,<42.0.0",  # Cryptographic operations
-    "pyotp>=2.8.0,<3.0.0",  # TOTP/HOTP library for 2FA
-    
+    "python-jose[cryptography]>=3.3.0,<4.0.0", # JWT handling
+    "bcrypt>=4.0.0,<5.0.0", # Password hashing
+    "cryptography>=41.0.0,<42.0.0", # Cryptographic operations
+    "pyotp>=2.8.0,<3.0.0", # TOTP/HOTP library for 2FA
     # HTTP Client
-    "httpx>=0.25.0,<1.0.0",  # HTTP client for external API calls
-    "aiohttp>=3.8.0,<4.0.0",  # Alternative HTTP client
-    
+    "httpx>=0.25.0,<1.0.0", # HTTP client for external API calls
+    "aiohttp>=3.8.0,<4.0.0", # Alternative HTTP client
     # QR Code Generation
-    "qrcode[pil]>=7.4.0,<8.0.0",  # QR code generation with PIL support
-    
+    "qrcode[pil]>=7.4.0,<8.0.0", # QR code generation with PIL support
     # Monitoring and Metrics
     "prometheus-fastapi-instrumentator>=7.0.0,<8.0.0",
+    "python-multipart>=0.0.20",
+    "loki-logger-handler>=1.1.2",
+    "requests>=2.32.4",
 ]
 
 [project.optional-dependencies]
