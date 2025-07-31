@@ -14,7 +14,7 @@ from second_brain_database.docs.models import (
 )
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
     log_database_operation,
@@ -83,7 +83,7 @@ logger = get_logger(prefix="[BANNERS]")
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def get_rented_banners(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_rented_banners(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     # Set up logging context
     request_id = str(uuid.uuid4())[:8]
     client_ip = security_manager.get_client_ip(request)
@@ -210,7 +210,7 @@ async def get_rented_banners(request: Request, current_user: dict = Depends(get_
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def get_owned_banners(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_banners(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     # Set up logging context
     request_id = str(uuid.uuid4())[:8]
     client_ip = security_manager.get_client_ip(request)
@@ -333,7 +333,7 @@ async def get_owned_banners(request: Request, current_user: dict = Depends(get_c
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def set_current_banner(request: Request, data: dict, current_user: dict = Depends(get_current_user_dep)):
+async def set_current_banner(request: Request, data: dict, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Set the current active banner for the user and application.
 
@@ -491,7 +491,7 @@ async def set_current_banner(request: Request, data: dict, current_user: dict = 
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def get_current_banner(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_current_banner(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     # Set up logging context
     request_id = str(uuid.uuid4())[:8]
     client_ip = security_manager.get_client_ip(request)

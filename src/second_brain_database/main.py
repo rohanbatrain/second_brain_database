@@ -27,7 +27,9 @@ from second_brain_database.routes.auth.periodics.cleanup import (
     periodic_banner_rental_cleanup,
     periodic_email_verification_token_cleanup,
     periodic_session_cleanup,
+    periodic_temporary_access_tokens_cleanup,
     periodic_trusted_ip_lockdown_code_cleanup,
+    periodic_trusted_user_agent_lockdown_code_cleanup,
 )
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.routes.avatars.routes import router as avatars_router
@@ -118,7 +120,9 @@ async def lifespan(_app: FastAPI):
                 "banner_cleanup": asyncio.create_task(periodic_banner_rental_cleanup()),
                 "email_verification_cleanup": asyncio.create_task(periodic_email_verification_token_cleanup()),
                 "session_cleanup": asyncio.create_task(periodic_session_cleanup()),
+                "temporary_access_cleanup": asyncio.create_task(periodic_temporary_access_tokens_cleanup()),
                 "trusted_ip_cleanup": asyncio.create_task(periodic_trusted_ip_lockdown_code_cleanup()),
+                "trusted_user_agent_cleanup": asyncio.create_task(periodic_trusted_user_agent_lockdown_code_cleanup()),
                 "admin_session_cleanup": asyncio.create_task(periodic_admin_session_token_cleanup()),
             }
         )

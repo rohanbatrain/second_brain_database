@@ -655,3 +655,190 @@ async def periodic_admin_session_token_cleanup() -> None:
         except Exception as exc:
             logger.error("Error in periodic_admin_session_token_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
+
+async def get_last_trusted_user_agent_lockdown_code_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the trusted User Agent lockdown code cleanup task ran from the system collection.
+    Returns a datetime object or None if not set.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "trusted_user_agent_lockdown_code_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Trusted User Agent] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("[Trusted User Agent] Error getting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+
+async def set_last_trusted_user_agent_lockdown_code_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for trusted User Agent lockdown code cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "trusted_user_agent_lockdown_code_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
+        )
+        logger.debug("[Trusted User Agent] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("[Trusted User Agent] Error setting last cleanup time: %s", exc, exc_info=True)
+        raise
+
+
+async def periodic_trusted_user_agent_lockdown_code_cleanup() -> None:
+    """
+    Periodically remove expired trusted User Agent lockdown codes from user documents.
+    Now tracks last run time in the system collection for resilience.
+    """
+    users = db_manager.get_collection("users")
+    interval = 3600  # Run every hour
+    logger.info("Starting periodic trusted User Agent lockdown code cleanup task with interval %ds", interval)
+    while True:
+        try:
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_trusted_user_agent_lockdown_code_cleanup_time()
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                async for user in users.find({"trusted_user_agent_lockdown_codes": {"$exists": True, "$ne": []}}):
+                    codes = user.get("trusted_user_agent_lockdown_codes", [])
+                    filtered = [c for c in codes if c.get("expires_at", now) > now]
+                    if len(filtered) != len(codes):
+                        await users.update_one({"_id": user["_id"]}, {"$set": {"trusted_user_agent_lockdown_codes": filtered}})
+                        cleanup_count += 1
+                        logger.info(
+                            "Trusted User Agent lockdown code cleanup: removed expired codes for user '%s' (_id=%s)",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
+                if cleanup_count > 0:
+                    logger.info("Trusted User Agent lockdown code cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No trusted User Agent lockdown code cleanup actions needed this cycle.")
+                await set_last_trusted_user_agent_lockdown_code_cleanup_time(now_dt)
+            else:
+                logger.debug(
+                    "[Trusted User Agent] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
+        except Exception as exc:
+            logger.error("Error in periodic_trusted_user_agent_lockdown_code_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)
+
+
+async def get_last_temporary_access_tokens_cleanup_time() -> Optional[datetime]:
+    """
+    Retrieve the last time the temporary access tokens cleanup task ran from the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        doc = await system.find_one({"_id": "temporary_access_tokens_cleanup"})
+        if doc and "last_cleanup" in doc:
+            logger.debug("[Temporary Access] Retrieved last cleanup time: %s", doc["last_cleanup"])
+            return datetime.fromisoformat(doc["last_cleanup"])
+        return None
+    except Exception as exc:
+        logger.error("Error retrieving last temporary access tokens cleanup time: %s", exc, exc_info=True)
+        return None
+
+
+async def set_last_temporary_access_tokens_cleanup_time(dt: datetime) -> None:
+    """
+    Update the last cleanup time for temporary access tokens cleanup in the system collection.
+    """
+    try:
+        system = db_manager.get_collection(SYSTEM_COLLECTION)
+        await system.update_one(
+            {"_id": "temporary_access_tokens_cleanup"}, {"$set": {"last_cleanup": dt.isoformat()}}, upsert=True
+        )
+        logger.debug("[Temporary Access] Set last cleanup time to: %s", dt.isoformat())
+    except Exception as exc:
+        logger.error("Error setting last temporary access tokens cleanup time: %s", exc, exc_info=True)
+
+
+async def periodic_temporary_access_tokens_cleanup() -> None:
+    """
+    Periodically remove expired temporary access tokens from user documents.
+    
+    This cleanup process removes expired "allow once" tokens for both IP and User Agent lockdown
+    from user documents to prevent accumulation of stale data.
+    """
+    interval = 3600  # Run every hour (temporary tokens have short expiration)
+    logger.info("Starting periodic temporary access tokens cleanup task (interval: %ds)", interval)
+    
+    while True:
+        try:
+            users = db_manager.get_collection("users")
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            last_cleanup = await get_last_temporary_access_tokens_cleanup_time()
+            
+            if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
+                cleanup_count = 0
+                
+                # Find users with temporary access tokens or bypasses
+                query = {
+                    "$or": [
+                        {"temporary_ip_access_tokens": {"$exists": True, "$ne": []}},
+                        {"temporary_user_agent_access_tokens": {"$exists": True, "$ne": []}},
+                        {"temporary_ip_bypasses": {"$exists": True, "$ne": []}}
+                    ]
+                }
+                
+                async for user in users.find(query):
+                    user_updated = False
+                    update_fields = {}
+                    
+                    # Clean up expired IP access tokens
+                    ip_tokens = user.get("temporary_ip_access_tokens", [])
+                    if ip_tokens:
+                        filtered_ip_tokens = [t for t in ip_tokens if t.get("expires_at", now) > now]
+                        if len(filtered_ip_tokens) != len(ip_tokens):
+                            update_fields["temporary_ip_access_tokens"] = filtered_ip_tokens
+                            user_updated = True
+                    
+                    # Clean up expired User Agent access tokens
+                    ua_tokens = user.get("temporary_user_agent_access_tokens", [])
+                    if ua_tokens:
+                        filtered_ua_tokens = [t for t in ua_tokens if t.get("expires_at", now) > now]
+                        if len(filtered_ua_tokens) != len(ua_tokens):
+                            update_fields["temporary_user_agent_access_tokens"] = filtered_ua_tokens
+                            user_updated = True
+                    
+                    # Clean up expired IP bypasses
+                    ip_bypasses = user.get("temporary_ip_bypasses", [])
+                    if ip_bypasses:
+                        filtered_ip_bypasses = [b for b in ip_bypasses if b.get("expires_at", now) > now]
+                        if len(filtered_ip_bypasses) != len(ip_bypasses):
+                            update_fields["temporary_ip_bypasses"] = filtered_ip_bypasses
+                            user_updated = True
+                    
+                    # Update user document if any tokens were expired
+                    if user_updated:
+                        await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+                        cleanup_count += 1
+                        logger.info(
+                            "Temporary access tokens cleanup: removed expired tokens for user '%s' (_id=%s)",
+                            user.get("username", "unknown"),
+                            user.get("_id"),
+                        )
+                
+                if cleanup_count > 0:
+                    logger.info("Temporary access tokens cleanup completed: cleaned up %d users", cleanup_count)
+                else:
+                    logger.debug("No temporary access tokens cleanup actions needed this cycle.")
+                    
+                await set_last_temporary_access_tokens_cleanup_time(now_dt)
+            else:
+                logger.debug(
+                    "[Temporary Access] Skipping cleanup; only %ds since last run (interval: %ds)",
+                    (now_dt - last_cleanup).total_seconds() if last_cleanup else 0,
+                    interval,
+                )
+        except Exception as exc:
+            logger.error("Error in periodic_temporary_access_tokens_cleanup: %s", exc, exc_info=True)
+        await asyncio.sleep(interval)

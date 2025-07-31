@@ -66,6 +66,16 @@ class SecurityManager:
             ip = request.client.host
         return ip
 
+    def get_client_user_agent(self, request: Request) -> str:
+        """
+        Extract the User-Agent header from the request.
+        Args:
+            request (Request): The FastAPI request object.
+        Returns:
+            str: The User-Agent string, or empty string if not present.
+        """
+        return request.headers.get("user-agent", "")
+
     def is_trusted_ip(self, ip: str) -> bool:
         """
         Return True if the IP is localhost or a trusted range.
@@ -78,6 +88,142 @@ class SecurityManager:
             return True
         return False
 
+    async def check_ip_lockdown(self, request: Request, user: dict) -> None:
+        """
+        Check IP lockdown for any endpoint (not just login).
+        Raises HTTPException if IP lockdown is enabled and request IP is not trusted.
+        Args:
+            request (Request): The FastAPI request object.
+            user (dict): The user document from database.
+        Raises:
+            HTTPException: If IP lockdown blocks the request.
+        """
+        if not user.get("trusted_ip_lockdown", False):
+            return
+
+        request_ip = self.get_client_ip(request)
+        request_user_agent = self.get_client_user_agent(request)
+        endpoint = f"{request.method} {request.url.path}"
+        
+        if not request_ip:
+            self.logger.warning(
+                "IP lockdown: could not determine request IP for user %s, endpoint: %s, user_agent: %s", 
+                user.get("_id"), endpoint, request_user_agent
+            )
+            raise HTTPException(
+                status_code=403, 
+                detail="Access denied: IP address not in trusted list (IP Lockdown enabled)"
+            )
+
+        trusted_ips = user.get("trusted_ips", [])
+        
+        # Check if IP is in permanent trusted list
+        if request_ip in trusted_ips:
+            self.logger.debug(
+                "IP lockdown: IP %s is in trusted list for user %s, endpoint: %s, user_agent: %s", 
+                request_ip, user.get("_id"), endpoint, request_user_agent
+            )
+            return
+        
+        # Check for temporary IP bypasses (allow once functionality)
+        from datetime import datetime
+        temporary_bypasses = user.get("temporary_ip_bypasses", [])
+        current_time = datetime.utcnow().isoformat()
+        
+        for bypass in temporary_bypasses:
+            if (bypass.get("ip_address") == request_ip and 
+                bypass.get("expires_at", "") > current_time):
+                self.logger.info(
+                    "IP lockdown: IP %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s", 
+                    request_ip, user.get("_id"), endpoint, bypass.get("expires_at")
+                )
+                return
+        
+        # IP is not trusted and has no valid bypass
+        request_headers = dict(request.headers)
+        self.logger.warning(
+            "IP lockdown violation: request from disallowed IP %s for user %s (trusted: %s), "
+            "endpoint: %s, user_agent: %s, headers: %s",
+            request_ip,
+            user.get("_id"),
+            trusted_ips,
+            endpoint,
+            request_user_agent,
+            request_headers,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: IP address not in trusted list (IP Lockdown enabled)"
+        )
+
+    async def check_user_agent_lockdown(self, request: Request, user: dict) -> None:
+        """
+        Check User Agent lockdown for any endpoint.
+        Raises HTTPException if User Agent lockdown is enabled and request User Agent is not trusted.
+        Args:
+            request (Request): The FastAPI request object.
+            user (dict): The user document from database.
+        Raises:
+            HTTPException: If User Agent lockdown blocks the request.
+        """
+        if not user.get("trusted_user_agent_lockdown", False):
+            return
+
+        request_user_agent = self.get_client_user_agent(request)
+        request_ip = self.get_client_ip(request)
+        endpoint = f"{request.method} {request.url.path}"
+        
+        if not request_user_agent:
+            self.logger.warning(
+                "User Agent lockdown: could not determine request User Agent for user %s, endpoint: %s, ip: %s", 
+                user.get("_id"), endpoint, request_ip
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: User Agent not in trusted list (User Agent Lockdown enabled)"
+            )
+
+        trusted_user_agents = user.get("trusted_user_agents", [])
+        
+        # Check if User Agent is in permanent trusted list
+        if request_user_agent in trusted_user_agents:
+            self.logger.debug(
+                "User Agent lockdown: User Agent %s is in trusted list for user %s, endpoint: %s, ip: %s", 
+                request_user_agent, user.get("_id"), endpoint, request_ip
+            )
+            return
+        
+        # Check for temporary User Agent bypasses (allow once functionality)
+        from datetime import datetime
+        temporary_bypasses = user.get("temporary_user_agent_bypasses", [])
+        current_time = datetime.utcnow().isoformat()
+        
+        for bypass in temporary_bypasses:
+            if (bypass.get("user_agent") == request_user_agent and 
+                bypass.get("expires_at", "") > current_time):
+                self.logger.info(
+                    "User Agent lockdown: User Agent %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s", 
+                    request_user_agent, user.get("_id"), endpoint, bypass.get("expires_at")
+                )
+                return
+        
+        # User Agent is not trusted and has no valid bypass
+        request_headers = dict(request.headers)
+        self.logger.warning(
+            "User Agent lockdown violation: request from disallowed User Agent %s for user %s (trusted: %s), "
+            "endpoint: %s, ip: %s, headers: %s",
+            request_user_agent,
+            user.get("_id"),
+            trusted_user_agents,
+            endpoint,
+            request_ip,
+            request_headers,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: User Agent not in trusted list (User Agent Lockdown enabled)"
+        )
+
     async def is_blacklisted(self, ip: str) -> bool:
         """
         Check if the given IP address is currently blacklisted.
@@ -89,17 +235,28 @@ class SecurityManager:
         redis_conn = await self.get_redis()
         return await redis_conn.exists(f"{self.env_prefix}:blacklist:{ip}")
 
-    async def blacklist_ip(self, ip: str) -> None:
+    async def blacklist_ip(self, ip: str, request: Optional[Request] = None) -> None:
         """
         Blacklist the given IP address for a configured duration.
         Args:
             ip (str): The IP address to blacklist.
+            request (Optional[Request]): The FastAPI request object for context logging.
         Side-effects:
             Sets a key in Redis and logs the event.
         """
         redis_conn = await self.get_redis()
         await redis_conn.set(f"{self.env_prefix}:blacklist:{ip}", 1, ex=self.blacklist_duration)
-        self.logger.warning("IP %s has been blacklisted for %d seconds.", ip, self.blacklist_duration)
+        
+        if request:
+            user_agent = self.get_client_user_agent(request)
+            endpoint = f"{request.method} {request.url.path}"
+            request_headers = dict(request.headers)
+            self.logger.warning(
+                "IP %s has been blacklisted for %d seconds, endpoint: %s, user_agent: %s, headers: %s", 
+                ip, self.blacklist_duration, endpoint, user_agent, request_headers
+            )
+        else:
+            self.logger.warning("IP %s has been blacklisted for %d seconds.", ip, self.blacklist_duration)
 
     async def check_rate_limit(
         self,
@@ -152,7 +309,12 @@ class SecurityManager:
             self.logger.debug("Trusted IP %s bypassed rate limiting.", ip)
             return
         if await self.is_blacklisted(ip):
-            self.logger.warning("Blocked request from blacklisted IP: %s", ip)
+            user_agent = self.get_client_user_agent(request)
+            endpoint = f"{request.method} {request.url.path}"
+            self.logger.warning(
+                "Blocked request from blacklisted IP: %s, endpoint: %s, user_agent: %s", 
+                ip, endpoint, user_agent
+            )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=BLACKLISTED_MSG)
         key = f"{self.env_prefix}:ratelimit:{action}:{ip}"
         abuse_key = f"{self.env_prefix}:abuse:{ip}"
@@ -194,10 +356,22 @@ class SecurityManager:
                 abuse_count = 0
                 status_flag = "OK"
         if status_flag == "BLACKLISTED":
-            self.logger.error("IP %s has been blacklisted after %d abuses.", ip, abuse_count)
+            user_agent = self.get_client_user_agent(request)
+            endpoint = f"{request.method} {request.url.path}"
+            request_headers = dict(request.headers)
+            self.logger.error(
+                "IP %s has been blacklisted after %d abuses, endpoint: %s, user_agent: %s, headers: %s", 
+                ip, abuse_count, endpoint, user_agent, request_headers
+            )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=BLACKLISTED_MSG)
         if status_flag == "RATE_LIMITED":
-            self.logger.warning("Rate limit exceeded for IP %s (action: %s). Abuse count: %d", ip, action, abuse_count)
+            user_agent = self.get_client_user_agent(request)
+            endpoint = f"{request.method} {request.url.path}"
+            request_headers = dict(request.headers)
+            self.logger.warning(
+                "Rate limit exceeded for IP %s (action: %s). Abuse count: %d, endpoint: %s, user_agent: %s, headers: %s", 
+                ip, action, abuse_count, endpoint, user_agent, request_headers
+            )
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=RATE_LIMITED_MSG)
 
 

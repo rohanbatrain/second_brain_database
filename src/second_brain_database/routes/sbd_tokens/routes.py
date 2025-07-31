@@ -8,7 +8,7 @@ from pymongo.errors import PyMongoError
 from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.routes.auth import enforce_all_lockdowns
 
 logger = get_logger(prefix="[SBD TOKENS]")
 
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/sbd_tokens")
-async def get_my_sbd_tokens(request: Request = None, current_user: dict = Depends(get_current_user_dep)):
+async def get_my_sbd_tokens(request: Request = None, current_user: dict = Depends(enforce_all_lockdowns)):
     await security_manager.check_rate_limit(
         request, f"sbd_tokens_read_{current_user['username']}", rate_limit_requests=10, rate_limit_period=60
     )
@@ -31,7 +31,7 @@ async def get_my_sbd_tokens(request: Request = None, current_user: dict = Depend
 
 
 @router.post("/sbd_tokens/send")
-async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     from_user = current_user["username"]
     to_user = data.get("to_user")
     amount = data.get("amount")
@@ -198,7 +198,7 @@ async def get_my_sbd_tokens_transactions(
     request: Request = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(5, ge=1, le=100),  # Default limit is now 5
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     username = current_user["username"]
     await security_manager.check_rate_limit(
@@ -222,7 +222,7 @@ async def get_my_sbd_tokens_transactions(
 
 
 @router.patch("/sbd_tokens/transaction/note")
-async def add_note_to_transaction(data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def add_note_to_transaction(data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     transaction_id = data.get("transaction_id")
     note = data.get("note")
     if not transaction_id or not note:

@@ -247,3 +247,8 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests"
 ]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=0.23.8",
+]

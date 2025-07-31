@@ -113,6 +113,14 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         "team": user.team,
         "role": user.role,
         "client_side_encryption": user.client_side_encryption,
+        # User Agent lockdown fields (default disabled)
+        "trusted_user_agent_lockdown": False,
+        "trusted_user_agents": [],
+        "trusted_user_agent_lockdown_codes": [],
+        # Temporary access tracking fields for "allow once" functionality
+        "temporary_ip_access_tokens": [],
+        "temporary_user_agent_access_tokens": [],
+        "temporary_ip_bypasses": [],
     }
 
     # Insert user into database

@@ -211,6 +211,511 @@ def render_trusted_ip_lockdown_email(code: str, action: str, trusted_ips: List[s
     """
 
 
+def render_trusted_user_agent_lockdown_email(code: str, action: str, trusted_user_agents: List[str]) -> str:
+    """
+    Render an HTML email for User Agent lockdown confirmation.
+    Args:
+        code (str): The confirmation code.
+        action (str): 'enable' or 'disable'.
+        trusted_user_agents (List[str]): List of User Agents allowed to confirm.
+    Returns:
+        str: HTML content for the email.
+    """
+    user_agent_list_html = "".join(f"<li>{user_agent}</li>" for user_agent in trusted_user_agents)
+    return f"""
+    <html>
+    <body>
+        <h2>User Agent Lockdown {action.title()} Confirmation</h2>
+        <p>Your confirmation code to <b>{action}</b> User Agent lockdown is: <b>{code}</b></p>
+        <p>This code expires in 15 minutes. If you did not request this, you can ignore this email.</p>
+        <p><b>You must confirm from one of these User Agents:</b></p>
+        <ul>{user_agent_list_html}</ul>
+    </body>
+    </html>
+    """
+
+
+def render_blocked_ip_notification_email(
+    attempted_ip: str, 
+    trusted_ips: List[str], 
+    endpoint: str, 
+    timestamp: str,
+    allow_once_token: str = None,
+    add_to_trusted_token: str = None
+) -> str:
+    """
+    Render an HTML email for blocked IP access notification with action buttons.
+    Args:
+        attempted_ip (str): The IP address that was blocked.
+        trusted_ips (List[str]): List of currently trusted IP addresses.
+        endpoint (str): The endpoint that was accessed.
+        timestamp (str): The timestamp of the blocked attempt.
+    Returns:
+        str: HTML content for the email.
+    """
+    trusted_ips_html = "".join(f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 14px;'>{ip}</li>" for ip in trusted_ips)
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Blocked Access Attempt - IP Lockdown</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f8f9fa;
+            }}
+            .container {{
+                background-color: #ffffff;
+                border-radius: 8px;
+                padding: 30px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #e9ecef;
+            }}
+            .header h1 {{
+                color: #dc3545;
+                margin: 0;
+                font-size: 24px;
+            }}
+            .alert {{
+                background-color: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 6px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }}
+            .alert-icon {{
+                font-size: 20px;
+                margin-right: 10px;
+            }}
+            .details {{
+                background-color: #f8f9fa;
+                border-radius: 6px;
+                padding: 20px;
+                margin: 20px 0;
+            }}
+            .details h3 {{
+                margin-top: 0;
+                color: #495057;
+                font-size: 16px;
+            }}
+            .detail-item {{
+                margin-bottom: 15px;
+            }}
+            .detail-label {{
+                font-weight: 600;
+                color: #495057;
+                display: inline-block;
+                min-width: 120px;
+            }}
+            .detail-value {{
+                font-family: monospace;
+                background-color: #e9ecef;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 14px;
+            }}
+            .trusted-list {{
+                background-color: #f8f9fa;
+                border-radius: 6px;
+                padding: 15px;
+                margin: 15px 0;
+            }}
+            .trusted-list ul {{
+                margin: 10px 0;
+                padding-left: 20px;
+            }}
+            .actions {{
+                margin: 30px 0;
+                text-align: center;
+            }}
+            .action-button {{
+                display: inline-block;
+                padding: 12px 24px;
+                margin: 8px;
+                text-decoration: none;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.2s;
+            }}
+            .btn-primary {{
+                background-color: #007bff;
+                color: #ffffff;
+                border: 2px solid #007bff;
+            }}
+            .btn-primary:hover {{
+                background-color: #0056b3;
+                border-color: #0056b3;
+            }}
+            .btn-secondary {{
+                background-color: #6c757d;
+                color: #ffffff;
+                border: 2px solid #6c757d;
+            }}
+            .btn-secondary:hover {{
+                background-color: #545b62;
+                border-color: #545b62;
+            }}
+            .footer {{
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 1px solid #e9ecef;
+                font-size: 12px;
+                color: #6c757d;
+                text-align: center;
+            }}
+            .security-notice {{
+                background-color: #d1ecf1;
+                border: 1px solid #bee5eb;
+                border-radius: 6px;
+                padding: 15px;
+                margin: 20px 0;
+            }}
+            .security-notice h4 {{
+                margin-top: 0;
+                color: #0c5460;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚫 Blocked Access Attempt</h1>
+                <p>IP Lockdown Protection Activated</p>
+            </div>
+            
+            <div class="alert">
+                <span class="alert-icon">⚠️</span>
+                <strong>Security Alert:</strong> An access attempt to your account was blocked because it came from an untrusted IP address.
+            </div>
+            
+            <div class="details">
+                <h3>Access Attempt Details</h3>
+                <div class="detail-item">
+                    <span class="detail-label">Blocked IP Address:</span><br>
+                    <span class="detail-value">{attempted_ip}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Endpoint Accessed:</span><br>
+                    <span class="detail-value">{endpoint}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Time (UTC):</span><br>
+                    <span class="detail-value">{timestamp}</span>
+                </div>
+            </div>
+            
+            <div class="trusted-list">
+                <h3>Your Currently Trusted IP Addresses</h3>
+                <ul>{trusted_ips_html}</ul>
+            </div>
+            
+            <div class="security-notice">
+                <h4>🔒 What This Means</h4>
+                <p>IP Lockdown is a security feature that only allows access from IP addresses you've explicitly trusted. This helps protect your account from unauthorized access attempts from unknown locations.</p>
+            </div>
+            
+            <div class="actions">
+                <h3>What Would You Like To Do?</h3>
+                <p>If this was a legitimate access attempt from you:</p>
+                
+                {f'''
+                <a href="{settings.BASE_URL}/auth/temporary-access/allow-once?token={allow_once_token}" class="action-button btn-primary">
+                    🔓 Allow Once (15 minutes)
+                </a>
+                ''' if allow_once_token else '''
+                <div class="action-button btn-primary" style="opacity: 0.6; cursor: not-allowed;">
+                    🔓 Allow Once (Token generation failed)
+                </div>
+                '''}
+                
+                {f'''
+                <a href="{settings.BASE_URL}/auth/temporary-access/add-to-trusted?token={add_to_trusted_token}" class="action-button btn-secondary">
+                    ✅ Add to Trusted List
+                </a>
+                ''' if add_to_trusted_token else '''
+                <div class="action-button btn-secondary" style="opacity: 0.6; cursor: not-allowed;">
+                    ✅ Add to Trusted List (Token generation failed)
+                </div>
+                '''}
+            </div>
+            
+            <div class="security-notice">
+                <h4>🛡️ Security Recommendations</h4>
+                <ul style="text-align: left; margin: 10px 0;">
+                    <li>Only add IP addresses from locations you regularly access your account from</li>
+                    <li>Regularly review your trusted IP list</li>
+                    <li>If you didn't attempt this access, no action is needed - your account remains secure</li>
+                    <li>Consider enabling additional security measures like two-factor authentication</li>
+                </ul>
+            </div>
+            
+            <div class="footer">
+                <p>This is an automated security notification from Second Brain Database.</p>
+                <p>If you have questions about this alert, please contact support.</p>
+                <p><strong>Note:</strong> Action buttons expire after a short time for security. If expired, please contact support or manage your trusted IPs through the API.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+def render_blocked_user_agent_notification_email(
+    attempted_user_agent: str, 
+    trusted_user_agents: List[str], 
+    endpoint: str, 
+    timestamp: str,
+    allow_once_token: str = None,
+    add_to_trusted_token: str = None
+) -> str:
+    """
+    Render an HTML email for blocked User Agent access notification with action buttons.
+    Args:
+        attempted_user_agent (str): The User Agent that was blocked.
+        trusted_user_agents (List[str]): List of currently trusted User Agents.
+        endpoint (str): The endpoint that was accessed.
+        timestamp (str): The timestamp of the blocked attempt.
+        allow_once_token (str, optional): Token for "allow once" action.
+        add_to_trusted_token (str, optional): Token for "add to trusted list" action.
+    Returns:
+        str: HTML content for the email.
+    """
+    trusted_user_agents_html = "".join(f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 12px; word-break: break-all;'>{user_agent}</li>" for user_agent in trusted_user_agents)
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Blocked Access Attempt - User Agent Lockdown</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f8f9fa;
+            }}
+            .container {{
+                background-color: #ffffff;
+                border-radius: 8px;
+                padding: 30px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #e9ecef;
+            }}
+            .header h1 {{
+                color: #dc3545;
+                margin: 0;
+                font-size: 24px;
+            }}
+            .alert {{
+                background-color: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 6px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }}
+            .alert-icon {{
+                font-size: 20px;
+                margin-right: 10px;
+            }}
+            .details {{
+                background-color: #f8f9fa;
+                border-radius: 6px;
+                padding: 20px;
+                margin: 20px 0;
+            }}
+            .details h3 {{
+                margin-top: 0;
+                color: #495057;
+                font-size: 16px;
+            }}
+            .detail-item {{
+                margin-bottom: 15px;
+            }}
+            .detail-label {{
+                font-weight: 600;
+                color: #495057;
+                display: inline-block;
+                min-width: 120px;
+            }}
+            .detail-value {{
+                font-family: monospace;
+                background-color: #e9ecef;
+                padding: 4px 8px;
+                border-radius: 4px;
+                word-break: break-all;
+                font-size: 12px;
+            }}
+            .trusted-list {{
+                background-color: #f8f9fa;
+                border-radius: 6px;
+                padding: 15px;
+                margin: 15px 0;
+            }}
+            .trusted-list ul {{
+                margin: 10px 0;
+                padding-left: 20px;
+            }}
+            .actions {{
+                margin: 30px 0;
+                text-align: center;
+            }}
+            .action-button {{
+                display: inline-block;
+                padding: 12px 24px;
+                margin: 8px;
+                text-decoration: none;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.2s;
+            }}
+            .btn-primary {{
+                background-color: #007bff;
+                color: #ffffff;
+                border: 2px solid #007bff;
+            }}
+            .btn-primary:hover {{
+                background-color: #0056b3;
+                border-color: #0056b3;
+            }}
+            .btn-secondary {{
+                background-color: #6c757d;
+                color: #ffffff;
+                border: 2px solid #6c757d;
+            }}
+            .btn-secondary:hover {{
+                background-color: #545b62;
+                border-color: #545b62;
+            }}
+            .footer {{
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 1px solid #e9ecef;
+                font-size: 12px;
+                color: #6c757d;
+                text-align: center;
+            }}
+            .security-notice {{
+                background-color: #d1ecf1;
+                border: 1px solid #bee5eb;
+                border-radius: 6px;
+                padding: 15px;
+                margin: 20px 0;
+            }}
+            .security-notice h4 {{
+                margin-top: 0;
+                color: #0c5460;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚫 Blocked Access Attempt</h1>
+                <p>User Agent Lockdown Protection Activated</p>
+            </div>
+            
+            <div class="alert">
+                <span class="alert-icon">⚠️</span>
+                <strong>Security Alert:</strong> An access attempt to your account was blocked because it came from an untrusted User Agent.
+            </div>
+            
+            <div class="details">
+                <h3>Access Attempt Details</h3>
+                <div class="detail-item">
+                    <span class="detail-label">Blocked User Agent:</span><br>
+                    <span class="detail-value">{attempted_user_agent}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Endpoint Accessed:</span><br>
+                    <span class="detail-value">{endpoint}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Time (UTC):</span><br>
+                    <span class="detail-value">{timestamp}</span>
+                </div>
+            </div>
+            
+            <div class="trusted-list">
+                <h3>Your Currently Trusted User Agents</h3>
+                <ul>{trusted_user_agents_html}</ul>
+            </div>
+            
+            <div class="security-notice">
+                <h4>🔒 What This Means</h4>
+                <p>User Agent Lockdown is a security feature that only allows access from browsers and applications you've explicitly trusted. This helps protect your account from unauthorized access attempts.</p>
+            </div>
+            
+            <div class="actions">
+                <h3>What Would You Like To Do?</h3>
+                <p>If this was a legitimate access attempt from you:</p>
+                
+                {f'''
+                <a href="{settings.BASE_URL}/auth/temporary-access/allow-once-user-agent?token={allow_once_token}" class="action-button btn-primary">
+                    🔓 Allow Once (15 minutes)
+                </a>
+                ''' if allow_once_token else '''
+                <div class="action-button btn-primary" style="opacity: 0.6; cursor: not-allowed;">
+                    🔓 Allow Once (Token generation failed)
+                </div>
+                '''}
+                
+                {f'''
+                <a href="{settings.BASE_URL}/auth/temporary-access/add-to-trusted-user-agent?token={add_to_trusted_token}" class="action-button btn-secondary">
+                    ✅ Add to Trusted List
+                </a>
+                ''' if add_to_trusted_token else '''
+                <div class="action-button btn-secondary" style="opacity: 0.6; cursor: not-allowed;">
+                    ✅ Add to Trusted List (Token generation failed)
+                </div>
+                '''}
+            </div>
+            
+            <div class="security-notice">
+                <h4>🛡️ Security Recommendations</h4>
+                <ul style="text-align: left; margin: 10px 0;">
+                    <li>Only add User Agents from devices and browsers you personally use</li>
+                    <li>Regularly review your trusted User Agent list</li>
+                    <li>If you didn't attempt this access, no action is needed - your account remains secure</li>
+                    <li>Consider enabling additional security measures like two-factor authentication</li>
+                </ul>
+            </div>
+            
+            <div class="footer">
+                <p>This is an automated security notification from Second Brain Database.</p>
+                <p>If you have questions about this alert, please contact support.</p>
+                <p><strong>Note:</strong> Action buttons expire after a short time for security. If expired, please contact support or manage your trusted User Agents through the API.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
 def render_login_page() -> HTMLResponse:
     """
     Serve the secure login HTML page with dual authentication support.

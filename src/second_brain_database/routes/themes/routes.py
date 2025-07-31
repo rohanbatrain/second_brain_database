@@ -14,7 +14,7 @@ from second_brain_database.docs.models import (
 )
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
     log_database_operation,
@@ -89,7 +89,7 @@ logger = get_logger(prefix="[THEMES]")
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def get_rented_themes(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_rented_themes(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     # Set up logging context
     request_id = str(uuid.uuid4())[:8]
     client_ip = security_manager.get_client_ip(request)
@@ -250,7 +250,7 @@ async def get_rented_themes(request: Request, current_user: dict = Depends(get_c
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
 )
-async def get_owned_themes(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_themes(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     # Set up logging context
     request_id = str(uuid.uuid4())[:8]
     client_ip = security_manager.get_client_ip(request)

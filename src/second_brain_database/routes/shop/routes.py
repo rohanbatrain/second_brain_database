@@ -16,7 +16,7 @@ from second_brain_database.docs.models import (
 )
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
-from second_brain_database.routes.auth.routes import get_current_user_dep
+from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
     log_database_operation,
@@ -298,7 +298,7 @@ BUNDLE_CONTENTS = {
 async def buy_theme(
     request: Request,
     data: dict = Body(..., examples={"theme_purchase": {"summary": "Theme purchase request", "value": {"theme_id": "emotion_tracker-serenityGreen"}}}),
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     # Set up logging context
     request_id = str(uuid4())[:8]
@@ -484,7 +484,7 @@ async def buy_theme(
 
 
 @router.post("/shop/avatars/buy", tags=["Shop"], summary="Buy an avatar with SBD tokens")
-async def buy_avatar(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def buy_avatar(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     avatar_id = data.get("avatar_id")
     username = current_user["username"]
@@ -567,7 +567,7 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
 
 
 @router.post("/shop/banners/buy", tags=["Shop"], summary="Buy a banner with SBD tokens")
-async def buy_banner(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def buy_banner(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     banner_id = data.get("banner_id")
     username = current_user["username"]
@@ -650,7 +650,7 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
 
 
 @router.post("/shop/bundles/buy", tags=["Shop"], summary="Buy a bundle with SBD tokens")
-async def buy_bundle(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def buy_bundle(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     bundle_id = data.get("bundle_id")
     username = current_user["username"]
@@ -773,7 +773,7 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
 
 
 @router.post("/shop/cart/add", tags=["shop"], summary="Add an item to the cart by ID")
-async def add_to_cart(request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)):
+async def add_to_cart(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
@@ -814,7 +814,7 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
 
 @router.delete("/shop/cart/remove", tags=["shop"], summary="Remove item from a cart")
 async def remove_from_cart(
-    request: Request, data: dict = Body(...), current_user: dict = Depends(get_current_user_dep)
+    request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)
 ):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
@@ -846,7 +846,7 @@ async def remove_from_cart(
 
 
 @router.delete("/shop/cart/clear", tags=["shop"], summary="Clear all items from a cart")
-async def clear_cart(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def clear_cart(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Clears items from a user's shopping cart for a specific app, identified by user-agent.
     """
@@ -873,7 +873,7 @@ async def clear_cart(request: Request, current_user: dict = Depends(get_current_
 
 
 @router.get("/shop/cart", tags=["shop"], summary="Get a specific app cart")
-async def get_cart(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_cart(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
     user_agent = request.headers.get("user-agent", "").lower()
@@ -894,7 +894,7 @@ async def get_cart(request: Request, current_user: dict = Depends(get_current_us
 
 
 @router.post("/shop/cart/checkout", tags=["shop"], summary="Checkout a specific app cart")
-async def checkout_cart(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def checkout_cart(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
@@ -1050,7 +1050,7 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
 
 
 @router.get("/shop/avatars/owned", tags=["shop"], summary="Get user's owned avatars")
-async def get_owned_avatars(current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_avatars(current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "_id": 0})
@@ -1060,7 +1060,7 @@ async def get_owned_avatars(current_user: dict = Depends(get_current_user_dep)):
 
 
 @router.get("/shop/banners/owned", tags=["shop"], summary="Get user's owned banners")
-async def get_owned_banners(current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_banners(current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user = await users_collection.find_one({"username": username}, {"banners_owned": 1, "_id": 0})
@@ -1070,7 +1070,7 @@ async def get_owned_banners(current_user: dict = Depends(get_current_user_dep)):
 
 
 @router.get("/shop/bundles/owned", tags=["shop"], summary="Get user's owned bundles")
-async def get_owned_bundles(current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_bundles(current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user = await users_collection.find_one({"username": username}, {"bundles_owned": 1, "_id": 0})
@@ -1080,7 +1080,7 @@ async def get_owned_bundles(current_user: dict = Depends(get_current_user_dep)):
 
 
 @router.get("/shop/themes/owned", tags=["shop"], summary="Get user's owned themes")
-async def get_owned_themes(current_user: dict = Depends(get_current_user_dep)):
+async def get_owned_themes(current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user = await users_collection.find_one({"username": username}, {"themes_owned": 1, "_id": 0})
@@ -1090,7 +1090,7 @@ async def get_owned_themes(current_user: dict = Depends(get_current_user_dep)):
 
 
 @router.get("/shop/owned", tags=["shop"], summary="Get all user's owned shop items")
-async def get_all_owned(current_user: dict = Depends(get_current_user_dep)):
+async def get_all_owned(current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user = await users_collection.find_one(

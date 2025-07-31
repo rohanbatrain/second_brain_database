@@ -100,6 +100,8 @@ from second_brain_database.routes.auth.services.auth.password import (
     send_password_reset_email,
     send_password_reset_notification,
     send_trusted_ip_lockdown_code_email,
+    send_user_agent_lockdown_code_email,
+    send_blocked_user_agent_notification,
 )
 from second_brain_database.routes.auth.services.auth.registration import register_user, verify_user_email
 from second_brain_database.routes.auth.services.auth.twofa import (
@@ -138,6 +140,7 @@ from second_brain_database.utils.logging_utils import (
     request_id_context,
     user_id_context,
 )
+from second_brain_database.routes.auth.dependencies import enforce_all_lockdowns, get_current_user_dep
 
 # Constants
 RESEND_RESET_EMAIL_INTERVAL: int = 60  # seconds
@@ -211,15 +214,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 admin_api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
-
-
-
-async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
-    """
-    Dependency function to retrieve the current authenticated user
-    based on the provided OAuth2 token.
-    """
-    return await get_current_user(token)
 
 
 async def require_admin(current_user: dict = Depends(get_current_user_dep)):
@@ -764,7 +758,7 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     tags=["Authentication"],
 )
 @log_performance("token_refresh")
-async def refresh_token(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def refresh_token(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Refresh JWT access token for authenticated user.
 
@@ -810,7 +804,7 @@ async def refresh_token(request: Request, current_user: dict = Depends(get_curre
 @router.post("/logout")
 @log_performance("user_logout")
 async def logout(
-    request: Request, current_user: dict = Depends(get_current_user_dep), token: str = Depends(oauth2_scheme)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns), token: str = Depends(oauth2_scheme)
 ):
     """Logout user (invalidate token on server side)."""
     # Extract request info and set context
@@ -841,7 +835,7 @@ async def logout(
 # Rate limit: change-password: 100 requests per 60 seconds per IP (default)
 @router.put("/change-password")
 async def change_password(
-    password_request: PasswordChangeRequest, current_user: dict = Depends(get_current_user_dep), request: Request = None
+    password_request: PasswordChangeRequest, current_user: dict = Depends(enforce_all_lockdowns), request: Request = None
 ):
     """Change the password for the current authenticated user. Requires recent authentication."""
     await security_manager.check_rate_limit(request, "change-password")
@@ -1097,7 +1091,7 @@ async def username_demand(request: Request, top_n: int = 10):
 
 # Rate limit: 2fa-setup: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/setup", response_model=TwoFASetupResponse)
-async def setup_two_fa(req: Request, request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep)):
+async def setup_two_fa(req: Request, request: TwoFASetupRequest, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Setup a 2FA method for the current user and return TOTP secret, provisioning URI, QR code image, and backup codes.
     If a 2FA setup is already pending, returns the existing setup information instead of generating a new one.
@@ -1110,7 +1104,7 @@ async def setup_two_fa(req: Request, request: TwoFASetupRequest, current_user: d
 
 # Rate limit: 2fa-verify: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/verify", response_model=TwoFAStatus)
-async def verify_two_fa(req: Request, request: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user_dep)):
+async def verify_two_fa(req: Request, request: TwoFAVerifyRequest, current_user: dict = Depends(enforce_all_lockdowns)):
     """Verify a 2FA code for the current user."""
     await security_manager.check_rate_limit(req, "2fa-verify")
     return await verify_2fa(current_user, request)
@@ -1118,7 +1112,7 @@ async def verify_two_fa(req: Request, request: TwoFAVerifyRequest, current_user:
 
 # Rate limit: 2fa-status: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/status", response_model=TwoFAStatus)
-async def get_two_fa_status(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_two_fa_status(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """Get 2FA status for the current user."""
     await security_manager.check_rate_limit(request, "2fa-status")
     return await get_2fa_status(current_user)
@@ -1126,7 +1120,7 @@ async def get_two_fa_status(request: Request, current_user: dict = Depends(get_c
 
 # Rate limit: 2fa-disable: 100 requests per 60 seconds per IP (default)
 @router.post("/2fa/disable", response_model=TwoFAStatus)
-async def disable_two_fa(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def disable_two_fa(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """Disable all 2FA for the current user."""
     await security_manager.check_rate_limit(request, "2fa-disable")
     # Recent password confirmation or re-login should be required for sensitive actions in production
@@ -1135,7 +1129,7 @@ async def disable_two_fa(request: Request, current_user: dict = Depends(get_curr
 
 # Rate limit: is-verified: 100 requests per 60 seconds per IP (default)
 @router.get("/is-verified")
-async def is_verified(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def is_verified(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """Check if the current user's email is verified."""
     await security_manager.check_rate_limit(request, "is-verified")
     return {"is_verified": current_user.get("is_verified", False)}
@@ -1177,7 +1171,7 @@ async def validate_token(token: str = Depends(oauth2_scheme), request: Request =
 
 # Rate limit: 2fa-guide: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/guide")
-async def get_2fa_setup_guide(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def get_2fa_setup_guide(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
     """Get basic 2FA setup information."""
     await security_manager.check_rate_limit(request, "2fa-guide")
 
@@ -1190,7 +1184,7 @@ async def get_2fa_setup_guide(current_user: dict = Depends(get_current_user_dep)
 
 # Rate limit: security-dashboard: 100 requests per 60 seconds per IP (default)
 @router.get("/security-dashboard")
-async def get_security_dashboard(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def get_security_dashboard(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
     """Get security status for the current user."""
     await security_manager.check_rate_limit(request, "security-dashboard")
 
@@ -1219,7 +1213,7 @@ async def get_security_dashboard(current_user: dict = Depends(get_current_user_d
 
 # Rate limit: 2fa-backup-codes: 5 requests per 300 seconds per IP (restricted)
 @router.get("/2fa/backup-codes")
-async def get_backup_codes_status(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def get_backup_codes_status(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
     """Get backup codes status (count remaining, not the actual codes for security)."""
     await security_manager.check_rate_limit(request, "2fa-backup-codes", rate_limit_requests=5, rate_limit_period=300)
 
@@ -1238,7 +1232,7 @@ async def get_backup_codes_status(current_user: dict = Depends(get_current_user_
 
 # Rate limit: 2fa-regenerate-backup: 20 requests per 3600 (1hr) seconds per IP (increased for testing)
 @router.post("/2fa/regenerate-backup-codes")
-async def regenerate_backup_codes(current_user: dict = Depends(get_current_user_dep), request: Request = None):
+async def regenerate_backup_codes(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
     """Regenerate backup codes for 2FA recovery. This invalidates all existing backup codes."""
     # Increased rate limit for testing purposes doing it 200 times per hour
     await security_manager.check_rate_limit(
@@ -1268,7 +1262,7 @@ async def regenerate_backup_codes(current_user: dict = Depends(get_current_user_
 # Rate limit: 2fa-reset: 5 requests per 3600 seconds per IP (very restricted)
 @router.post("/2fa/reset", response_model=TwoFASetupResponse)
 async def reset_two_fa(
-    request: TwoFASetupRequest, current_user: dict = Depends(get_current_user_dep), req: Request = None
+    request: TwoFASetupRequest, current_user: dict = Depends(enforce_all_lockdowns), req: Request = None
 ):
     """Reset 2FA setup for the current user. This generates new secret, backup codes, provisioning URI, and QR code image, invalidating the old ones."""
     await security_manager.check_rate_limit(req, "2fa-reset", rate_limit_requests=5, rate_limit_period=3600)
@@ -1352,7 +1346,7 @@ async def block_reset_abuse(token: str):
 
 # --- Dual Authentication Management ---
 @router.get("/auth-methods", response_model=AuthMethodsResponse)
-async def get_user_auth_methods(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def get_user_auth_methods(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Get available authentication methods for the current user.
     
@@ -1387,7 +1381,7 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(g
 async def set_auth_preference(
     request: Request, 
     preferred_method: str = Body(..., embed=True),
-    current_user: dict = Depends(get_current_user_dep)
+    current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Set the user's preferred authentication method.
@@ -1431,7 +1425,7 @@ async def set_auth_preference(
 async def check_auth_fallback(
     request: Request,
     failed_method: str,
-    current_user: dict = Depends(get_current_user_dep)
+    current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Check available authentication fallback options when one method fails.
@@ -1474,7 +1468,7 @@ async def trusted_ips_lockdown_request(
     trusted_ips: List[str] = Body(
         default=None, embed=True
     ),  # List of IPs to allow confirmation from (optional for disable)
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     logger.info(
         "[trusted_ips_lockdown_request] user=%s action=%s trusted_ips=%s request_ip=%s headers=%s",
@@ -1555,7 +1549,7 @@ async def trusted_ips_lockdown_request(
 
 @router.post("/trusted-ips/lockdown-confirm")
 async def trusted_ips_lockdown_confirm(
-    request: Request, code: str = Body(..., embed=True), current_user: dict = Depends(get_current_user_dep)
+    request: Request, code: str = Body(..., embed=True), current_user: dict = Depends(enforce_all_lockdowns)
 ):
     user = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
     logger.info(
@@ -1620,6 +1614,26 @@ async def trusted_ips_lockdown_confirm(
             },
         },
     )
+    
+    # Log lockdown configuration change security event
+    log_security_event(
+        event_type="lockdown_config_change",
+        user_id=current_user.get("username"),
+        ip_address=request_ip,
+        success=True,
+        details={
+            "lockdown_type": "ip",
+            "action": action,
+            "previous_status": user.get("trusted_ip_lockdown", False),
+            "new_status": lockdown_flag,
+            "trusted_ips_count": len(allowed_ips) if action == "enable" else 0,
+            "confirmed_from_ip": request_ip,
+            "endpoint": f"{request.method} {request.url.path}",
+            "user_agent": request.headers.get("user-agent", ""),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+    
     logger.info(
         "Trusted IP lockdown %s for user %s (confirmed from IP %s, trusted_ips updated if enabled)",
         action,
@@ -1632,14 +1646,602 @@ async def trusted_ips_lockdown_confirm(
 
 
 @router.get("/trusted-ips/lockdown-status")
-async def trusted_ips_lockdown_status(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def trusted_ips_lockdown_status(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     logger.info("[trusted_ips_lockdown_status] user=%s", current_user.get("username"))
     lockdown_status = bool(current_user.get("trusted_ip_lockdown", False))
     return {"trusted_ip_lockdown": lockdown_status, "your_ip": request.client.host}
 
 
+# --- Trusted User Agent Lockdown: 2FA-like Enable/Disable Flow (User Agent-bound confirmation) ---
+@router.post("/trusted-user-agents/lockdown-request")
+async def trusted_user_agents_lockdown_request(
+    request: Request,
+    action: str = Body(..., embed=True),  # 'enable' or 'disable'
+    trusted_user_agents: List[str] = Body(
+        default=None, embed=True
+    ),  # List of User Agents to allow confirmation from (optional for disable)
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Request to enable or disable User Agent lockdown with email confirmation.
+    
+    For 'enable': requires a list of trusted User Agents.
+    For 'disable': uses existing trusted User Agents from database.
+    
+    Generates a confirmation code and sends it via email.
+    """
+    logger.info(
+        "[trusted_user_agents_lockdown_request] user=%s action=%s trusted_user_agents=%s request_user_agent=%s",
+        current_user.get("username"),
+        action,
+        trusted_user_agents,
+        security_manager.get_client_user_agent(request),
+    )
+    await security_manager.check_rate_limit(
+        request, "trusted-user-agents-lockdown-request", rate_limit_requests=5, rate_limit_period=3600
+    )
+    
+    # Validate action parameter
+    if action not in ("enable", "disable"):
+        logger.info("Invalid User Agent lockdown action requested: %s by user %s", action, current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Invalid action. Must be 'enable' or 'disable'.")
+    
+    if action == "disable":
+        # First, check if trusted_user_agent_lockdown is enabled before proceeding
+        user_doc = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
+        if not user_doc.get("trusted_user_agent_lockdown", False):
+            logger.info("Trusted User Agent Lockdown is not enabled for user %s; cannot disable", current_user.get("username"))
+            raise HTTPException(status_code=400, detail="Trusted User Agent Lockdown is not enabled.")
+        
+        # For disabling, ignore user-provided trusted_user_agents and use the current trusted_user_agents from the DB
+        trusted_user_agents = user_doc.get("trusted_user_agents", [])
+        if not trusted_user_agents:
+            logger.info(
+                "No trusted_user_agents set for user %s; cannot disable lockdown without any trusted User Agents",
+                current_user.get("username"),
+            )
+            raise HTTPException(
+                status_code=400, detail="No trusted User Agents set. Cannot disable lockdown without any trusted User Agents."
+            )
+    elif not trusted_user_agents or not isinstance(trusted_user_agents, list):
+        logger.info("No trusted_user_agents provided for lockdown by user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="trusted_user_agents must be a non-empty list.")
+    
+    # Generate confirmation code
+    code = secrets.token_urlsafe(8)
+    expiry = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
+    
+    # Store confirmation code in user document
+    await db_manager.get_collection("users").update_one(
+        {"_id": current_user["_id"]},
+        {
+            "$set": {
+                "trusted_user_agent_lockdown_codes": [{
+                    "code": code,
+                    "expires_at": expiry,
+                    "action": action,
+                    "allowed_user_agents": trusted_user_agents,
+                }]
+            }
+        },
+    )
+    
+    email = current_user.get("email")
+    
+    if action == "disable":
+        # Notify user of the User Agents that will be allowed to disable lockdown (before confirmation)
+        from second_brain_database.managers.email import email_manager
+
+        subject = "[Security Notice] Trusted User Agent Lockdown Disable Requested"
+        html_content = f"""
+        <html><body>
+        <h2>Trusted User Agent Lockdown Disable Requested</h2>
+        <p>A request was made to disable Trusted User Agent Lockdown on your account.</p>
+        <p><b>The following User Agents will be allowed to confirm this action:</b></p>
+        <ul>{''.join(f'<li>{ua}</li>' for ua in trusted_user_agents)}</ul>
+        <p>If you did not request this, your account may be at risk. Please review your account security and contact support immediately.</p>
+        </body></html>
+        """
+        await email_manager._send_via_console(current_user["email"], subject, html_content)
+        logger.info(
+            "User Agent lockdown disable email sent to user %s (allowed User Agents: %s)", 
+            current_user.get("username"), 
+            trusted_user_agents
+        )
+    
+    try:
+        await send_user_agent_lockdown_code_email(email, code, action, trusted_user_agents)
+        logger.info(
+            "User Agent lockdown %s code sent to user %s (allowed User Agents: %s)", 
+            action, 
+            current_user.get("username"), 
+            trusted_user_agents
+        )
+    except Exception as e:
+        logger.error("Failed to send User Agent lockdown code to %s: %s", email, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send confirmation code.") from e
+    
+    logger.info("User Agent lockdown request completed for user %s (action: %s)", current_user.get("username"), action)
+    return {"message": f"Confirmation code sent to {email}. Must confirm from one of the provided User Agents."}
+
+
+@router.post("/trusted-user-agents/lockdown-confirm")
+async def trusted_user_agents_lockdown_confirm(
+    request: Request, code: str = Body(..., embed=True), current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Confirm User Agent lockdown enable/disable action using the confirmation code.
+    
+    Validates the confirmation code and User Agent, then updates the user's lockdown settings.
+    """
+    user = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
+    request_user_agent = security_manager.get_client_user_agent(request)
+    
+    logger.info(
+        "[trusted_user_agents_lockdown_confirm] user=%s code=%s request_user_agent=%s",
+        current_user.get("username"),
+        code,
+        request_user_agent,
+    )
+    
+    await security_manager.check_rate_limit(
+        request, "trusted-user-agents-lockdown-confirm", rate_limit_requests=10, rate_limit_period=3600
+    )
+    
+    # Get the stored confirmation codes
+    lockdown_codes = user.get("trusted_user_agent_lockdown_codes", [])
+    if not lockdown_codes:
+        logger.info("No User Agent lockdown codes found for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="No pending User Agent lockdown action.")
+    
+    # Find the matching code
+    matching_code = None
+    for stored_code_data in lockdown_codes:
+        if stored_code_data.get("code") == code:
+            matching_code = stored_code_data
+            break
+    
+    if not matching_code:
+        logger.info("Invalid User Agent lockdown code for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Invalid code.")
+    
+    # Check if code has expired
+    expiry = matching_code.get("expires_at")
+    if not expiry or datetime.utcnow() > datetime.fromisoformat(expiry):
+        logger.info("Expired User Agent lockdown code for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Code expired.")
+    
+    action = matching_code.get("action")
+    allowed_user_agents = matching_code.get("allowed_user_agents", [])
+    
+    if not action or not allowed_user_agents:
+        logger.info("Invalid User Agent lockdown code data for user %s", current_user.get("username"))
+        raise HTTPException(status_code=400, detail="Invalid code data.")
+    
+    # Validate that the request is coming from an allowed User Agent
+    if action == "disable":
+        # For disable, check against current trusted User Agents in database
+        db_trusted_user_agents = user.get("trusted_user_agents", [])
+        if request_user_agent not in db_trusted_user_agents:
+            logger.info(
+                "User Agent lockdown disable confirm from non-trusted User Agent %s for user %s (trusted_user_agents: %s)",
+                request_user_agent,
+                current_user.get("username"),
+                db_trusted_user_agents,
+            )
+            raise HTTPException(
+                status_code=403, 
+                detail="Disabling lockdown must be confirmed from one of your existing trusted User Agents."
+            )
+    else:  # action == "enable"
+        # For enable, check against the allowed User Agents from the confirmation code
+        if request_user_agent not in allowed_user_agents:
+            logger.info(
+                "User Agent lockdown confirm from disallowed User Agent %s for user %s (allowed: %s)",
+                request_user_agent,
+                current_user.get("username"),
+                allowed_user_agents,
+            )
+            raise HTTPException(
+                status_code=403, 
+                detail="Confirmation must be from one of the allowed User Agents."
+            )
+    
+    # Update user document with lockdown settings
+    lockdown_flag = True if action == "enable" else False
+    update_fields = {"trusted_user_agent_lockdown": lockdown_flag}
+    
+    if action == "enable":
+        update_fields["trusted_user_agents"] = allowed_user_agents
+    
+    # Clear the used confirmation codes
+    await db_manager.get_collection("users").update_one(
+        {"_id": current_user["_id"]},
+        {
+            "$set": update_fields,
+            "$unset": {
+                "trusted_user_agent_lockdown_codes": "",
+            },
+        },
+    )
+    
+    # Log lockdown configuration change security event
+    log_security_event(
+        event_type="lockdown_config_change",
+        user_id=current_user.get("username"),
+        ip_address=security_manager.get_client_ip(request),
+        success=True,
+        details={
+            "lockdown_type": "user_agent",
+            "action": action,
+            "previous_status": user.get("trusted_user_agent_lockdown", False),
+            "new_status": lockdown_flag,
+            "trusted_user_agents_count": len(allowed_user_agents) if action == "enable" else 0,
+            "confirmed_from_user_agent": request_user_agent,
+            "endpoint": f"{request.method} {request.url.path}",
+            "user_agent": request_user_agent,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+    
+    logger.info(
+        "Trusted User Agent lockdown %s for user %s (confirmed from User Agent %s, trusted_user_agents updated if enabled)",
+        action,
+        current_user.get("username"),
+        request_user_agent,
+    )
+    
+    return {
+        "message": f"Trusted User Agent lockdown {action}d successfully.{' Trusted User Agents updated.' if action == 'enable' else ''}"
+    }
+
+
+@router.get("/trusted-user-agents/lockdown-status")
+async def trusted_user_agents_lockdown_status(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Get current User Agent lockdown status and requesting User Agent string.
+    
+    Returns the current lockdown status and the User Agent string of the requesting client.
+    This helps users understand their current lockdown configuration and identify their User Agent.
+    """
+    logger.info("[trusted_user_agents_lockdown_status] user=%s", current_user.get("username"))
+    lockdown_status = bool(current_user.get("trusted_user_agent_lockdown", False))
+    request_user_agent = security_manager.get_client_user_agent(request)
+    
+    return {
+        "trusted_user_agent_lockdown": lockdown_status,
+        "your_user_agent": request_user_agent
+    }
+
+
+# --- "Allow Once" Temporary Access Endpoints ---
+
+@router.post("/lockdown/allow-once/ip")
+async def allow_once_ip_access(
+    request: Request,
+    token: str = Body(..., embed=True)
+):
+    """
+    Grant temporary IP access using a token from blocked access notification email.
+    
+    This endpoint allows users to bypass IP lockdown restrictions for 15 minutes
+    using a secure token received via email when their access was blocked.
+    
+    **Process:**
+    1. User attempts to access account from untrusted IP
+    2. Access is blocked and notification email is sent with "allow once" link
+    3. User clicks link or uses token with this endpoint
+    4. Temporary bypass is created for 15 minutes
+    
+    **Security:**
+    - Tokens are single-use and expire in 15 minutes
+    - Tokens are stored in Redis with automatic expiration
+    - All actions are logged for security monitoring
+    
+    **Requirements:** 1.4, 2.4
+    """
+    await security_manager.check_rate_limit(
+        request, "allow-once-ip", rate_limit_requests=10, rate_limit_period=3600
+    )
+    
+    try:
+        from second_brain_database.routes.auth.services.temporary_access import (
+            validate_and_use_temporary_ip_token,
+            execute_allow_once_ip_access
+        )
+        
+        # Validate and consume the token (single use)
+        token_data = await validate_and_use_temporary_ip_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired allow-once IP token used")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired token. Please request a new access link."
+            )
+        
+        # Verify this is an "allow_once" action
+        if token_data.get("action") != "allow_once":
+            logger.warning("Token used for wrong action type: %s", token_data.get("action"))
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid token type for this action."
+            )
+        
+        # Execute the allow once action
+        success = await execute_allow_once_ip_access(token_data)
+        if not success:
+            logger.error("Failed to execute allow-once IP access for token: %s", token_data)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to grant temporary access. Please try again."
+            )
+        
+        logger.info("Granted temporary IP access for user %s, IP %s", 
+                   token_data.get("user_email"), token_data.get("ip_address"))
+        
+        return {
+            "message": "Temporary access granted successfully",
+            "ip_address": token_data.get("ip_address"),
+            "expires_in_minutes": 15,
+            "endpoint": token_data.get("endpoint")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in allow-once IP access: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+@router.post("/lockdown/allow-once/user-agent")
+async def allow_once_user_agent_access(
+    request: Request,
+    token: str = Body(..., embed=True)
+):
+    """
+    Grant temporary User Agent access using a token from blocked access notification email.
+    
+    This endpoint allows users to bypass User Agent lockdown restrictions for 15 minutes
+    using a secure token received via email when their access was blocked.
+    
+    **Process:**
+    1. User attempts to access account from untrusted User Agent
+    2. Access is blocked and notification email is sent with "allow once" link
+    3. User clicks link or uses token with this endpoint
+    4. Temporary bypass is created for 15 minutes
+    
+    **Security:**
+    - Tokens are single-use and expire in 15 minutes
+    - Tokens are stored in Redis with automatic expiration
+    - All actions are logged for security monitoring
+    
+    **Requirements:** 1.4, 2.4
+    """
+    await security_manager.check_rate_limit(
+        request, "allow-once-user-agent", rate_limit_requests=10, rate_limit_period=3600
+    )
+    
+    try:
+        from second_brain_database.routes.auth.services.temporary_access import (
+            validate_and_use_temporary_user_agent_token,
+            execute_allow_once_user_agent_access
+        )
+        
+        # Validate and consume the token (single use)
+        token_data = await validate_and_use_temporary_user_agent_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired allow-once User Agent token used")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired token. Please request a new access link."
+            )
+        
+        # Verify this is an "allow_once" action
+        if token_data.get("action") != "allow_once":
+            logger.warning("Token used for wrong action type: %s", token_data.get("action"))
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid token type for this action."
+            )
+        
+        # Execute the allow once action
+        success = await execute_allow_once_user_agent_access(token_data)
+        if not success:
+            logger.error("Failed to execute allow-once User Agent access for token: %s", token_data)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to grant temporary access. Please try again."
+            )
+        
+        logger.info("Granted temporary User Agent access for user %s, User Agent %s", 
+                   token_data.get("user_email"), 
+                   token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
+        
+        return {
+            "message": "Temporary access granted successfully",
+            "user_agent": token_data.get("user_agent"),
+            "expires_in_minutes": 15,
+            "endpoint": token_data.get("endpoint")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in allow-once User Agent access: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+# --- "Add to Trusted List" Permanent Access Endpoints ---
+
+@router.post("/lockdown/add-trusted/ip")
+async def add_ip_to_trusted_list(
+    request: Request,
+    token: str = Body(..., embed=True)
+):
+    """
+    Add an IP address to the trusted list using a token from blocked access notification email.
+    
+    This endpoint allows users to permanently add an IP address to their trusted list
+    using a secure token received via email when their access was blocked.
+    
+    **Process:**
+    1. User attempts to access account from untrusted IP
+    2. Access is blocked and notification email is sent with "add to trusted list" link
+    3. User clicks link or uses token with this endpoint
+    4. IP is permanently added to their trusted IP list
+    
+    **Security:**
+    - Tokens are single-use and expire in 1 hour
+    - Tokens are stored in Redis with automatic expiration
+    - All actions are logged for security monitoring
+    - Requires email confirmation for permanent additions
+    
+    **Requirements:** 1.4, 2.4
+    """
+    await security_manager.check_rate_limit(
+        request, "add-trusted-ip", rate_limit_requests=10, rate_limit_period=3600
+    )
+    
+    try:
+        from second_brain_database.routes.auth.services.temporary_access import (
+            validate_and_use_temporary_ip_token,
+            execute_add_to_trusted_ip_list
+        )
+        
+        # Validate and consume the token (single use)
+        token_data = await validate_and_use_temporary_ip_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired add-to-trusted IP token used")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired token. Please request a new access link."
+            )
+        
+        # Verify this is an "add_to_trusted" action
+        if token_data.get("action") != "add_to_trusted":
+            logger.warning("Token used for wrong action type: %s", token_data.get("action"))
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid token type for this action."
+            )
+        
+        # Execute the add to trusted list action
+        success = await execute_add_to_trusted_ip_list(token_data)
+        if not success:
+            logger.error("Failed to execute add-to-trusted IP action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to add IP to trusted list. Please try again."
+            )
+        
+        logger.info("Added IP to trusted list for user %s, IP %s", 
+                   token_data.get("user_email"), token_data.get("ip_address"))
+        
+        return {
+            "message": "IP address added to trusted list successfully",
+            "ip_address": token_data.get("ip_address"),
+            "endpoint": token_data.get("endpoint")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in add-to-trusted IP action: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+@router.post("/lockdown/add-trusted/user-agent")
+async def add_user_agent_to_trusted_list(
+    request: Request,
+    token: str = Body(..., embed=True)
+):
+    """
+    Add a User Agent to the trusted list using a token from blocked access notification email.
+    
+    This endpoint allows users to permanently add a User Agent to their trusted list
+    using a secure token received via email when their access was blocked.
+    
+    **Process:**
+    1. User attempts to access account from untrusted User Agent
+    2. Access is blocked and notification email is sent with "add to trusted list" link
+    3. User clicks link or uses token with this endpoint
+    4. User Agent is permanently added to their trusted User Agent list
+    
+    **Security:**
+    - Tokens are single-use and expire in 1 hour
+    - Tokens are stored in Redis with automatic expiration
+    - All actions are logged for security monitoring
+    - Requires email confirmation for permanent additions
+    
+    **Requirements:** 1.4, 2.4
+    """
+    await security_manager.check_rate_limit(
+        request, "add-trusted-user-agent", rate_limit_requests=10, rate_limit_period=3600
+    )
+    
+    try:
+        from second_brain_database.routes.auth.services.temporary_access import (
+            validate_and_use_temporary_user_agent_token,
+            execute_add_to_trusted_user_agent_list
+        )
+        
+        # Validate and consume the token (single use)
+        token_data = await validate_and_use_temporary_user_agent_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired add-to-trusted User Agent token used")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired token. Please request a new access link."
+            )
+        
+        # Verify this is an "add_to_trusted" action
+        if token_data.get("action") != "add_to_trusted":
+            logger.warning("Token used for wrong action type: %s", token_data.get("action"))
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid token type for this action."
+            )
+        
+        # Execute the add to trusted list action
+        success = await execute_add_to_trusted_user_agent_list(token_data)
+        if not success:
+            logger.error("Failed to execute add-to-trusted User Agent action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to add User Agent to trusted list. Please try again."
+            )
+        
+        logger.info("Added User Agent to trusted list for user %s, User Agent %s", 
+                   token_data.get("user_email"), 
+                   token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
+        
+        return {
+            "message": "User Agent added to trusted list successfully",
+            "user_agent": token_data.get("user_agent"),
+            "endpoint": token_data.get("endpoint")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in add-to-trusted User Agent action: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
 @router.get("/recent-logins")
-async def get_recent_successful_logins(limit: int = 10, current_user: dict = Depends(get_current_user_dep)):
+async def get_recent_successful_logins(limit: int = 10, current_user: dict = Depends(enforce_all_lockdowns)):
     """Get the most recent successful login attempts (default 10). Requires authentication. Returns a JSON object."""
     logs_collection = db_manager.get_collection("logs")
     cursor = logs_collection.find({"outcome": "success"}).sort("timestamp", -1).limit(limit)
@@ -1663,7 +2265,7 @@ PERMANENT_TOKEN_REVOKE_RATE_PERIOD: int = 60
 
 @router.post("/permanent-tokens", response_model=PermanentTokenResponse)
 async def create_permanent_token(
-    request: Request, token_request: PermanentTokenRequest, current_user: dict = Depends(get_current_user_dep)
+    request: Request, token_request: PermanentTokenRequest, current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Create a new permanent API token for the authenticated user.
@@ -1710,7 +2312,7 @@ async def create_permanent_token(
 
 
 @router.get("/permanent-tokens", response_model=PermanentTokenListResponse)
-async def list_permanent_tokens(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def list_permanent_tokens(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     List all permanent tokens for the authenticated user.
 
@@ -1739,7 +2341,7 @@ async def list_permanent_tokens(request: Request, current_user: dict = Depends(g
 
 
 @router.delete("/permanent-tokens/{token_id}", response_model=TokenRevocationResponse)
-async def revoke_permanent_token(request: Request, token_id: str, current_user: dict = Depends(get_current_user_dep)):
+async def revoke_permanent_token(request: Request, token_id: str, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Revoke a permanent token by its ID.
 
@@ -1826,7 +2428,7 @@ async def revoke_permanent_token(request: Request, token_id: str, current_user: 
 async def webauthn_register_begin(
     request: Request,
     registration_request: WebAuthnRegistrationBeginRequest,
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     """
     Begin WebAuthn credential registration for authenticated user.
@@ -1967,7 +2569,7 @@ async def webauthn_register_begin(
 async def webauthn_register_complete(
     request: Request,
     registration_request: WebAuthnRegistrationCompleteRequest,
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     """
     Complete WebAuthn credential registration for authenticated user.
@@ -2094,7 +2696,7 @@ async def webauthn_register_complete(
 
 
 @router.get("/webauthn/credentials", response_model=WebAuthnCredentialListResponse)
-async def list_webauthn_credentials(request: Request, current_user: dict = Depends(get_current_user_dep)):
+async def list_webauthn_credentials(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     List all WebAuthn credentials for the authenticated user.
 
@@ -2140,7 +2742,7 @@ async def list_webauthn_credentials(request: Request, current_user: dict = Depen
 
 
 @router.delete("/webauthn/credentials/{credential_id}", response_model=WebAuthnCredentialDeletionResponse)
-async def delete_webauthn_credential(request: Request, credential_id: str, current_user: dict = Depends(get_current_user_dep)):
+async def delete_webauthn_credential(request: Request, credential_id: str, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Delete a WebAuthn credential by its ID.
 
@@ -2609,3 +3211,441 @@ async def webauthn_manage_page(request: Request):
     #         detail="Failed to load passkey management page"
     #     )
     raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn manage page rendering is disabled.")
+
+
+# --- Temporary Access Token Endpoints for IP Lockdown Action Buttons ---
+
+@router.get("/temporary-access/allow-once")
+async def handle_allow_once_ip_access(request: Request, token: str = Query(...)):
+    """
+    Handle "allow once" action from blocked IP notification email.
+    
+    This endpoint validates the temporary access token and creates a temporary
+    bypass that allows the IP to access the account for 15 minutes.
+    """
+    from second_brain_database.routes.auth.services.temporary_access import (
+        validate_and_use_temporary_ip_token,
+        execute_allow_once_ip_access
+    )
+    
+    await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
+    
+    try:
+        # Validate and use the token
+        token_data = await validate_and_use_temporary_ip_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired allow once token from IP %s", 
+                          security_manager.get_client_ip(request))
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid or expired token. Please request a new blocked access notification."
+            )
+        
+        # Verify this is an allow_once token
+        if token_data.get("action") != "allow_once":
+            logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
+        
+        # Execute the allow once action
+        success = await execute_allow_once_ip_access(token_data)
+        if not success:
+            logger.error("Failed to execute allow once action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to process allow once request. Please try again or contact support."
+            )
+        
+        # Return success page
+        return HTMLResponse(f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Access Granted - IP Lockdown</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 600px;
+                    margin: 50px auto;
+                    padding: 20px;
+                    background-color: #f8f9fa;
+                }}
+                .container {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    text-align: center;
+                }}
+                .success-icon {{ font-size: 48px; color: #28a745; margin-bottom: 20px; }}
+                h1 {{ color: #28a745; margin-bottom: 20px; }}
+                .details {{ background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0; }}
+                .detail-item {{ margin: 10px 0; }}
+                .detail-label {{ font-weight: 600; }}
+                .detail-value {{ font-family: monospace; background: #e9ecef; padding: 4px 8px; border-radius: 4px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">✅</div>
+                <h1>Access Granted!</h1>
+                <p>Your IP address has been temporarily allowed to access your account.</p>
+                
+                <div class="details">
+                    <div class="detail-item">
+                        <span class="detail-label">IP Address:</span><br>
+                        <span class="detail-value">{token_data.get('ip_address')}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Access Duration:</span><br>
+                        <span class="detail-value">15 minutes</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Original Endpoint:</span><br>
+                        <span class="detail-value">{token_data.get('endpoint')}</span>
+                    </div>
+                </div>
+                
+                <p><strong>You can now access your account from this IP address for the next 15 minutes.</strong></p>
+                <p>After this time expires, normal IP lockdown restrictions will resume.</p>
+                
+                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
+                    If you frequently access your account from this location, consider adding this IP to your trusted list.
+                </p>
+            </div>
+        </body>
+        </html>
+        """)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in allow once handler: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+@router.get("/temporary-access/add-to-trusted")
+async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...)):
+    """
+    Handle "add to trusted list" action from blocked IP notification email.
+    
+    This endpoint validates the temporary access token and adds the IP address
+    to the user's trusted IP list permanently.
+    """
+    from second_brain_database.routes.auth.services.temporary_access import (
+        validate_and_use_temporary_ip_token,
+        execute_add_to_trusted_ip_list
+    )
+    
+    await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
+    
+    try:
+        # Validate and use the token
+        token_data = await validate_and_use_temporary_ip_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired add to trusted token from IP %s", 
+                          security_manager.get_client_ip(request))
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid or expired token. Please request a new blocked access notification."
+            )
+        
+        # Verify this is an add_to_trusted token
+        if token_data.get("action") != "add_to_trusted":
+            logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
+        
+        # Execute the add to trusted action
+        success = await execute_add_to_trusted_ip_list(token_data)
+        if not success:
+            logger.error("Failed to execute add to trusted action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to add IP to trusted list. Please try again or contact support."
+            )
+        
+        # Return success page
+        return HTMLResponse(f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>IP Added to Trusted List</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 600px;
+                    margin: 50px auto;
+                    padding: 20px;
+                    background-color: #f8f9fa;
+                }}
+                .container {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    text-align: center;
+                }}
+                .success-icon {{ font-size: 48px; color: #28a745; margin-bottom: 20px; }}
+                h1 {{ color: #28a745; margin-bottom: 20px; }}
+                .details {{ background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0; }}
+                .detail-item {{ margin: 10px 0; }}
+                .detail-label {{ font-weight: 600; }}
+                .detail-value {{ font-family: monospace; background: #e9ecef; padding: 4px 8px; border-radius: 4px; }}
+                .security-notice {{ background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 6px; padding: 15px; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">🔒</div>
+                <h1>IP Added to Trusted List!</h1>
+                <p>Your IP address has been permanently added to your trusted list.</p>
+                
+                <div class="details">
+                    <div class="detail-item">
+                        <span class="detail-label">IP Address:</span><br>
+                        <span class="detail-value">{token_data.get('ip_address')}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Original Endpoint:</span><br>
+                        <span class="detail-value">{token_data.get('endpoint')}</span>
+                    </div>
+                </div>
+                
+                <p><strong>You can now access your account from this IP address without restrictions.</strong></p>
+                
+                <div class="security-notice">
+                    <h4>🛡️ Security Reminder</h4>
+                    <p>This IP address will now have permanent access to your account. Make sure this is a location you trust and use regularly.</p>
+                    <p>You can manage your trusted IP list through the API or by contacting support if you need to remove this IP later.</p>
+                </div>
+                
+                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
+                    Your IP lockdown settings remain active for all other IP addresses.
+                </p>
+            </div>
+        </body>
+        </html>
+        """)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in add to trusted handler: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+# --- User Agent Temporary Access Token Endpoints for Email Action Buttons ---
+
+@router.get("/temporary-access/allow-once-user-agent")
+async def handle_allow_once_user_agent_access(request: Request, token: str = Query(...)):
+    """
+    Handle "allow once" action from blocked User Agent notification email.
+    
+    This endpoint validates the temporary access token and creates a temporary bypass
+    for the User Agent, allowing access for a limited time without adding to trusted list.
+    """
+    from second_brain_database.routes.auth.services.temporary_access import (
+        validate_and_use_temporary_user_agent_token,
+        execute_allow_once_user_agent_access
+    )
+    
+    try:
+        logger.info("Processing allow once User Agent access from IP %s", 
+                   security_manager.get_client_ip(request))
+        
+        # Validate and use the token (single use)
+        token_data = await validate_and_use_temporary_user_agent_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired allow once User Agent token from IP %s", 
+                          security_manager.get_client_ip(request))
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid or expired token. Please request a new one."
+            )
+        
+        # Verify this is an allow_once token
+        if token_data.get("action") != "allow_once":
+            logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
+        
+        # Execute the allow once action
+        success = await execute_allow_once_user_agent_access(token_data)
+        if not success:
+            logger.error("Failed to execute allow once action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to create temporary access. Please try again or contact support."
+            )
+        
+        # Return success page
+        return HTMLResponse(content=f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Temporary Access Granted</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0;
+                    padding: 20px;
+                }}
+                .container {{
+                    background: white;
+                    border-radius: 12px;
+                    padding: 40px;
+                    text-align: center;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                    max-width: 500px;
+                }}
+                .success-icon {{ font-size: 64px; margin-bottom: 20px; }}
+                h1 {{ color: #28a745; margin-bottom: 20px; }}
+                .details {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .user-agent {{ font-family: monospace; word-break: break-all; font-size: 12px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">🔓</div>
+                <h1>Temporary Access Granted!</h1>
+                <p>Your User Agent has been granted temporary access for 15 minutes.</p>
+                
+                <div class="details">
+                    <strong>User Agent:</strong><br>
+                    <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
+                </div>
+                
+                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
+                    If you frequently access your account from this browser/application, consider adding this User Agent to your trusted list.
+                </p>
+            </div>
+        </body>
+        </html>
+        """)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in allow once User Agent handler: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred. Please try again or contact support."
+        )
+
+
+@router.get("/temporary-access/add-to-trusted-user-agent")
+async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Query(...)):
+    """
+    Handle "add to trusted list" action from blocked User Agent notification email.
+    
+    This endpoint validates the temporary access token and adds the User Agent address
+    to the user's permanent trusted User Agent list.
+    """
+    from second_brain_database.routes.auth.services.temporary_access import (
+        validate_and_use_temporary_user_agent_token,
+        execute_add_to_trusted_user_agent_list
+    )
+    
+    try:
+        logger.info("Processing add User Agent to trusted list from IP %s", 
+                   security_manager.get_client_ip(request))
+        
+        # Validate and use the token (single use)
+        token_data = await validate_and_use_temporary_user_agent_token(token)
+        if not token_data:
+            logger.warning("Invalid or expired add to trusted User Agent token from IP %s", 
+                          security_manager.get_client_ip(request))
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid or expired token. Please request a new one."
+            )
+        
+        # Verify this is an add_to_trusted token
+        if token_data.get("action") != "add_to_trusted":
+            logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
+        
+        # Execute the add to trusted action
+        success = await execute_add_to_trusted_user_agent_list(token_data)
+        if not success:
+            logger.error("Failed to execute add to trusted action for token: %s", token_data)
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to add User Agent to trusted list. Please try again or contact support."
+            )
+        
+        # Return success page
+        return HTMLResponse(content=f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>User Agent Added to Trusted List</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0;
+                    padding: 20px;
+                }}
+                .container {{
+                    background: white;
+                    border-radius: 12px;
+                    padding: 40px;
+                    text-align: center;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                    max-width: 500px;
+                }}
+                .success-icon {{ font-size: 64px; margin-bottom: 20px; }}
+                h1 {{ color: #28a745; margin-bottom: 20px; }}
+                .details {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .user-agent {{ font-family: monospace; word-break: break-all; font-size: 12px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">🔒</div>
+                <h1>User Agent Added to Trusted List!</h1>
+                <p>Your User Agent has been permanently added to your trusted list.</p>
+                
+                <div class="details">
+                    <strong>User Agent:</strong><br>
+                    <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
+                </div>
+                
+                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
+                    You will no longer receive blocking notifications for this User Agent.
+                </p>
+            </div>
+        </body>
+        </html>
+        """)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in add to trusted User Agent handler: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred. Please try again or contact support."
+        )

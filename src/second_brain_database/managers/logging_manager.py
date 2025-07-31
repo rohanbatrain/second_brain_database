@@ -27,6 +27,7 @@ Logs will go to Loki if available, otherwise to console or buffer file.
 
 import logging
 import os
+import sys
 import threading
 from datetime import datetime, timezone
 
@@ -54,6 +55,31 @@ BUFFER_FILE: str = os.getenv("LOKI_BUFFER_FILE", getattr(settings, "LOKI_BUFFER_
 LOKI_VERSION: str = getattr(settings, "LOKI_VERSION", "1")
 LOKI_COMPRESS: bool = getattr(settings, "LOKI_COMPRESS", True)
 BUFFER_LOCK = threading.Lock()
+
+
+def _ensure_console_handler(logger: logging.Logger, formatter: logging.Formatter) -> bool:
+    """
+    Ensure logger has a StreamHandler for console output.
+    
+    Args:
+        logger: The logger instance to check and modify
+        formatter: The formatter to apply to the StreamHandler
+        
+    Returns:
+        bool: True if a new StreamHandler was added, False if one already existed
+    """
+    # Check if StreamHandler already exists for stdout
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+            return False  # Already has console handler
+    
+    # Add StreamHandler for console output
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logger.level)
+    logger.addHandler(console_handler)
+    return True
+
 
 import requests
 import time
@@ -266,12 +292,19 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
+    # Create standard formatter for all handlers
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
+
+    # Always ensure console handler is present first (early in setup process)
+    console_added = _ensure_console_handler(logger, formatter)
+    if console_added:
+        logger.info("[LoggingManager] Console StreamHandler attached to logger '%s'", name)
+
     # Per-worker log file in logs/
     log_filename = get_worker_log_filename()
     os.makedirs(os.path.dirname(log_filename), exist_ok=True)
     if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_filename) for h in logger.handlers):
         file_handler = logging.FileHandler(log_filename)
-        formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         # Register worker in registry
@@ -297,14 +330,6 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
     # Shared Loki buffer file in logs/
     global BUFFER_FILE
     BUFFER_FILE = os.path.join("logs", "loki_buffer.log")
-
-    # Always attach a StreamHandler for console logging if not present
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter("[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
-        logger.info("[LoggingManager] Console StreamHandler attached to logger '%s'", name)
 
     class PrefixFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:

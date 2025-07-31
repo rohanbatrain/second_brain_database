@@ -266,3 +266,197 @@ async def send_trusted_ip_lockdown_code_email(
 
         email_manager = default_email_manager
     await email_manager._send_via_console(email, subject, html_content)
+
+
+async def send_user_agent_lockdown_code_email(
+    email: str, code: str, action: str, trusted_user_agents: list[str], email_manager=None
+):
+    """
+    Send a User Agent lockdown confirmation code email with HTML template.
+    
+    Args:
+        email (str): The user's email address.
+        code (str): The confirmation code.
+        action (str): 'enable' or 'disable'.
+        trusted_user_agents (list[str]): List of User Agents allowed to confirm.
+        email_manager: Optional email manager for sending (defaults to global if not provided).
+    """
+    from second_brain_database.routes.auth.routes_html import render_trusted_user_agent_lockdown_email
+
+    subject = f"Confirm User Agent Lockdown {action.title()}"
+    html_content = render_trusted_user_agent_lockdown_email(code, action, trusted_user_agents)
+    if email_manager is None:
+        from second_brain_database.managers.email import email_manager as default_email_manager
+
+        email_manager = default_email_manager
+    await email_manager._send_via_console(email, subject, html_content)
+
+
+@log_performance("send_blocked_ip_notification")
+async def send_blocked_ip_notification(
+    email: str, attempted_ip: str, trusted_ips: list[str], endpoint: str
+):
+    """
+    Send an email notification about a blocked access attempt due to IP Lockdown.
+    
+    Args:
+        email (str): The user's email address.
+        attempted_ip (str): The IP address that was blocked.
+        trusted_ips (list[str]): List of trusted IP addresses.
+        endpoint (str): The endpoint that was accessed.
+    """
+    from second_brain_database.routes.auth.routes_html import render_blocked_ip_notification_email
+    from second_brain_database.routes.auth.services.temporary_access import generate_temporary_ip_access_token
+    
+    logger.info("Sending blocked IP notification to %s for IP %s", email, attempted_ip)
+
+    # Generate temporary access tokens for action buttons
+    allow_once_token = None
+    add_to_trusted_token = None
+    
+    try:
+        allow_once_token = await generate_temporary_ip_access_token(
+            user_email=email,
+            ip_address=attempted_ip,
+            action="allow_once",
+            endpoint=endpoint
+        )
+        logger.debug("Generated allow once token for %s", email)
+    except Exception as e:
+        logger.error("Failed to generate allow once token for %s: %s", email, e, exc_info=True)
+    
+    try:
+        add_to_trusted_token = await generate_temporary_ip_access_token(
+            user_email=email,
+            ip_address=attempted_ip,
+            action="add_to_trusted",
+            endpoint=endpoint
+        )
+        logger.debug("Generated add to trusted token for %s", email)
+    except Exception as e:
+        logger.error("Failed to generate add to trusted token for %s: %s", email, e, exc_info=True)
+
+    # Log security event for blocked IP attempt
+    log_security_event(
+        event_type="ip_lockdown_violation",
+        user_id=email,
+        ip_address=attempted_ip,
+        success=False,
+        details={
+            "attempted_ip": attempted_ip,
+            "trusted_ips": trusted_ips,
+            "endpoint": endpoint,
+            "action": "notification_sent",
+            "tokens_generated": {
+                "allow_once": allow_once_token is not None,
+                "add_to_trusted": add_to_trusted_token is not None
+            }
+        },
+    )
+
+    subject = "Blocked Access Attempt: IP Lockdown Active"
+    timestamp = datetime.utcnow().isoformat()
+    html_content = render_blocked_ip_notification_email(
+        attempted_ip=attempted_ip,
+        trusted_ips=trusted_ips,
+        endpoint=endpoint,
+        timestamp=timestamp,
+        allow_once_token=allow_once_token,
+        add_to_trusted_token=add_to_trusted_token
+    )
+    
+    try:
+        await email_manager._send_via_console(email, subject, html_content)
+        logger.info("Successfully sent blocked IP notification to %s", email)
+    except RuntimeError as e:
+        logger.error("Failed to send blocked IP notification to %s: %s", email, e, exc_info=True)
+        log_error_with_context(
+            e, 
+            context={"email": email, "attempted_ip": attempted_ip, "endpoint": endpoint}, 
+            operation="send_blocked_ip_notification"
+        )
+
+
+@log_performance("send_blocked_user_agent_notification")
+async def send_blocked_user_agent_notification(
+    email: str, attempted_user_agent: str, trusted_user_agents: list[str], endpoint: str
+):
+    """
+    Send an email notification about a blocked access attempt due to User Agent Lockdown.
+    
+    Args:
+        email (str): The user's email address.
+        attempted_user_agent (str): The User Agent that was blocked.
+        trusted_user_agents (list[str]): List of trusted User Agents.
+        endpoint (str): The endpoint that was accessed.
+    """
+    from second_brain_database.routes.auth.routes_html import render_blocked_user_agent_notification_email
+    from second_brain_database.routes.auth.services.temporary_access import generate_temporary_user_agent_access_token
+    
+    logger.info("Sending blocked User Agent notification to %s for User Agent %s", email, attempted_user_agent)
+
+    # Generate temporary access tokens for action buttons
+    allow_once_token = None
+    add_to_trusted_token = None
+    
+    try:
+        allow_once_token = await generate_temporary_user_agent_access_token(
+            user_email=email,
+            user_agent=attempted_user_agent,
+            action="allow_once",
+            endpoint=endpoint
+        )
+        logger.debug("Generated allow once token for %s", email)
+    except Exception as e:
+        logger.error("Failed to generate allow once token for %s: %s", email, e, exc_info=True)
+    
+    try:
+        add_to_trusted_token = await generate_temporary_user_agent_access_token(
+            user_email=email,
+            user_agent=attempted_user_agent,
+            action="add_to_trusted",
+            endpoint=endpoint
+        )
+        logger.debug("Generated add to trusted token for %s", email)
+    except Exception as e:
+        logger.error("Failed to generate add to trusted token for %s: %s", email, e, exc_info=True)
+
+    # Log security event for blocked User Agent attempt
+    log_security_event(
+        event_type="user_agent_lockdown_violation",
+        user_id=email,
+        ip_address="unknown",  # IP not relevant for User Agent lockdown
+        success=False,
+        details={
+            "attempted_user_agent": attempted_user_agent,
+            "trusted_user_agents": trusted_user_agents,
+            "endpoint": endpoint,
+            "action": "notification_sent",
+            "tokens_generated": {
+                "allow_once": allow_once_token is not None,
+                "add_to_trusted": add_to_trusted_token is not None
+            }
+        },
+    )
+
+    subject = "Blocked Access Attempt: User Agent Lockdown Active"
+    timestamp = datetime.utcnow().isoformat()
+    html_content = render_blocked_user_agent_notification_email(
+        attempted_user_agent=attempted_user_agent,
+        trusted_user_agents=trusted_user_agents,
+        endpoint=endpoint,
+        timestamp=timestamp,
+        allow_once_token=allow_once_token,
+        add_to_trusted_token=add_to_trusted_token
+    )
+    
+    try:
+        await email_manager._send_via_console(email, subject, html_content)
+        logger.info("Successfully sent blocked User Agent notification to %s", email)
+    except RuntimeError as e:
+        logger.error("Failed to send blocked User Agent notification to %s: %s", email, e, exc_info=True)
+        log_error_with_context(
+            e, 
+            context={"email": email, "attempted_user_agent": attempted_user_agent, "endpoint": endpoint}, 
+            operation="send_blocked_user_agent_notification"
+        )

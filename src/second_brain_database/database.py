@@ -246,6 +246,16 @@ class DatabaseManager:
             await self._create_index_if_not_exists(
                 users_collection, "password_reset_token_expiry", {"expireAfterSeconds": 0}
             )
+            
+            # User Agent lockdown indexes for efficient access
+            await self._create_index_if_not_exists(users_collection, "trusted_user_agent_lockdown", {})
+            await self._create_index_if_not_exists(users_collection, "trusted_user_agents", {})
+            await self._create_index_if_not_exists(users_collection, "trusted_user_agent_lockdown_codes", {})
+            
+            # Temporary access token indexes for "allow once" functionality
+            await self._create_index_if_not_exists(users_collection, "temporary_ip_access_tokens", {})
+            await self._create_index_if_not_exists(users_collection, "temporary_user_agent_access_tokens", {})
+            await self._create_index_if_not_exists(users_collection, "temporary_ip_bypasses", {})
 
             # Permanent tokens collection indexes
             db_logger.info("Creating indexes for 'permanent_tokens' collection")

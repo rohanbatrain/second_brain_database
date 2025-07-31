@@ -2426,6 +2426,11 @@ test = [
     { name = "pytest-cov" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.8.0,<4.0.0" },
@@ -2470,6 +2475,9 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0,<0.35.0" },
 ]
 provides-extras = ["dev", "monitoring", "docs", "test", "all"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest-asyncio", specifier = ">=0.23.8" }]
 
 [[package]]
 name = "six"

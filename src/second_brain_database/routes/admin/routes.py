@@ -23,7 +23,7 @@ from second_brain_database.routes.admin.service import (
     block_reset_pair,
     whitelist_reset_pair,
 )
-from second_brain_database.routes.auth.routes import require_admin
+from second_brain_database.routes.auth import require_admin
 
 logger = get_logger(prefix="[Admin Routes]")
 

@@ -19,6 +19,7 @@ from second_brain_database.config import settings
 from second_brain_database.database import db_manager
 from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth.services.security.tokens import is_token_blacklisted
 from second_brain_database.utils.crypto import decrypt_totp_secret, is_encrypted_totp_secret
 from second_brain_database.utils.logging_utils import (
@@ -216,8 +217,39 @@ async def check_auth_fallback_available(user_id: str, failed_method: str) -> Dic
 async def send_blocked_login_notification(email: str, attempted_ip: str, trusted_ips: list[str]):
     """
     Send an email notification about a blocked login attempt due to Trusted IP Lockdown.
+    Uses the same enhanced template as general IP lockdown notifications with action buttons.
     """
+    from second_brain_database.routes.auth.routes_html import render_blocked_ip_notification_email
+    from second_brain_database.routes.auth.services.temporary_access import generate_temporary_ip_access_token
+    
     logger.info("Sending blocked login notification to %s for IP %s", email, attempted_ip)
+
+    # Generate temporary access tokens for action buttons
+    allow_once_token = None
+    add_to_trusted_token = None
+    endpoint = "POST /auth/login"
+    
+    try:
+        allow_once_token = await generate_temporary_ip_access_token(
+            user_email=email,
+            ip_address=attempted_ip,
+            action="allow_once",
+            endpoint=endpoint
+        )
+        logger.debug("Generated allow once token for login notification to %s", email)
+    except Exception as e:
+        logger.error("Failed to generate allow once token for login notification to %s: %s", email, e, exc_info=True)
+    
+    try:
+        add_to_trusted_token = await generate_temporary_ip_access_token(
+            user_email=email,
+            ip_address=attempted_ip,
+            action="add_to_trusted",
+            endpoint=endpoint
+        )
+        logger.debug("Generated add to trusted token for login notification to %s", email)
+    except Exception as e:
+        logger.error("Failed to generate add to trusted token for login notification to %s: %s", email, e, exc_info=True)
 
     # Log security event for blocked login attempt
     log_security_event(
@@ -225,22 +257,29 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
         user_id=email,
         ip_address=attempted_ip,
         success=False,
-        details={"attempted_ip": attempted_ip, "trusted_ips": trusted_ips, "action": "notification_sent"},
+        details={
+            "attempted_ip": attempted_ip, 
+            "trusted_ips": trusted_ips, 
+            "endpoint": endpoint,
+            "action": "notification_sent",
+            "tokens_generated": {
+                "allow_once": allow_once_token is not None,
+                "add_to_trusted": add_to_trusted_token is not None
+            }
+        },
     )
 
-    subject = "Blocked Login Attempt: Trusted IP Lockdown Active"
-    html_content = f"""
-    <html><body>
-    <h2>Blocked Login Attempt</h2>
-    <p>A login attempt to your account was blocked because it came from an IP address not on your trusted list.</p>
-    <ul>
-        <li><b>Attempted IP:</b> {attempted_ip}</li>
-        <li><b>Allowed IPs:</b> {', '.join(trusted_ips) or 'None'}</li>
-        <li><b>Time (UTC):</b> {datetime.utcnow().isoformat()}</li>
-    </ul>
-    <p>If this was you, please check your trusted IP settings. If you did not attempt to log in, no action is needed.</p>
-    </body></html>
-    """
+    subject = "Blocked Login Attempt: IP Lockdown Active"
+    timestamp = datetime.utcnow().isoformat()
+    html_content = render_blocked_ip_notification_email(
+        attempted_ip=attempted_ip,
+        trusted_ips=trusted_ips,
+        endpoint=endpoint,
+        timestamp=timestamp,
+        allow_once_token=allow_once_token,
+        add_to_trusted_token=add_to_trusted_token
+    )
+    
     try:
         await email_manager._send_via_console(email, subject, html_content)
         logger.info("Successfully sent blocked login notification to %s", email)
@@ -377,42 +416,41 @@ async def login_user(
         raise HTTPException(
             status_code=403, detail="User account is inactive, please contact support to reactivate account."
         )
-    # Check trusted IP lockdown
-    if user.get("trusted_ip_lockdown", False):
-        logger.info("Trusted IP lockdown enabled for user %s", user_id)
-        request_ip = request_ip_ctx.get()
-        if not request_ip:
-            logger.warning("Trusted IP lockdown: could not determine request IP for user %s", user_id)
-            log_security_event(
-                event_type="trusted_ip_lockdown_no_ip",
-                user_id=user_id,
-                ip_address="unknown",
-                success=False,
-                details={"error": "unable_to_determine_ip"},
-            )
-            raise HTTPException(status_code=403, detail="Trusted IP lockdown: unable to determine request IP.")
-
-        trusted_ips = user.get("trusted_ips", [])
-        if request_ip not in trusted_ips:
-            logger.warning(
-                "Trusted IP lockdown: login attempt from disallowed IP %s for user %s (trusted: %s)",
-                request_ip,
-                user_id,
-                trusted_ips,
-            )
-            log_security_event(
-                event_type="trusted_ip_lockdown_violation",
-                user_id=user_id,
-                ip_address=request_ip,
-                success=False,
-                details={"attempted_ip": request_ip, "trusted_ips": trusted_ips, "trusted_ip_count": len(trusted_ips)},
-            )
-            await send_blocked_login_notification(user["email"], request_ip, trusted_ips)
-            raise HTTPException(
-                status_code=403, detail="Login not allowed from this IP (Trusted IP Lockdown is enabled)."
-            )
-        else:
-            logger.debug("Trusted IP lockdown: IP %s is allowed for user %s", request_ip, user_id)
+    # Check IP lockdown for login (special case since login is not an authenticated endpoint)
+    # We need to check IP lockdown after user authentication but before proceeding
+    try:
+        # Create a mock request object with the IP context
+        class MockRequest:
+            def __init__(self, ip_address):
+                self.client = type('obj', (object,), {'host': ip_address})
+                self.headers = {}
+                self.url = type('obj', (object,), {'path': '/auth/login'})
+                self.method = 'POST'
+        
+        mock_request = MockRequest(request_ip_ctx.get())
+        await security_manager.check_ip_lockdown(mock_request, user)
+        
+    except HTTPException as ip_lockdown_error:
+        # IP lockdown blocked the login attempt
+        logger.warning("Login blocked by IP lockdown for user %s from IP %s", 
+                      user_id, request_ip_ctx.get())
+        
+        # Send blocked login notification
+        try:
+            user_email = user.get("email")
+            trusted_ips = user.get("trusted_ips", [])
+            if user_email:
+                await send_blocked_login_notification(
+                    email=user_email,
+                    attempted_ip=request_ip_ctx.get() or "unknown",
+                    trusted_ips=trusted_ips
+                )
+                logger.info("Sent blocked login notification to %s", user_email)
+        except Exception as email_error:
+            logger.error("Failed to send blocked login notification: %s", email_error, exc_info=True)
+        
+        # Re-raise the IP lockdown exception
+        raise ip_lockdown_error
 
     # Validate authentication method and credentials
     if authentication_method == "password":
