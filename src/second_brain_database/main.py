@@ -37,6 +37,7 @@ from second_brain_database.routes.banners.routes import router as banners_router
 from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
 from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.themes.routes import router as themes_router
+from second_brain_database.routes.profile.routes import router as profile_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -594,6 +595,7 @@ routers_config = [
     ("shop", shop_router, "Shop and purchase management endpoints"),
     ("avatars", avatars_router, "Avatar management endpoints"),
     ("banners", banners_router, "Banner management endpoints"),
+    ("profile", profile_router, "User profile management endpoints"),
 ]
 
 logger.info("Including API routers...")

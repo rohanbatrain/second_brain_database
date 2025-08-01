@@ -167,12 +167,8 @@ async def create_permanent_token(
         collection = db_manager.get_collection("permanent_tokens")
         result = await collection.insert_one(token_doc.model_dump())
 
-        log_database_operation(
-            operation="insert_permanent_token",
-            collection="permanent_tokens",
-            query={},
-            result={"inserted_id": str(result.inserted_id), "token_id": token_id, "user_id": user_id},
-        )
+        # Corrected logging call to match function signature
+        log_database_operation("permanent_tokens", "insert")
 
         if not result.inserted_id:
             logger.error("Failed to store token in database for user %s", username)
