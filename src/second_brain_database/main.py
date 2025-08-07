@@ -38,6 +38,7 @@ from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_
 from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.profile.routes import router as profile_router
+from second_brain_database.routes.family.routes import router as family_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -270,6 +271,7 @@ app = FastAPI(
         {"name": "User Profile", "description": "User profile management including avatars and banners"},
         {"name": "Themes", "description": "Theme and customization management"},
         {"name": "Shop", "description": "Digital asset and purchase management"},
+        {"name": "Family", "description": "Family relationship management and shared resources"},
         {"name": "System", "description": "System health and monitoring endpoints"},
     ],
 )
@@ -534,6 +536,30 @@ def custom_openapi():
                 """,
             },
             {
+                "name": "Family",
+                "description": """
+                **Family Relationship Management & Shared Resources**
+                
+                Comprehensive family management system including:
+                - Family creation and administration
+                - Member invitations and relationship management
+                - Bidirectional family relationships
+                - Shared SBD token accounts for family finances
+                - Family limits and usage tracking
+                - Email-based invitation system
+                
+                **Features:**
+                - Multi-admin support for family management
+                - Configurable family and member limits
+                - Virtual SBD accounts with spending permissions
+                - Comprehensive audit logging and notifications
+                """,
+                "externalDocs": {
+                    "description": "Family Management Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#family-management",
+                },
+            },
+            {
                 "name": "System",
                 "description": """
                 **System Health & Monitoring**
@@ -596,6 +622,7 @@ routers_config = [
     ("avatars", avatars_router, "Avatar management endpoints"),
     ("banners", banners_router, "Banner management endpoints"),
     ("profile", profile_router, "User profile management endpoints"),
+    ("family", family_router, "Family management and relationship endpoints"),
 ]
 
 logger.info("Including API routers...")

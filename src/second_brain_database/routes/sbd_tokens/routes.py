@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
 from second_brain_database.database import db_manager
+from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
@@ -43,6 +44,36 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
     if not isinstance(amount, int) or amount <= 0:
         logger.warning("[SBD TOKENS SEND] Invalid amount: %s", amount)
         return JSONResponse({"status": "error", "detail": "Amount must be a positive integer"}, status_code=400)
+    
+    # Check if sender is trying to spend from a family account
+    if await family_manager.is_virtual_family_account(from_user):
+        # Validate family spending permissions with enhanced security
+        user_id = str(current_user["_id"])
+        request_context = {"request": request, "user": current_user}
+        
+        if not await family_manager.validate_family_spending(from_user, user_id, amount, request_context):
+            logger.warning("[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s", 
+                         user_id, from_user, amount)
+            return JSONResponse({
+                "status": "error", 
+                "detail": "You don't have permission to spend from this family account, the amount exceeds your limit, or the account is frozen"
+            }, status_code=403)
+    
+    # Prevent sending to reserved username patterns (family_ or team_)
+    if to_user.lower().startswith("family_") or to_user.lower().startswith("team_"):
+        # Check if it's a valid virtual family account
+        if to_user.lower().startswith("family_") and not await family_manager.is_virtual_family_account(to_user):
+            logger.warning("[SBD TOKENS SEND] Attempt to send to non-existent family account: %s", to_user)
+            return JSONResponse({
+                "status": "error", 
+                "detail": "Family account does not exist. Family accounts can only be created through the family system."
+            }, status_code=400)
+        elif to_user.lower().startswith("team_"):
+            logger.warning("[SBD TOKENS SEND] Attempt to send to reserved team account: %s", to_user)
+            return JSONResponse({
+                "status": "error", 
+                "detail": "Team accounts are reserved and not yet implemented."
+            }, status_code=400)
     users_collection = db_manager.get_collection("users")
     is_replica_set = False
     try:
@@ -59,6 +90,7 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                     from_user_doc = await users_collection.find_one({"username": from_user}, session=session)
                     to_user_doc = await users_collection.find_one({"username": to_user}, session=session)
                     # If recipient does not exist, create them with 0 tokens and empty transactions
+                    # But don't create accounts with reserved prefixes (already validated above)
                     if not to_user_doc:
                         await users_collection.insert_one(
                             {
@@ -87,7 +119,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         "timestamp": now_iso,
                         "transaction_id": transaction_id,
                     }
-                    if note:
+                    
+                    # Add family member attribution if spending from family account
+                    if await family_manager.is_virtual_family_account(from_user):
+                        user_id = str(current_user["_id"])
+                        username = current_user["username"]
+                        family_note = f"Spent by family member @{username}"
+                        if note:
+                            send_txn["note"] = f"{note} ({family_note})"
+                        else:
+                            send_txn["note"] = family_note
+                        send_txn["family_member_id"] = user_id
+                        send_txn["family_member_username"] = username
+                    elif note:
                         send_txn["note"] = note
                     res1 = await users_collection.update_one(
                         {"username": from_user, "sbd_tokens": {"$gte": amount}},
@@ -106,7 +150,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         "timestamp": now_iso,
                         "transaction_id": transaction_id,
                     }
-                    if note:
+                    
+                    # Add family member attribution if receiving from family account
+                    if await family_manager.is_virtual_family_account(from_user):
+                        user_id = str(current_user["_id"])
+                        username = current_user["username"]
+                        family_note = f"Sent by family member @{username}"
+                        if note:
+                            receive_txn["note"] = f"{note} ({family_note})"
+                        else:
+                            receive_txn["note"] = family_note
+                        receive_txn["family_member_id"] = user_id
+                        receive_txn["family_member_username"] = username
+                    elif note:
                         receive_txn["note"] = note
                     await users_collection.update_one(
                         {"username": to_user},
@@ -125,6 +181,7 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
             from_user_doc = await users_collection.find_one({"username": from_user})
             to_user_doc = await users_collection.find_one({"username": to_user})
             # If recipient does not exist, create them with 0 tokens and empty transactions
+            # But don't create accounts with reserved prefixes (already validated above)
             if not to_user_doc:
                 await users_collection.insert_one(
                     {
@@ -152,7 +209,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                 "timestamp": now_iso,
                 "transaction_id": transaction_id,
             }
-            if note:
+            
+            # Add family member attribution if spending from family account
+            if await family_manager.is_virtual_family_account(from_user):
+                user_id = str(current_user["_id"])
+                username = current_user["username"]
+                family_note = f"Spent by family member @{username}"
+                if note:
+                    send_txn["note"] = f"{note} ({family_note})"
+                else:
+                    send_txn["note"] = family_note
+                send_txn["family_member_id"] = user_id
+                send_txn["family_member_username"] = username
+            elif note:
                 send_txn["note"] = note
             res1 = await users_collection.update_one(
                 {"username": from_user, "sbd_tokens": {"$gte": amount}},
@@ -168,7 +237,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                 "timestamp": now_iso,
                 "transaction_id": transaction_id,
             }
-            if note:
+            
+            # Add family member attribution if receiving from family account
+            if await family_manager.is_virtual_family_account(from_user):
+                user_id = str(current_user["_id"])
+                username = current_user["username"]
+                family_note = f"Sent by family member @{username}"
+                if note:
+                    receive_txn["note"] = f"{note} ({family_note})"
+                else:
+                    receive_txn["note"] = family_note
+                receive_txn["family_member_id"] = user_id
+                receive_txn["family_member_username"] = username
+            elif note:
                 receive_txn["note"] = note
             await users_collection.update_one(
                 {"username": to_user},

@@ -256,6 +256,12 @@ class DatabaseManager:
             await self._create_index_if_not_exists(users_collection, "temporary_ip_access_tokens", {})
             await self._create_index_if_not_exists(users_collection, "temporary_user_agent_access_tokens", {})
             await self._create_index_if_not_exists(users_collection, "temporary_ip_bypasses", {})
+            
+            # Family management indexes
+            await self._create_index_if_not_exists(users_collection, "family_limits.max_families_allowed", {})
+            await self._create_index_if_not_exists(users_collection, "family_memberships.family_id", {})
+            await self._create_index_if_not_exists(users_collection, "family_memberships.role", {})
+            await self._create_index_if_not_exists(users_collection, "family_notifications.unread_count", {})
 
             # Permanent tokens collection indexes
             db_logger.info("Creating indexes for 'permanent_tokens' collection")
@@ -287,6 +293,9 @@ class DatabaseManager:
             )
             await self._create_index_if_not_exists(webauthn_challenges_collection, "user_id", {})
             await self._create_index_if_not_exists(webauthn_challenges_collection, [("type", 1), ("created_at", 1)], {})
+
+            # Family management collections indexes
+            await self._create_family_management_indexes()
 
             total_duration = time.time() - start_time
             perf_logger.info("Database index creation completed successfully in %.3fs", total_duration)
@@ -519,6 +528,57 @@ class DatabaseManager:
         except Exception as e:
             duration = time.time() - start_time if "start_time" in locals() else 0
             health_logger.warning("Failed to retrieve database stats after %.3fs: %s", duration, e)
+
+    async def _create_family_management_indexes(self):
+        """Create indexes for family management collections"""
+        try:
+            db_logger.info("Creating indexes for family management collections")
+            
+            # Families collection indexes
+            families_collection = self.get_collection("families")
+            await self._create_index_if_not_exists(families_collection, "family_id", {"unique": True})
+            await self._create_index_if_not_exists(families_collection, "admin_user_ids", {})
+            await self._create_index_if_not_exists(families_collection, "is_active", {})
+            await self._create_index_if_not_exists(families_collection, "sbd_account.account_username", {"unique": True, "sparse": True})
+            await self._create_index_if_not_exists(families_collection, [("admin_user_ids", 1), ("is_active", 1)], {})
+            
+            # Family relationships collection indexes
+            relationships_collection = self.get_collection("family_relationships")
+            await self._create_index_if_not_exists(relationships_collection, "relationship_id", {"unique": True})
+            await self._create_index_if_not_exists(relationships_collection, "family_id", {})
+            await self._create_index_if_not_exists(relationships_collection, "user_a_id", {})
+            await self._create_index_if_not_exists(relationships_collection, "user_b_id", {})
+            await self._create_index_if_not_exists(relationships_collection, "status", {})
+            await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], {"unique": True})
+            
+            # Family invitations collection indexes
+            invitations_collection = self.get_collection("family_invitations")
+            await self._create_index_if_not_exists(invitations_collection, "invitation_id", {"unique": True})
+            await self._create_index_if_not_exists(invitations_collection, "invitation_token", {"unique": True})
+            await self._create_index_if_not_exists(invitations_collection, "family_id", {})
+            await self._create_index_if_not_exists(invitations_collection, "invitee_email", {})
+            await self._create_index_if_not_exists(invitations_collection, "expires_at", {"expireAfterSeconds": 0})
+            
+            # Family notifications collection indexes
+            notifications_collection = self.get_collection("family_notifications")
+            await self._create_index_if_not_exists(notifications_collection, "notification_id", {"unique": True})
+            await self._create_index_if_not_exists(notifications_collection, "family_id", {})
+            await self._create_index_if_not_exists(notifications_collection, "recipient_user_ids", {})
+            await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("status", 1)], {})
+            
+            # Family token requests collection indexes
+            token_requests_collection = self.get_collection("family_token_requests")
+            await self._create_index_if_not_exists(token_requests_collection, "request_id", {"unique": True})
+            await self._create_index_if_not_exists(token_requests_collection, "family_id", {})
+            await self._create_index_if_not_exists(token_requests_collection, "requester_user_id", {})
+            await self._create_index_if_not_exists(token_requests_collection, "expires_at", {"expireAfterSeconds": 0})
+            await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("status", 1)], {})
+            
+            db_logger.info("Family management collection indexes created successfully")
+            
+        except Exception as e:
+            db_logger.error("Failed to create family management indexes: %s", e)
+            raise
 
     async def monitor_connection_pool(self):
         """Monitor and log connection pool metrics"""

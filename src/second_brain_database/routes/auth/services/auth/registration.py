@@ -61,6 +61,23 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         },
     )
 
+    # Validate username format and reserved prefixes using comprehensive validation
+    from second_brain_database.managers.family_manager import family_manager
+    
+    is_valid, error_message = await family_manager.validate_username_against_reserved_prefixes(user.username)
+    if not is_valid:
+        logger.info("Username validation failed: %s for username=%s", error_message, user.username)
+        log_security_event(
+            event_type="registration_reserved_username",
+            user_id=user.username,
+            success=False,
+            details={"username": user.username, "email": user.email, "reason": error_message},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message,
+        )
+
     # Validate password strength
     if not validate_password_strength(user.password):
         logger.info("Password strength validation failed for username=%s", user.username)
