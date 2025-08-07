@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     # Rate limiting configuration
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD_SECONDS: int = 60
+    
+    # Family-specific rate limiting configuration
+    FAMILY_CREATE_RATE_LIMIT: int = 2  # Max families created per hour per user
+    FAMILY_INVITE_RATE_LIMIT: int = 10  # Max invitations sent per hour per user
+    FAMILY_ADMIN_ACTION_RATE_LIMIT: int = 5  # Max admin actions per hour per user
+    FAMILY_MEMBER_ACTION_RATE_LIMIT: int = 20  # Max member actions per hour per user
 
     # Blacklist configuration
     BLACKLIST_THRESHOLD: int = 10  # Number of violations before blacklisting

@@ -530,49 +530,84 @@ class DatabaseManager:
             health_logger.warning("Failed to retrieve database stats after %.3fs: %s", duration, e)
 
     async def _create_family_management_indexes(self):
-        """Create indexes for family management collections"""
+        """Create comprehensive indexes for family management collections with performance optimization"""
         try:
             db_logger.info("Creating indexes for family management collections")
             
-            # Families collection indexes
+            # Families collection indexes - Core family management
             families_collection = self.get_collection("families")
             await self._create_index_if_not_exists(families_collection, "family_id", {"unique": True})
             await self._create_index_if_not_exists(families_collection, "admin_user_ids", {})
             await self._create_index_if_not_exists(families_collection, "is_active", {})
+            await self._create_index_if_not_exists(families_collection, "created_at", {})
+            await self._create_index_if_not_exists(families_collection, "updated_at", {})
+            await self._create_index_if_not_exists(families_collection, "member_count", {})
             await self._create_index_if_not_exists(families_collection, "sbd_account.account_username", {"unique": True, "sparse": True})
+            await self._create_index_if_not_exists(families_collection, "sbd_account.is_frozen", {})
+            # Compound indexes for efficient queries
             await self._create_index_if_not_exists(families_collection, [("admin_user_ids", 1), ("is_active", 1)], {})
+            await self._create_index_if_not_exists(families_collection, [("is_active", 1), ("created_at", -1)], {})
             
-            # Family relationships collection indexes
+            # Family relationships collection indexes - Bidirectional relationship management
             relationships_collection = self.get_collection("family_relationships")
             await self._create_index_if_not_exists(relationships_collection, "relationship_id", {"unique": True})
             await self._create_index_if_not_exists(relationships_collection, "family_id", {})
             await self._create_index_if_not_exists(relationships_collection, "user_a_id", {})
             await self._create_index_if_not_exists(relationships_collection, "user_b_id", {})
             await self._create_index_if_not_exists(relationships_collection, "status", {})
+            await self._create_index_if_not_exists(relationships_collection, "created_by", {})
+            await self._create_index_if_not_exists(relationships_collection, "created_at", {})
+            await self._create_index_if_not_exists(relationships_collection, "activated_at", {})
+            # Compound indexes for relationship queries
             await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], {"unique": True})
+            await self._create_index_if_not_exists(relationships_collection, [("family_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(relationships_collection, [("user_b_id", 1), ("status", 1)], {})
             
-            # Family invitations collection indexes
+            # Family invitations collection indexes - Email invitation system
             invitations_collection = self.get_collection("family_invitations")
             await self._create_index_if_not_exists(invitations_collection, "invitation_id", {"unique": True})
             await self._create_index_if_not_exists(invitations_collection, "invitation_token", {"unique": True})
             await self._create_index_if_not_exists(invitations_collection, "family_id", {})
+            await self._create_index_if_not_exists(invitations_collection, "inviter_user_id", {})
             await self._create_index_if_not_exists(invitations_collection, "invitee_email", {})
+            await self._create_index_if_not_exists(invitations_collection, "invitee_user_id", {})
+            await self._create_index_if_not_exists(invitations_collection, "status", {})
+            await self._create_index_if_not_exists(invitations_collection, "created_at", {})
             await self._create_index_if_not_exists(invitations_collection, "expires_at", {"expireAfterSeconds": 0})
+            # Compound indexes for invitation queries
+            await self._create_index_if_not_exists(invitations_collection, [("family_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(invitations_collection, [("invitee_user_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(invitations_collection, [("invitee_email", 1), ("status", 1)], {})
             
-            # Family notifications collection indexes
+            # Family notifications collection indexes - Notification system
             notifications_collection = self.get_collection("family_notifications")
             await self._create_index_if_not_exists(notifications_collection, "notification_id", {"unique": True})
             await self._create_index_if_not_exists(notifications_collection, "family_id", {})
             await self._create_index_if_not_exists(notifications_collection, "recipient_user_ids", {})
+            await self._create_index_if_not_exists(notifications_collection, "type", {})
+            await self._create_index_if_not_exists(notifications_collection, "status", {})
+            await self._create_index_if_not_exists(notifications_collection, "created_at", {})
+            await self._create_index_if_not_exists(notifications_collection, "sent_at", {})
+            # Compound indexes for notification queries
             await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(notifications_collection, [("recipient_user_ids", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("created_at", -1)], {})
             
-            # Family token requests collection indexes
+            # Family token requests collection indexes - Token request system
             token_requests_collection = self.get_collection("family_token_requests")
             await self._create_index_if_not_exists(token_requests_collection, "request_id", {"unique": True})
             await self._create_index_if_not_exists(token_requests_collection, "family_id", {})
             await self._create_index_if_not_exists(token_requests_collection, "requester_user_id", {})
+            await self._create_index_if_not_exists(token_requests_collection, "status", {})
+            await self._create_index_if_not_exists(token_requests_collection, "reviewed_by", {})
+            await self._create_index_if_not_exists(token_requests_collection, "created_at", {})
             await self._create_index_if_not_exists(token_requests_collection, "expires_at", {"expireAfterSeconds": 0})
+            await self._create_index_if_not_exists(token_requests_collection, "reviewed_at", {})
+            # Compound indexes for token request queries
             await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(token_requests_collection, [("requester_user_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("created_at", -1)], {})
             
             db_logger.info("Family management collection indexes created successfully")
             

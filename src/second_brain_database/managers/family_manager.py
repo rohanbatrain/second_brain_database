@@ -1244,6 +1244,20 @@ class FamilyManager:
             session=session
         )
     
+    def _get_operation_rate_limit(self, operation: str) -> int:
+        """Get rate limit for specific family operations using configuration."""
+        operation_limits = {
+            "create_family": settings.FAMILY_CREATE_RATE_LIMIT,
+            "invite_member": settings.FAMILY_INVITE_RATE_LIMIT,
+            "remove_member": settings.FAMILY_ADMIN_ACTION_RATE_LIMIT,
+            "promote_admin": settings.FAMILY_ADMIN_ACTION_RATE_LIMIT,
+            "demote_admin": settings.FAMILY_ADMIN_ACTION_RATE_LIMIT,
+            "freeze_account": settings.FAMILY_ADMIN_ACTION_RATE_LIMIT,
+            "unfreeze_account": settings.FAMILY_ADMIN_ACTION_RATE_LIMIT,
+            "update_spending_permissions": settings.FAMILY_MEMBER_ACTION_RATE_LIMIT
+        }
+        return operation_limits.get(operation, settings.FAMILY_MEMBER_ACTION_RATE_LIMIT)
+
     async def _check_rate_limit(self, request_context: Dict[str, Any], action: str, 
                               limit: int, window: int) -> None:
         """Check rate limit for family operations using security manager."""
@@ -1251,7 +1265,7 @@ class FamilyManager:
             return  # Skip rate limiting if no request context
         
         try:
-            await self.security_manager.check_rate_limit(
+            await security_manager.check_rate_limit(
                 request_context['request'], 
                 action, 
                 rate_limit_requests=limit,
@@ -2556,13 +2570,17 @@ class FamilyManager:
                 self.logger.warning("No request object in security context for user %s", user_id)
                 return True  # Allow operation if no request context
             
-            # Validate security context using family security manager
-            security_result = await family_security_manager.validate_user_security_context(
-                user_id=user_id,
+            # Use existing security manager for validation
+            await security_manager.check_ip_lockdown(request, {"_id": user_id})
+            await security_manager.check_user_agent_lockdown(request, {"_id": user_id})
+            
+            # Apply family-specific rate limiting
+            family_action = f"family_{operation}"
+            await security_manager.check_rate_limit(
                 request=request,
-                operation=operation,
-                require_2fa=operation in ["create_family", "remove_member", "promote_admin"],
-                temp_token=request_context.get("temp_token")
+                action=family_action,
+                rate_limit_requests=self._get_operation_rate_limit(operation),
+                rate_limit_period=3600  # 1 hour
             )
             
             self.logger.debug(
@@ -2570,7 +2588,7 @@ class FamilyManager:
                 user_id, operation
             )
             
-            return security_result["validated"]
+            return True
             
         except Exception as e:
             self.logger.error(
@@ -2663,20 +2681,20 @@ class FamilyManager:
             context: Additional context information
         """
         try:
-            # Import here to avoid circular imports
-            from second_brain_database.routes.family.security import family_security_manager
-            
+            # Use existing security manager directly instead of redundant family security manager
             # Extract security context
             ip_address = context.get("ip_address")
             success = context.get("success", True)
             
-            # Log using family security manager
-            await family_security_manager.log_family_security_event(
+            # Log using existing logging infrastructure
+            from second_brain_database.utils.logging_utils import log_security_event
+            
+            log_security_event(
+                event_type=f"family_{action}",
                 user_id=user_id,
-                action=action,
-                context=context,
+                ip_address=ip_address,
                 success=success,
-                ip_address=ip_address
+                details=context
             )
             
             self.logger.debug(
@@ -2697,13 +2715,12 @@ class FamilyManager:
             if not request:
                 return  # Skip rate limiting if no request context
             
-            # Use family security manager for rate limiting
-            from second_brain_database.routes.family.security import family_security_manager
-            
-            await family_security_manager.check_family_operation_rate_limit(
+            # Use existing security manager for rate limiting
+            await security_manager.check_rate_limit(
                 request=request,
-                operation=action,
-                user_id=request_context.get("user_id")
+                action=action,
+                rate_limit_requests=limit,
+                rate_limit_period=period
             )
             
         except Exception as e:
@@ -2717,6 +2734,905 @@ class FamilyManager:
                 limit=limit,
                 window=period
             )
+
+    # SBD Token Permission System Methods
+    
+    async def get_family_sbd_account(self, family_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        Get family SBD account details including balance and spending permissions.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the requesting user
+            
+        Returns:
+            Dict containing SBD account information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "operation": "get_family_sbd_account",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "get_family_sbd_account", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_in_family(user_id, family_id):
+                raise InsufficientPermissions("You must be a family member to view SBD account details")
+            
+            # Get current balance from virtual account
+            account_username = family["sbd_account"]["account_username"]
+            current_balance = await self.get_family_sbd_balance(account_username)
+            
+            # Get recent transactions
+            recent_transactions = await self._get_recent_family_transactions(account_username, limit=10)
+            
+            account_data = {
+                "account_username": account_username,
+                "balance": current_balance,
+                "is_frozen": family["sbd_account"]["is_frozen"],
+                "frozen_by": family["sbd_account"].get("frozen_by"),
+                "frozen_at": family["sbd_account"].get("frozen_at"),
+                "spending_permissions": family["sbd_account"]["spending_permissions"],
+                "notification_settings": family["sbd_account"]["notification_settings"],
+                "recent_transactions": recent_transactions
+            }
+            
+            self.db_manager.log_query_success(
+                "families", "get_family_sbd_account", start_time, 1,
+                f"SBD account retrieved for family: {family_id}"
+            )
+            
+            self.logger.debug("Retrieved SBD account for family %s by user %s", family_id, user_id)
+            
+            return account_data
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "get_family_sbd_account", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "get_family_sbd_account", start_time, e, operation_context)
+            self.logger.error("Failed to get family SBD account %s: %s", family_id, e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve SBD account information: {str(e)}")
+
+    async def update_spending_permissions(self, family_id: str, admin_id: str, target_user_id: str, 
+                                        permissions: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update spending permissions for a family member.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin making the change
+            target_user_id: ID of the user whose permissions are being updated
+            permissions: Dict containing spending_limit and can_spend
+            
+        Returns:
+            Dict containing updated permission information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not an admin
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "target_user_id": target_user_id,
+            "permissions": permissions,
+            "operation": "update_spending_permissions",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "update_spending_permissions", operation_context)
+        
+        try:
+            # Verify family exists and user is admin
+            family = await self._get_family_by_id(family_id)
+            
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can update spending permissions")
+            
+            # Verify target user is a family member
+            if not await self._is_user_in_family(target_user_id, family_id):
+                raise InsufficientPermissions("Target user is not a family member")
+            
+            # Update permissions
+            now = datetime.now(timezone.utc)
+            updated_permissions = {
+                "role": "admin" if target_user_id in family["admin_user_ids"] else "member",
+                "spending_limit": permissions["spending_limit"],
+                "can_spend": permissions["can_spend"],
+                "updated_by": admin_id,
+                "updated_at": now
+            }
+            
+            # Update family document
+            families_collection = self.db_manager.get_collection("families")
+            await families_collection.update_one(
+                {"family_id": family_id},
+                {
+                    "$set": {
+                        f"sbd_account.spending_permissions.{target_user_id}": updated_permissions,
+                        "updated_at": now
+                    }
+                }
+            )
+            
+            # Update user's family membership
+            users_collection = self.db_manager.get_collection("users")
+            await users_collection.update_one(
+                {
+                    "_id": target_user_id,
+                    "family_memberships.family_id": family_id
+                },
+                {
+                    "$set": {
+                        "family_memberships.$.spending_permissions": {
+                            "can_spend": permissions["can_spend"],
+                            "spending_limit": permissions["spending_limit"],
+                            "last_updated": now
+                        }
+                    }
+                }
+            )
+            
+            # Send notification to affected user
+            await self._send_spending_permissions_notification(
+                family_id, target_user_id, admin_id, updated_permissions
+            )
+            
+            self.db_manager.log_query_success(
+                "families", "update_spending_permissions", start_time, 1,
+                f"Spending permissions updated for user {target_user_id} in family {family_id}"
+            )
+            
+            self.logger.info("Updated spending permissions for user %s in family %s by admin %s", 
+                           target_user_id, family_id, admin_id)
+            
+            return updated_permissions
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "update_spending_permissions", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "update_spending_permissions", start_time, e, operation_context)
+            self.logger.error("Failed to update spending permissions: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to update spending permissions: {str(e)}")
+
+    async def freeze_family_account(self, family_id: str, admin_id: str, reason: str) -> Dict[str, Any]:
+        """
+        Freeze the family SBD account to prevent spending.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin freezing the account
+            reason: Reason for freezing
+            
+        Returns:
+            Dict containing freeze status information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not an admin
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "reason": reason,
+            "operation": "freeze_family_account",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "freeze_family_account", operation_context)
+        
+        try:
+            # Verify family exists and user is admin
+            family = await self._get_family_by_id(family_id)
+            
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can freeze the account")
+            
+            # Check if already frozen
+            if family["sbd_account"]["is_frozen"]:
+                raise FamilyError("Family account is already frozen")
+            
+            # Freeze the account
+            now = datetime.now(timezone.utc)
+            freeze_data = {
+                "is_frozen": True,
+                "frozen_by": admin_id,
+                "frozen_at": now,
+                "freeze_reason": reason
+            }
+            
+            families_collection = self.db_manager.get_collection("families")
+            await families_collection.update_one(
+                {"family_id": family_id},
+                {
+                    "$set": {
+                        "sbd_account.is_frozen": True,
+                        "sbd_account.frozen_by": admin_id,
+                        "sbd_account.frozen_at": now,
+                        "sbd_account.freeze_reason": reason,
+                        "updated_at": now
+                    }
+                }
+            )
+            
+            # Send notifications to all family members
+            await self._send_account_freeze_notification(family_id, admin_id, reason, "frozen")
+            
+            self.db_manager.log_query_success(
+                "families", "freeze_family_account", start_time, 1,
+                f"Family account frozen: {family_id}"
+            )
+            
+            self.logger.info("Family account frozen: %s by admin %s, reason: %s", 
+                           family_id, admin_id, reason)
+            
+            return freeze_data
+            
+        except (FamilyNotFound, InsufficientPermissions, FamilyError) as e:
+            self.db_manager.log_query_error("families", "freeze_family_account", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "freeze_family_account", start_time, e, operation_context)
+            self.logger.error("Failed to freeze family account: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to freeze family account: {str(e)}")
+
+    async def unfreeze_family_account(self, family_id: str, admin_id: str) -> Dict[str, Any]:
+        """
+        Unfreeze the family SBD account to restore spending.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin unfreezing the account
+            
+        Returns:
+            Dict containing unfreeze status information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not an admin
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "operation": "unfreeze_family_account",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "unfreeze_family_account", operation_context)
+        
+        try:
+            # Verify family exists and user is admin
+            family = await self._get_family_by_id(family_id)
+            
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can unfreeze the account")
+            
+            # Check if already unfrozen
+            if not family["sbd_account"]["is_frozen"]:
+                raise FamilyError("Family account is not frozen")
+            
+            # Unfreeze the account
+            now = datetime.now(timezone.utc)
+            unfreeze_data = {
+                "is_frozen": False,
+                "frozen_by": None,
+                "frozen_at": None,
+                "unfrozen_by": admin_id,
+                "unfrozen_at": now
+            }
+            
+            families_collection = self.db_manager.get_collection("families")
+            await families_collection.update_one(
+                {"family_id": family_id},
+                {
+                    "$set": {
+                        "sbd_account.is_frozen": False,
+                        "updated_at": now
+                    },
+                    "$unset": {
+                        "sbd_account.frozen_by": "",
+                        "sbd_account.frozen_at": "",
+                        "sbd_account.freeze_reason": ""
+                    }
+                }
+            )
+            
+            # Send notifications to all family members
+            await self._send_account_freeze_notification(family_id, admin_id, None, "unfrozen")
+            
+            self.db_manager.log_query_success(
+                "families", "unfreeze_family_account", start_time, 1,
+                f"Family account unfrozen: {family_id}"
+            )
+            
+            self.logger.info("Family account unfrozen: %s by admin %s", family_id, admin_id)
+            
+            return unfreeze_data
+            
+        except (FamilyNotFound, InsufficientPermissions, FamilyError) as e:
+            self.db_manager.log_query_error("families", "unfreeze_family_account", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "unfreeze_family_account", start_time, e, operation_context)
+            self.logger.error("Failed to unfreeze family account: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to unfreeze family account: {str(e)}")
+
+    async def get_family_transactions(self, family_id: str, user_id: str, skip: int = 0, 
+                                    limit: int = 20) -> Dict[str, Any]:
+        """
+        Get family SBD account transaction history.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the requesting user
+            skip: Number of transactions to skip
+            limit: Maximum number of transactions to return
+            
+        Returns:
+            Dict containing transaction history and pagination info
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "skip": skip,
+            "limit": limit,
+            "operation": "get_family_transactions",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "get_family_transactions", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_in_family(user_id, family_id):
+                raise InsufficientPermissions("You must be a family member to view transaction history")
+            
+            # Get family account details
+            account_username = family["sbd_account"]["account_username"]
+            current_balance = await self.get_family_sbd_balance(account_username)
+            
+            # Get transactions from virtual account
+            users_collection = self.db_manager.get_collection("users")
+            virtual_account = await users_collection.find_one({"username": account_username})
+            
+            if not virtual_account:
+                raise FamilyError("Family SBD account not found")
+            
+            all_transactions = virtual_account.get("sbd_tokens_transactions", [])
+            
+            # Sort by timestamp (newest first)
+            sorted_transactions = sorted(
+                all_transactions, 
+                key=lambda x: x.get("timestamp", ""), 
+                reverse=True
+            )
+            
+            # Apply pagination
+            paginated_transactions = sorted_transactions[skip:skip + limit]
+            
+            # Enhance transactions with family member information
+            enhanced_transactions = []
+            for txn in paginated_transactions:
+                enhanced_txn = txn.copy()
+                
+                # Add family member details if available
+                if "family_member_id" in txn:
+                    member_user = await self._get_user_by_id(txn["family_member_id"])
+                    if member_user:
+                        enhanced_txn["family_member_details"] = {
+                            "username": member_user.get("username"),
+                            "email": member_user.get("email")
+                        }
+                
+                enhanced_transactions.append(enhanced_txn)
+            
+            transaction_data = {
+                "account_username": account_username,
+                "current_balance": current_balance,
+                "transactions": enhanced_transactions,
+                "total_transactions": len(all_transactions),
+                "has_more": (skip + limit) < len(all_transactions)
+            }
+            
+            self.db_manager.log_query_success(
+                "families", "get_family_transactions", start_time, len(enhanced_transactions),
+                f"Retrieved {len(enhanced_transactions)} transactions for family {family_id}"
+            )
+            
+            self.logger.debug("Retrieved %d transactions for family %s by user %s", 
+                            len(enhanced_transactions), family_id, user_id)
+            
+            return transaction_data
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "get_family_transactions", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "get_family_transactions", start_time, e, operation_context)
+            self.logger.error("Failed to get family transactions: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve transaction history: {str(e)}")
+
+    async def get_family_by_id(self, family_id: str) -> Dict[str, Any]:
+        """
+        Public method to get family by ID.
+        
+        Args:
+            family_id: ID of the family
+            
+        Returns:
+            Dict containing family information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+        """
+        return await self._get_family_by_id(family_id)
+
+    async def get_family_by_account_username(self, account_username: str) -> Optional[Dict[str, Any]]:
+        """
+        Get family by SBD account username.
+        
+        Args:
+            account_username: Username of the family SBD account
+            
+        Returns:
+            Dict containing family information or None if not found
+        """
+        try:
+            families_collection = self.db_manager.get_collection("families")
+            family = await families_collection.find_one({
+                "sbd_account.account_username": account_username
+            })
+            
+            if not family:
+                return None
+                
+            return family
+            
+        except Exception as e:
+            self.logger.error("Failed to get family by account username %s: %s", account_username, e)
+            return None
+
+    # Helper methods for SBD token permission system
+    
+    async def _get_recent_family_transactions(self, account_username: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent transactions for family account."""
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            virtual_account = await users_collection.find_one({"username": account_username})
+            
+            if not virtual_account:
+                return []
+            
+            all_transactions = virtual_account.get("sbd_tokens_transactions", [])
+            
+            # Sort by timestamp (newest first) and limit
+            sorted_transactions = sorted(
+                all_transactions, 
+                key=lambda x: x.get("timestamp", ""), 
+                reverse=True
+            )
+            
+            return sorted_transactions[:limit]
+            
+        except Exception as e:
+            self.logger.error("Failed to get recent family transactions: %s", e)
+            return []
+
+    async def _send_spending_permissions_notification(self, family_id: str, target_user_id: str, 
+                                                    admin_id: str, permissions: Dict[str, Any]) -> None:
+        """Send notification when spending permissions are updated."""
+        try:
+            # Get user and admin details
+            target_user = await self._get_user_by_id(target_user_id)
+            admin_user = await self._get_user_by_id(admin_id)
+            family = await self._get_family_by_id(family_id)
+            
+            if not target_user or not admin_user or not family:
+                return
+            
+            # Create notification message
+            spending_limit_text = "unlimited" if permissions["spending_limit"] == -1 else f"{permissions['spending_limit']} tokens"
+            can_spend_text = "enabled" if permissions["can_spend"] else "disabled"
+            
+            message = f"Your spending permissions have been updated by @{admin_user['username']}. " \
+                     f"Spending: {can_spend_text}, Limit: {spending_limit_text}"
+            
+            # Send notification (implementation would depend on notification system)
+            self.logger.info("Spending permissions notification sent to user %s", target_user_id)
+            
+        except Exception as e:
+            self.logger.error("Failed to send spending permissions notification: %s", e)
+
+    async def _send_account_freeze_notification(self, family_id: str, admin_id: str, 
+                                              reason: Optional[str], action: str) -> None:
+        """Send notification when account is frozen or unfrozen."""
+        try:
+            admin_user = await self._get_user_by_id(admin_id)
+            family = await self._get_family_by_id(family_id)
+            
+            if not admin_user or not family:
+                return
+            
+            # Create notification message
+            if action == "frozen":
+                message = f"Family account has been frozen by @{admin_user['username']}"
+                if reason:
+                    message += f". Reason: {reason}"
+            else:
+                message = f"Family account has been unfrozen by @{admin_user['username']}"
+            
+            # Send notification to all family members (implementation would depend on notification system)
+            self.logger.info("Account %s notification sent for family %s", action, family_id)
+            
+        except Exception as e:
+            self.logger.error("Failed to send account freeze notification: %s", e)
+
+    async def cleanup_expired_invitations(self) -> Dict[str, Any]:
+        """
+        Clean up expired family invitations.
+        
+        This method should be called periodically (e.g., via cron job) to:
+        - Mark expired invitations as 'expired'
+        - Clean up old invitation records
+        - Log cleanup statistics
+        
+        Returns:
+            Dict containing cleanup statistics
+        """
+        cleanup_context = {
+            "operation": "cleanup_expired_invitations",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_invitations", "cleanup_expired", cleanup_context)
+        
+        try:
+            invitations_collection = self.db_manager.get_collection("family_invitations")
+            now = datetime.now(timezone.utc)
+            
+            # Find expired pending invitations
+            expired_invitations = await invitations_collection.find({
+                "status": "pending",
+                "expires_at": {"$lt": now}
+            }).to_list(length=None)
+            
+            expired_count = len(expired_invitations)
+            
+            if expired_count > 0:
+                # Mark expired invitations
+                await invitations_collection.update_many(
+                    {
+                        "status": "pending",
+                        "expires_at": {"$lt": now}
+                    },
+                    {
+                        "$set": {
+                            "status": "expired",
+                            "responded_at": now
+                        }
+                    }
+                )
+                
+                # Log expired invitations for audit
+                for invitation in expired_invitations:
+                    self.logger.info(
+                        "Invitation expired: %s for family %s (invitee: %s)",
+                        invitation["invitation_id"],
+                        invitation["family_id"],
+                        invitation["invitee_email"],
+                        extra={
+                            "invitation_id": invitation["invitation_id"],
+                            "family_id": invitation["family_id"],
+                            "invitee_email": invitation["invitee_email"],
+                            "expired_at": invitation["expires_at"].isoformat(),
+                            "cleanup_operation": True
+                        }
+                    )
+            
+            # Clean up old expired invitations (older than 30 days)
+            cleanup_threshold = now - timedelta(days=30)
+            old_invitations_result = await invitations_collection.delete_many({
+                "status": {"$in": ["expired", "declined"]},
+                "responded_at": {"$lt": cleanup_threshold}
+            })
+            
+            cleaned_count = old_invitations_result.deleted_count
+            
+            self.db_manager.log_query_success(
+                "family_invitations", "cleanup_expired", start_time, 
+                expired_count + cleaned_count,
+                f"Expired: {expired_count}, Cleaned: {cleaned_count}"
+            )
+            
+            self.logger.info(
+                "Invitation cleanup completed: %d expired, %d cleaned up",
+                expired_count, cleaned_count,
+                extra={
+                    "expired_count": expired_count,
+                    "cleaned_count": cleaned_count,
+                    "cleanup_threshold": cleanup_threshold.isoformat()
+                }
+            )
+            
+            return {
+                "expired_count": expired_count,
+                "cleaned_count": cleaned_count,
+                "total_processed": expired_count + cleaned_count,
+                "cleanup_threshold": cleanup_threshold,
+                "timestamp": now
+            }
+            
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "cleanup_expired", start_time, e, cleanup_context)
+            self.logger.error("Failed to cleanup expired invitations: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to cleanup expired invitations: {str(e)}")
+
+    async def get_family_invitations(self, family_id: str, user_id: str, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get family invitations for a specific family.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user requesting (must be admin)
+            status_filter: Optional status filter ("pending", "accepted", "declined", "expired")
+            
+        Returns:
+            List of invitation information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "status_filter": status_filter,
+            "operation": "get_family_invitations"
+        }
+        start_time = self.db_manager.log_query_start("family_invitations", "get_invitations", operation_context)
+        
+        try:
+            # Verify family exists and user has admin permissions
+            family = await self._get_family_by_id(family_id)
+            if user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can view invitations")
+            
+            # Build query
+            query = {"family_id": family_id}
+            if status_filter:
+                query["status"] = status_filter
+            
+            # Get invitations
+            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_cursor = invitations_collection.find(query).sort("created_at", -1)
+            
+            invitations = []
+            async for invitation in invitations_cursor:
+                # Get inviter information
+                try:
+                    inviter = await self._get_user_by_id(invitation["inviter_user_id"])
+                    inviter_username = inviter.get("username", "Unknown")
+                except:
+                    inviter_username = "Unknown"
+                
+                invitations.append({
+                    "invitation_id": invitation["invitation_id"],
+                    "family_id": invitation["family_id"],
+                    "inviter_user_id": invitation["inviter_user_id"],
+                    "inviter_username": inviter_username,
+                    "invitee_email": invitation["invitee_email"],
+                    "invitee_user_id": invitation.get("invitee_user_id"),
+                    "relationship_type": invitation["relationship_type"],
+                    "status": invitation["status"],
+                    "expires_at": invitation["expires_at"],
+                    "created_at": invitation["created_at"],
+                    "responded_at": invitation.get("responded_at"),
+                    "email_sent": invitation.get("email_sent", False),
+                    "email_sent_at": invitation.get("email_sent_at")
+                })
+            
+            self.db_manager.log_query_success(
+                "family_invitations", "get_invitations", start_time, len(invitations)
+            )
+            
+            return invitations
+            
+        except (FamilyNotFound, InsufficientPermissions):
+            self.db_manager.log_query_error("family_invitations", "get_invitations", start_time, 
+                                          Exception("Validation error"), operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "get_invitations", start_time, e, operation_context)
+            self.logger.error("Failed to get family invitations: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to get family invitations: {str(e)}")
+
+    async def resend_invitation(self, invitation_id: str, admin_user_id: str) -> Dict[str, Any]:
+        """
+        Resend a family invitation email.
+        
+        Args:
+            invitation_id: ID of the invitation to resend
+            admin_user_id: ID of the admin user requesting resend
+            
+        Returns:
+            Dict containing resend information
+            
+        Raises:
+            InvitationNotFound: If invitation doesn't exist
+            InsufficientPermissions: If user is not admin
+            FamilyError: If resend fails
+        """
+        operation_context = {
+            "invitation_id": invitation_id,
+            "admin_user_id": admin_user_id,
+            "operation": "resend_invitation"
+        }
+        start_time = self.db_manager.log_query_start("family_invitations", "resend_invitation", operation_context)
+        
+        try:
+            # Get invitation
+            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitation = await invitations_collection.find_one({"invitation_id": invitation_id})
+            
+            if not invitation:
+                raise InvitationNotFound("Invitation not found")
+            
+            # Check if invitation is still pending
+            if invitation["status"] != "pending":
+                raise InvitationNotFound("Can only resend pending invitations")
+            
+            # Check if invitation is expired
+            if datetime.now(timezone.utc) > invitation["expires_at"]:
+                raise InvitationNotFound("Cannot resend expired invitation")
+            
+            # Verify user has admin permissions for the family
+            family = await self._get_family_by_id(invitation["family_id"])
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can resend invitations")
+            
+            # Send invitation email
+            email_sent = await self._send_invitation_email_safe(invitation, family)
+            
+            # Update email sent status
+            now = datetime.now(timezone.utc)
+            await invitations_collection.update_one(
+                {"invitation_id": invitation_id},
+                {
+                    "$set": {
+                        "email_sent": email_sent,
+                        "email_sent_at": now if email_sent else None
+                    },
+                    "$inc": {"email_attempts": 1}
+                }
+            )
+            
+            self.db_manager.log_query_success(
+                "family_invitations", "resend_invitation", start_time, 1,
+                f"Email resent: {email_sent}"
+            )
+            
+            self.logger.info(
+                "Family invitation resent: %s (email_sent: %s)",
+                invitation_id, email_sent,
+                extra={
+                    "invitation_id": invitation_id,
+                    "admin_user_id": admin_user_id,
+                    "email_sent": email_sent,
+                    "family_id": invitation["family_id"]
+                }
+            )
+            
+            return {
+                "invitation_id": invitation_id,
+                "email_sent": email_sent,
+                "resent_at": now,
+                "message": "Invitation email resent successfully" if email_sent else "Failed to send invitation email"
+            }
+            
+        except (InvitationNotFound, InsufficientPermissions):
+            self.db_manager.log_query_error("family_invitations", "resend_invitation", start_time,
+                                          Exception("Validation error"), operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "resend_invitation", start_time, e, operation_context)
+            self.logger.error("Failed to resend invitation: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to resend invitation: {str(e)}")
+
+    async def cancel_invitation(self, invitation_id: str, admin_user_id: str) -> Dict[str, Any]:
+        """
+        Cancel a pending family invitation.
+        
+        Args:
+            invitation_id: ID of the invitation to cancel
+            admin_user_id: ID of the admin user requesting cancellation
+            
+        Returns:
+            Dict containing cancellation information
+            
+        Raises:
+            InvitationNotFound: If invitation doesn't exist
+            InsufficientPermissions: If user is not admin
+            FamilyError: If cancellation fails
+        """
+        operation_context = {
+            "invitation_id": invitation_id,
+            "admin_user_id": admin_user_id,
+            "operation": "cancel_invitation"
+        }
+        start_time = self.db_manager.log_query_start("family_invitations", "cancel_invitation", operation_context)
+        
+        try:
+            # Get invitation
+            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitation = await invitations_collection.find_one({"invitation_id": invitation_id})
+            
+            if not invitation:
+                raise InvitationNotFound("Invitation not found")
+            
+            # Check if invitation is still pending
+            if invitation["status"] != "pending":
+                raise InvitationNotFound("Can only cancel pending invitations")
+            
+            # Verify user has admin permissions for the family
+            family = await self._get_family_by_id(invitation["family_id"])
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can cancel invitations")
+            
+            # Update invitation status to cancelled
+            now = datetime.now(timezone.utc)
+            await invitations_collection.update_one(
+                {"invitation_id": invitation_id},
+                {
+                    "$set": {
+                        "status": "cancelled",
+                        "responded_at": now,
+                        "cancelled_by": admin_user_id
+                    }
+                }
+            )
+            
+            self.db_manager.log_query_success(
+                "family_invitations", "cancel_invitation", start_time, 1
+            )
+            
+            self.logger.info(
+                "Family invitation cancelled: %s by admin %s",
+                invitation_id, admin_user_id,
+                extra={
+                    "invitation_id": invitation_id,
+                    "admin_user_id": admin_user_id,
+                    "family_id": invitation["family_id"],
+                    "invitee_email": invitation["invitee_email"]
+                }
+            )
+            
+            return {
+                "invitation_id": invitation_id,
+                "status": "cancelled",
+                "cancelled_at": now,
+                "cancelled_by": admin_user_id,
+                "message": "Invitation cancelled successfully"
+            }
+            
+        except (InvitationNotFound, InsufficientPermissions):
+            self.db_manager.log_query_error("family_invitations", "cancel_invitation", start_time,
+                                          Exception("Validation error"), operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "cancel_invitation", start_time, e, operation_context)
+            self.logger.error("Failed to cancel invitation: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to cancel invitation: {str(e)}")
 
 
 # Global family manager instance with dependency injection

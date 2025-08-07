@@ -368,6 +368,42 @@ class FamilyDocument(BaseModel):
     sbd_account: Dict[str, Any]
     settings: Dict[str, Any]
     succession_plan: Dict[str, Any]
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "family_id": "fam_abc123def456",
+                "name": "Smith Family",
+                "admin_user_ids": ["user_123", "user_456"],
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "member_count": 3,
+                "is_active": True,
+                "sbd_account": {
+                    "account_username": "family_smith",
+                    "is_frozen": False,
+                    "frozen_by": None,
+                    "frozen_at": None,
+                    "spending_permissions": {},
+                    "notification_settings": {
+                        "notify_on_spend": True,
+                        "notify_on_deposit": True,
+                        "large_transaction_threshold": 1000,
+                        "notify_admins_only": False
+                    }
+                },
+                "settings": {
+                    "allow_member_invites": True,
+                    "visibility": "private",
+                    "auto_approval_threshold": 100,
+                    "request_expiry_hours": 168
+                },
+                "succession_plan": {
+                    "backup_admins": [],
+                    "recovery_contacts": []
+                }
+            }
+        }
 
 
 class FamilyRelationshipDocument(BaseModel):
@@ -383,6 +419,36 @@ class FamilyRelationshipDocument(BaseModel):
     created_at: datetime
     activated_at: Optional[datetime] = None
     updated_at: datetime
+    
+    @validator('relationship_type_a_to_b', 'relationship_type_b_to_a')
+    def validate_relationship_types(cls, v):
+        if v not in RELATIONSHIP_TYPES:
+            raise ValueError(f"Invalid relationship type: {v}")
+        return v
+    
+    @validator('status')
+    def validate_status(cls, v):
+        valid_statuses = ["active", "pending", "declined"]
+        if v not in valid_statuses:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "relationship_id": "rel_abc123def456",
+                "family_id": "fam_abc123def456",
+                "user_a_id": "user_123",
+                "user_b_id": "user_456",
+                "relationship_type_a_to_b": "parent",
+                "relationship_type_b_to_a": "child",
+                "status": "active",
+                "created_by": "user_123",
+                "created_at": "2024-01-01T00:00:00Z",
+                "activated_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }
+        }
 
 
 class FamilyInvitationDocument(BaseModel):
@@ -390,7 +456,7 @@ class FamilyInvitationDocument(BaseModel):
     invitation_id: str
     family_id: str
     inviter_user_id: str
-    invitee_email: str
+    invitee_email: EmailStr
     invitee_user_id: str
     relationship_type: str
     invitation_token: str
@@ -400,6 +466,38 @@ class FamilyInvitationDocument(BaseModel):
     responded_at: Optional[datetime] = None
     email_sent: bool
     email_sent_at: Optional[datetime] = None
+    
+    @validator('relationship_type')
+    def validate_relationship_type(cls, v):
+        if v not in RELATIONSHIP_TYPES:
+            raise ValueError(f"Invalid relationship type: {v}")
+        return v
+    
+    @validator('status')
+    def validate_status(cls, v):
+        valid_statuses = ["pending", "accepted", "declined", "expired"]
+        if v not in valid_statuses:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "invitation_id": "inv_abc123def456",
+                "family_id": "fam_abc123def456",
+                "inviter_user_id": "user_123",
+                "invitee_email": "john@example.com",
+                "invitee_user_id": "user_456",
+                "relationship_type": "child",
+                "invitation_token": "secure_token_abc123",
+                "status": "pending",
+                "expires_at": "2024-01-08T00:00:00Z",
+                "created_at": "2024-01-01T00:00:00Z",
+                "responded_at": None,
+                "email_sent": True,
+                "email_sent_at": "2024-01-01T00:00:00Z"
+            }
+        }
 
 
 class FamilyNotificationDocument(BaseModel):
@@ -410,11 +508,52 @@ class FamilyNotificationDocument(BaseModel):
     type: str
     title: str
     message: str
-    data: Dict[str, Any]
+    data: Dict[str, Any] = {}
     status: str
     created_at: datetime
     sent_at: Optional[datetime] = None
     read_by: Dict[str, datetime] = {}
+    
+    @validator('type')
+    def validate_type(cls, v):
+        if v not in NOTIFICATION_TYPES:
+            raise ValueError(f"Invalid notification type: {v}")
+        return v
+    
+    @validator('status')
+    def validate_status(cls, v):
+        valid_statuses = ["pending", "sent", "read", "archived"]
+        if v not in valid_statuses:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+    
+    @validator('recipient_user_ids')
+    def validate_recipients(cls, v):
+        if not v:
+            raise ValueError("At least one recipient is required")
+        return v
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "notification_id": "notif_abc123def456",
+                "family_id": "fam_abc123def456",
+                "recipient_user_ids": ["user_123", "user_456"],
+                "type": "sbd_spend",
+                "title": "Family Token Spending",
+                "message": "John spent 50 tokens from the family account",
+                "data": {
+                    "transaction_id": "txn_123",
+                    "amount": 50,
+                    "from_user": "user_456",
+                    "to_user": "user_789"
+                },
+                "status": "sent",
+                "created_at": "2024-01-01T00:00:00Z",
+                "sent_at": "2024-01-01T00:00:00Z",
+                "read_by": {}
+            }
+        }
 
 
 class FamilyTokenRequestDocument(BaseModel):
@@ -427,11 +566,49 @@ class FamilyTokenRequestDocument(BaseModel):
     status: str
     reviewed_by: Optional[str] = None
     admin_comments: Optional[str] = None
-    auto_approved: bool
+    auto_approved: bool = False
     created_at: datetime
     expires_at: datetime
     reviewed_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None
+    
+    @validator('amount')
+    def validate_amount(cls, v):
+        if v <= 0:
+            raise ValueError("Amount must be positive")
+        return v
+    
+    @validator('status')
+    def validate_status(cls, v):
+        valid_statuses = ["pending", "approved", "denied", "expired", "auto_approved"]
+        if v not in valid_statuses:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+    
+    @validator('reason')
+    def validate_reason(cls, v):
+        if not v or len(v.strip()) < 5:
+            raise ValueError("Reason must be at least 5 characters long")
+        return v.strip()
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "request_id": "req_abc123def456",
+                "family_id": "fam_abc123def456",
+                "requester_user_id": "user_456",
+                "amount": 100,
+                "reason": "Need tokens for school supplies",
+                "status": "pending",
+                "reviewed_by": None,
+                "admin_comments": None,
+                "auto_approved": False,
+                "created_at": "2024-01-01T00:00:00Z",
+                "expires_at": "2024-01-08T00:00:00Z",
+                "reviewed_at": None,
+                "processed_at": None
+            }
+        }
 
 
 # Error Response Models

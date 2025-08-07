@@ -51,12 +51,33 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
         user_id = str(current_user["_id"])
         request_context = {"request": request, "user": current_user}
         
-        if not await family_manager.validate_family_spending(from_user, user_id, amount, request_context):
+        # Enhanced validation with detailed error messages
+        validation_result = await family_manager.validate_family_spending(from_user, user_id, amount, request_context)
+        if not validation_result:
+            # Get detailed error information
+            try:
+                family_data = await family_manager.get_family_by_account_username(from_user)
+                if family_data:
+                    permissions = family_data["sbd_account"]["spending_permissions"].get(user_id, {})
+                    
+                    if family_data["sbd_account"]["is_frozen"]:
+                        error_detail = "Family account is currently frozen and cannot be used for spending"
+                    elif not permissions.get("can_spend", False):
+                        error_detail = "You don't have permission to spend from this family account"
+                    elif permissions.get("spending_limit", 0) != -1 and amount > permissions.get("spending_limit", 0):
+                        error_detail = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                    else:
+                        error_detail = "Family spending validation failed"
+                else:
+                    error_detail = "Family account not found"
+            except Exception:
+                error_detail = "You don't have permission to spend from this family account, the amount exceeds your limit, or the account is frozen"
+            
             logger.warning("[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s", 
                          user_id, from_user, amount)
             return JSONResponse({
                 "status": "error", 
-                "detail": "You don't have permission to spend from this family account, the amount exceeds your limit, or the account is frozen"
+                "detail": error_detail
             }, status_code=403)
     
     # Prevent sending to reserved username patterns (family_ or team_)
