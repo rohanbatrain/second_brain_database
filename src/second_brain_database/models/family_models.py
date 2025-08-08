@@ -148,6 +148,17 @@ class AdminActionRequest(BaseModel):
     action: Literal["promote", "demote"] = Field(..., description="Action to take")
 
 
+class BackupAdminRequest(BaseModel):
+    """Request model for backup admin designation/removal."""
+    action: Literal["designate", "remove"] = Field(..., description="Action to take on backup admin")
+
+
+class AdminActionsLogRequest(BaseModel):
+    """Request model for getting admin actions log."""
+    limit: int = Field(50, ge=1, le=100, description="Maximum number of records to return")
+    offset: int = Field(0, ge=0, description="Number of records to skip")
+
+
 class UpdateNotificationPreferencesRequest(BaseModel):
     """Request model for updating notification preferences."""
     email_notifications: bool = Field(True, description="Enable email notifications")
@@ -314,6 +325,56 @@ class FamilyLimitsResponse(BaseModel):
     can_create_family: bool
     upgrade_required: bool
     upgrade_message: Optional[str] = None
+
+
+class AdminActionResponse(BaseModel):
+    """Response model for admin promotion/demotion actions."""
+    family_id: str
+    target_user_id: str
+    target_username: str
+    action: str
+    new_role: str
+    performed_by: str
+    performed_by_username: str
+    performed_at: datetime
+    message: str
+    transaction_safe: bool = True
+
+
+class BackupAdminResponse(BaseModel):
+    """Response model for backup admin designation/removal."""
+    family_id: str
+    backup_user_id: str
+    backup_username: str
+    action: str
+    role: str
+    performed_by: str
+    performed_by_username: str
+    performed_at: datetime
+    message: str
+    transaction_safe: bool = True
+
+
+class AdminActionLogEntry(BaseModel):
+    """Model for individual admin action log entry."""
+    action_id: str
+    family_id: str
+    admin_user_id: str
+    admin_username: str
+    target_user_id: str
+    target_username: str
+    action_type: str
+    details: Dict[str, Any]
+    created_at: datetime
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+
+class AdminActionsLogResponse(BaseModel):
+    """Response model for admin actions log."""
+    family_id: str
+    actions: List[AdminActionLogEntry]
+    pagination: Dict[str, Any]
 
 
 class FamilyStatsResponse(BaseModel):

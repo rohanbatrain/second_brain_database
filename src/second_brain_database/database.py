@@ -609,6 +609,20 @@ class DatabaseManager:
             await self._create_index_if_not_exists(token_requests_collection, [("requester_user_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("created_at", -1)], {})
             
+            # Family admin actions collection indexes - Admin action audit trail
+            admin_actions_collection = self.get_collection("family_admin_actions")
+            await self._create_index_if_not_exists(admin_actions_collection, "action_id", {"unique": True})
+            await self._create_index_if_not_exists(admin_actions_collection, "family_id", {})
+            await self._create_index_if_not_exists(admin_actions_collection, "admin_user_id", {})
+            await self._create_index_if_not_exists(admin_actions_collection, "target_user_id", {})
+            await self._create_index_if_not_exists(admin_actions_collection, "action_type", {})
+            await self._create_index_if_not_exists(admin_actions_collection, "created_at", {})
+            # Compound indexes for admin action queries
+            await self._create_index_if_not_exists(admin_actions_collection, [("family_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(admin_actions_collection, [("admin_user_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(admin_actions_collection, [("target_user_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(admin_actions_collection, [("family_id", 1), ("action_type", 1)], {})
+            
             db_logger.info("Family management collection indexes created successfully")
             
         except Exception as e:

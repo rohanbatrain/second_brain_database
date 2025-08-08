@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 import time
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from second_brain_database.database import db_manager
 from second_brain_database.docs.models import (
@@ -14,6 +15,7 @@ from second_brain_database.docs.models import (
     create_error_responses,
     create_standard_responses,
 )
+from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
@@ -31,6 +33,384 @@ logger = get_logger(prefix="[SHOP]")
 router = APIRouter()
 
 SHOP_COLLECTION = "shop"
+
+
+# Payment method models
+class PaymentMethod(BaseModel):
+    """Payment method selection for shop purchases."""
+    type: str = Field(..., description="Payment type: 'personal' or 'family'")
+    family_id: Optional[str] = Field(None, description="Family ID if using family tokens")
+
+
+class PurchaseRequest(BaseModel):
+    """Base purchase request with payment method."""
+    payment_method: PaymentMethod = Field(..., description="Payment method selection")
+
+
+class ThemePurchaseRequest(PurchaseRequest):
+    """Theme purchase request with payment method."""
+    theme_id: str = Field(..., description="Theme ID to purchase")
+
+
+class AvatarPurchaseRequest(PurchaseRequest):
+    """Avatar purchase request with payment method."""
+    avatar_id: str = Field(..., description="Avatar ID to purchase")
+
+
+class BannerPurchaseRequest(PurchaseRequest):
+    """Banner purchase request with payment method."""
+    banner_id: str = Field(..., description="Banner ID to purchase")
+
+
+class BundlePurchaseRequest(PurchaseRequest):
+    """Bundle purchase request with payment method."""
+    bundle_id: str = Field(..., description="Bundle ID to purchase")
+
+
+class CartCheckoutRequest(BaseModel):
+    """Cart checkout request with payment method."""
+    payment_method: PaymentMethod = Field(..., description="Payment method selection")
+
+
+# Helper functions for family token integration
+async def get_user_payment_options(user_id: str, username: str) -> Dict[str, Any]:
+    """
+    Get available payment options for a user including personal and family tokens.
+    
+    Args:
+        user_id: User ID
+        username: Username
+        
+    Returns:
+        Dict containing personal and family token balances
+    """
+    users_collection = db_manager.get_collection("users")
+    
+    # Get personal token balance
+    user = await users_collection.find_one({"username": username}, {"sbd_tokens": 1})
+    personal_balance = user.get("sbd_tokens", 0) if user else 0
+    
+    # Get family token balances
+    family_balances = []
+    try:
+        user_families = await family_manager.get_user_families(user_id)
+        for family in user_families:
+            family_id = family["family_id"]
+            try:
+                # Get family SBD account details
+                sbd_account = await family_manager.get_family_sbd_account(family_id, user_id)
+                
+                # Check if user has spending permissions
+                user_permissions = sbd_account["spending_permissions"].get(user_id, {})
+                can_spend = user_permissions.get("can_spend", False) and not sbd_account["is_frozen"]
+                
+                if can_spend:
+                    family_balances.append({
+                        "family_id": family_id,
+                        "family_name": family["name"],
+                        "balance": sbd_account["balance"],
+                        "spending_limit": user_permissions.get("spending_limit", 0),
+                        "is_frozen": sbd_account["is_frozen"]
+                    })
+            except Exception as e:
+                logger.warning("Failed to get family SBD account for family %s: %s", family_id, e)
+                continue
+    except Exception as e:
+        logger.warning("Failed to get user families for payment options: %s", e)
+    
+    return {
+        "personal": {
+            "balance": personal_balance,
+            "available": True
+        },
+        "family": family_balances
+    }
+
+
+async def validate_payment_method(payment_method: PaymentMethod, user_id: str, username: str, amount: int) -> Dict[str, Any]:
+    """
+    Validate payment method and check if user can make the purchase.
+    
+    Args:
+        payment_method: Payment method selection
+        user_id: User ID
+        username: Username
+        amount: Purchase amount
+        
+    Returns:
+        Dict containing validation result and payment details
+        
+    Raises:
+        HTTPException: If payment method is invalid or insufficient funds
+    """
+    if payment_method.type == "personal":
+        # Validate personal token balance
+        users_collection = db_manager.get_collection("users")
+        user = await users_collection.find_one({"username": username}, {"sbd_tokens": 1})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        balance = user.get("sbd_tokens", 0)
+        if balance < amount:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "INSUFFICIENT_PERSONAL_TOKENS",
+                    "message": f"Insufficient personal tokens. Required: {amount}, Available: {balance}"
+                }
+            )
+        
+        return {
+            "valid": True,
+            "payment_type": "personal",
+            "account_username": username,
+            "balance": balance
+        }
+    
+    elif payment_method.type == "family":
+        if not payment_method.family_id:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "MISSING_FAMILY_ID",
+                    "message": "Family ID is required for family token payments"
+                }
+            )
+        
+        try:
+            # Get family data and validate spending permission
+            family_data = await family_manager.get_family_by_id(payment_method.family_id)
+            family_username = family_data["sbd_account"]["account_username"]
+            
+            # Validate family spending permission
+            can_spend = await family_manager.validate_family_spending(
+                family_username, user_id, amount
+            )
+            
+            if not can_spend:
+                # Get detailed error information
+                permissions = family_data["sbd_account"]["spending_permissions"].get(user_id, {})
+                
+                if family_data["sbd_account"]["is_frozen"]:
+                    error_detail = "Family account is currently frozen and cannot be used for spending"
+                elif not permissions.get("can_spend", False):
+                    error_detail = "You don't have permission to spend from this family account"
+                elif permissions.get("spending_limit", 0) != -1 and amount > permissions.get("spending_limit", 0):
+                    error_detail = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                else:
+                    error_detail = "Family spending validation failed"
+                
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "FAMILY_SPENDING_DENIED",
+                        "message": error_detail
+                    }
+                )
+            
+            # Get family account balance
+            balance = await family_manager.get_family_sbd_balance(family_username)
+            
+            return {
+                "valid": True,
+                "payment_type": "family",
+                "account_username": family_username,
+                "family_id": payment_method.family_id,
+                "family_name": family_data["name"],
+                "balance": balance,
+                "user_permissions": permissions
+            }
+            
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            logger.error("Failed to validate family payment method: %s", e)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "FAMILY_VALIDATION_FAILED",
+                    "message": "Failed to validate family payment method"
+                }
+            )
+    
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INVALID_PAYMENT_TYPE",
+                "message": f"Invalid payment type: {payment_method.type}. Must be 'personal' or 'family'"
+            }
+        )
+
+
+async def process_payment(payment_details: Dict[str, Any], amount: int, item_details: Dict[str, Any], 
+                         current_user: Dict[str, Any], transaction_id: str) -> Dict[str, Any]:
+    """
+    Process payment using the validated payment method.
+    
+    Args:
+        payment_details: Validated payment details
+        amount: Purchase amount
+        item_details: Item being purchased
+        current_user: Current user information
+        transaction_id: Transaction ID
+        
+    Returns:
+        Dict containing transaction details
+    """
+    users_collection = db_manager.get_collection("users")
+    username = current_user["username"]
+    user_id = str(current_user["_id"])
+    now_iso = datetime.now(timezone.utc).isoformat()
+    
+    # Prepare transaction notes
+    item_type = item_details.get("type", "item")
+    item_id = item_details.get(f"{item_type}_id", "unknown")
+    base_note = f"Bought {item_type} {item_id} from shop"
+    
+    if payment_details["payment_type"] == "personal":
+        # Process personal token payment
+        send_txn = {
+            "type": "send",
+            "to": "emotion_tracker_shop",
+            "amount": amount,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": base_note,
+        }
+        
+        receive_txn = {
+            "type": "receive",
+            "from": username,
+            "amount": amount,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"User bought {item_type} {item_id}",
+        }
+        
+        # Deduct from personal account
+        result = await users_collection.update_one(
+            {"username": username, "sbd_tokens": {"$gte": amount}},
+            {
+                "$inc": {"sbd_tokens": -amount},
+                "$push": {"sbd_tokens_transactions": send_txn},
+            },
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient SBD tokens or race condition"
+            )
+        
+        # Add to shop account
+        await users_collection.update_one(
+            {"username": "emotion_tracker_shop"},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn},
+            },
+            upsert=True,
+        )
+        
+        return {
+            "payment_type": "personal",
+            "from_account": username,
+            "amount": amount,
+            "transaction_id": transaction_id
+        }
+    
+    elif payment_details["payment_type"] == "family":
+        # Process family token payment
+        family_username = payment_details["account_username"]
+        family_id = payment_details["family_id"]
+        family_name = payment_details["family_name"]
+        
+        # Enhanced transaction notes with family member attribution
+        family_note = f"Spent by family member @{username} from {family_name}"
+        send_txn = {
+            "type": "send",
+            "to": "emotion_tracker_shop",
+            "amount": amount,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"{base_note} ({family_note})",
+            "family_member_id": user_id,
+            "family_member_username": username,
+            "shop_item_type": item_type,
+            "shop_item_id": item_id
+        }
+        
+        receive_txn = {
+            "type": "receive",
+            "from": family_username,
+            "amount": amount,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"Family member @{username} bought {item_type} {item_id}",
+            "family_member_id": user_id,
+            "family_member_username": username,
+            "shop_item_type": item_type,
+            "shop_item_id": item_id
+        }
+        
+        # Deduct from family account
+        result = await users_collection.update_one(
+            {"username": family_username, "sbd_tokens": {"$gte": amount}},
+            {
+                "$inc": {"sbd_tokens": -amount},
+                "$push": {"sbd_tokens_transactions": send_txn},
+            },
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient family tokens or race condition"
+            )
+        
+        # Add to shop account
+        await users_collection.update_one(
+            {"username": "emotion_tracker_shop"},
+            {
+                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
+                "$push": {"sbd_tokens_transactions": receive_txn},
+            },
+            upsert=True,
+        )
+        
+        # Send family notification about the purchase
+        try:
+            await family_manager.send_family_notification(
+                family_id,
+                "sbd_spend",
+                {
+                    "transaction_id": transaction_id,
+                    "amount": amount,
+                    "spender_username": username,
+                    "spender_id": user_id,
+                    "shop_item_type": item_type,
+                    "shop_item_id": item_id,
+                    "shop_item_name": item_details.get("name", "Unknown Item"),
+                    "to_account": "emotion_tracker_shop"
+                }
+            )
+        except Exception as e:
+            logger.warning("Failed to send family notification for shop purchase: %s", e)
+        
+        return {
+            "payment_type": "family",
+            "from_account": family_username,
+            "family_id": family_id,
+            "family_name": family_name,
+            "amount": amount,
+            "transaction_id": transaction_id,
+            "family_member": username
+        }
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid payment type")
 
 
 # Server-side registry for shop items to ensure prices are not client-controlled.
@@ -86,6 +466,47 @@ async def get_or_create_shop_doc(username):
         doc = {"username": username, "carts": {}}
         await shop_collection.insert_one(doc)
     return doc
+
+
+@router.get("/shop/payment-options", tags=["Shop"], summary="Get available payment options")
+async def get_payment_options(
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Get available payment options for the current user including personal and family token balances.
+    
+    Returns comprehensive information about all available payment methods,
+    including personal token balance and family accounts the user can spend from.
+    
+    **Returns:**
+    - Personal token balance
+    - List of family accounts with spending permissions
+    - Spending limits and restrictions for each account
+    """
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        payment_options = await get_user_payment_options(user_id, username)
+        
+        logger.debug("Retrieved payment options for user %s", username)
+        
+        return {
+            "status": "success",
+            "data": {
+                "user_id": user_id,
+                "username": username,
+                "payment_options": payment_options
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get payment options for user %s: %s", username, e)
+        return JSONResponse(
+            {"status": "error", "detail": "Failed to retrieve payment options"},
+            status_code=500
+        )
 
 
 BUNDLE_CONTENTS = {
@@ -208,24 +629,40 @@ BUNDLE_CONTENTS = {
     tags=["Shop"],
     summary="Purchase a theme with SBD tokens",
     description="""
-    Purchase a theme using SBD tokens from your account balance.
+    Purchase a theme using SBD tokens from personal or family account balance.
+    
+    **Backward Compatibility:**
+    - Supports both old format: `{"theme_id": "..."}` (defaults to personal tokens)
+    - And new format: `{"theme_id": "...", "payment_method": {"type": "personal|family", "family_id": "..."}}`
     
     **Purchase Process:**
     1. Validates theme ID and user authentication
-    2. Checks if user already owns the theme
-    3. Verifies sufficient SBD token balance
-    4. Deducts tokens and adds theme to user's owned collection
-    5. Records transaction in user's transaction history
+    2. Validates payment method (personal or family tokens)
+    3. Checks if user already owns the theme
+    4. Verifies sufficient SBD token balance and spending permissions
+    5. Deducts tokens and adds theme to user's owned collection
+    6. Records transaction with family member attribution if applicable
+    7. Sends family notifications for family token purchases
+    
+    **Payment Methods:**
+    - **Personal tokens**: Use your personal SBD token balance
+    - **Family tokens**: Use tokens from a family account (requires spending permission)
+    
+    **Family Token Features:**
+    - Spending permissions and limits enforced
+    - Family member attribution in transaction logs
+    - Automatic notifications to family members
+    - Account freeze protection
     
     **Security Features:**
     - Server-side price validation (prices cannot be manipulated by client)
     - Atomic transaction processing to prevent race conditions
     - Ownership verification to prevent duplicate purchases
-    - Comprehensive transaction logging
+    - Comprehensive transaction logging with family context
     
     **SBD Token System:**
     - Themes cost 250 SBD tokens each
-    - Tokens are deducted from your account balance
+    - Tokens are deducted from selected account balance
     - All transactions are logged with unique transaction IDs
     - Failed purchases do not deduct tokens
     
@@ -240,8 +677,8 @@ BUNDLE_CONTENTS = {
             "content": {
                 "application/json": {
                     "examples": {
-                        "success": {
-                            "summary": "Successful theme purchase",
+                        "personal_purchase": {
+                            "summary": "Successful personal token purchase",
                             "value": {
                                 "status": "success",
                                 "theme": {
@@ -253,6 +690,48 @@ BUNDLE_CONTENTS = {
                                     "note": "Bought from shop",
                                     "price": 250,
                                 },
+                                "payment": {
+                                    "payment_type": "personal",
+                                    "from_account": "username",
+                                    "amount": 250
+                                }
+                            }
+                        },
+                        "family_purchase": {
+                            "summary": "Successful family token purchase",
+                            "value": {
+                                "status": "success",
+                                "theme": {
+                                    "theme_id": "emotion_tracker-serenityGreen",
+                                    "unlocked_at": "2024-01-01T12:00:00Z",
+                                    "permanent": True,
+                                    "source": "purchase",
+                                    "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+                                    "note": "Bought from shop",
+                                    "price": 250,
+                                },
+                                "payment": {
+                                    "payment_type": "family",
+                                    "from_account": "family_smiths",
+                                    "family_name": "Smith Family",
+                                    "amount": 250,
+                                    "family_member": "username"
+                                }
+                            }
+                        },
+                        "legacy_purchase": {
+                            "summary": "Legacy format purchase (backward compatible)",
+                            "value": {
+                                "status": "success",
+                                "theme": {
+                                    "theme_id": "emotion_tracker-serenityGreen",
+                                    "unlocked_at": "2024-01-01T12:00:00Z",
+                                    "permanent": True,
+                                    "source": "purchase",
+                                    "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+                                    "note": "Bought from shop",
+                                    "price": 250,
+                                }
                             }
                         }
                     }
@@ -273,9 +752,13 @@ BUNDLE_CONTENTS = {
                             "summary": "Theme already owned",
                             "value": {"status": "error", "detail": "Theme already owned"},
                         },
-                        "insufficient_funds": {
-                            "summary": "Not enough SBD tokens",
-                            "value": {"status": "error", "detail": "Not enough SBD tokens"},
+                        "insufficient_personal_funds": {
+                            "summary": "Not enough personal SBD tokens",
+                            "value": {"status": "error", "detail": {"error": "INSUFFICIENT_PERSONAL_TOKENS", "message": "Insufficient personal tokens. Required: 250, Available: 100"}},
+                        },
+                        "invalid_payment_method": {
+                            "summary": "Invalid payment method",
+                            "value": {"status": "error", "detail": {"error": "INVALID_PAYMENT_TYPE", "message": "Invalid payment type: invalid. Must be 'personal' or 'family'"}},
                         },
                     }
                 }
@@ -283,9 +766,20 @@ BUNDLE_CONTENTS = {
         },
         401: {"description": "Authentication required", "model": StandardErrorResponse},
         403: {
-            "description": "Access denied - invalid client",
+            "description": "Access denied - invalid client or family spending denied",
             "content": {
-                "application/json": {"examples": {"access_denied": {"summary": "Invalid client", "value": {"status": "error", "detail": "Shop access denied: invalid client"}}}}
+                "application/json": {
+                    "examples": {
+                        "access_denied": {
+                            "summary": "Invalid client", 
+                            "value": {"status": "error", "detail": "Shop access denied: invalid client"}
+                        },
+                        "family_spending_denied": {
+                            "summary": "Family spending permission denied",
+                            "value": {"status": "error", "detail": {"error": "FAMILY_SPENDING_DENIED", "message": "You don't have permission to spend from this family account"}}
+                        }
+                    }
+                }
             },
         },
         404: {
@@ -297,7 +791,7 @@ BUNDLE_CONTENTS = {
 )
 async def buy_theme(
     request: Request,
-    data: dict = Body(..., examples={"theme_purchase": {"summary": "Theme purchase request", "value": {"theme_id": "emotion_tracker-serenityGreen"}}}),
+    data: dict = Body(...),  # Accept raw dict for backward compatibility
     current_user: dict = Depends(enforce_all_lockdowns),
 ):
     # Set up logging context
@@ -305,7 +799,21 @@ async def buy_theme(
     client_ip = security_manager.get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
     username = current_user["username"]
-    theme_id = data.get("theme_id")
+    user_id = str(current_user["_id"])
+    
+    # Handle backward compatibility - support both old and new request formats
+    if "payment_method" in data:
+        # New format with payment method
+        try:
+            purchase_request = ThemePurchaseRequest(**data)
+            theme_id = purchase_request.theme_id
+            payment_method = purchase_request.payment_method
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": f"Invalid request format: {str(e)}"}, status_code=400)
+    else:
+        # Legacy format - default to personal tokens
+        theme_id = data.get("theme_id")
+        payment_method = PaymentMethod(type="personal")
 
     request_id_context.set(request_id)
     user_id_context.set(username)
@@ -314,11 +822,12 @@ async def buy_theme(
     start_time = time.time()
 
     logger.info(
-        "[%s] POST /shop/themes/buy - User: %s, IP: %s, Theme: %s, User-Agent: %s",
+        "[%s] POST /shop/themes/buy - User: %s, IP: %s, Theme: %s, Payment: %s, User-Agent: %s",
         request_id,
         username,
         client_ip,
         theme_id,
+        payment_method.type,
         user_agent[:100],
     )
 
@@ -340,6 +849,7 @@ async def buy_theme(
                 user_agent[:100],
             )
             return JSONResponse({"status": "error", "detail": "Shop access denied: invalid client"}, status_code=403)
+        
         # Get theme details from server-side registry
         theme_details = await get_item_details(theme_id, "theme")
         if not theme_details:
@@ -354,7 +864,7 @@ async def buy_theme(
         users_collection = db_manager.get_collection("users")
 
         db_start = time.time()
-        user = await users_collection.find_one({"username": username}, {"themes_owned": 1, "sbd_tokens": 1})
+        user = await users_collection.find_one({"username": username}, {"themes_owned": 1})
         db_duration = time.time() - db_start
 
         logger.info(
@@ -373,17 +883,17 @@ async def buy_theme(
                 )
                 return JSONResponse({"status": "error", "detail": "Theme already owned"}, status_code=400)
 
-        # Check balance
-        sbd_tokens = user.get("sbd_tokens", 0)
-        if sbd_tokens < price:
+        # Validate payment method and check balance
+        try:
+            payment_details = await validate_payment_method(payment_method, user_id, username, price)
+        except HTTPException as e:
             logger.warning(
-                "[%s] POST /shop/themes/buy insufficient funds - User: %s, Balance: %d, Price: %d",
+                "[%s] POST /shop/themes/buy payment validation failed - User: %s, Error: %s",
                 request_id,
                 username,
-                sbd_tokens,
-                price,
+                e.detail,
             )
-            return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+            return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
         # Prepare transaction data
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -398,37 +908,28 @@ async def buy_theme(
             "price": price,
         }
 
-        send_txn = {
-            "type": "send",
-            "to": "emotion_tracker_shop",
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"Bought theme {theme_id}",
-        }
+        # Process payment
+        try:
+            payment_result = await process_payment(payment_details, price, theme_details, current_user, transaction_id)
+        except HTTPException as e:
+            logger.warning(
+                "[%s] POST /shop/themes/buy payment processing failed - User: %s, Error: %s",
+                request_id,
+                username,
+                e.detail,
+            )
+            return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
-        receive_txn = {
-            "type": "receive",
-            "from": username,
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"User bought theme {theme_id}",
-        }
-
-        # Execute transaction with logging
+        # Add theme to user's owned collection
         db_start = time.time()
         result = await users_collection.update_one(
-            {"username": username, "sbd_tokens": {"$gte": price}},
-            {
-                "$inc": {"sbd_tokens": -price},
-                "$push": {"themes_owned": theme_entry, "sbd_tokens_transactions": send_txn},
-            },
+            {"username": username},
+            {"$push": {"themes_owned": theme_entry}},
         )
         db_duration = time.time() - db_start
 
         logger.info(
-            "[%s] DB update_one for theme purchase completed in %.3fs - User: %s, Modified: %d",
+            "[%s] DB update_one for theme ownership completed in %.3fs - User: %s, Modified: %d",
             request_id,
             db_duration,
             username,
@@ -436,35 +937,34 @@ async def buy_theme(
         )
 
         if result.modified_count == 0:
-            logger.warning(
-                "[%s] POST /shop/themes/buy race condition - User: %s, Theme: %s", request_id, username, theme_id
+            logger.error(
+                "[%s] POST /shop/themes/buy failed to add theme to user - User: %s, Theme: %s", 
+                request_id, username, theme_id
             )
             return JSONResponse(
-                {"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400
+                {"status": "error", "detail": "Failed to add theme to user account"}, status_code=500
             )
-
-        # Log shop transaction
-        await users_collection.update_one(
-            {"username": "emotion_tracker_shop"},
-            {
-                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
-                "$push": {"sbd_tokens_transactions": receive_txn},
-            },
-            upsert=True,
-        )
 
         duration = time.time() - start_time
         logger.info(
-            "[%s] POST /shop/themes/buy completed in %.3fs - User: %s, Theme: %s, Price: %d, TxnID: %s",
+            "[%s] POST /shop/themes/buy completed in %.3fs - User: %s, Theme: %s, Price: %d, Payment: %s, TxnID: %s",
             request_id,
             duration,
             username,
             theme_id,
             price,
+            payment_method.type,
             transaction_id,
         )
 
-        return {"status": "success", "theme": theme_entry}
+        # Return format based on request type for backward compatibility
+        response = {"status": "success", "theme": theme_entry}
+        
+        # Only include payment details if new format was used
+        if "payment_method" in data:
+            response["payment"] = payment_result
+            
+        return response
 
     except Exception as e:
         duration = time.time() - start_time
@@ -486,25 +986,48 @@ async def buy_theme(
 @router.post("/shop/avatars/buy", tags=["Shop"], summary="Buy an avatar with SBD tokens")
 async def buy_avatar(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
-    avatar_id = data.get("avatar_id")
     username = current_user["username"]
+    user_id = str(current_user["_id"])
+    
+    # Handle backward compatibility
+    if "payment_method" in data:
+        # New format with payment method
+        try:
+            purchase_request = AvatarPurchaseRequest(**data)
+            avatar_id = purchase_request.avatar_id
+            payment_method = purchase_request.payment_method
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": f"Invalid request format: {str(e)}"}, status_code=400)
+    else:
+        # Legacy format - default to personal tokens
+        avatar_id = data.get("avatar_id")
+        payment_method = PaymentMethod(type="personal")
+    
     if not avatar_id:
         return JSONResponse({"status": "error", "detail": "Invalid or missing avatar_id"}, status_code=400)
+    
     # Get avatar details from server-side registry
     avatar_details = await get_item_details(avatar_id, "avatar")
     if not avatar_details:
         return JSONResponse({"status": "error", "detail": "Avatar not found"}, status_code=404)
+    
     price = avatar_details["price"]
+    
     # Check if user already owns the avatar
-    user = await users_collection.find_one({"username": username}, {"avatars_owned": 1, "sbd_tokens": 1})
+    user = await users_collection.find_one({"username": username}, {"avatars_owned": 1})
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    
     if any(owned.get("avatar_id") == avatar_id for owned in user.get("avatars_owned", [])):
         return JSONResponse({"status": "error", "detail": "Avatar already owned"}, status_code=400)
-    sbd_tokens = user.get("sbd_tokens", 0)
-    if sbd_tokens < price:
-        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
-    # Deduct tokens and add avatar to owned
+    
+    # Validate payment method and check balance
+    try:
+        payment_details = await validate_payment_method(payment_method, user_id, username, price)
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+    
+    # Prepare transaction data
     now_iso = datetime.now(timezone.utc).isoformat()
     transaction_id = str(uuid4())
     avatar_entry = {
@@ -516,51 +1039,42 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
         "note": "Bought from shop",
         "price": price,
     }
+    
     try:
-        logger.info(f"[AVATAR BUY] User: {username} attempting to buy avatar_id={avatar_id} for price={price}")
-        send_txn = {
-            "type": "send",
-            "to": "emotion_tracker_shop",
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"Bought avatar {avatar_id}",
-        }
-        receive_txn = {
-            "type": "receive",
-            "from": username,
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"User bought avatar {avatar_id}",
-        }
+        logger.info(f"[AVATAR BUY] User: {username} attempting to buy avatar_id={avatar_id} for price={price} using {payment_method.type}")
+        
+        # Process payment
+        payment_result = await process_payment(payment_details, price, avatar_details, current_user, transaction_id)
+        
+        # Add avatar to user's owned collection
         result = await users_collection.update_one(
-            {"username": username, "sbd_tokens": {"$gte": price}},
-            {
-                "$inc": {"sbd_tokens": -price},
-                "$push": {"avatars_owned": avatar_entry, "sbd_tokens_transactions": send_txn},
-            },
+            {"username": username},
+            {"$push": {"avatars_owned": avatar_entry}},
         )
+        
         logger.info(f"[AVATAR BUY] Update result for user {username}: modified_count={result.modified_count}")
+        
         if result.modified_count == 0:
-            logger.warning(
-                f"[AVATAR BUY] Insufficient SBD tokens or race condition for user {username} buying avatar_id={avatar_id}"
-            )
+            logger.error(f"[AVATAR BUY] Failed to add avatar to user {username} buying avatar_id={avatar_id}")
             return JSONResponse(
-                {"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400
+                {"status": "error", "detail": "Failed to add avatar to user account"}, status_code=500
             )
-        await users_collection.update_one(
-            {"username": "emotion_tracker_shop"},
-            {
-                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
-                "$push": {"sbd_tokens_transactions": receive_txn},
-            },
-            upsert=True,
-        )
+        
         logger.info(
-            f"[AVATAR BUY] User: {username} successfully bought avatar_id={avatar_id} (txn_id={transaction_id})"
+            f"[AVATAR BUY] User: {username} successfully bought avatar_id={avatar_id} (txn_id={transaction_id}) using {payment_method.type}"
         )
-        return {"status": "success", "avatar": avatar_entry}
+        
+        # Return format based on request type for backward compatibility
+        response = {"status": "success", "avatar": avatar_entry}
+        
+        # Only include payment details if new format was used
+        if "payment_method" in data:
+            response["payment"] = payment_result
+            
+        return response
+        
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     except Exception as e:
         logger.error(f"[AVATAR BUY ERROR] User: {username}, avatar_id={avatar_id}, error={e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
@@ -569,25 +1083,48 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
 @router.post("/shop/banners/buy", tags=["Shop"], summary="Buy a banner with SBD tokens")
 async def buy_banner(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
-    banner_id = data.get("banner_id")
     username = current_user["username"]
+    user_id = str(current_user["_id"])
+    
+    # Handle backward compatibility
+    if "payment_method" in data:
+        # New format with payment method
+        try:
+            purchase_request = BannerPurchaseRequest(**data)
+            banner_id = purchase_request.banner_id
+            payment_method = purchase_request.payment_method
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": f"Invalid request format: {str(e)}"}, status_code=400)
+    else:
+        # Legacy format - default to personal tokens
+        banner_id = data.get("banner_id")
+        payment_method = PaymentMethod(type="personal")
+    
     if not banner_id:
         return JSONResponse({"status": "error", "detail": "Invalid or missing banner_id"}, status_code=400)
+    
     # Get banner details from server-side registry
     banner_details = await get_item_details(banner_id, "banner")
     if not banner_details:
         return JSONResponse({"status": "error", "detail": "Banner not found"}, status_code=404)
+    
     price = banner_details["price"]
+    
     # Check if user already owns the banner
-    user = await users_collection.find_one({"username": username}, {"banners_owned": 1, "sbd_tokens": 1})
+    user = await users_collection.find_one({"username": username}, {"banners_owned": 1})
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    
     if any(owned.get("banner_id") == banner_id for owned in user.get("banners_owned", [])):
         return JSONResponse({"status": "error", "detail": "Banner already owned"}, status_code=400)
-    sbd_tokens = user.get("sbd_tokens", 0)
-    if sbd_tokens < price:
-        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
-    # Deduct tokens and add banner to owned
+    
+    # Validate payment method and check balance
+    try:
+        payment_details = await validate_payment_method(payment_method, user_id, username, price)
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+    
+    # Prepare transaction data
     now_iso = datetime.now(timezone.utc).isoformat()
     transaction_id = str(uuid4())
     banner_entry = {
@@ -599,51 +1136,42 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
         "note": "Bought from shop",
         "price": price,
     }
+    
     try:
-        logger.info(f"[BANNER BUY] User: {username} attempting to buy banner_id={banner_id} for price={price}")
-        send_txn = {
-            "type": "send",
-            "to": "emotion_tracker_shop",
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"Bought banner {banner_id}",
-        }
-        receive_txn = {
-            "type": "receive",
-            "from": username,
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"User bought banner {banner_id}",
-        }
+        logger.info(f"[BANNER BUY] User: {username} attempting to buy banner_id={banner_id} for price={price} using {payment_method.type}")
+        
+        # Process payment
+        payment_result = await process_payment(payment_details, price, banner_details, current_user, transaction_id)
+        
+        # Add banner to user's owned collection
         result = await users_collection.update_one(
-            {"username": username, "sbd_tokens": {"$gte": price}},
-            {
-                "$inc": {"sbd_tokens": -price},
-                "$push": {"banners_owned": banner_entry, "sbd_tokens_transactions": send_txn},
-            },
+            {"username": username},
+            {"$push": {"banners_owned": banner_entry}},
         )
+        
         logger.info(f"[BANNER BUY] Update result for user {username}: modified_count={result.modified_count}")
+        
         if result.modified_count == 0:
-            logger.warning(
-                f"[BANNER BUY] Insufficient SBD tokens or race condition for user {username} buying banner_id={banner_id}"
-            )
+            logger.error(f"[BANNER BUY] Failed to add banner to user {username} buying banner_id={banner_id}")
             return JSONResponse(
-                {"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400
+                {"status": "error", "detail": "Failed to add banner to user account"}, status_code=500
             )
-        await users_collection.update_one(
-            {"username": "emotion_tracker_shop"},
-            {
-                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
-                "$push": {"sbd_tokens_transactions": receive_txn},
-            },
-            upsert=True,
-        )
+        
         logger.info(
-            f"[BANNER BUY] User: {username} successfully bought banner_id={banner_id} (txn_id={transaction_id})"
+            f"[BANNER BUY] User: {username} successfully bought banner_id={banner_id} (txn_id={transaction_id}) using {payment_method.type}"
         )
-        return {"status": "success", "banner": banner_entry}
+        
+        # Return format based on request type for backward compatibility
+        response = {"status": "success", "banner": banner_entry}
+        
+        # Only include payment details if new format was used
+        if "payment_method" in data:
+            response["payment"] = payment_result
+            
+        return response
+        
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     except Exception as e:
         logger.error(f"[BANNER BUY ERROR] User: {username}, banner_id={banner_id}, error={e}")
         return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
@@ -652,28 +1180,51 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
 @router.post("/shop/bundles/buy", tags=["Shop"], summary="Buy a bundle with SBD tokens")
 async def buy_bundle(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
     users_collection = db_manager.get_collection("users")
-    bundle_id = data.get("bundle_id")
     username = current_user["username"]
+    user_id = str(current_user["_id"])
+    
+    # Handle backward compatibility
+    if "payment_method" in data:
+        # New format with payment method
+        try:
+            purchase_request = BundlePurchaseRequest(**data)
+            bundle_id = purchase_request.bundle_id
+            payment_method = purchase_request.payment_method
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": f"Invalid request format: {str(e)}"}, status_code=400)
+    else:
+        # Legacy format - default to personal tokens
+        bundle_id = data.get("bundle_id")
+        payment_method = PaymentMethod(type="personal")
+    
     if not bundle_id:
         return JSONResponse({"status": "error", "detail": "Invalid or missing bundle_id"}, status_code=400)
+    
     # Get bundle details from server-side registry
     bundle_details = await get_item_details(bundle_id, "bundle")
     if not bundle_details:
         return JSONResponse({"status": "error", "detail": "Bundle not found"}, status_code=404)
+    
     price = bundle_details["price"]
+    
     # Check if user already owns the bundle
     user = await users_collection.find_one(
         {"username": username},
-        {"bundles_owned": 1, "avatars_owned": 1, "themes_owned": 1, "banners_owned": 1, "sbd_tokens": 1},
+        {"bundles_owned": 1, "avatars_owned": 1, "themes_owned": 1, "banners_owned": 1},
     )
     if not user:
         return JSONResponse({"status": "error", "detail": "User not found"}, status_code=404)
+    
     if bundle_id in user.get("bundles_owned", []):
         return JSONResponse({"status": "error", "detail": "Bundle already owned"}, status_code=400)
-    sbd_tokens = user.get("sbd_tokens", 0)
-    if sbd_tokens < price:
-        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
-    # Deduct tokens and add bundle to owned
+    
+    # Validate payment method and check balance
+    try:
+        payment_details = await validate_payment_method(payment_method, user_id, username, price)
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+    
+    # Prepare transaction data
     now_iso = datetime.now(timezone.utc).isoformat()
     transaction_id = str(uuid4())
     bundle_entry = {
@@ -685,43 +1236,96 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
         "note": "Bought from shop",
         "price": price,
     }
+    
     try:
-        # Deduct tokens and add bundle to owned
+        logger.info(f"[BUNDLE BUY] User: {username} attempting to buy bundle_id={bundle_id} for price={price} using {payment_method.type}")
+        
+        # Process payment
+        payment_result = await process_payment(payment_details, price, bundle_details, current_user, transaction_id)
+        
+        # Add bundle to user's owned collection
         result = await users_collection.update_one(
-            {"username": username, "sbd_tokens": {"$gte": price}},
-            {"$inc": {"sbd_tokens": -price}, "$push": {"bundles_owned": bundle_entry}},
+            {"username": username},
+            {"$push": {"bundles_owned": bundle_entry}},
         )
+        
         if result.modified_count == 0:
+            logger.error(f"[BUNDLE BUY] Failed to add bundle to user {username} buying bundle_id={bundle_id}")
             return JSONResponse(
-                {"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400
+                {"status": "error", "detail": "Failed to add bundle to user account"}, status_code=500
             )
-        # --- Transaction log for user ---
-        send_txn = {
-            "type": "send",
-            "to": "emotion_tracker_shop",
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"Bought bundle {bundle_id}",
-        }
-        # --- Transaction log for shop ---
-        receive_txn = {
-            "type": "receive",
-            "from": username,
-            "amount": price,
-            "timestamp": now_iso,
-            "transaction_id": transaction_id,
-            "note": f"User bought bundle {bundle_id}",
-        }
-        await users_collection.update_one({"username": username}, {"$push": {"sbd_tokens_transactions": send_txn}})
-        await users_collection.update_one(
-            {"username": "emotion_tracker_shop"},
-            {
-                "$setOnInsert": {"email": "emotion_tracker_shop@rohanbatra.in"},
-                "$push": {"sbd_tokens_transactions": receive_txn},
-            },
-            upsert=True,
+        
+        # Auto-populate bundle contents (avatars, themes, banners)
+        update_operations = {}
+        now_iso_checkout = datetime.now(timezone.utc).isoformat()
+        
+        bundle_contents = BUNDLE_CONTENTS.get(bundle_id, {})
+        
+        # Add avatars from bundle
+        for avatar_id in bundle_contents.get("avatars", []):
+            avatar_entry = {
+                "avatar_id": avatar_id,
+                "unlocked_at": now_iso_checkout,
+                "permanent": True,
+                "source": f"bundle:{bundle_id}",
+                "transaction_id": transaction_id,
+                "note": f"Unlocked via bundle {bundle_id}",
+                "price": 0,
+            }
+            update_operations.setdefault("avatars_owned", {"$each": []})["$each"].append(avatar_entry)
+        
+        # Add themes from bundle
+        for theme_id in bundle_contents.get("themes", []):
+            theme_entry = {
+                "theme_id": theme_id,
+                "unlocked_at": now_iso_checkout,
+                "permanent": True,
+                "source": f"bundle:{bundle_id}",
+                "transaction_id": transaction_id,
+                "note": f"Unlocked via bundle {bundle_id}",
+                "price": 0,
+            }
+            update_operations.setdefault("themes_owned", {"$each": []})["$each"].append(theme_entry)
+        
+        # Add banners from bundle
+        for banner_id in bundle_contents.get("banners", []):
+            banner_entry = {
+                "banner_id": banner_id,
+                "unlocked_at": now_iso_checkout,
+                "permanent": True,
+                "source": f"bundle:{bundle_id}",
+                "transaction_id": transaction_id,
+                "note": f"Unlocked via bundle {bundle_id}",
+                "price": 0,
+            }
+            update_operations.setdefault("banners_owned", {"$each": []})["$each"].append(banner_entry)
+        
+        # Perform all updates for bundle contents
+        for owned_field, push_value in update_operations.items():
+            await users_collection.update_one({"username": username}, {"$push": {owned_field: push_value}})
+        
+        logger.info(
+            f"[BUNDLE BUY] User: {username} successfully bought bundle_id={bundle_id} (txn_id={transaction_id}) using {payment_method.type}"
         )
+        
+        # Return format based on request type for backward compatibility
+        response = {
+            "status": "success", 
+            "bundle": bundle_entry,
+            "bundle_contents": bundle_contents
+        }
+        
+        # Only include payment details if new format was used
+        if "payment_method" in data:
+            response["payment"] = payment_result
+            
+        return response
+        
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+    except Exception as e:
+        logger.error(f"[BUNDLE BUY ERROR] User: {username}, bundle_id={bundle_id}, error={e}")
+        return JSONResponse({"status": "error", "detail": "Internal server error", "error": str(e)}, status_code=500)
         # --- Auto-populate bundle contents ---
         bundle_contents = BUNDLE_CONTENTS.get(bundle_id, {})
         update_ops = {}
@@ -893,11 +1497,24 @@ async def get_cart(request: Request, current_user: dict = Depends(enforce_all_lo
     return {"status": "success", "app": app_name, "cart": cart}
 
 
-@router.post("/shop/cart/checkout", tags=["shop"], summary="Checkout a specific app cart")
-async def checkout_cart(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
+@router.post("/shop/cart/checkout", tags=["shop"], summary="Checkout a specific app cart with payment method selection")
+async def checkout_cart(request: Request, data: dict = Body({}), current_user: dict = Depends(enforce_all_lockdowns)):
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
+    user_id = str(current_user["_id"])
+    
+    # Handle backward compatibility
+    if data and "payment_method" in data:
+        # New format with payment method
+        try:
+            checkout_request = CartCheckoutRequest(**data)
+            payment_method = checkout_request.payment_method
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": f"Invalid request format: {str(e)}"}, status_code=400)
+    else:
+        # Legacy format - default to personal tokens (empty body or no payment_method)
+        payment_method = PaymentMethod(type="personal")
 
     user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split("/")[0].strip() if user_agent and "/" in user_agent else user_agent
@@ -919,50 +1536,102 @@ async def checkout_cart(request: Request, current_user: dict = Depends(enforce_a
     # Calculate total price from server-side details
     total_price = sum(item.get("price", 0) for item in items_to_checkout)
 
-    # Check user's token balance
-    user = await users_collection.find_one({"username": username}, {"sbd_tokens": 1})
-    if not user or user.get("sbd_tokens", 0) < total_price:
-        return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+    # Handle payment processing based on format
+    if "payment_method" in data:
+        # New format with payment method selection
+        try:
+            payment_details = await validate_payment_method(payment_method, user_id, username, total_price)
+        except HTTPException as e:
+            return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
-    # Atomically deduct tokens and log transaction
-    now_iso = datetime.now(timezone.utc).isoformat()
-    transaction_id = str(uuid4())
-    shop_name = f"{app_name}_shop"
+        # Prepare transaction data
+        now_iso = datetime.now(timezone.utc).isoformat()
+        transaction_id = str(uuid4())
+        shop_name = f"{app_name}_shop"
 
-    result = await users_collection.update_one(
-        {"username": username, "sbd_tokens": {"$gte": total_price}},
-        {
-            "$inc": {"sbd_tokens": -total_price},
-            "$push": {
-                "sbd_tokens_transactions": {
-                    "type": "send",
-                    "to": shop_name,
-                    "amount": total_price,
-                    "timestamp": now_iso,
-                    "transaction_id": transaction_id,
-                    "note": f"Checkout cart for {shop_name}",
-                }
+        # Create cart details for payment processing
+        cart_details = {
+            "type": "cart",
+            "cart_id": f"{app_name}_cart",
+            "name": f"Cart checkout for {app_name}",
+            "items": items_to_checkout
+        }
+
+        # Process payment using the selected method
+        try:
+            payment_result = await process_payment(payment_details, total_price, cart_details, current_user, transaction_id)
+        except HTTPException as e:
+            return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+    else:
+        # Legacy format - use personal tokens only
+        user = await users_collection.find_one({"username": username}, {"sbd_tokens": 1})
+        if not user or user.get("sbd_tokens", 0) < total_price:
+            return JSONResponse({"status": "error", "detail": "Not enough SBD tokens"}, status_code=400)
+
+        # Atomically deduct tokens and log transaction (legacy way)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        transaction_id = str(uuid4())
+        shop_name = f"{app_name}_shop"
+
+        result = await users_collection.update_one(
+            {"username": username, "sbd_tokens": {"$gte": total_price}},
+            {
+                "$inc": {"sbd_tokens": -total_price},
+                "$push": {
+                    "sbd_tokens_transactions": {
+                        "type": "send",
+                        "to": shop_name,
+                        "amount": total_price,
+                        "timestamp": now_iso,
+                        "transaction_id": transaction_id,
+                        "note": f"Checkout cart for {shop_name}",
+                    }
+                },
             },
-        },
-    )
-    if result.modified_count == 0:
-        return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        )
+        if result.modified_count == 0:
+            return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+        
+        payment_result = {
+            "payment_type": "personal",
+            "from_account": username,
+            "amount": total_price,
+            "transaction_id": transaction_id
+        }
 
     # Log receive transaction for the shop (create shop user if not exists)
+    if "payment_method" in data:
+        # New format - use payment details
+        receive_txn = {
+            "type": "receive",
+            "from": payment_details["account_username"],
+            "amount": total_price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"Cart checkout for {shop_name}",
+        }
+        
+        # Add family member attribution if payment came from family account
+        if payment_details["payment_type"] == "family":
+            receive_txn["family_member_id"] = user_id
+            receive_txn["family_member_username"] = username
+            receive_txn["note"] = f"Cart checkout by family member @{username} for {shop_name}"
+    else:
+        # Legacy format - simple receive transaction
+        receive_txn = {
+            "type": "receive",
+            "from": username,
+            "amount": total_price,
+            "timestamp": now_iso,
+            "transaction_id": transaction_id,
+            "note": f"User checked out cart for {shop_name}",
+        }
+    
     await users_collection.update_one(
         {"username": shop_name},
         {
             "$inc": {"sbd_tokens": total_price},
-            "$push": {
-                "sbd_tokens_transactions": {
-                    "type": "receive",
-                    "from": username,
-                    "amount": total_price,
-                    "timestamp": now_iso,
-                    "transaction_id": transaction_id,
-                    "note": f"User checked out cart for {shop_name}",
-                }
-            },
+            "$push": {"sbd_tokens_transactions": receive_txn},
             "$setOnInsert": {"email": f"{shop_name}@rohanbatra.in"},
         },
         upsert=True,
@@ -1041,12 +1710,20 @@ async def checkout_cart(request: Request, current_user: dict = Depends(enforce_a
     # Clear the relevant cart(s)
     await shop_collection.update_one({"username": username}, {"$set": {f"carts.{app_name}": []}})
 
-    return {
+    # Return format based on request type for backward compatibility
+    response = {
         "status": "success",
         "checked_out": items_to_checkout,
         "total_price": total_price,
         "transaction_id": transaction_id,
     }
+    
+    # Only include payment details if new format was used
+    if "payment_method" in data:
+        response["payment"] = payment_result
+        response["app_name"] = app_name
+        
+    return response
 
 
 @router.get("/shop/avatars/owned", tags=["shop"], summary="Get user's owned avatars")

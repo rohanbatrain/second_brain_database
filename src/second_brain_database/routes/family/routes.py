@@ -16,25 +16,59 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from second_brain_database.managers.family_manager import (
+    AccountFrozen,
+    AdminActionError,
+    BackupAdminError,
     FamilyError,
     FamilyLimitExceeded,
     FamilyNotFound,
     InsufficientPermissions,
     InvalidRelationship,
     InvitationNotFound,
+    MultipleAdminsRequired,
+    RateLimitExceeded,
+    TokenRequestNotFound,
+    ValidationError,
     family_manager,
 )
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.routes.family.models import (
+    AdminActionRequest,
+    AdminActionResponse,
+    AdminActionsLogRequest,
+    AdminActionsLogResponse,
+    BackupAdminRequest,
+    BackupAdminResponse,
     CreateFamilyRequest,
+    CreateTokenRequestRequest,
     FamilyLimitsResponse,
+    FamilyMemberResponse,
     FamilyResponse,
+    FreezeAccountRequest,
+    InitiateRecoveryRequest,
     InviteMemberRequest,
     InvitationResponse,
+    MarkNotificationsReadRequest,
+    NotificationListResponse,
+    NotificationPreferencesResponse,
+    RecoveryInitiationResponse,
+    RecoveryVerificationResponse,
     RespondToInvitationRequest,
+    ReviewTokenRequestRequest,
+    SBDAccountResponse,
+    TokenRequestResponse,
+    UpdateNotificationPreferencesRequest,
+    UpdateSpendingPermissionsRequest,
+    VerifyRecoveryRequest,
+    ModifyRelationshipRequest,
+    ModifyRelationshipResponse,
+    RelationshipDetailsResponse,
 )
+
+# Import health check router
+from second_brain_database.routes.family.health import router as health_router
 
 logger = get_logger(prefix="[Family Routes]")
 
@@ -773,6 +807,369 @@ async def cleanup_expired_invitations(
         )
 
 
+@router.post("/{family_id}/members/{user_id}/admin", response_model=AdminActionResponse)
+async def manage_admin_role(
+    request: Request,
+    family_id: str,
+    user_id: str,
+    admin_request: AdminActionRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> AdminActionResponse:
+    """
+    Promote a member to admin or demote an admin to member.
+    
+    Only family administrators can perform admin role changes.
+    Prevents demoting the last administrator to ensure family continuity.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Target user must be a family member
+    - Cannot demote the last administrator
+    - Cannot promote someone who is already an admin
+    
+    **Returns:**
+    - Admin action confirmation and details
+    """
+    admin_user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"admin_action_{admin_user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        if admin_request.action == "promote":
+            result = await family_manager.promote_to_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            # Get user info for response
+            target_user = await family_manager._get_user_by_id(user_id)
+            
+            logger.info("User promoted to admin: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return AdminActionResponse(
+                family_id=result["family_id"],
+                target_user_id=result["target_user_id"],
+                target_username=target_user.get("username", "Unknown"),
+                action=result["action"],
+                new_role=result["new_role"],
+                performed_by=result["promoted_by"],
+                performed_by_username=current_user["username"],
+                performed_at=result["promoted_at"],
+                message=result["message"],
+                transaction_safe=result["transaction_safe"]
+            )
+            
+        elif admin_request.action == "demote":
+            result = await family_manager.demote_from_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            # Get user info for response
+            target_user = await family_manager._get_user_by_id(user_id)
+            
+            logger.info("Admin demoted to member: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return AdminActionResponse(
+                family_id=result["family_id"],
+                target_user_id=result["target_user_id"],
+                target_username=target_user.get("username", "Unknown"),
+                action=result["action"],
+                new_role=result["new_role"],
+                performed_by=result["demoted_by"],
+                performed_by_username=current_user["username"],
+                performed_at=result["demoted_at"],
+                message=result["message"],
+                transaction_safe=result["transaction_safe"]
+            )
+            
+    except FamilyNotFound:
+        logger.warning("Family not found for admin action: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for admin action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except family_manager.AdminActionError as e:
+        logger.warning("Admin action validation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "ADMIN_ACTION_ERROR",
+                "message": str(e)
+            }
+        )
+    except family_manager.MultipleAdminsRequired as e:
+        logger.warning("Multiple admins required for action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "MULTIPLE_ADMINS_REQUIRED",
+                "message": str(e),
+                "minimum_admins_required": 2
+            }
+        )
+    except FamilyError as e:
+        logger.error("Admin action failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "ADMIN_ACTION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/members/{user_id}/backup-admin", response_model=BackupAdminResponse)
+async def manage_backup_admin(
+    request: Request,
+    family_id: str,
+    user_id: str,
+    backup_request: BackupAdminRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> BackupAdminResponse:
+    """
+    Designate or remove a backup administrator.
+    
+    Backup administrators can be promoted to full admin status in case
+    of emergency or if all current admins become unavailable.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Target user must be a family member
+    - Target user cannot already be an admin
+    
+    **Returns:**
+    - Backup admin action confirmation and details
+    """
+    admin_user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"backup_admin_{admin_user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        if backup_request.action == "designate":
+            result = await family_manager.designate_backup_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            # Get user info for response
+            target_user = await family_manager._get_user_by_id(user_id)
+            
+            logger.info("Backup admin designated: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return BackupAdminResponse(
+                family_id=result["family_id"],
+                backup_user_id=result["backup_user_id"],
+                backup_username=target_user.get("username", "Unknown"),
+                action=result["action"],
+                role=result["role"],
+                performed_by=result["designated_by"],
+                performed_by_username=current_user["username"],
+                performed_at=result["designated_at"],
+                message=result["message"],
+                transaction_safe=result["transaction_safe"]
+            )
+            
+        elif backup_request.action == "remove":
+            result = await family_manager.remove_backup_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            # Get user info for response
+            target_user = await family_manager._get_user_by_id(user_id)
+            
+            logger.info("Backup admin removed: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return BackupAdminResponse(
+                family_id=result["family_id"],
+                backup_user_id=result["backup_user_id"],
+                backup_username=target_user.get("username", "Unknown"),
+                action=result["action"],
+                role=result["role"],
+                performed_by=result["removed_by"],
+                performed_by_username=current_user["username"],
+                performed_at=result["removed_at"],
+                message=result["message"],
+                transaction_safe=result["transaction_safe"]
+            )
+            
+    except FamilyNotFound:
+        logger.warning("Family not found for backup admin action: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for backup admin action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except family_manager.BackupAdminError as e:
+        logger.warning("Backup admin action validation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "BACKUP_ADMIN_ERROR",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Backup admin action failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "BACKUP_ADMIN_ACTION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/admin-actions", response_model=AdminActionsLogResponse)
+async def get_admin_actions_log(
+    request: Request,
+    family_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> AdminActionsLogResponse:
+    """
+    Get the admin actions log for a family.
+    
+    Returns a paginated list of all administrative actions performed
+    in the family, including promotions, demotions, and backup admin changes.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    
+    **Returns:**
+    - Paginated list of admin actions with details
+    """
+    admin_user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"admin_log_{admin_user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    # Validate pagination parameters
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_LIMIT",
+                "message": "Limit must be between 1 and 100"
+            }
+        )
+    
+    if offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_OFFSET",
+                "message": "Offset must be non-negative"
+            }
+        )
+    
+    try:
+        result = await family_manager.get_admin_actions_log(
+            family_id, admin_user_id, limit, offset
+        )
+        
+        logger.debug("Retrieved admin actions log for family %s", family_id)
+        
+        # Convert to response model
+        log_entries = []
+        for action in result["actions"]:
+            log_entries.append(AdminActionLogEntry(
+                action_id=action["action_id"],
+                family_id=action["family_id"],
+                admin_user_id=action["admin_user_id"],
+                admin_username=action["admin_username"],
+                target_user_id=action["target_user_id"],
+                target_username=action["target_username"],
+                action_type=action["action_type"],
+                details=action["details"],
+                created_at=action["created_at"],
+                ip_address=action.get("ip_address"),
+                user_agent=action.get("user_agent")
+            ))
+        
+        return AdminActionsLogResponse(
+            family_id=result["family_id"],
+            actions=log_entries,
+            pagination=result["pagination"]
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for admin actions log: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for admin actions log: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get admin actions log: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "ADMIN_LOG_RETRIEVAL_FAILED",
+                "message": "Failed to retrieve admin actions log"
+            }
+        )
+
+
 @router.get("/limits", response_model=FamilyLimitsResponse)
 async def get_family_limits(
     request: Request,
@@ -821,5 +1218,2474 @@ async def get_family_limits(
             detail={
                 "error": "LIMITS_RETRIEVAL_FAILED",
                 "message": "Failed to retrieve family limits"
+            }
+        )
+
+
+@router.post("/{family_id}/account/freeze")
+async def freeze_family_account(
+    request: Request,
+    family_id: str,
+    freeze_request: FreezeAccountRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Freeze or unfreeze the family SBD account.
+    
+    Only family administrators can freeze/unfreeze the account.
+    Freezing prevents all spending from the family account while allowing deposits.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Account must not already be in the requested state
+    
+    **Returns:**
+    - Freeze/unfreeze confirmation and status
+    """
+    admin_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_freeze_{admin_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        if freeze_request.action == "freeze":
+            if not freeze_request.reason:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "REASON_REQUIRED",
+                        "message": "Reason is required when freezing an account"
+                    }
+                )
+            
+            result = await family_manager.freeze_family_account(
+                family_id, admin_id, freeze_request.reason
+            )
+            
+            logger.info("Family account frozen: %s by admin %s, reason: %s", 
+                       family_id, admin_id, freeze_request.reason)
+            
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "action": "frozen",
+                    "message": "Family account has been frozen successfully",
+                    "frozen_by": admin_id,
+                    "frozen_by_username": current_user["username"],
+                    "frozen_at": result["frozen_at"].isoformat(),
+                    "reason": result["freeze_reason"],
+                    "data": result
+                },
+                status_code=status.HTTP_200_OK
+            )
+            
+        elif freeze_request.action == "unfreeze":
+            result = await family_manager.unfreeze_family_account(family_id, admin_id)
+            
+            logger.info("Family account unfrozen: %s by admin %s", family_id, admin_id)
+            
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "action": "unfrozen",
+                    "message": "Family account has been unfrozen successfully",
+                    "unfrozen_by": admin_id,
+                    "unfrozen_by_username": current_user["username"],
+                    "unfrozen_at": result["unfrozen_at"].isoformat(),
+                    "data": result
+                },
+                status_code=status.HTTP_200_OK
+            )
+            
+    except FamilyNotFound:
+        logger.warning("Family not found for freeze action: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for freeze action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Family freeze action failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "FREEZE_ACTION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/account/emergency-unfreeze")
+async def initiate_emergency_unfreeze(
+    request: Request,
+    family_id: str,
+    emergency_request: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Initiate an emergency unfreeze request for the family account.
+    
+    Emergency unfreeze allows family members to collaborate to unfreeze an account
+    when administrators are unavailable. Requires approval from multiple family members.
+    
+    **Rate Limiting:** 2 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - Account must be frozen
+    - No other emergency request pending
+    
+    **Returns:**
+    - Emergency request details and approval requirements
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"emergency_unfreeze_{user_id}",
+        rate_limit_requests=2,
+        rate_limit_period=3600
+    )
+    
+    try:
+        reason = emergency_request.get("reason", "Emergency situation")
+        
+        result = await family_manager.initiate_emergency_unfreeze(
+            family_id, user_id, reason
+        )
+        
+        logger.info("Emergency unfreeze initiated: %s by user %s for family %s", 
+                   result["request_id"], user_id, family_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": "Emergency unfreeze request created successfully",
+                "request_id": result["request_id"],
+                "required_approvals": result["required_approvals"],
+                "current_approvals": result["current_approvals"],
+                "expires_at": result["expires_at"].isoformat(),
+                "data": result
+            },
+            status_code=status.HTTP_201_CREATED
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for emergency unfreeze: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for emergency unfreeze: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Emergency unfreeze initiation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "EMERGENCY_UNFREEZE_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/emergency-unfreeze/{request_id}/approve")
+async def approve_emergency_unfreeze(
+    request: Request,
+    request_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Approve an emergency unfreeze request.
+    
+    Family members can approve emergency unfreeze requests. When enough approvals
+    are collected, the account is automatically unfrozen.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - Request must be pending and not expired
+    - User must not have already approved or rejected
+    
+    **Returns:**
+    - Approval status and execution result if threshold met
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"emergency_approve_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        result = await family_manager.approve_emergency_unfreeze(request_id, user_id)
+        
+        logger.info("Emergency unfreeze approved: %s by user %s", request_id, user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": result.get("message", "Emergency unfreeze approved"),
+                "approved": result["approved"],
+                "current_approvals": result["current_approvals"],
+                "required_approvals": result["required_approvals"],
+                "threshold_met": result["threshold_met"],
+                "executed": result.get("executed", False),
+                "data": result
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyError as e:
+        logger.error("Emergency unfreeze approval failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "APPROVAL_FAILED",
+                "message": str(e)
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for emergency approval: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/emergency-unfreeze/{request_id}/reject")
+async def reject_emergency_unfreeze(
+    request: Request,
+    request_id: str,
+    rejection_data: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Reject an emergency unfreeze request.
+    
+    Family members can reject emergency unfreeze requests with an optional reason.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - Request must be pending and not expired
+    - User must not have already approved or rejected
+    
+    **Returns:**
+    - Rejection confirmation
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"emergency_reject_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        reason = rejection_data.get("reason", "No reason provided")
+        
+        result = await family_manager.reject_emergency_unfreeze(request_id, user_id, reason)
+        
+        logger.info("Emergency unfreeze rejected: %s by user %s", request_id, user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": result["message"],
+                "rejected": result["rejected"],
+                "reason": result["reason"],
+                "data": result
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyError as e:
+        logger.error("Emergency unfreeze rejection failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "REJECTION_FAILED",
+                "message": str(e)
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for emergency rejection: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/emergency-unfreeze")
+async def get_emergency_unfreeze_requests(
+    request: Request,
+    family_id: str,
+    status: Optional[str] = None,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Get emergency unfreeze requests for a family.
+    
+    Returns all emergency unfreeze requests with optional status filtering.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    
+    **Returns:**
+    - List of emergency requests with details
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"emergency_requests_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        requests = await family_manager.get_emergency_unfreeze_requests(
+            family_id, user_id, status
+        )
+        
+        logger.debug("Retrieved %d emergency requests for family %s", len(requests), family_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "count": len(requests),
+                "requests": requests
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for emergency requests: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for emergency requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get emergency requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "REQUESTS_RETRIEVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+# Notification endpoints
+
+@router.get("/{family_id}/notifications", response_model=NotificationListResponse)
+async def get_family_notifications(
+    request: Request,
+    family_id: str,
+    limit: int = 20,
+    offset: int = 0,
+    status_filter: Optional[str] = None,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> NotificationListResponse:
+    """
+    Get family notifications for the current user with pagination and filtering.
+    
+    Retrieves notifications sent to the current user for the specified family.
+    Supports pagination and filtering by read/unread status.
+    
+    **Rate Limiting:** 30 requests per minute per user
+    
+    **Query Parameters:**
+    - `limit`: Maximum number of notifications to return (default: 20, max: 100)
+    - `offset`: Number of notifications to skip for pagination (default: 0)
+    - `status_filter`: Filter by status ("read", "unread", "pending", "sent", "archived")
+    
+    **Returns:**
+    - List of notifications with pagination metadata
+    - Unread count for the user
+    - Pagination information for next/previous pages
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request, 
+        f"family_notifications_{user_id}", 
+        rate_limit_requests=30,
+        rate_limit_period=60
+    )
+    
+    # Validate parameters
+    if limit > 100:
+        limit = 100
+    if limit < 1:
+        limit = 20
+    if offset < 0:
+        offset = 0
+    
+    valid_status_filters = {"read", "unread", "pending", "sent", "archived"}
+    if status_filter and status_filter not in valid_status_filters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_STATUS_FILTER",
+                "message": f"Status filter must be one of: {', '.join(valid_status_filters)}"
+            }
+        )
+    
+    try:
+        result = await family_manager.get_family_notifications(
+            family_id=family_id,
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            status_filter=status_filter
+        )
+        
+        logger.info(
+            "Retrieved %d notifications for user %s in family %s",
+            len(result["notifications"]), user_id, family_id
+        )
+        
+        return NotificationListResponse(**result)
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for notifications: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for notifications: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family notifications: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "NOTIFICATIONS_RETRIEVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/notifications/mark-read")
+async def mark_notifications_read(
+    request: Request,
+    family_id: str,
+    mark_request: MarkNotificationsReadRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Mark specific notifications as read for the current user.
+    
+    Updates the read status of specified notifications and decrements the user's
+    unread notification count accordingly.
+    
+    **Rate Limiting:** 20 requests per minute per user
+    
+    **Request Body:**
+    - `notification_ids`: List of notification IDs to mark as read
+    
+    **Returns:**
+    - Number of notifications successfully marked as read
+    - List of updated notification IDs
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request, 
+        f"mark_notifications_read_{user_id}", 
+        rate_limit_requests=20,
+        rate_limit_period=60
+    )
+    
+    # Validate request
+    if not mark_request.notification_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "EMPTY_NOTIFICATION_LIST",
+                "message": "At least one notification ID is required"
+            }
+        )
+    
+    if len(mark_request.notification_ids) > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "TOO_MANY_NOTIFICATIONS",
+                "message": "Cannot mark more than 50 notifications at once"
+            }
+        )
+    
+    try:
+        result = await family_manager.mark_notifications_read(
+            family_id=family_id,
+            user_id=user_id,
+            notification_ids=mark_request.notification_ids
+        )
+        
+        logger.info(
+            "Marked %d notifications as read for user %s in family %s",
+            result["marked_count"], user_id, family_id
+        )
+        
+        return JSONResponse(
+            content={
+                "message": f"Successfully marked {result['marked_count']} notifications as read",
+                "marked_count": result["marked_count"],
+                "updated_notifications": result["updated_notifications"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for marking notifications: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for marking notifications: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to mark notifications as read: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "MARK_READ_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Mark all notifications as read for the current user in the specified family.
+    
+    Updates all unread notifications for the user in the family and resets
+    their unread notification count to zero.
+    
+    **Rate Limiting:** 10 requests per minute per user
+    
+    **Returns:**
+    - Number of notifications marked as read
+    - Confirmation message
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request, 
+        f"mark_all_notifications_read_{user_id}", 
+        rate_limit_requests=10,
+        rate_limit_period=60
+    )
+    
+    try:
+        result = await family_manager.mark_all_notifications_read(
+            family_id=family_id,
+            user_id=user_id
+        )
+        
+        logger.info(
+            "Marked all %d notifications as read for user %s in family %s",
+            result["marked_count"], user_id, family_id
+        )
+        
+        return JSONResponse(
+            content={
+                "message": f"Successfully marked all {result['marked_count']} notifications as read",
+                "marked_count": result["marked_count"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for marking all notifications: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for marking all notifications: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to mark all notifications as read: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "MARK_ALL_READ_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def get_notification_preferences(
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> NotificationPreferencesResponse:
+    """
+    Get notification preferences for the current user.
+    
+    Retrieves the user's notification delivery preferences and current
+    unread notification count across all families.
+    
+    **Rate Limiting:** 30 requests per minute per user
+    
+    **Returns:**
+    - Current notification preferences (email, push, SMS)
+    - Unread notification count
+    - Last checked timestamp
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request, 
+        f"get_notification_preferences_{user_id}", 
+        rate_limit_requests=30,
+        rate_limit_period=60
+    )
+    
+    try:
+        result = await family_manager.get_notification_preferences(user_id=user_id)
+        
+        logger.debug("Retrieved notification preferences for user %s", user_id)
+        
+        return NotificationPreferencesResponse(**result)
+        
+    except FamilyError as e:
+        logger.error("Failed to get notification preferences: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "PREFERENCES_RETRIEVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.put("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def update_notification_preferences(
+    request: Request,
+    preferences_request: UpdateNotificationPreferencesRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> NotificationPreferencesResponse:
+    """
+    Update notification preferences for the current user.
+    
+    Updates the user's notification delivery preferences for email, push notifications,
+    and SMS notifications across all family notifications.
+    
+    **Rate Limiting:** 10 requests per minute per user
+    
+    **Request Body:**
+    - `preferences`: Dictionary of preference settings
+      - `email_notifications`: Enable/disable email notifications
+      - `push_notifications`: Enable/disable push notifications  
+      - `sms_notifications`: Enable/disable SMS notifications
+    
+    **Returns:**
+    - Updated notification preferences
+    - Current unread notification count
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request, 
+        f"update_notification_preferences_{user_id}", 
+        rate_limit_requests=10,
+        rate_limit_period=60
+    )
+    
+    try:
+        result = await family_manager.update_notification_preferences(
+            user_id=user_id,
+            preferences=preferences_request.preferences
+        )
+        
+        logger.info(
+            "Updated notification preferences for user %s: %s",
+            user_id, preferences_request.preferences
+        )
+        
+        # Get full preferences including unread count
+        full_result = await family_manager.get_notification_preferences(user_id=user_id)
+        
+        return NotificationPreferencesResponse(**full_result)
+        
+    except ValidationError as e:
+        logger.warning("Invalid notification preferences: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_PREFERENCES",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to update notification preferences: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "PREFERENCES_UPDATE_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+# Token Request Endpoints
+
+@router.post("/{family_id}/token-requests", response_model=TokenRequestResponse, status_code=status.HTTP_201_CREATED)
+async def create_token_request(
+    request: Request,
+    family_id: str,
+    token_request: CreateTokenRequestRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> TokenRequestResponse:
+    """
+    Create a token request from the family account.
+    
+    Family members can request tokens from the shared family account.
+    Requests under the auto-approval threshold are processed immediately.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - Family account must not be frozen
+    - Amount must be positive
+    - Reason must be at least 5 characters
+    
+    **Returns:**
+    - Token request details including status and expiration
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"token_request_create_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        request_data = await family_manager.create_token_request(
+            family_id=family_id,
+            user_id=user_id,
+            amount=token_request.amount,
+            reason=token_request.reason,
+            request_context={"request": request}
+        )
+        
+        logger.info(
+            "Token request created: %s for %d tokens by user %s in family %s",
+            request_data["request_id"], token_request.amount, user_id, family_id
+        )
+        
+        return TokenRequestResponse(
+            request_id=request_data["request_id"],
+            requester_username=current_user["username"],
+            amount=request_data["amount"],
+            reason=request_data["reason"],
+            status=request_data["status"],
+            auto_approved=request_data["auto_approved"],
+            created_at=request_data["created_at"],
+            expires_at=request_data["expires_at"],
+            admin_comments=None
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for token request: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for token request: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except AccountFrozen as e:
+        logger.warning("Token request blocked - account frozen: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "ACCOUNT_FROZEN",
+                "message": str(e),
+                "frozen_by": e.context.get("frozen_by"),
+                "frozen_at": e.context.get("frozen_at")
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Invalid token request data: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": e.context.get("field"),
+                "value": e.context.get("value")
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for token request: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e),
+                "retry_after": e.context.get("window_seconds", 3600)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to create token request: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "TOKEN_REQUEST_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/token-requests/pending", response_model=List[TokenRequestResponse])
+async def get_pending_token_requests(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> List[TokenRequestResponse]:
+    """
+    Get all pending token requests for a family (admin only).
+    
+    Returns all pending token requests that require admin approval.
+    Only family administrators can access this endpoint.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    
+    **Returns:**
+    - List of pending token requests with requester information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"pending_token_requests_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        pending_requests = await family_manager.get_pending_token_requests(family_id, user_id)
+        
+        logger.debug("Retrieved %d pending token requests for family %s", len(pending_requests), family_id)
+        
+        response_requests = []
+        for req in pending_requests:
+            response_requests.append(TokenRequestResponse(
+                request_id=req["request_id"],
+                requester_username=req["requester_username"],
+                amount=req["amount"],
+                reason=req["reason"],
+                status=req["status"],
+                auto_approved=req["auto_approved"],
+                created_at=req["created_at"],
+                expires_at=req["expires_at"],
+                admin_comments=None
+            ))
+        
+        return response_requests
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for pending requests: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for pending requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get pending token requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "REQUESTS_RETRIEVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/token-requests/{request_id}/review")
+async def review_token_request(
+    request: Request,
+    family_id: str,
+    request_id: str,
+    review_request: ReviewTokenRequestRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Review a token request (approve or deny) - admin only.
+    
+    Family administrators can approve or deny pending token requests.
+    Approved requests automatically transfer tokens to the requester.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Request must be in pending status
+    - Request must not be expired
+    
+    **Returns:**
+    - Review confirmation and updated request status
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"token_request_review_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        review_data = await family_manager.review_token_request(
+            request_id=request_id,
+            admin_id=user_id,
+            action=review_request.action,
+            comments=review_request.comments,
+            request_context={"request": request}
+        )
+        
+        logger.info(
+            "Token request %s: %s by admin %s (amount: %d)",
+            review_request.action, request_id, user_id, review_data["amount"]
+        )
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": review_data["action"],
+                "request_id": review_data["request_id"],
+                "new_status": review_data["status"],
+                "reviewed_by": review_data["reviewed_by"],
+                "admin_comments": review_data["admin_comments"],
+                "reviewed_at": review_data["reviewed_at"].isoformat(),
+                "processed_at": review_data["processed_at"].isoformat() if review_data["processed_at"] else None,
+                "amount": review_data["amount"],
+                "requester_user_id": review_data["requester_user_id"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except TokenRequestNotFound as e:
+        logger.warning("Token request not found for review: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "TOKEN_REQUEST_NOT_FOUND",
+                "message": str(e),
+                "request_id": e.context.get("request_id"),
+                "status": e.context.get("status")
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for token request review: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Invalid token request review data: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": e.context.get("field"),
+                "value": e.context.get("value")
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for token request review: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e),
+                "retry_after": e.context.get("window_seconds", 3600)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to review token request: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "REVIEW_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/token-requests/my-requests", response_model=List[TokenRequestResponse])
+async def get_my_token_requests(
+    request: Request,
+    family_id: str,
+    limit: int = 20,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> List[TokenRequestResponse]:
+    """
+    Get the current user's token request history for a family.
+    
+    Returns the user's token requests in reverse chronological order,
+    including pending, approved, denied, and expired requests.
+    
+    **Rate Limiting:** 30 requests per hour per user
+    
+    **Query Parameters:**
+    - `limit`: Maximum number of requests to return (default: 20, max: 100)
+    
+    **Requirements:**
+    - User must be a family member
+    
+    **Returns:**
+    - List of user's token requests with status and admin comments
+    """
+    user_id = str(current_user["_id"])
+    
+    # Validate limit parameter
+    if limit > 100:
+        limit = 100
+    elif limit < 1:
+        limit = 20
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"my_token_requests_{user_id}",
+        rate_limit_requests=30,
+        rate_limit_period=3600
+    )
+    
+    try:
+        user_requests = await family_manager.get_user_token_requests(family_id, user_id, limit)
+        
+        logger.debug("Retrieved %d token requests for user %s in family %s", 
+                    len(user_requests), user_id, family_id)
+        
+        response_requests = []
+        for req in user_requests:
+            response_requests.append(TokenRequestResponse(
+                request_id=req["request_id"],
+                requester_username=current_user["username"],
+                amount=req["amount"],
+                reason=req["reason"],
+                status=req["status"],
+                auto_approved=req["auto_approved"],
+                created_at=req["created_at"],
+                expires_at=req["expires_at"],
+                admin_comments=req.get("admin_comments")
+            ))
+        
+        return response_requests
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for user requests: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for user requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get user token requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "REQUESTS_RETRIEVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/admin/cleanup-expired-token-requests")
+async def cleanup_expired_token_requests(
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Clean up expired token requests (admin utility).
+    
+    This endpoint manually triggers the cleanup of expired token requests.
+    Normally this would be handled by a scheduled task.
+    
+    **Rate Limiting:** 2 requests per hour per user
+    
+    **Requirements:**
+    - User must be authenticated (no specific admin check for now)
+    
+    **Returns:**
+    - Cleanup statistics and results
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"token_request_cleanup_{user_id}",
+        rate_limit_requests=2,
+        rate_limit_period=3600
+    )
+    
+    try:
+        cleanup_data = await family_manager.cleanup_expired_token_requests()
+        
+        logger.info("Manual token request cleanup triggered by user %s", user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": "Token request cleanup completed",
+                "expired_count": cleanup_data["expired_count"],
+                "cleanup_timestamp": cleanup_data["cleanup_timestamp"].isoformat(),
+                "requests_processed": cleanup_data["requests_processed"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyError as e:
+        logger.error("Failed to cleanup expired token requests: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "CLEANUP_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+# Family Member Management Endpoints
+
+@router.get("/{family_id}", response_model=FamilyResponse)
+async def get_family_details(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> FamilyResponse:
+    """
+    Get detailed information about a specific family.
+    
+    Returns comprehensive family information including member count,
+    SBD account details, and the user's role in the family.
+    
+    **Rate Limiting:** 30 requests per hour per user
+    
+    **Requirements:**
+    - User must be a member of the family
+    
+    **Returns:**
+    - Detailed family information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_details_{user_id}",
+        rate_limit_requests=30,
+        rate_limit_period=3600
+    )
+    
+    try:
+        family_data = await family_manager.get_family_details(family_id, user_id)
+        
+        logger.debug("Retrieved family details for %s by user %s", family_id, user_id)
+        
+        return FamilyResponse(
+            family_id=family_data["family_id"],
+            name=family_data["name"],
+            admin_user_ids=family_data["admin_user_ids"],
+            member_count=family_data["member_count"],
+            created_at=family_data["created_at"],
+            is_admin=family_data["is_admin"],
+            sbd_account=family_data["sbd_account"],
+            usage_stats=family_data["usage_stats"]
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for family details: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family details: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "FAMILY_DETAILS_FAILED",
+                "message": "Failed to retrieve family details"
+            }
+        )
+
+
+@router.get("/{family_id}/members", response_model=List[FamilyMemberResponse])
+async def get_family_members(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> List[FamilyMemberResponse]:
+    """
+    Get all members of a family with their relationship information.
+    
+    Returns detailed member information including relationships,
+    roles, and spending permissions.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a member of the family
+    
+    **Returns:**
+    - List of family members with detailed information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_members_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        members_data = await family_manager.get_family_members(family_id, user_id)
+        
+        logger.debug("Retrieved %d members for family %s", len(members_data), family_id)
+        
+        member_responses = []
+        for member in members_data:
+            member_responses.append(FamilyMemberResponse(
+                user_id=member["user_id"],
+                username=member["username"],
+                email=member["email"],
+                relationship_type=member["relationship_type"],
+                role=member["role"],
+                joined_at=member["joined_at"],
+                spending_permissions=member["spending_permissions"]
+            ))
+        
+        return member_responses
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for members: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for family members: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family members: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "MEMBERS_RETRIEVAL_FAILED",
+                "message": "Failed to retrieve family members"
+            }
+        )
+
+
+@router.delete("/{family_id}/members/{member_id}")
+async def remove_family_member(
+    request: Request,
+    family_id: str,
+    member_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Remove a member from the family.
+    
+    Only family administrators can remove members.
+    Removes all bidirectional relationships and cleans up permissions.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Cannot remove the last administrator
+    - Target user must be a family member
+    
+    **Returns:**
+    - Removal confirmation and cleanup details
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"remove_member_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        removal_data = await family_manager.remove_family_member(
+            family_id, user_id, member_id, {"request": request}
+        )
+        
+        logger.info("Family member removed: %s from %s by admin %s", 
+                   member_id, family_id, user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": removal_data["message"],
+                "removed_user_id": removal_data["removed_user_id"],
+                "removed_username": removal_data["removed_username"],
+                "relationships_cleaned": removal_data["relationships_cleaned"],
+                "permissions_revoked": removal_data["permissions_revoked"],
+                "removed_at": removal_data["removed_at"].isoformat(),
+                "transaction_safe": removal_data["transaction_safe"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for member removal: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for member removal: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except MultipleAdminsRequired as e:
+        logger.warning("Cannot remove last admin: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "MULTIPLE_ADMINS_REQUIRED",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to remove family member: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "MEMBER_REMOVAL_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+# Relationship Management Endpoints
+
+@router.put("/{family_id}/relationships", response_model=ModifyRelationshipResponse)
+async def modify_family_relationship(
+    request: Request,
+    family_id: str,
+    relationship_request: ModifyRelationshipRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> ModifyRelationshipResponse:
+    """
+    Modify the relationship type between two family members.
+    
+    Only family administrators can modify relationships. This updates both
+    sides of the bidirectional relationship and notifies affected users.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Both users must be family members
+    - Relationship must exist and be active
+    - New relationship type must be valid
+    
+    **Returns:**
+    - Updated relationship information including old and new types
+    """
+    admin_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"modify_relationship_{admin_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        result = await family_manager.modify_relationship_type(
+            family_id, 
+            admin_id, 
+            relationship_request.user_a_id,
+            relationship_request.user_b_id,
+            relationship_request.new_relationship_type,
+            {"request": request}
+        )
+        
+        logger.info("Family relationship modified: %s between %s and %s by admin %s", 
+                   result["relationship_id"], relationship_request.user_a_id, 
+                   relationship_request.user_b_id, admin_id)
+        
+        return ModifyRelationshipResponse(
+            relationship_id=result["relationship_id"],
+            family_id=result["family_id"],
+            user_a_id=result["user_a_id"],
+            user_b_id=result["user_b_id"],
+            old_relationship_type=result["old_relationship_type"],
+            new_relationship_type=result["new_relationship_type"],
+            new_reciprocal_type=result["new_reciprocal_type"],
+            modified_by=result["modified_by"],
+            modified_at=result["modified_at"],
+            transaction_safe=result["transaction_safe"]
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for relationship modification: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for relationship modification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except InvalidRelationship as e:
+        logger.warning("Invalid relationship type in modification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_RELATIONSHIP",
+                "message": str(e),
+                "valid_types": list(e.context.get("valid_types", []))
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Validation error in relationship modification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": e.context.get("field"),
+                "constraint": e.context.get("constraint")
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for relationship modification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e),
+                "retry_after": e.context.get("window_seconds", 3600)
+            }
+        )
+    except TransactionError as e:
+        logger.error("Transaction error in relationship modification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "TRANSACTION_ERROR",
+                "message": "Failed to modify relationship due to database error",
+                "rollback_successful": e.context.get("rollback_successful", False)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to modify family relationship: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "RELATIONSHIP_MODIFICATION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/relationships", response_model=List[RelationshipDetailsResponse])
+async def get_family_relationships(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> List[RelationshipDetailsResponse]:
+    """
+    Get all relationships within a family.
+    
+    Returns detailed information about all family relationships including
+    both users' perspectives and relationship metadata.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    
+    **Returns:**
+    - List of all family relationships with detailed information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"get_relationships_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        relationships = await family_manager.get_family_relationships(family_id, user_id)
+        
+        logger.debug("Retrieved %d relationships for family %s", len(relationships), family_id)
+        
+        relationship_responses = []
+        for rel in relationships:
+            relationship_responses.append(RelationshipDetailsResponse(
+                relationship_id=rel["relationship_id"],
+                family_id=rel["family_id"],
+                user_a=rel["user_a"],
+                user_b=rel["user_b"],
+                status=rel["status"],
+                created_by=rel["created_by"],
+                created_at=rel["created_at"],
+                updated_at=rel["updated_at"]
+            ))
+        
+        return relationship_responses
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for relationships: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for viewing relationships: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family relationships: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "RELATIONSHIPS_RETRIEVAL_FAILED",
+                "message": "Failed to retrieve relationships"
+            }
+        )
+
+
+@router.put("/{family_id}")
+async def update_family_settings(
+    request: Request,
+    family_id: str,
+    family_update: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Update family settings and configuration.
+    
+    Only family administrators can update family settings.
+    Supports updating name, notification settings, and other configurations.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Settings must pass validation
+    
+    **Returns:**
+    - Updated family information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"update_family_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        update_data = await family_manager.update_family_settings(
+            family_id, user_id, family_update, {"request": request}
+        )
+        
+        logger.info("Family settings updated: %s by admin %s", family_id, user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": update_data["message"],
+                "family_id": update_data["family_id"],
+                "updated_fields": update_data["updated_fields"],
+                "updated_at": update_data["updated_at"].isoformat(),
+                "transaction_safe": update_data["transaction_safe"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for settings update: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for family update: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Validation error in family update: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to update family settings: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "FAMILY_UPDATE_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.delete("/{family_id}")
+async def delete_family(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Delete a family and clean up all associated resources.
+    
+    Only family administrators can delete families.
+    This action is irreversible and cleans up all relationships,
+    SBD accounts, and associated data.
+    
+    **Rate Limiting:** 2 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Family SBD account must be empty or have instructions for remaining tokens
+    
+    **Returns:**
+    - Deletion confirmation and cleanup details
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"delete_family_{user_id}",
+        rate_limit_requests=2,
+        rate_limit_period=3600
+    )
+    
+    try:
+        deletion_data = await family_manager.delete_family(
+            family_id, user_id, {"request": request}
+        )
+        
+        logger.info("Family deleted: %s by admin %s", family_id, user_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": deletion_data["message"],
+                "family_id": deletion_data["family_id"],
+                "members_notified": deletion_data["members_notified"],
+                "relationships_cleaned": deletion_data["relationships_cleaned"],
+                "sbd_account_handled": deletion_data["sbd_account_handled"],
+                "deleted_at": deletion_data["deleted_at"].isoformat(),
+                "transaction_safe": deletion_data["transaction_safe"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for deletion: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for family deletion: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except AccountFrozen as e:
+        logger.warning("Cannot delete family with non-empty SBD account: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "ACCOUNT_NOT_EMPTY",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to delete family: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "FAMILY_DELETION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+# SBD Account Management Endpoints
+
+@router.get("/{family_id}/sbd-account", response_model=SBDAccountResponse)
+async def get_family_sbd_account(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> SBDAccountResponse:
+    """
+    Get family SBD account details including balance and permissions.
+    
+    Returns comprehensive SBD account information including current balance,
+    spending permissions, recent transactions, and freeze status.
+    
+    **Rate Limiting:** 30 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    
+    **Returns:**
+    - Complete SBD account information
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"sbd_account_{user_id}",
+        rate_limit_requests=30,
+        rate_limit_period=3600
+    )
+    
+    try:
+        account_data = await family_manager.get_family_sbd_account(family_id, user_id)
+        
+        logger.debug("Retrieved SBD account for family %s by user %s", family_id, user_id)
+        
+        return SBDAccountResponse(
+            account_username=account_data["account_username"],
+            balance=account_data["balance"],
+            is_frozen=account_data["is_frozen"],
+            frozen_by=account_data.get("frozen_by"),
+            spending_permissions=account_data["spending_permissions"],
+            recent_transactions=account_data["recent_transactions"]
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for SBD account: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for SBD account: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get SBD account: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "SBD_ACCOUNT_FAILED",
+                "message": "Failed to retrieve SBD account information"
+            }
+        )
+
+
+@router.put("/{family_id}/sbd-account/permissions")
+async def update_spending_permissions(
+    request: Request,
+    family_id: str,
+    permissions_request: UpdateSpendingPermissionsRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Update spending permissions for a family member.
+    
+    Only family administrators can update spending permissions.
+    Controls who can spend from the family SBD account and their limits.
+    
+    **Rate Limiting:** 15 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Target user must be a family member
+    - Spending limits must be valid
+    
+    **Returns:**
+    - Permission update confirmation
+    """
+    admin_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"update_permissions_{admin_id}",
+        rate_limit_requests=15,
+        rate_limit_period=3600
+    )
+    
+    try:
+        permissions_data = await family_manager.update_spending_permissions(
+            family_id, admin_id, permissions_request.user_id,
+            {
+                "spending_limit": permissions_request.spending_limit,
+                "can_spend": permissions_request.can_spend
+            },
+            {"request": request}
+        )
+        
+        logger.info("Spending permissions updated for user %s in family %s by admin %s", 
+                   permissions_request.user_id, family_id, admin_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": permissions_data["message"],
+                "family_id": permissions_data["family_id"],
+                "target_user_id": permissions_data["target_user_id"],
+                "new_permissions": permissions_data["new_permissions"],
+                "updated_by": permissions_data["updated_by"],
+                "updated_at": permissions_data["updated_at"].isoformat(),
+                "transaction_safe": permissions_data["transaction_safe"]
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for permissions update: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for permissions update: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Validation error in permissions update: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to update spending permissions: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "PERMISSIONS_UPDATE_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.get("/{family_id}/sbd-account/transactions")
+async def get_family_transactions(
+    request: Request,
+    family_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Get family SBD account transaction history.
+    
+    Returns paginated transaction history with family member attribution.
+    All family members can view transaction history.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - Limit must be between 1 and 100
+    
+    **Returns:**
+    - Paginated transaction history with details
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_transactions_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    # Validate pagination parameters
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_LIMIT",
+                "message": "Limit must be between 1 and 100"
+            }
+        )
+    
+    if offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_OFFSET",
+                "message": "Offset must be non-negative"
+            }
+        )
+    
+    try:
+        transactions_data = await family_manager.get_family_transactions(
+            family_id, user_id, limit, offset
+        )
+        
+        logger.debug("Retrieved %d transactions for family %s", 
+                    len(transactions_data["transactions"]), family_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "family_id": transactions_data["family_id"],
+                "account_username": transactions_data["account_username"],
+                "current_balance": transactions_data["current_balance"],
+                "transactions": transactions_data["transactions"],
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "total_count": transactions_data["total_count"],
+                    "has_more": transactions_data["has_more"]
+                },
+                "retrieved_at": transactions_data["retrieved_at"].isoformat()
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for transactions: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for transactions: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family transactions: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "TRANSACTIONS_FAILED",
+                "message": "Failed to retrieve transaction history"
+            }
+        )
+
+
+@router.post("/{family_id}/members/{user_id}/backup-admin", response_model=BackupAdminResponse)
+async def manage_backup_admin(
+    request: Request,
+    family_id: str,
+    user_id: str,
+    backup_request: BackupAdminRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> BackupAdminResponse:
+    """
+    Designate or remove backup administrator for account recovery.
+    
+    Backup administrators are automatically promoted to full admin if all primary
+    admins become unavailable, ensuring family continuity.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Target user must be a family member
+    - Target user cannot already be an admin (for designation)
+    - Target user must be a backup admin (for removal)
+    
+    **Returns:**
+    - Backup admin action confirmation and details
+    """
+    admin_user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"backup_admin_action_{admin_user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        if backup_request.action == "designate":
+            result = await family_manager.designate_backup_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            logger.info("Backup admin designated: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return BackupAdminResponse(**result)
+            
+        elif backup_request.action == "remove":
+            result = await family_manager.remove_backup_admin(
+                family_id, admin_user_id, user_id, {"request": request}
+            )
+            
+            logger.info("Backup admin removed: %s by %s in family %s", 
+                       user_id, admin_user_id, family_id)
+            
+            return BackupAdminResponse(**result)
+            
+    except FamilyNotFound:
+        logger.warning("Family not found for backup admin action: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for backup admin action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Invalid backup admin action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        )
+    except BackupAdminError as e:
+        logger.error("Backup admin action failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "BACKUP_ADMIN_ERROR",
+                "message": str(e)
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for backup admin action: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/{family_id}/recovery/initiate", response_model=RecoveryInitiationResponse)
+async def initiate_account_recovery(
+    request: Request,
+    family_id: str,
+    recovery_request: InitiateRecoveryRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> RecoveryInitiationResponse:
+    """
+    Initiate account recovery process when admin accounts are compromised or deleted.
+    
+    This endpoint starts the recovery process when no active administrators remain.
+    If backup administrators exist, they are automatically promoted. Otherwise,
+    a multi-member verification process is initiated.
+    
+    **Rate Limiting:** 2 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member
+    - No active administrators must exist
+    - Recovery reason must be provided
+    
+    **Returns:**
+    - Recovery initiation confirmation with process details
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"recovery_initiate_{user_id}",
+        rate_limit_requests=2,
+        rate_limit_period=3600
+    )
+    
+    try:
+        result = await family_manager.initiate_account_recovery(
+            family_id, user_id, recovery_request.recovery_reason, {"request": request}
+        )
+        
+        logger.info("Account recovery initiated: %s for family %s by %s", 
+                   result.get("recovery_id", "auto_promotion"), family_id, user_id)
+        
+        return RecoveryInitiationResponse(**result)
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for recovery initiation: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for recovery initiation: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except ValidationError as e:
+        logger.warning("Invalid recovery initiation: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for recovery initiation: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Recovery initiation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "RECOVERY_INITIATION_FAILED",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/recovery/{recovery_id}/verify", response_model=RecoveryVerificationResponse)
+async def verify_account_recovery(
+    request: Request,
+    recovery_id: str,
+    verify_request: VerifyRecoveryRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> RecoveryVerificationResponse:
+    """
+    Verify account recovery request by providing verification code.
+    
+    Family members must provide verification codes (typically sent via email)
+    to confirm the recovery request. Once sufficient verifications are received,
+    the most senior family member is automatically promoted to administrator.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family member of the recovering family
+    - Recovery request must be in pending verification status
+    - Valid verification code must be provided
+    - User cannot have already verified this recovery request
+    
+    **Returns:**
+    - Verification confirmation and recovery status
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"recovery_verify_{user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        result = await family_manager.verify_account_recovery(
+            recovery_id, user_id, verify_request.verification_code, {"request": request}
+        )
+        
+        logger.info("Recovery verification provided: %s by %s", recovery_id, user_id)
+        
+        return RecoveryVerificationResponse(**result)
+        
+    except ValidationError as e:
+        logger.warning("Invalid recovery verification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for recovery verification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for recovery verification: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Recovery verification failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "RECOVERY_VERIFICATION_FAILED",
+                "message": str(e)
             }
         )

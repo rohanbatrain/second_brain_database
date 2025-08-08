@@ -40,6 +40,19 @@ from second_brain_database.managers.security_manager import security_manager
 
 logger = get_logger(prefix="[FamilyManager]")
 
+# Import monitoring system
+try:
+    from second_brain_database.managers.family_monitoring import (
+        family_monitor, 
+        FamilyOperationType, 
+        FamilyOperationContext
+    )
+    MONITORING_ENABLED = True
+except ImportError:
+    # Graceful fallback if monitoring is not available
+    MONITORING_ENABLED = False
+    logger.warning("Family monitoring system not available - continuing without monitoring")
+
 # Constants for family management
 DEFAULT_MAX_FAMILIES = 1
 DEFAULT_MAX_MEMBERS_PER_FAMILY = 5
@@ -221,6 +234,38 @@ class RateLimitExceeded(FamilyError):
         })
 
 
+class MultipleAdminsRequired(FamilyError):
+    """Operation requires multiple admins."""
+    
+    def __init__(self, message: str, operation: str = None, current_admins: int = None):
+        super().__init__(message, "MULTIPLE_ADMINS_REQUIRED", {
+            "operation": operation,
+            "current_admins": current_admins,
+            "minimum_required": 2
+        })
+
+
+class AdminActionError(FamilyError):
+    """Admin action validation failed with detailed context."""
+    
+    def __init__(self, message: str, action: str = None, target_user: str = None, current_admin: str = None):
+        super().__init__(message, "ADMIN_ACTION_ERROR", {
+            "action": action,
+            "target_user": target_user,
+            "current_admin": current_admin
+        })
+
+
+class BackupAdminError(FamilyError):
+    """Backup admin operation failed."""
+    
+    def __init__(self, message: str, operation: str = None, backup_admin: str = None):
+        super().__init__(message, "BACKUP_ADMIN_ERROR", {
+            "operation": operation,
+            "backup_admin": backup_admin
+        })
+
+
 class FamilyManager:
     """
     Enterprise-grade family management system with dependency injection and transaction safety.
@@ -376,6 +421,31 @@ class FamilyManager:
                     }
                 )
                 
+                # Log to monitoring system
+                if MONITORING_ENABLED:
+                    duration = time.time() - start_time
+                    await family_monitor.log_family_operation(
+                        FamilyOperationContext(
+                            operation_type=FamilyOperationType.FAMILY_CREATE,
+                            family_id=family_id,
+                            user_id=user_id,
+                            duration=duration,
+                            success=True,
+                            metadata={
+                                "family_name": name,
+                                "sbd_account": sbd_account_username,
+                                "transaction_safe": True
+                            },
+                            request_id=operation_context.get("request_id")
+                        )
+                    )
+                    await family_monitor.log_family_performance(
+                        FamilyOperationType.FAMILY_CREATE,
+                        duration,
+                        success=True,
+                        metadata={"family_name": name}
+                    )
+                
                 return {
                     "family_id": family_id,
                     "name": name,
@@ -394,6 +464,27 @@ class FamilyManager:
         except (FamilyLimitExceeded, ValidationError, RateLimitExceeded) as e:
             # These are expected validation errors, don't wrap them
             self.db_manager.log_query_error("families", "create_family", start_time, e, operation_context)
+            
+            # Log to monitoring system
+            if MONITORING_ENABLED:
+                duration = time.time() - start_time
+                await family_monitor.log_family_operation(
+                    FamilyOperationContext(
+                        operation_type=FamilyOperationType.FAMILY_CREATE,
+                        user_id=user_id,
+                        duration=duration,
+                        success=False,
+                        error_message=str(e),
+                        metadata={"error_type": type(e).__name__},
+                        request_id=operation_context.get("request_id")
+                    )
+                )
+                await family_monitor.log_family_performance(
+                    FamilyOperationType.FAMILY_CREATE,
+                    duration,
+                    success=False,
+                    metadata={"error_type": type(e).__name__}
+                )
             raise
             
         except Exception as e:
@@ -554,6 +645,35 @@ class FamilyManager:
                         "transaction_id": str(session.session_id) if session else None
                     }
                 )
+                
+                # Log to monitoring system
+                if MONITORING_ENABLED:
+                    duration = time.time() - start_time
+                    await family_monitor.log_family_operation(
+                        FamilyOperationContext(
+                            operation_type=FamilyOperationType.MEMBER_INVITE,
+                            family_id=family_id,
+                            user_id=inviter_id,
+                            target_user_id=invitee_id,
+                            duration=duration,
+                            success=True,
+                            metadata={
+                                "invitation_id": invitation_data["invitation_id"],
+                                "relationship_type": relationship_type,
+                                "identifier_type": identifier_type,
+                                "email_sent": email_sent,
+                                "transaction_safe": True
+                            },
+                            request_id=operation_context.get("request_id"),
+                            ip_address=operation_context.get("ip_address")
+                        )
+                    )
+                    await family_monitor.log_family_performance(
+                        FamilyOperationType.MEMBER_INVITE,
+                        duration,
+                        success=True,
+                        metadata={"relationship_type": relationship_type}
+                    )
                 
                 return {
                     "invitation_id": invitation_data["invitation_id"],
@@ -951,52 +1071,248 @@ class FamilyManager:
             self.logger.error("Failed to get family members for family %s: %s", family_id, e, exc_info=True)
             raise FamilyError(f"Failed to retrieve family members: {str(e)}")
 
-    async def check_family_limits(self, user_id: str) -> Dict[str, Any]:
+    async def check_family_limits(self, user_id: str, include_billing_metrics: bool = False) -> Dict[str, Any]:
         """
-        Check user's family limits and current usage.
+        Enhanced family limits checking with detailed status and billing integration.
         
         Args:
             user_id: ID of the user
+            include_billing_metrics: Whether to include billing-related metrics
             
         Returns:
-            Dict containing limits and usage information
+            Dict containing comprehensive limits and usage information
         """
         try:
+            from second_brain_database.config import settings
+            
             user = await self._get_user_by_id(user_id)
             
-            # Get family limits (with defaults)
+            # Get family limits (with defaults from config)
             family_limits = user.get("family_limits", {})
-            max_families = family_limits.get("max_families_allowed", DEFAULT_MAX_FAMILIES)
-            max_members_per_family = family_limits.get("max_members_per_family", DEFAULT_MAX_MEMBERS_PER_FAMILY)
+            max_families = family_limits.get("max_families_allowed", settings.DEFAULT_MAX_FAMILIES_ALLOWED)
+            max_members_per_family = family_limits.get("max_members_per_family", settings.DEFAULT_MAX_MEMBERS_PER_FAMILY)
             
             # Get current usage
             family_memberships = user.get("family_memberships", [])
             current_families = len(family_memberships)
             
-            # Get detailed family usage
+            # Get detailed family usage with enhanced information
             families_usage = []
+            total_members_across_families = 0
+            
             for membership in family_memberships:
                 family = await self._get_family_by_id(membership["family_id"])
                 if family:
+                    is_admin = user_id in family["admin_user_ids"]
+                    max_members_for_family = max_members_per_family if is_admin else family.get("max_members_allowed", max_members_per_family)
+                    members_remaining = max(0, max_members_for_family - family["member_count"])
+                    
+                    # Get last activity timestamp
+                    last_activity = await self._get_family_last_activity(family["family_id"])
+                    
                     families_usage.append({
                         "family_id": family["family_id"],
                         "name": family["name"],
                         "member_count": family["member_count"],
-                        "is_admin": user_id in family["admin_user_ids"]
+                        "max_members_allowed": max_members_for_family,
+                        "is_admin": is_admin,
+                        "can_add_members": is_admin and members_remaining > 0,
+                        "members_remaining": members_remaining,
+                        "created_at": family["created_at"],
+                        "last_activity": last_activity
                     })
+                    
+                    total_members_across_families += family["member_count"]
             
-            return {
+            # Calculate limit status
+            limit_status = []
+            
+            # Family count limit status
+            families_percentage = (current_families / max_families * 100) if max_families > 0 else 0
+            limit_status.append({
+                "limit_type": "families",
+                "current_usage": current_families,
+                "max_allowed": max_families,
+                "percentage_used": families_percentage,
+                "is_at_limit": current_families >= max_families,
+                "is_over_limit": current_families > max_families,
+                "grace_period_expires": None,  # TODO: Implement grace period logic
+                "upgrade_required": current_families >= max_families
+            })
+            
+            # Member count limit status (aggregate across all families where user is admin)
+            admin_families = [f for f in families_usage if f["is_admin"]]
+            if admin_families:
+                max_total_members = len(admin_families) * max_members_per_family
+                admin_members_total = sum(f["member_count"] for f in admin_families)
+                members_percentage = (admin_members_total / max_total_members * 100) if max_total_members > 0 else 0
+                
+                limit_status.append({
+                    "limit_type": "members",
+                    "current_usage": admin_members_total,
+                    "max_allowed": max_total_members,
+                    "percentage_used": members_percentage,
+                    "is_at_limit": admin_members_total >= max_total_members,
+                    "is_over_limit": admin_members_total > max_total_members,
+                    "grace_period_expires": None,
+                    "upgrade_required": admin_members_total >= max_total_members
+                })
+            
+            # Generate upgrade messaging
+            upgrade_messaging = await self._generate_upgrade_messaging(
+                current_families, max_families, total_members_across_families, max_members_per_family
+            )
+            
+            result = {
                 "max_families_allowed": max_families,
                 "max_members_per_family": max_members_per_family,
                 "current_families": current_families,
                 "families_usage": families_usage,
                 "can_create_family": current_families < max_families,
-                "upgrade_required": current_families >= max_families
+                "upgrade_required": current_families >= max_families,
+                "limit_status": limit_status,
+                "upgrade_messaging": upgrade_messaging
             }
+            
+            # Add billing metrics if requested
+            if include_billing_metrics and settings.ENABLE_FAMILY_USAGE_TRACKING:
+                billing_metrics = await self._get_billing_usage_metrics(user_id)
+                result["billing_metrics"] = billing_metrics
+            
+            return result
             
         except Exception as e:
             self.logger.error("Failed to check family limits for user %s: %s", user_id, e, exc_info=True)
             raise FamilyError(f"Failed to check family limits: {str(e)}")
+
+    async def _get_family_last_activity(self, family_id: str) -> Optional[datetime]:
+        """Get the last activity timestamp for a family."""
+        try:
+            # Check various collections for recent activity
+            collections_to_check = [
+                ("family_notifications", {"family_id": family_id}),
+                ("family_token_requests", {"family_id": family_id}),
+                ("family_relationships", {"family_id": family_id}),
+            ]
+            
+            latest_activity = None
+            
+            for collection_name, query in collections_to_check:
+                collection = self.db_manager.get_collection(collection_name)
+                recent_doc = await collection.find_one(
+                    query,
+                    sort=[("created_at", -1)]
+                )
+                if recent_doc and recent_doc.get("created_at"):
+                    if not latest_activity or recent_doc["created_at"] > latest_activity:
+                        latest_activity = recent_doc["created_at"]
+            
+            return latest_activity
+            
+        except Exception as e:
+            self.logger.warning("Failed to get last activity for family %s: %s", family_id, e)
+            return None
+
+    async def _generate_upgrade_messaging(self, current_families: int, max_families: int, 
+                                        total_members: int, max_members_per_family: int) -> Dict[str, Any]:
+        """Generate upgrade messaging based on current usage."""
+        try:
+            messaging = {
+                "primary_message": "",
+                "upgrade_benefits": [],
+                "call_to_action": "",
+                "upgrade_url": "/billing/upgrade"
+            }
+            
+            if current_families >= max_families:
+                messaging["primary_message"] = f"You've reached your family limit ({current_families}/{max_families})"
+                messaging["upgrade_benefits"] = [
+                    "Create unlimited families",
+                    f"Add up to 20 members per family (currently {max_members_per_family})",
+                    "Priority support",
+                    "Advanced family management features"
+                ]
+                messaging["call_to_action"] = "Upgrade to Pro to unlock more families"
+            elif current_families / max_families >= 0.8:
+                messaging["primary_message"] = f"You're approaching your family limit ({current_families}/{max_families})"
+                messaging["upgrade_benefits"] = [
+                    "Never worry about family limits again",
+                    "Add more members to existing families",
+                    "Advanced analytics and reporting"
+                ]
+                messaging["call_to_action"] = "Consider upgrading to avoid hitting limits"
+            else:
+                messaging["primary_message"] = f"You have {max_families - current_families} families remaining"
+                messaging["upgrade_benefits"] = [
+                    "Unlimited families and members",
+                    "Advanced features and priority support"
+                ]
+                messaging["call_to_action"] = "Upgrade for unlimited access"
+            
+            return messaging
+            
+        except Exception as e:
+            self.logger.warning("Failed to generate upgrade messaging: %s", e)
+            return {
+                "primary_message": "Family management available",
+                "upgrade_benefits": ["Unlimited families", "More members per family"],
+                "call_to_action": "Upgrade for more features",
+                "upgrade_url": "/billing/upgrade"
+            }
+
+    async def _get_billing_usage_metrics(self, user_id: str, days: int = 30) -> Dict[str, Any]:
+        """Get billing-related usage metrics for the specified period."""
+        try:
+            from datetime import timedelta
+            
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=days)
+            
+            # Get usage tracking data if enabled
+            usage_data = await self._get_usage_tracking_data(user_id, start_date, end_date)
+            
+            # Calculate metrics
+            peak_families = max((day.get("families_count", 0) for day in usage_data), default=0)
+            peak_members_total = max((day.get("total_members", 0) for day in usage_data), default=0)
+            
+            avg_families = sum(day.get("families_count", 0) for day in usage_data) / len(usage_data) if usage_data else 0
+            avg_members_total = sum(day.get("total_members", 0) for day in usage_data) / len(usage_data) if usage_data else 0
+            
+            family_creation_events = sum(1 for day in usage_data if "family_created" in day.get("events", []))
+            member_addition_events = sum(1 for day in usage_data if "member_added" in day.get("events", []))
+            
+            # Generate upgrade recommendations
+            upgrade_recommendations = []
+            if peak_families > avg_families * 1.5:
+                upgrade_recommendations.append("Consider Pro plan for consistent family access")
+            if peak_members_total > 10:
+                upgrade_recommendations.append("Upgrade for higher member limits")
+            
+            return {
+                "period_start": start_date,
+                "period_end": end_date,
+                "peak_families": peak_families,
+                "peak_members_total": peak_members_total,
+                "average_families": avg_families,
+                "average_members_total": avg_members_total,
+                "family_creation_events": family_creation_events,
+                "member_addition_events": member_addition_events,
+                "upgrade_recommendations": upgrade_recommendations
+            }
+            
+        except Exception as e:
+            self.logger.warning("Failed to get billing usage metrics for user %s: %s", user_id, e)
+            return {
+                "period_start": datetime.now(timezone.utc) - timedelta(days=days),
+                "period_end": datetime.now(timezone.utc),
+                "peak_families": 0,
+                "peak_members_total": 0,
+                "average_families": 0.0,
+                "average_members_total": 0.0,
+                "family_creation_events": 0,
+                "member_addition_events": 0,
+                "upgrade_recommendations": []
+            }
 
     # Private helper methods for enterprise patterns
     
@@ -1026,16 +1342,32 @@ class FamilyManager:
                     )
     
     async def _check_family_creation_limits(self, user_id: str) -> Dict[str, Any]:
-        """Check if user can create a new family and return detailed limits info."""
-        limits = await self.check_family_limits(user_id)
+        """Enhanced family creation limits check with detailed validation and messaging."""
+        limits = await self.check_family_limits(user_id, include_billing_metrics=True)
+        
         if not limits["can_create_family"]:
+            # Get the family limit status for detailed error messaging
+            family_limit_status = next(
+                (status for status in limits["limit_status"] if status["limit_type"] == "families"),
+                None
+            )
+            
+            error_message = f"Maximum families limit reached ({limits['current_families']}/{limits['max_families_allowed']})"
+            
+            # Add upgrade messaging to the error
+            upgrade_info = limits.get("upgrade_messaging", {})
+            if upgrade_info.get("call_to_action"):
+                error_message += f". {upgrade_info['call_to_action']}"
+            
             raise FamilyLimitExceeded(
-                f"Maximum families limit reached ({limits['current_families']}/{limits['max_families_allowed']})",
+                message=error_message,
                 current_count=limits['current_families'],
                 max_allowed=limits['max_families_allowed'],
                 limit_type="families"
             )
+        
         return limits
+      
     
     async def _generate_unique_sbd_username(self, family_name: str) -> str:
         """Generate and ensure unique SBD account username with collision handling."""
@@ -1609,6 +1941,366 @@ class FamilyManager:
         self.logger.info("Bidirectional relationship created: %s between %s and %s", 
                         relationship_id, user_a_id, user_b_id)
 
+    async def modify_relationship_type(self, family_id: str, admin_id: str, user_a_id: str, user_b_id: str, 
+                                     new_relationship_type: str, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Modify the relationship type between two family members.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin making the change
+            user_a_id: ID of the first user in the relationship
+            user_b_id: ID of the second user in the relationship
+            new_relationship_type: New relationship type from user_a's perspective
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing updated relationship information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            InvalidRelationship: If relationship type is invalid
+            ValidationError: If relationship doesn't exist
+            TransactionError: If database transaction fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "user_a_id": user_a_id,
+            "user_b_id": user_b_id,
+            "new_relationship_type": new_relationship_type,
+            "operation": "modify_relationship",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_relationships", "modify_relationship", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "modify_relationship", 10, 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Relationship modification rate limit exceeded", 
+                    action="modify_relationship", 
+                    limit=10, 
+                    window=3600
+                )
+        
+        session = None
+        
+        try:
+            # Validate inputs
+            if new_relationship_type not in RELATIONSHIP_TYPES:
+                raise InvalidRelationship(
+                    f"Invalid relationship type: {new_relationship_type}",
+                    relationship_type=new_relationship_type,
+                    valid_types=list(RELATIONSHIP_TYPES.keys())
+                )
+            
+            # Verify family exists and user has admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can modify relationships", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Find the existing relationship
+            relationships_collection = self.db_manager.get_collection("family_relationships")
+            existing_relationship = await relationships_collection.find_one({
+                "family_id": family_id,
+                "$or": [
+                    {"user_a_id": user_a_id, "user_b_id": user_b_id},
+                    {"user_a_id": user_b_id, "user_b_id": user_a_id}
+                ],
+                "status": "active"
+            })
+            
+            if not existing_relationship:
+                raise ValidationError(
+                    "No active relationship found between these users",
+                    field="relationship",
+                    constraint="must_exist"
+                )
+            
+            # Get reciprocal relationship type
+            reciprocal_type = RELATIONSHIP_TYPES.get(new_relationship_type, new_relationship_type)
+            
+            # Start transaction for relationship modification
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Determine correct orientation and update
+                if existing_relationship["user_a_id"] == user_a_id:
+                    # Update as-is
+                    update_doc = {
+                        "$set": {
+                            "relationship_type_a_to_b": new_relationship_type,
+                            "relationship_type_b_to_a": reciprocal_type,
+                            "updated_at": now,
+                            "updated_by": admin_id
+                        }
+                    }
+                else:
+                    # Swap the relationship types since user_a and user_b are reversed
+                    update_doc = {
+                        "$set": {
+                            "relationship_type_a_to_b": reciprocal_type,
+                            "relationship_type_b_to_a": new_relationship_type,
+                            "updated_at": now,
+                            "updated_by": admin_id
+                        }
+                    }
+                
+                # Update the relationship
+                await relationships_collection.update_one(
+                    {"relationship_id": existing_relationship["relationship_id"]},
+                    update_doc,
+                    session=session
+                )
+                
+                # Create notification for both users
+                notification_data = {
+                    "type": "relationship_modified",
+                    "title": "Family Relationship Updated",
+                    "message": f"Your family relationship has been updated by an administrator",
+                    "data": {
+                        "old_relationship": existing_relationship["relationship_type_a_to_b"],
+                        "new_relationship": new_relationship_type,
+                        "modified_by": admin_id,
+                        "family_id": family_id
+                    }
+                }
+                
+                # Send notifications to both users
+                await self._create_family_notification(
+                    family_id, [user_a_id, user_b_id], notification_data, session
+                )
+                
+                # Log successful modification
+                self.db_manager.log_query_success(
+                    "family_relationships", "modify_relationship", start_time, 1,
+                    f"Relationship modified: {existing_relationship['relationship_id']}"
+                )
+                
+                self.logger.info(
+                    "Family relationship modified successfully: %s between %s and %s by admin %s", 
+                    existing_relationship["relationship_id"], user_a_id, user_b_id, admin_id,
+                    extra={
+                        "relationship_id": existing_relationship["relationship_id"],
+                        "family_id": family_id,
+                        "admin_id": admin_id,
+                        "old_relationship": existing_relationship["relationship_type_a_to_b"],
+                        "new_relationship": new_relationship_type,
+                        "transaction_id": str(session.session_id) if session else None
+                    }
+                )
+                
+                return {
+                    "relationship_id": existing_relationship["relationship_id"],
+                    "family_id": family_id,
+                    "user_a_id": user_a_id,
+                    "user_b_id": user_b_id,
+                    "old_relationship_type": existing_relationship["relationship_type_a_to_b"],
+                    "new_relationship_type": new_relationship_type,
+                    "new_reciprocal_type": reciprocal_type,
+                    "modified_by": admin_id,
+                    "modified_at": now,
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, InvalidRelationship, ValidationError, 
+                RateLimitExceeded) as e:
+            # These are expected validation errors, don't wrap them
+            self.db_manager.log_query_error("family_relationships", "modify_relationship", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                    self.logger.warning("Transaction rolled back successfully for relationship modification")
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback relationship modification transaction: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("family_relationships", "modify_relationship", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to modify relationship in family %s: %s", family_id, e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_id": admin_id,
+                    "user_a_id": user_a_id,
+                    "user_b_id": user_b_id,
+                    "rollback_successful": rollback_successful,
+                    "transaction_id": str(session.session_id) if session else None
+                }
+            )
+            
+            raise TransactionError(
+                f"Failed to modify relationship: {str(e)}", 
+                operation="modify_relationship",
+                rollback_successful=rollback_successful
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def get_family_relationships(self, family_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all relationships within a family with detailed user information.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user requesting the relationships
+            
+        Returns:
+            List of relationship dictionaries with user details
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+            FamilyError: If retrieval fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "operation": "get_family_relationships",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_relationships", "get_family_relationships", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            # Check if user is a family member
+            is_member = await self._is_family_member(user_id, family_id)
+            if not is_member:
+                raise InsufficientPermissions(
+                    "Only family members can view relationships",
+                    required_role="member",
+                    user_role="non_member"
+                )
+            
+            # Get all relationships for the family
+            relationships_collection = self.db_manager.get_collection("family_relationships")
+            relationships_cursor = relationships_collection.find({
+                "family_id": family_id,
+                "status": "active"
+            }).sort("created_at", 1)
+            
+            relationships = await relationships_cursor.to_list(length=None)
+            
+            # Enrich relationships with user information
+            enriched_relationships = []
+            users_collection = self.db_manager.get_collection("users")
+            
+            for rel in relationships:
+                # Get user information for both users
+                user_a = await users_collection.find_one(
+                    {"_id": rel["user_a_id"]},
+                    {"username": 1, "email": 1}
+                )
+                user_b = await users_collection.find_one(
+                    {"_id": rel["user_b_id"]},
+                    {"username": 1, "email": 1}
+                )
+                
+                if user_a and user_b:
+                    enriched_relationships.append({
+                        "relationship_id": rel["relationship_id"],
+                        "family_id": rel["family_id"],
+                        "user_a": {
+                            "user_id": rel["user_a_id"],
+                            "username": user_a.get("username", "Unknown"),
+                            "relationship_type": rel["relationship_type_a_to_b"]
+                        },
+                        "user_b": {
+                            "user_id": rel["user_b_id"],
+                            "username": user_b.get("username", "Unknown"),
+                            "relationship_type": rel["relationship_type_b_to_a"]
+                        },
+                        "status": rel["status"],
+                        "created_by": rel["created_by"],
+                        "created_at": rel["created_at"],
+                        "updated_at": rel["updated_at"]
+                    })
+            
+            # Log successful retrieval
+            self.db_manager.log_query_success(
+                "family_relationships", "get_family_relationships", start_time, len(enriched_relationships),
+                f"Retrieved {len(enriched_relationships)} relationships for family {family_id}"
+            )
+            
+            self.logger.debug(
+                "Retrieved %d relationships for family %s by user %s", 
+                len(enriched_relationships), family_id, user_id,
+                extra={
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "relationship_count": len(enriched_relationships)
+                }
+            )
+            
+            return enriched_relationships
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            # These are expected validation errors, don't wrap them
+            self.db_manager.log_query_error("family_relationships", "get_family_relationships", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            self.db_manager.log_query_error("family_relationships", "get_family_relationships", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to get relationships for family %s: %s", family_id, e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "user_id": user_id
+                }
+            )
+            
+            raise FamilyError(f"Failed to retrieve family relationships: {str(e)}")
+
+    async def _is_family_member(self, user_id: str, family_id: str) -> bool:
+        """
+        Check if a user is a member of a family.
+        
+        Args:
+            user_id: ID of the user to check
+            family_id: ID of the family
+            
+        Returns:
+            bool: True if user is a family member, False otherwise
+        """
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            user = await users_collection.find_one(
+                {"_id": user_id},
+                {"family_memberships": 1}
+            )
+            
+            if not user:
+                return False
+            
+            family_memberships = user.get("family_memberships", [])
+            return any(membership.get("family_id") == family_id for membership in family_memberships)
+            
+        except Exception as e:
+            self.logger.error("Error checking family membership for user %s in family %s: %s", 
+                            user_id, family_id, e, exc_info=True)
+            return False
+
     async def _increment_family_member_count(self, family_id: str) -> None:
         """Increment family member count."""
         families_collection = db_manager.get_collection("families")
@@ -1872,42 +2564,7 @@ class FamilyManager:
             self.logger.error("Error checking if account is virtual family account: %s", e, exc_info=True)
             return False
 
-    async def validate_username_against_reserved_prefixes(self, username: str) -> Tuple[bool, str]:
-        """
-        Validate username against reserved prefixes with comprehensive checking.
-        
-        Args:
-            username: Username to validate
-            
-        Returns:
-            Tuple[bool, str]: (is_valid, error_message)
-        """
-        if not username or not isinstance(username, str):
-            return False, "Username must be a non-empty string"
-        
-        username_lower = username.lower().strip()
-        
-        # Check against all reserved prefixes
-        for prefix in RESERVED_PREFIXES:
-            if username_lower.startswith(prefix):
-                return False, f"Username cannot start with '{prefix}' - this prefix is reserved for system accounts"
-        
-        # Additional validation for potential conflicts
-        if username_lower in ["family", "team", "admin", "system", "bot", "service", "root", "api"]:
-            return False, "Username conflicts with reserved system names"
-        
-        # Check for numeric-only usernames that could conflict with IDs
-        if username_lower.isdigit():
-            return False, "Username cannot be numeric only"
-        
-        # Check minimum and maximum length
-        if len(username) < 3:
-            return False, "Username must be at least 3 characters long"
-        
-        if len(username) > 30:
-            return False, "Username cannot exceed 30 characters"
-        
-        return True, ""
+    # Duplicate method removed - keeping only the first definition
 
     async def generate_collision_resistant_family_username(self, family_name: str, max_attempts: int = 10) -> str:
         """
@@ -2904,6 +3561,942 @@ class FamilyManager:
             self.logger.error("Failed to update spending permissions: %s", e, exc_info=True)
             raise FamilyError(f"Failed to update spending permissions: {str(e)}")
 
+    # Token Request System Methods
+    
+    async def create_token_request(self, family_id: str, user_id: str, amount: int, reason: str, 
+                                 request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Create a token request from the family account.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user requesting tokens
+            amount: Amount of tokens requested
+            reason: Reason for the request
+            request_context: Request context for rate limiting
+            
+        Returns:
+            Dict containing request information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+            ValidationError: If input validation fails
+            AccountFrozen: If family account is frozen
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "amount": amount,
+            "reason": reason,
+            "operation": "create_token_request",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_token_requests", "create_token_request", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "token_request_creation", 10, 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Token request creation rate limit exceeded", 
+                    action="token_request_creation", 
+                    limit=10, 
+                    window=3600
+                )
+        
+        try:
+            # Validate input
+            if amount <= 0:
+                raise ValidationError("Amount must be positive", field="amount", value=amount)
+            
+            if not reason or len(reason.strip()) < 5:
+                raise ValidationError("Reason must be at least 5 characters", field="reason", value=reason)
+            
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_in_family(user_id, family_id):
+                raise InsufficientPermissions("You must be a family member to request tokens")
+            
+            # Check if account is frozen
+            if family["sbd_account"]["is_frozen"]:
+                raise AccountFrozen(
+                    "Cannot create token requests while family account is frozen",
+                    family_id=family_id,
+                    frozen_by=family["sbd_account"].get("frozen_by"),
+                    frozen_at=family["sbd_account"].get("frozen_at")
+                )
+            
+            # Generate request ID and expiry
+            request_id = f"req_{uuid.uuid4().hex[:16]}"
+            now = datetime.now(timezone.utc)
+            expiry_hours = family["settings"]["request_expiry_hours"]
+            expires_at = now + timedelta(hours=expiry_hours)
+            
+            # Check auto-approval threshold
+            auto_approval_threshold = family["settings"]["auto_approval_threshold"]
+            auto_approved = amount <= auto_approval_threshold
+            
+            # Create request document
+            request_doc = {
+                "request_id": request_id,
+                "family_id": family_id,
+                "requester_user_id": user_id,
+                "amount": amount,
+                "reason": reason.strip(),
+                "status": "auto_approved" if auto_approved else "pending",
+                "reviewed_by": None,
+                "admin_comments": None,
+                "auto_approved": auto_approved,
+                "created_at": now,
+                "expires_at": expires_at,
+                "reviewed_at": now if auto_approved else None,
+                "processed_at": None
+            }
+            
+            # Insert request
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            await requests_collection.insert_one(request_doc)
+            
+            # If auto-approved, process immediately
+            if auto_approved:
+                await self._process_approved_token_request(request_id, "system", "Auto-approved based on threshold")
+                request_doc["processed_at"] = now
+            else:
+                # Notify admins about pending request
+                await self._notify_admins_token_request(family_id, request_doc)
+            
+            # Send notification to requester
+            await self._send_token_request_notification(family_id, user_id, request_doc, "created")
+            
+            self.db_manager.log_query_success(
+                "family_token_requests", "create_token_request", start_time, 1,
+                f"Token request created: {request_id} ({'auto-approved' if auto_approved else 'pending'})"
+            )
+            
+            self.logger.info(
+                "Token request created: %s for %d tokens by user %s in family %s (%s)",
+                request_id, amount, user_id, family_id, 
+                "auto-approved" if auto_approved else "pending"
+            )
+            
+            return {
+                "request_id": request_id,
+                "family_id": family_id,
+                "amount": amount,
+                "reason": reason,
+                "status": request_doc["status"],
+                "auto_approved": auto_approved,
+                "expires_at": expires_at,
+                "created_at": now,
+                "processed_immediately": auto_approved
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions, ValidationError, AccountFrozen, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("family_token_requests", "create_token_request", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_token_requests", "create_token_request", start_time, e, operation_context)
+            self.logger.error("Failed to create token request: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to create token request: {str(e)}")
+
+    async def review_token_request(self, request_id: str, admin_id: str, action: str, 
+                                 comments: str = None, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Review a token request (approve or deny).
+        
+        Args:
+            request_id: ID of the token request
+            admin_id: ID of the admin reviewing
+            action: "approve" or "deny"
+            comments: Optional admin comments
+            request_context: Request context for rate limiting
+            
+        Returns:
+            Dict containing review information
+            
+        Raises:
+            TokenRequestNotFound: If request doesn't exist
+            InsufficientPermissions: If user is not an admin
+            ValidationError: If request is not in pending status
+        """
+        operation_context = {
+            "request_id": request_id,
+            "admin_id": admin_id,
+            "action": action,
+            "operation": "review_token_request",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_token_requests", "review_token_request", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "token_request_review", 20, 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Token request review rate limit exceeded", 
+                    action="token_request_review", 
+                    limit=20, 
+                    window=3600
+                )
+        
+        try:
+            # Validate action
+            if action not in ["approve", "deny"]:
+                raise ValidationError("Action must be 'approve' or 'deny'", field="action", value=action)
+            
+            # Get token request
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            request_doc = await requests_collection.find_one({"request_id": request_id})
+            
+            if not request_doc:
+                raise TokenRequestNotFound("Token request not found", request_id=request_id)
+            
+            # Verify admin permissions
+            family = await self._get_family_by_id(request_doc["family_id"])
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can review token requests")
+            
+            # Check if request is still pending
+            if request_doc["status"] != "pending":
+                raise ValidationError(
+                    f"Cannot review request with status: {request_doc['status']}", 
+                    field="status", 
+                    value=request_doc["status"]
+                )
+            
+            # Check if request has expired
+            now = datetime.now(timezone.utc)
+            if now > request_doc["expires_at"]:
+                # Auto-expire the request
+                await requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "expired",
+                            "reviewed_at": now,
+                            "reviewed_by": "system",
+                            "admin_comments": "Request expired"
+                        }
+                    }
+                )
+                raise TokenRequestNotFound("Token request has expired", request_id=request_id, status="expired")
+            
+            # Update request status
+            new_status = "approved" if action == "approve" else "denied"
+            update_data = {
+                "status": new_status,
+                "reviewed_by": admin_id,
+                "admin_comments": comments or "",
+                "reviewed_at": now
+            }
+            
+            await requests_collection.update_one(
+                {"request_id": request_id},
+                {"$set": update_data}
+            )
+            
+            # If approved, process the token transfer
+            if action == "approve":
+                await self._process_approved_token_request(request_id, admin_id, comments)
+                update_data["processed_at"] = now
+                
+                # Update processed_at in database
+                await requests_collection.update_one(
+                    {"request_id": request_id},
+                    {"$set": {"processed_at": now}}
+                )
+            
+            # Send notifications
+            await self._send_token_request_notification(
+                request_doc["family_id"], 
+                request_doc["requester_user_id"], 
+                {**request_doc, **update_data}, 
+                action
+            )
+            
+            # Notify other admins about the decision
+            await self._notify_admins_token_decision(
+                request_doc["family_id"], admin_id, request_doc, action, comments
+            )
+            
+            self.db_manager.log_query_success(
+                "family_token_requests", "review_token_request", start_time, 1,
+                f"Token request {action}d: {request_id}"
+            )
+            
+            self.logger.info(
+                "Token request %s: %s by admin %s (amount: %d, requester: %s)",
+                action, request_id, admin_id, request_doc["amount"], request_doc["requester_user_id"]
+            )
+            
+            return {
+                "request_id": request_id,
+                "action": action,
+                "status": new_status,
+                "reviewed_by": admin_id,
+                "admin_comments": comments,
+                "reviewed_at": now,
+                "processed_at": update_data.get("processed_at"),
+                "amount": request_doc["amount"],
+                "requester_user_id": request_doc["requester_user_id"]
+            }
+            
+        except (TokenRequestNotFound, InsufficientPermissions, ValidationError, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("family_token_requests", "review_token_request", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_token_requests", "review_token_request", start_time, e, operation_context)
+            self.logger.error("Failed to review token request: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to review token request: {str(e)}")
+
+    async def get_pending_token_requests(self, family_id: str, admin_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all pending token requests for a family (admin only).
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin requesting
+            
+        Returns:
+            List of pending token requests
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not an admin
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "operation": "get_pending_token_requests",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_token_requests", "get_pending_token_requests", operation_context)
+        
+        try:
+            # Verify family exists and user is admin
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can view pending token requests")
+            
+            # Get pending requests
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            cursor = requests_collection.find({
+                "family_id": family_id,
+                "status": "pending",
+                "expires_at": {"$gt": datetime.now(timezone.utc)}
+            }).sort("created_at", 1)
+            
+            requests = await cursor.to_list(length=None)
+            
+            # Enrich with user information
+            enriched_requests = []
+            for request in requests:
+                requester = await self._get_user_by_id(request["requester_user_id"])
+                enriched_requests.append({
+                    "request_id": request["request_id"],
+                    "requester_user_id": request["requester_user_id"],
+                    "requester_username": requester.get("username", "Unknown"),
+                    "amount": request["amount"],
+                    "reason": request["reason"],
+                    "status": request["status"],
+                    "auto_approved": request["auto_approved"],
+                    "created_at": request["created_at"],
+                    "expires_at": request["expires_at"]
+                })
+            
+            self.db_manager.log_query_success(
+                "family_token_requests", "get_pending_token_requests", start_time, len(enriched_requests),
+                f"Retrieved {len(enriched_requests)} pending requests"
+            )
+            
+            self.logger.debug("Retrieved %d pending token requests for family %s", len(enriched_requests), family_id)
+            
+            return enriched_requests
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("family_token_requests", "get_pending_token_requests", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_token_requests", "get_pending_token_requests", start_time, e, operation_context)
+            self.logger.error("Failed to get pending token requests: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve pending token requests: {str(e)}")
+
+    async def get_user_token_requests(self, family_id: str, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get token request history for a user in a family.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user
+            limit: Maximum number of requests to return
+            
+        Returns:
+            List of user's token requests
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "limit": limit,
+            "operation": "get_user_token_requests",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_token_requests", "get_user_token_requests", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            if not await self._is_user_in_family(user_id, family_id):
+                raise InsufficientPermissions("You must be a family member to view token requests")
+            
+            # Get user's requests
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            cursor = requests_collection.find({
+                "family_id": family_id,
+                "requester_user_id": user_id
+            }).sort("created_at", -1).limit(limit)
+            
+            requests = await cursor.to_list(length=None)
+            
+            # Format response
+            formatted_requests = []
+            for request in requests:
+                formatted_requests.append({
+                    "request_id": request["request_id"],
+                    "amount": request["amount"],
+                    "reason": request["reason"],
+                    "status": request["status"],
+                    "auto_approved": request["auto_approved"],
+                    "reviewed_by": request.get("reviewed_by"),
+                    "admin_comments": request.get("admin_comments"),
+                    "created_at": request["created_at"],
+                    "expires_at": request["expires_at"],
+                    "reviewed_at": request.get("reviewed_at"),
+                    "processed_at": request.get("processed_at")
+                })
+            
+            self.db_manager.log_query_success(
+                "family_token_requests", "get_user_token_requests", start_time, len(formatted_requests),
+                f"Retrieved {len(formatted_requests)} requests for user"
+            )
+            
+            self.logger.debug("Retrieved %d token requests for user %s in family %s", 
+                            len(formatted_requests), user_id, family_id)
+            
+            return formatted_requests
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("family_token_requests", "get_user_token_requests", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_token_requests", "get_user_token_requests", start_time, e, operation_context)
+            self.logger.error("Failed to get user token requests: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve token requests: {str(e)}")
+
+    async def cleanup_expired_token_requests(self) -> Dict[str, Any]:
+        """
+        Clean up expired token requests.
+        
+        Returns:
+            Dict containing cleanup statistics
+        """
+        operation_context = {
+            "operation": "cleanup_expired_token_requests",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_token_requests", "cleanup_expired_token_requests", operation_context)
+        
+        try:
+            now = datetime.now(timezone.utc)
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            
+            # Find expired pending requests
+            expired_requests = await requests_collection.find({
+                "status": "pending",
+                "expires_at": {"$lt": now}
+            }).to_list(length=None)
+            
+            # Update expired requests
+            if expired_requests:
+                result = await requests_collection.update_many(
+                    {
+                        "status": "pending",
+                        "expires_at": {"$lt": now}
+                    },
+                    {
+                        "$set": {
+                            "status": "expired",
+                            "reviewed_at": now,
+                            "reviewed_by": "system",
+                            "admin_comments": "Request expired automatically"
+                        }
+                    }
+                )
+                
+                # Send notifications to requesters
+                for request in expired_requests:
+                    try:
+                        await self._send_token_request_notification(
+                            request["family_id"],
+                            request["requester_user_id"],
+                            {**request, "status": "expired", "reviewed_at": now},
+                            "expired"
+                        )
+                    except Exception as e:
+                        self.logger.warning("Failed to send expiry notification for request %s: %s", 
+                                          request["request_id"], e)
+                
+                cleanup_stats = {
+                    "expired_count": result.modified_count,
+                    "cleanup_timestamp": now,
+                    "requests_processed": [req["request_id"] for req in expired_requests]
+                }
+            else:
+                cleanup_stats = {
+                    "expired_count": 0,
+                    "cleanup_timestamp": now,
+                    "requests_processed": []
+                }
+            
+            self.db_manager.log_query_success(
+                "family_token_requests", "cleanup_expired_token_requests", start_time, cleanup_stats["expired_count"],
+                f"Cleaned up {cleanup_stats['expired_count']} expired requests"
+            )
+            
+            self.logger.info("Cleaned up %d expired token requests", cleanup_stats["expired_count"])
+            
+            return cleanup_stats
+            
+        except Exception as e:
+            self.db_manager.log_query_error("family_token_requests", "cleanup_expired_token_requests", start_time, e, operation_context)
+            self.logger.error("Failed to cleanup expired token requests: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to cleanup expired requests: {str(e)}")
+
+    async def _process_approved_token_request(self, request_id: str, approved_by: str, comments: str = None) -> None:
+        """
+        Process an approved token request by transferring tokens.
+        
+        Args:
+            request_id: ID of the approved request
+            approved_by: ID of the admin who approved (or "system" for auto-approval)
+            comments: Optional admin comments
+        """
+        try:
+            # Get request details
+            requests_collection = self.db_manager.get_collection("family_token_requests")
+            request_doc = await requests_collection.find_one({"request_id": request_id})
+            
+            if not request_doc:
+                raise TokenRequestNotFound("Token request not found for processing", request_id=request_id)
+            
+            # Get family and requester information
+            family = await self._get_family_by_id(request_doc["family_id"])
+            requester = await self._get_user_by_id(request_doc["requester_user_id"])
+            
+            # Transfer tokens from family account to requester
+            family_username = family["sbd_account"]["account_username"]
+            requester_username = requester["username"]
+            amount = request_doc["amount"]
+            
+            # Use existing SBD token transfer system directly
+            users_collection = self.db_manager.get_collection("users")
+            
+            # Create transaction note
+            transaction_note = f"Token request approved: {request_doc['reason']} (Request ID: {request_id})"
+            if approved_by != "system":
+                admin_user = await self._get_user_by_id(approved_by)
+                transaction_note += f" - Approved by: {admin_user.get('username', 'Unknown')}"
+            
+            # Check if MongoDB is a replica set for transaction support
+            is_replica_set = False
+            try:
+                ismaster = await self.db_manager.client.admin.command("ismaster")
+                is_replica_set = bool(ismaster.get("setName"))
+            except Exception as e:
+                self.logger.warning("Could not determine replica set: %s", e)
+            
+            # Perform the transfer using the same logic as SBD routes
+            now_iso = datetime.now(timezone.utc).isoformat()
+            transaction_id = f"treq_{uuid.uuid4().hex[:16]}"
+            
+            if is_replica_set:
+                # Use transaction/session if replica set
+                async with await self.db_manager.client.start_session() as session:
+                    async with session.start_transaction():
+                        # Verify family account has sufficient balance
+                        family_user_doc = await users_collection.find_one({"username": family_username}, session=session)
+                        if not family_user_doc or family_user_doc.get("sbd_tokens", 0) < amount:
+                            raise FamilyError(f"Insufficient tokens in family account: {family_user_doc.get('sbd_tokens', 0)} < {amount}")
+                        
+                        # Create send transaction for family account
+                        send_txn = {
+                            "type": "send",
+                            "to": requester_username,
+                            "amount": amount,
+                            "timestamp": now_iso,
+                            "transaction_id": transaction_id,
+                            "note": transaction_note,
+                            "token_request_id": request_id,
+                            "approved_by": approved_by
+                        }
+                        
+                        # Deduct from family account
+                        res1 = await users_collection.update_one(
+                            {"username": family_username, "sbd_tokens": {"$gte": amount}},
+                            {"$inc": {"sbd_tokens": -amount}, "$push": {"sbd_tokens_transactions": send_txn}},
+                            session=session,
+                        )
+                        
+                        if res1.modified_count == 0:
+                            raise FamilyError("Insufficient tokens in family account or race condition")
+                        
+                        # Create receive transaction for requester
+                        receive_txn = {
+                            "type": "receive",
+                            "from": family_username,
+                            "amount": amount,
+                            "timestamp": now_iso,
+                            "transaction_id": transaction_id,
+                            "note": transaction_note,
+                            "token_request_id": request_id,
+                            "approved_by": approved_by
+                        }
+                        
+                        # Add to requester account
+                        await users_collection.update_one(
+                            {"username": requester_username},
+                            {"$inc": {"sbd_tokens": amount}, "$push": {"sbd_tokens_transactions": receive_txn}},
+                            session=session,
+                        )
+            else:
+                # Non-replica set fallback (without transactions)
+                # Verify family account has sufficient balance
+                family_user_doc = await users_collection.find_one({"username": family_username})
+                if not family_user_doc or family_user_doc.get("sbd_tokens", 0) < amount:
+                    raise FamilyError(f"Insufficient tokens in family account: {family_user_doc.get('sbd_tokens', 0)} < {amount}")
+                
+                # Create send transaction for family account
+                send_txn = {
+                    "type": "send",
+                    "to": requester_username,
+                    "amount": amount,
+                    "timestamp": now_iso,
+                    "transaction_id": transaction_id,
+                    "note": transaction_note,
+                    "token_request_id": request_id,
+                    "approved_by": approved_by
+                }
+                
+                # Deduct from family account
+                res1 = await users_collection.update_one(
+                    {"username": family_username, "sbd_tokens": {"$gte": amount}},
+                    {"$inc": {"sbd_tokens": -amount}, "$push": {"sbd_tokens_transactions": send_txn}},
+                )
+                
+                if res1.modified_count == 0:
+                    raise FamilyError("Insufficient tokens in family account or race condition")
+                
+                # Create receive transaction for requester
+                receive_txn = {
+                    "type": "receive",
+                    "from": family_username,
+                    "amount": amount,
+                    "timestamp": now_iso,
+                    "transaction_id": transaction_id,
+                    "note": transaction_note,
+                    "token_request_id": request_id,
+                    "approved_by": approved_by
+                }
+                
+                # Add to requester account
+                await users_collection.update_one(
+                    {"username": requester_username},
+                    {"$inc": {"sbd_tokens": amount}, "$push": {"sbd_tokens_transactions": receive_txn}},
+                )
+            
+            # Log the successful transfer
+            self.logger.info(
+                "Token request processed: %s - transferred %d tokens from %s to %s",
+                request_id, amount, family_username, requester_username
+            )
+            
+            # Send notification about successful transfer
+            await self._send_token_transfer_notification(
+                request_doc["family_id"],
+                request_doc["requester_user_id"],
+                amount,
+                approved_by,
+                request_id
+            )
+            
+        except Exception as e:
+            self.logger.error("Failed to process approved token request %s: %s", request_id, e, exc_info=True)
+            # Update request status to indicate processing failure
+            try:
+                await requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "processing_failed",
+                            "admin_comments": f"Processing failed: {str(e)}",
+                            "reviewed_at": datetime.now(timezone.utc)
+                        }
+                    }
+                )
+            except Exception as update_error:
+                self.logger.error("Failed to update failed request status: %s", update_error)
+            
+            raise FamilyError(f"Failed to process token transfer: {str(e)}")
+
+    async def _notify_admins_token_request(self, family_id: str, request_doc: Dict[str, Any]) -> None:
+        """Send notification to family admins about a new token request."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            requester = await self._get_user_by_id(request_doc["requester_user_id"])
+            
+            notification_data = {
+                "type": "token_request_created",
+                "title": "New Token Request",
+                "message": f"{requester.get('username', 'Unknown')} requested {request_doc['amount']} tokens: {request_doc['reason']}",
+                "data": {
+                    "request_id": request_doc["request_id"],
+                    "requester_username": requester.get("username", "Unknown"),
+                    "amount": request_doc["amount"],
+                    "reason": request_doc["reason"],
+                    "expires_at": request_doc["expires_at"].isoformat()
+                }
+            }
+            
+            # Send to all admins
+            for admin_id in family["admin_user_ids"]:
+                await self._send_family_notification(family_id, [admin_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to notify admins about token request: %s", e)
+
+    async def _notify_admins_token_decision(self, family_id: str, admin_id: str, request_doc: Dict[str, Any], 
+                                          action: str, comments: str = None) -> None:
+        """Send notification to other admins about a token request decision."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_id)
+            requester = await self._get_user_by_id(request_doc["requester_user_id"])
+            
+            notification_data = {
+                "type": f"token_request_{action}",
+                "title": f"Token Request {action.title()}",
+                "message": f"{admin_user.get('username', 'Admin')} {action}d {requester.get('username', 'Unknown')}'s request for {request_doc['amount']} tokens",
+                "data": {
+                    "request_id": request_doc["request_id"],
+                    "admin_username": admin_user.get("username", "Unknown"),
+                    "requester_username": requester.get("username", "Unknown"),
+                    "amount": request_doc["amount"],
+                    "action": action,
+                    "admin_comments": comments
+                }
+            }
+            
+            # Send to other admins (not the one who made the decision)
+            other_admins = [aid for aid in family["admin_user_ids"] if aid != admin_id]
+            if other_admins:
+                await self._send_family_notification(family_id, other_admins, notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to notify admins about token decision: %s", e)
+
+    async def _send_token_request_notification(self, family_id: str, user_id: str, request_doc: Dict[str, Any], 
+                                             notification_type: str) -> None:
+        """Send notification to user about their token request status."""
+        try:
+            notification_messages = {
+                "created": f"Your token request for {request_doc['amount']} tokens has been created",
+                "approve": f"Your token request for {request_doc['amount']} tokens has been approved",
+                "deny": f"Your token request for {request_doc['amount']} tokens has been denied",
+                "expired": f"Your token request for {request_doc['amount']} tokens has expired"
+            }
+            
+            notification_data = {
+                "type": f"token_request_{notification_type}",
+                "title": f"Token Request {notification_type.title()}",
+                "message": notification_messages.get(notification_type, f"Token request {notification_type}"),
+                "data": {
+                    "request_id": request_doc["request_id"],
+                    "amount": request_doc["amount"],
+                    "reason": request_doc["reason"],
+                    "status": request_doc["status"],
+                    "admin_comments": request_doc.get("admin_comments")
+                }
+            }
+            
+            await self._send_family_notification(family_id, [user_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send token request notification: %s", e)
+
+    async def _send_token_transfer_notification(self, family_id: str, user_id: str, amount: int, 
+                                              approved_by: str, request_id: str) -> None:
+        """Send notification about successful token transfer."""
+        try:
+            if approved_by != "system":
+                admin_user = await self._get_user_by_id(approved_by)
+                approved_by_text = f"by {admin_user.get('username', 'Admin')}"
+            else:
+                approved_by_text = "automatically"
+            
+            notification_data = {
+                "type": "token_transfer_completed",
+                "title": "Tokens Transferred",
+                "message": f"{amount} tokens have been transferred to your account {approved_by_text}",
+                "data": {
+                    "amount": amount,
+                    "approved_by": approved_by,
+                    "request_id": request_id,
+                    "transfer_completed": True
+                }
+            }
+            
+            await self._send_family_notification(family_id, [user_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send token transfer notification: %s", e)
+
+    async def _send_family_notification(self, family_id: str, recipient_user_ids: List[str], 
+                                      notification_data: Dict[str, Any]) -> None:
+        """
+        Send notification to family members.
+        
+        Args:
+            family_id: ID of the family
+            recipient_user_ids: List of user IDs to notify
+            notification_data: Notification data including type, title, message, and data
+        """
+        try:
+            notification_id = f"not_{uuid.uuid4().hex[:16]}"
+            now = datetime.now(timezone.utc)
+            
+            notification_doc = {
+                "notification_id": notification_id,
+                "family_id": family_id,
+                "recipient_user_ids": recipient_user_ids,
+                "type": notification_data["type"],
+                "title": notification_data["title"],
+                "message": notification_data["message"],
+                "data": notification_data["data"],
+                "status": "pending",
+                "created_at": now,
+                "sent_at": None,
+                "read_by": {}
+            }
+            
+            # Insert notification
+            notifications_collection = self.db_manager.get_collection("family_notifications")
+            await notifications_collection.insert_one(notification_doc)
+            
+            # Update notification status to sent
+            await notifications_collection.update_one(
+                {"notification_id": notification_id},
+                {
+                    "$set": {
+                        "status": "sent",
+                        "sent_at": now
+                    }
+                }
+            )
+            
+            self.logger.debug("Family notification sent: %s to %d recipients", 
+                            notification_id, len(recipient_user_ids))
+            
+        except Exception as e:
+            self.logger.error("Failed to send family notification: %s", e)
+
+    async def _send_spending_permissions_notification(self, family_id: str, target_user_id: str, 
+                                                    admin_id: str, permissions: Dict[str, Any]) -> None:
+        """Send notification about spending permissions update."""
+        try:
+            admin_user = await self._get_user_by_id(admin_id)
+            target_user = await self._get_user_by_id(target_user_id)
+            
+            notification_data = {
+                "type": "permissions_updated",
+                "title": "Spending Permissions Updated",
+                "message": f"Your spending permissions have been updated by {admin_user.get('username', 'Admin')}",
+                "data": {
+                    "updated_by": admin_user.get("username", "Admin"),
+                    "can_spend": permissions["can_spend"],
+                    "spending_limit": permissions["spending_limit"],
+                    "updated_at": permissions["updated_at"].isoformat()
+                }
+            }
+            
+            await self._send_family_notification(family_id, [target_user_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send spending permissions notification: %s", e)
+
+    async def get_family_sbd_balance(self, account_username: str) -> int:
+        """
+        Get the current SBD token balance for a family account.
+        
+        Args:
+            account_username: Username of the family account
+            
+        Returns:
+            int: Current token balance
+        """
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            user_doc = await users_collection.find_one(
+                {"username": account_username, "is_virtual_account": True},
+                {"sbd_tokens": 1}
+            )
+            
+            if not user_doc:
+                return 0
+            
+            return user_doc.get("sbd_tokens", 0)
+            
+        except Exception as e:
+            self.logger.error("Failed to get family SBD balance for %s: %s", account_username, e)
+            return 0
+
+    async def _get_recent_family_transactions(self, account_username: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent transactions for a family account.
+        
+        Args:
+            account_username: Username of the family account
+            limit: Maximum number of transactions to return
+            
+        Returns:
+            List of recent transactions
+        """
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            user_doc = await users_collection.find_one(
+                {"username": account_username, "is_virtual_account": True},
+                {"sbd_tokens_transactions": {"$slice": -limit}}
+            )
+            
+            if not user_doc:
+                return []
+            
+            transactions = user_doc.get("sbd_tokens_transactions", [])
+            
+            # Sort by timestamp (most recent first) and limit
+            transactions.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            return transactions[:limit]
+            
+        except Exception as e:
+            self.logger.error("Failed to get recent family transactions for %s: %s", account_username, e)
+            return []
+
     async def freeze_family_account(self, family_id: str, admin_id: str, reason: str) -> Dict[str, Any]:
         """
         Freeze the family SBD account to prevent spending.
@@ -3063,6 +4656,490 @@ class FamilyManager:
             self.db_manager.log_query_error("families", "unfreeze_family_account", start_time, e, operation_context)
             self.logger.error("Failed to unfreeze family account: %s", e, exc_info=True)
             raise FamilyError(f"Failed to unfreeze family account: {str(e)}")
+
+    async def initiate_emergency_unfreeze(self, family_id: str, requester_id: str, reason: str) -> Dict[str, Any]:
+        """
+        Initiate an emergency unfreeze request that requires multiple family member approvals.
+        
+        Args:
+            family_id: ID of the family
+            requester_id: ID of the family member initiating the emergency unfreeze
+            reason: Reason for the emergency unfreeze
+            
+        Returns:
+            Dict containing emergency request information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            FamilyError: If account is not frozen or emergency request fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "requester_id": requester_id,
+            "reason": reason,
+            "operation": "initiate_emergency_unfreeze",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "initiate_emergency_unfreeze", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_family_member(requester_id, family_id):
+                raise InsufficientPermissions("Only family members can initiate emergency unfreeze")
+            
+            # Check if account is actually frozen
+            if not family["sbd_account"]["is_frozen"]:
+                raise FamilyError("Family account is not frozen")
+            
+            # Check if there's already an active emergency request
+            emergency_requests_collection = self.db_manager.get_collection("family_emergency_requests")
+            existing_request = await emergency_requests_collection.find_one({
+                "family_id": family_id,
+                "request_type": "emergency_unfreeze",
+                "status": "pending"
+            })
+            
+            if existing_request:
+                raise FamilyError("An emergency unfreeze request is already pending")
+            
+            # Create emergency unfreeze request
+            now = datetime.now(timezone.utc)
+            request_id = f"emr_{uuid.uuid4().hex[:16]}"
+            
+            # Calculate required approvals (minimum 2, or 50% of family members, whichever is higher)
+            total_members = family["member_count"]
+            required_approvals = max(2, int(total_members * 0.5))
+            
+            emergency_request = {
+                "request_id": request_id,
+                "family_id": family_id,
+                "request_type": "emergency_unfreeze",
+                "requester_id": requester_id,
+                "reason": reason,
+                "status": "pending",
+                "required_approvals": required_approvals,
+                "approvals": [requester_id],  # Requester automatically approves
+                "rejections": [],
+                "created_at": now,
+                "expires_at": now + timedelta(hours=48),  # 48 hour expiry
+                "executed_at": None,
+                "executed_by": None
+            }
+            
+            await emergency_requests_collection.insert_one(emergency_request)
+            
+            # Send notifications to all family members except requester
+            await self._send_emergency_unfreeze_notification(family_id, requester_id, request_id, reason)
+            
+            self.db_manager.log_query_success(
+                "families", "initiate_emergency_unfreeze", start_time, 1,
+                f"Emergency unfreeze initiated: {request_id}"
+            )
+            
+            self.logger.info("Emergency unfreeze initiated: %s by member %s for family %s", 
+                           request_id, requester_id, family_id)
+            
+            return {
+                "request_id": request_id,
+                "family_id": family_id,
+                "status": "pending",
+                "required_approvals": required_approvals,
+                "current_approvals": 1,
+                "expires_at": emergency_request["expires_at"],
+                "message": "Emergency unfreeze request created. Waiting for family member approvals."
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions, FamilyError) as e:
+            self.db_manager.log_query_error("families", "initiate_emergency_unfreeze", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "initiate_emergency_unfreeze", start_time, e, operation_context)
+            self.logger.error("Failed to initiate emergency unfreeze: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to initiate emergency unfreeze: {str(e)}")
+
+    async def approve_emergency_unfreeze(self, request_id: str, approver_id: str) -> Dict[str, Any]:
+        """
+        Approve an emergency unfreeze request.
+        
+        Args:
+            request_id: ID of the emergency request
+            approver_id: ID of the family member approving
+            
+        Returns:
+            Dict containing approval status and execution result if threshold met
+            
+        Raises:
+            FamilyError: If request not found, expired, or approval fails
+        """
+        operation_context = {
+            "request_id": request_id,
+            "approver_id": approver_id,
+            "operation": "approve_emergency_unfreeze",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "approve_emergency_unfreeze", operation_context)
+        
+        try:
+            emergency_requests_collection = self.db_manager.get_collection("family_emergency_requests")
+            
+            # Get the emergency request
+            emergency_request = await emergency_requests_collection.find_one({"request_id": request_id})
+            if not emergency_request:
+                raise FamilyError("Emergency request not found")
+            
+            # Check if request is still valid
+            if emergency_request["status"] != "pending":
+                raise FamilyError("Emergency request is no longer pending")
+            
+            if datetime.now(timezone.utc) > emergency_request["expires_at"]:
+                raise FamilyError("Emergency request has expired")
+            
+            # Verify approver is a family member
+            family_id = emergency_request["family_id"]
+            if not await self._is_user_family_member(approver_id, family_id):
+                raise InsufficientPermissions("Only family members can approve emergency requests")
+            
+            # Check if user already approved or rejected
+            if approver_id in emergency_request["approvals"]:
+                raise FamilyError("You have already approved this request")
+            
+            if approver_id in emergency_request["rejections"]:
+                raise FamilyError("You have already rejected this request")
+            
+            # Add approval
+            now = datetime.now(timezone.utc)
+            await emergency_requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$push": {"approvals": approver_id},
+                    "$set": {"updated_at": now}
+                }
+            )
+            
+            # Get updated request
+            updated_request = await emergency_requests_collection.find_one({"request_id": request_id})
+            current_approvals = len(updated_request["approvals"])
+            required_approvals = updated_request["required_approvals"]
+            
+            result = {
+                "request_id": request_id,
+                "approved": True,
+                "current_approvals": current_approvals,
+                "required_approvals": required_approvals,
+                "threshold_met": current_approvals >= required_approvals
+            }
+            
+            # Check if we have enough approvals to execute
+            if current_approvals >= required_approvals:
+                # Execute the emergency unfreeze
+                try:
+                    unfreeze_result = await self.unfreeze_family_account(family_id, approver_id)
+                    
+                    # Mark request as executed
+                    await emergency_requests_collection.update_one(
+                        {"request_id": request_id},
+                        {
+                            "$set": {
+                                "status": "executed",
+                                "executed_at": now,
+                                "executed_by": approver_id
+                            }
+                        }
+                    )
+                    
+                    # Send execution notification
+                    await self._send_emergency_unfreeze_executed_notification(
+                        family_id, request_id, approver_id, updated_request["reason"]
+                    )
+                    
+                    result.update({
+                        "executed": True,
+                        "executed_at": now,
+                        "message": "Emergency unfreeze executed successfully",
+                        "unfreeze_result": unfreeze_result
+                    })
+                    
+                    self.logger.info("Emergency unfreeze executed: %s by approver %s", 
+                                   request_id, approver_id)
+                    
+                except Exception as e:
+                    # Mark request as failed
+                    await emergency_requests_collection.update_one(
+                        {"request_id": request_id},
+                        {
+                            "$set": {
+                                "status": "failed",
+                                "failure_reason": str(e),
+                                "failed_at": now
+                            }
+                        }
+                    )
+                    raise FamilyError(f"Emergency unfreeze execution failed: {str(e)}")
+            else:
+                result["message"] = f"Approval recorded. Need {required_approvals - current_approvals} more approvals."
+            
+            self.db_manager.log_query_success(
+                "families", "approve_emergency_unfreeze", start_time, 1,
+                f"Emergency unfreeze approved: {request_id}"
+            )
+            
+            return result
+            
+        except (FamilyError, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "approve_emergency_unfreeze", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "approve_emergency_unfreeze", start_time, e, operation_context)
+            self.logger.error("Failed to approve emergency unfreeze: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to approve emergency unfreeze: {str(e)}")
+
+    async def reject_emergency_unfreeze(self, request_id: str, rejector_id: str, reason: str = None) -> Dict[str, Any]:
+        """
+        Reject an emergency unfreeze request.
+        
+        Args:
+            request_id: ID of the emergency request
+            rejector_id: ID of the family member rejecting
+            reason: Optional reason for rejection
+            
+        Returns:
+            Dict containing rejection status
+            
+        Raises:
+            FamilyError: If request not found, expired, or rejection fails
+        """
+        operation_context = {
+            "request_id": request_id,
+            "rejector_id": rejector_id,
+            "reason": reason,
+            "operation": "reject_emergency_unfreeze",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "reject_emergency_unfreeze", operation_context)
+        
+        try:
+            emergency_requests_collection = self.db_manager.get_collection("family_emergency_requests")
+            
+            # Get the emergency request
+            emergency_request = await emergency_requests_collection.find_one({"request_id": request_id})
+            if not emergency_request:
+                raise FamilyError("Emergency request not found")
+            
+            # Check if request is still valid
+            if emergency_request["status"] != "pending":
+                raise FamilyError("Emergency request is no longer pending")
+            
+            if datetime.now(timezone.utc) > emergency_request["expires_at"]:
+                raise FamilyError("Emergency request has expired")
+            
+            # Verify rejector is a family member
+            family_id = emergency_request["family_id"]
+            if not await self._is_user_family_member(rejector_id, family_id):
+                raise InsufficientPermissions("Only family members can reject emergency requests")
+            
+            # Check if user already approved or rejected
+            if rejector_id in emergency_request["approvals"]:
+                raise FamilyError("You have already approved this request")
+            
+            if rejector_id in emergency_request["rejections"]:
+                raise FamilyError("You have already rejected this request")
+            
+            # Add rejection
+            now = datetime.now(timezone.utc)
+            rejection_data = {
+                "user_id": rejector_id,
+                "reason": reason,
+                "rejected_at": now
+            }
+            
+            await emergency_requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$push": {"rejections": rejection_data},
+                    "$set": {"updated_at": now}
+                }
+            )
+            
+            self.db_manager.log_query_success(
+                "families", "reject_emergency_unfreeze", start_time, 1,
+                f"Emergency unfreeze rejected: {request_id}"
+            )
+            
+            self.logger.info("Emergency unfreeze rejected: %s by member %s", 
+                           request_id, rejector_id)
+            
+            return {
+                "request_id": request_id,
+                "rejected": True,
+                "rejector_id": rejector_id,
+                "reason": reason,
+                "message": "Emergency unfreeze request rejected"
+            }
+            
+        except (FamilyError, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "reject_emergency_unfreeze", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "reject_emergency_unfreeze", start_time, e, operation_context)
+            self.logger.error("Failed to reject emergency unfreeze: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to reject emergency unfreeze: {str(e)}")
+
+    async def get_emergency_unfreeze_requests(self, family_id: str, user_id: str, status: str = None) -> List[Dict[str, Any]]:
+        """
+        Get emergency unfreeze requests for a family.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the requesting user
+            status: Optional status filter (pending, executed, failed, expired)
+            
+        Returns:
+            List of emergency requests
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_family_member(user_id, family_id):
+                raise InsufficientPermissions("Only family members can view emergency requests")
+            
+            # Build query
+            query = {
+                "family_id": family_id,
+                "request_type": "emergency_unfreeze"
+            }
+            
+            if status:
+                query["status"] = status
+            
+            emergency_requests_collection = self.db_manager.get_collection("family_emergency_requests")
+            cursor = emergency_requests_collection.find(query).sort("created_at", -1)
+            
+            requests = []
+            async for request in cursor:
+                # Convert ObjectId to string
+                request["_id"] = str(request["_id"])
+                
+                # Add user information for approvals and rejections
+                request["approval_users"] = []
+                for approval_id in request.get("approvals", []):
+                    try:
+                        user = await self._get_user_by_id(approval_id)
+                        request["approval_users"].append({
+                            "user_id": approval_id,
+                            "username": user.get("username", "Unknown")
+                        })
+                    except:
+                        pass
+                
+                requests.append(request)
+            
+            return requests
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            raise
+        except Exception as e:
+            self.logger.error("Failed to get emergency unfreeze requests: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to get emergency requests: {str(e)}")
+
+    async def _send_emergency_unfreeze_notification(self, family_id: str, requester_id: str, 
+                                                  request_id: str, reason: str) -> None:
+        """Send notification about emergency unfreeze request to family members."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            requester = await self._get_user_by_id(requester_id)
+            
+            # Get all family members except requester
+            members = await self._get_family_members_detailed(family_id)
+            recipient_ids = [member["user_id"] for member in members if member["user_id"] != requester_id]
+            
+            if recipient_ids:
+                notification_data = {
+                    "type": "emergency_unfreeze_request",
+                    "title": "Emergency Account Unfreeze Request",
+                    "message": f"{requester.get('username', 'A family member')} has requested an emergency unfreeze of the family account. Reason: {reason}",
+                    "data": {
+                        "request_id": request_id,
+                        "family_id": family_id,
+                        "requester_id": requester_id,
+                        "reason": reason
+                    }
+                }
+                
+                await self._create_family_notification(family_id, recipient_ids, notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send emergency unfreeze notification: %s", e)
+
+    async def _send_emergency_unfreeze_executed_notification(self, family_id: str, request_id: str, 
+                                                           executor_id: str, reason: str) -> None:
+        """Send notification about executed emergency unfreeze to family members."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            executor = await self._get_user_by_id(executor_id)
+            
+            # Get all family members
+            members = await self._get_family_members_detailed(family_id)
+            recipient_ids = [member["user_id"] for member in members]
+            
+            if recipient_ids:
+                notification_data = {
+                    "type": "emergency_unfreeze_executed",
+                    "title": "Emergency Unfreeze Executed",
+                    "message": f"The emergency unfreeze request has been executed by {executor.get('username', 'a family member')}. The family account is now unfrozen.",
+                    "data": {
+                        "request_id": request_id,
+                        "family_id": family_id,
+                        "executor_id": executor_id,
+                        "reason": reason
+                    }
+                }
+                
+                await self._create_family_notification(family_id, recipient_ids, notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send emergency unfreeze executed notification: %s", e)
+
+    async def _get_family_members_detailed(self, family_id: str) -> List[Dict[str, Any]]:
+        """Get detailed family member information for internal use (no permission checks)."""
+        try:
+            # Get family to verify it exists
+            family = await self._get_family_by_id(family_id)
+            
+            # Get all relationships for this family
+            relationships_collection = self.db_manager.get_collection("family_relationships")
+            cursor = relationships_collection.find({"family_id": family_id})
+            
+            members_dict = {}
+            async for relationship in cursor:
+                # Add both users from the relationship
+                for user_key in ["user_a_id", "user_b_id"]:
+                    user_id = relationship[user_key]
+                    if user_id not in members_dict:
+                        try:
+                            user = await self._get_user_by_id(user_id)
+                            members_dict[user_id] = {
+                                "user_id": user_id,
+                                "username": user.get("username", "Unknown"),
+                                "email": user.get("email", ""),
+                                "role": "admin" if user_id in family["admin_user_ids"] else "member",
+                                "joined_at": relationship.get("created_at", datetime.now(timezone.utc))
+                            }
+                        except:
+                            # Skip users that can't be found
+                            pass
+            
+            return list(members_dict.values())
+            
+        except Exception as e:
+            self.logger.error("Failed to get detailed family members: %s", e, exc_info=True)
+            return []
 
     async def get_family_transactions(self, family_id: str, user_id: str, skip: int = 0, 
                                     limit: int = 20) -> Dict[str, Any]:
@@ -3633,6 +5710,3477 @@ class FamilyManager:
             self.db_manager.log_query_error("family_invitations", "cancel_invitation", start_time, e, operation_context)
             self.logger.error("Failed to cancel invitation: %s", e, exc_info=True)
             raise FamilyError(f"Failed to cancel invitation: {str(e)}")
+
+    async def promote_to_admin(self, family_id: str, admin_user_id: str, target_user_id: str, 
+                              request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Promote a family member to administrator role.
+        
+        Args:
+            family_id: ID of the family
+            admin_user_id: ID of the admin performing the action
+            target_user_id: ID of the user to promote
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing promotion information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            AdminActionError: If promotion validation fails
+            ValidationError: If input validation fails
+            TransactionError: If database transaction fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "target_user_id": target_user_id,
+            "operation": "promote_to_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "promote_to_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "promote_admin", 
+                                           self._get_operation_rate_limit("promote_admin"), 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Admin promotion rate limit exceeded", 
+                    action="promote_admin", 
+                    limit=self._get_operation_rate_limit("promote_admin"), 
+                    window=3600
+                )
+        
+        session = None
+        
+        try:
+            # Validate input
+            await self._validate_admin_action_input(family_id, admin_user_id, target_user_id, "promote")
+            
+            # Get family and verify permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can promote members", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Check if target user is already an admin
+            if target_user_id in family["admin_user_ids"]:
+                raise AdminActionError(
+                    "User is already a family administrator",
+                    action="promote",
+                    target_user=target_user_id,
+                    current_admin=admin_user_id
+                )
+            
+            # Verify target user is a family member
+            if not await self._is_user_in_family(target_user_id, family_id):
+                raise AdminActionError(
+                    "User is not a member of this family",
+                    action="promote",
+                    target_user=target_user_id,
+                    current_admin=admin_user_id
+                )
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family document to add new admin
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$push": {"admin_user_ids": target_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_user_id,
+                            "audit_trail.last_modified_at": now,
+                            "$inc": {"audit_trail.version": 1}
+                        }
+                    },
+                    session=session
+                )
+                
+                # Update user's family membership role
+                users_collection = self.db_manager.get_collection("users")
+                await users_collection.update_one(
+                    {
+                        "_id": target_user_id,
+                        "family_memberships.family_id": family_id
+                    },
+                    {
+                        "$set": {
+                            "family_memberships.$.role": "admin",
+                            "family_memberships.$.spending_permissions.can_spend": True,
+                            "family_memberships.$.spending_permissions.spending_limit": -1,
+                            "family_memberships.$.spending_permissions.last_updated": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Update SBD account spending permissions
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$set": {
+                            f"sbd_account.spending_permissions.{target_user_id}": {
+                                "role": "admin",
+                                "spending_limit": -1,
+                                "can_spend": True,
+                                "updated_by": admin_user_id,
+                                "updated_at": now
+                            }
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log admin action
+                await self._log_admin_action(
+                    family_id, admin_user_id, target_user_id, "promote_to_admin",
+                    {"previous_role": "member", "new_role": "admin"}, session
+                )
+                
+                # Send notification
+                await self._send_admin_promotion_notification(
+                    family_id, admin_user_id, target_user_id, session
+                )
+                
+                self.db_manager.log_query_success(
+                    "families", "promote_to_admin", start_time, 1,
+                    f"User promoted to admin: {target_user_id}"
+                )
+                
+                self.logger.info(
+                    "User promoted to family admin: %s by %s in family %s",
+                    target_user_id, admin_user_id, family_id,
+                    extra={
+                        "family_id": family_id,
+                        "admin_user_id": admin_user_id,
+                        "target_user_id": target_user_id,
+                        "action": "promote_to_admin",
+                        "transaction_id": str(session.session_id) if session else None
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "target_user_id": target_user_id,
+                    "action": "promoted",
+                    "new_role": "admin",
+                    "promoted_by": admin_user_id,
+                    "promoted_at": now,
+                    "message": "User successfully promoted to family administrator",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, AdminActionError, ValidationError, 
+                RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "promote_to_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                    self.logger.warning("Transaction rolled back successfully for admin promotion")
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback promotion transaction: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "promote_to_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to promote user to admin: %s", e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "target_user_id": target_user_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise TransactionError(
+                f"Failed to promote user to admin: {str(e)}", 
+                operation="promote_to_admin",
+                rollback_successful=rollback_successful
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def demote_from_admin(self, family_id: str, admin_user_id: str, target_user_id: str, 
+                               request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Demote a family administrator to member role.
+        
+        Args:
+            family_id: ID of the family
+            admin_user_id: ID of the admin performing the action
+            target_user_id: ID of the admin to demote
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing demotion information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            AdminActionError: If demotion validation fails
+            MultipleAdminsRequired: If this would leave family with no admins
+            ValidationError: If input validation fails
+            TransactionError: If database transaction fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "target_user_id": target_user_id,
+            "operation": "demote_from_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "demote_from_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "demote_admin", 
+                                           self._get_operation_rate_limit("demote_admin"), 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Admin demotion rate limit exceeded", 
+                    action="demote_admin", 
+                    limit=self._get_operation_rate_limit("demote_admin"), 
+                    window=3600
+                )
+        
+        session = None
+        
+        try:
+            # Validate input
+            await self._validate_admin_action_input(family_id, admin_user_id, target_user_id, "demote")
+            
+            # Get family and verify permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can demote other admins", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Check if target user is actually an admin
+            if target_user_id not in family["admin_user_ids"]:
+                raise AdminActionError(
+                    "User is not a family administrator",
+                    action="demote",
+                    target_user=target_user_id,
+                    current_admin=admin_user_id
+                )
+            
+            # Prevent self-demotion if it would leave no admins
+            current_admin_count = len(family["admin_user_ids"])
+            if current_admin_count <= 1:
+                raise MultipleAdminsRequired(
+                    "Cannot demote the last administrator. Family must have at least one admin.",
+                    operation="demote_admin",
+                    current_admins=current_admin_count
+                )
+            
+            # Prevent self-demotion unless there are backup admins or multiple admins
+            if admin_user_id == target_user_id and current_admin_count <= 2:
+                backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+                if not backup_admins:
+                    raise AdminActionError(
+                        "Cannot demote yourself without designated backup admins",
+                        action="demote",
+                        target_user=target_user_id,
+                        current_admin=admin_user_id
+                    )
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family document to remove admin
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$pull": {"admin_user_ids": target_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_user_id,
+                            "audit_trail.last_modified_at": now,
+                            "$inc": {"audit_trail.version": 1}
+                        }
+                    },
+                    session=session
+                )
+                
+                # Update user's family membership role
+                users_collection = self.db_manager.get_collection("users")
+                await users_collection.update_one(
+                    {
+                        "_id": target_user_id,
+                        "family_memberships.family_id": family_id
+                    },
+                    {
+                        "$set": {
+                            "family_memberships.$.role": "member",
+                            "family_memberships.$.spending_permissions.can_spend": False,
+                            "family_memberships.$.spending_permissions.spending_limit": 0,
+                            "family_memberships.$.spending_permissions.last_updated": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Update SBD account spending permissions
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$set": {
+                            f"sbd_account.spending_permissions.{target_user_id}": {
+                                "role": "member",
+                                "spending_limit": 0,
+                                "can_spend": False,
+                                "updated_by": admin_user_id,
+                                "updated_at": now
+                            }
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log admin action
+                await self._log_admin_action(
+                    family_id, admin_user_id, target_user_id, "demote_from_admin",
+                    {"previous_role": "admin", "new_role": "member"}, session
+                )
+                
+                # Send notification
+                await self._send_admin_demotion_notification(
+                    family_id, admin_user_id, target_user_id, session
+                )
+                
+                self.db_manager.log_query_success(
+                    "families", "demote_from_admin", start_time, 1,
+                    f"Admin demoted to member: {target_user_id}"
+                )
+                
+                self.logger.info(
+                    "Family admin demoted to member: %s by %s in family %s",
+                    target_user_id, admin_user_id, family_id,
+                    extra={
+                        "family_id": family_id,
+                        "admin_user_id": admin_user_id,
+                        "target_user_id": target_user_id,
+                        "action": "demote_from_admin",
+                        "transaction_id": str(session.session_id) if session else None
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "target_user_id": target_user_id,
+                    "action": "demoted",
+                    "new_role": "member",
+                    "demoted_by": admin_user_id,
+                    "demoted_at": now,
+                    "message": "Administrator successfully demoted to family member",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, AdminActionError, MultipleAdminsRequired,
+                ValidationError, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "demote_from_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                    self.logger.warning("Transaction rolled back successfully for admin demotion")
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback demotion transaction: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "demote_from_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to demote admin to member: %s", e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "target_user_id": target_user_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise TransactionError(
+                f"Failed to demote admin to member: {str(e)}", 
+                operation="demote_from_admin",
+                rollback_successful=rollback_successful
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def designate_backup_admin(self, family_id: str, admin_user_id: str, backup_user_id: str,
+                                   request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Designate a family member as a backup administrator.
+        
+        Args:
+            family_id: ID of the family
+            admin_user_id: ID of the admin performing the action
+            backup_user_id: ID of the user to designate as backup admin
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing backup admin designation information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            BackupAdminError: If backup admin validation fails
+            ValidationError: If input validation fails
+            TransactionError: If database transaction fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "backup_user_id": backup_user_id,
+            "operation": "designate_backup_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "designate_backup_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "backup_admin", 
+                                           self._get_operation_rate_limit("promote_admin"), 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Backup admin designation rate limit exceeded", 
+                    action="backup_admin", 
+                    limit=self._get_operation_rate_limit("promote_admin"), 
+                    window=3600
+                )
+        
+        session = None
+        
+        try:
+            # Validate input
+            await self._validate_admin_action_input(family_id, admin_user_id, backup_user_id, "backup_admin")
+            
+            # Get family and verify permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can designate backup admins", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Check if backup user is already an admin
+            if backup_user_id in family["admin_user_ids"]:
+                raise BackupAdminError(
+                    "User is already a family administrator",
+                    operation="designate_backup",
+                    backup_admin=backup_user_id
+                )
+            
+            # Verify backup user is a family member
+            if not await self._is_user_in_family(backup_user_id, family_id):
+                raise BackupAdminError(
+                    "User is not a member of this family",
+                    operation="designate_backup",
+                    backup_admin=backup_user_id
+                )
+            
+            # Check if user is already a backup admin
+            current_backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+            if backup_user_id in current_backup_admins:
+                raise BackupAdminError(
+                    "User is already designated as a backup administrator",
+                    operation="designate_backup",
+                    backup_admin=backup_user_id
+                )
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family succession plan
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$push": {"succession_plan.backup_admins": backup_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_user_id,
+                            "audit_trail.last_modified_at": now,
+                            "$inc": {"audit_trail.version": 1}
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log admin action
+                await self._log_admin_action(
+                    family_id, admin_user_id, backup_user_id, "designate_backup_admin",
+                    {"backup_admin_role": "designated"}, session
+                )
+                
+                # Send notification
+                await self._send_backup_admin_notification(
+                    family_id, admin_user_id, backup_user_id, "designated", session
+                )
+                
+                self.db_manager.log_query_success(
+                    "families", "designate_backup_admin", start_time, 1,
+                    f"Backup admin designated: {backup_user_id}"
+                )
+                
+                self.logger.info(
+                    "Backup admin designated: %s by %s in family %s",
+                    backup_user_id, admin_user_id, family_id,
+                    extra={
+                        "family_id": family_id,
+                        "admin_user_id": admin_user_id,
+                        "backup_user_id": backup_user_id,
+                        "action": "designate_backup_admin",
+                        "transaction_id": str(session.session_id) if session else None
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "action": "designated",
+                    "role": "backup_admin",
+                    "designated_by": admin_user_id,
+                    "designated_at": now,
+                    "message": "User successfully designated as backup administrator",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, BackupAdminError, ValidationError, 
+                RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "designate_backup_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                    self.logger.warning("Transaction rolled back successfully for backup admin designation")
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback backup admin transaction: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "designate_backup_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to designate backup admin: %s", e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "backup_user_id": backup_user_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise TransactionError(
+                f"Failed to designate backup admin: {str(e)}", 
+                operation="designate_backup_admin",
+                rollback_successful=rollback_successful
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def remove_backup_admin(self, family_id: str, admin_user_id: str, backup_user_id: str,
+                                 request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Remove a backup administrator designation.
+        
+        Args:
+            family_id: ID of the family
+            admin_user_id: ID of the admin performing the action
+            backup_user_id: ID of the backup admin to remove
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing backup admin removal information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            BackupAdminError: If backup admin validation fails
+            ValidationError: If input validation fails
+            TransactionError: If database transaction fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "backup_user_id": backup_user_id,
+            "operation": "remove_backup_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "remove_backup_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "backup_admin", 
+                                           self._get_operation_rate_limit("demote_admin"), 3600)
+            except Exception as e:
+                raise RateLimitExceeded(
+                    "Backup admin removal rate limit exceeded", 
+                    action="backup_admin", 
+                    limit=self._get_operation_rate_limit("demote_admin"), 
+                    window=3600
+                )
+        
+        session = None
+        
+        try:
+            # Validate input
+            await self._validate_admin_action_input(family_id, admin_user_id, backup_user_id, "remove_backup")
+            
+            # Get family and verify permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can remove backup admin designations", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Check if user is actually a backup admin
+            current_backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+            if backup_user_id not in current_backup_admins:
+                raise BackupAdminError(
+                    "User is not designated as a backup administrator",
+                    operation="remove_backup",
+                    backup_admin=backup_user_id
+                )
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family succession plan
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$pull": {"succession_plan.backup_admins": backup_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_user_id,
+                            "audit_trail.last_modified_at": now,
+                            "$inc": {"audit_trail.version": 1}
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log admin action
+                await self._log_admin_action(
+                    family_id, admin_user_id, backup_user_id, "remove_backup_admin",
+                    {"backup_admin_role": "removed"}, session
+                )
+                
+                # Send notification
+                await self._send_backup_admin_notification(
+                    family_id, admin_user_id, backup_user_id, "removed", session
+                )
+                
+                self.db_manager.log_query_success(
+                    "families", "remove_backup_admin", start_time, 1,
+                    f"Backup admin removed: {backup_user_id}"
+                )
+                
+                self.logger.info(
+                    "Backup admin designation removed: %s by %s in family %s",
+                    backup_user_id, admin_user_id, family_id,
+                    extra={
+                        "family_id": family_id,
+                        "admin_user_id": admin_user_id,
+                        "backup_user_id": backup_user_id,
+                        "action": "remove_backup_admin",
+                        "transaction_id": str(session.session_id) if session else None
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "action": "removed",
+                    "role": "backup_admin",
+                    "removed_by": admin_user_id,
+                    "removed_at": now,
+                    "message": "Backup administrator designation successfully removed",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, BackupAdminError, ValidationError, 
+                RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "remove_backup_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                    self.logger.warning("Transaction rolled back successfully for backup admin removal")
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback backup admin removal transaction: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "remove_backup_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to remove backup admin designation: %s", e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "backup_user_id": backup_user_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise TransactionError(
+                f"Failed to remove backup admin designation: {str(e)}", 
+                operation="remove_backup_admin",
+                rollback_successful=rollback_successful
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def get_admin_actions_log(self, family_id: str, admin_user_id: str, 
+                                   limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """
+        Get admin actions log for a family.
+        
+        Args:
+            family_id: ID of the family
+            admin_user_id: ID of the admin requesting the log
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            
+        Returns:
+            Dict containing admin actions log
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            ValidationError: If input validation fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "operation": "get_admin_actions_log"
+        }
+        start_time = self.db_manager.log_query_start("family_admin_actions", "get_log", operation_context)
+        
+        try:
+            # Validate input
+            if not family_id or not admin_user_id:
+                raise ValidationError("Family ID and admin user ID are required")
+            
+            if limit < 1 or limit > 100:
+                raise ValidationError("Limit must be between 1 and 100", field="limit", value=limit)
+            
+            if offset < 0:
+                raise ValidationError("Offset must be non-negative", field="offset", value=offset)
+            
+            # Get family and verify permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_user_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions(
+                    "Only family admins can view admin actions log", 
+                    required_role="admin", 
+                    user_role="member"
+                )
+            
+            # Get admin actions log
+            admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+            
+            # Get total count
+            total_count = await admin_actions_collection.count_documents({"family_id": family_id})
+            
+            # Get paginated results
+            cursor = admin_actions_collection.find(
+                {"family_id": family_id}
+            ).sort("created_at", -1).skip(offset).limit(limit)
+            
+            actions = await cursor.to_list(length=limit)
+            
+            # Enrich with user information
+            enriched_actions = []
+            for action in actions:
+                # Get admin user info
+                admin_user = await self._get_user_by_id(action["admin_user_id"])
+                target_user = await self._get_user_by_id(action["target_user_id"])
+                
+                enriched_actions.append({
+                    "action_id": action["action_id"],
+                    "family_id": action["family_id"],
+                    "admin_user_id": action["admin_user_id"],
+                    "admin_username": admin_user.get("username", "Unknown"),
+                    "target_user_id": action["target_user_id"],
+                    "target_username": target_user.get("username", "Unknown"),
+                    "action_type": action["action_type"],
+                    "details": action["details"],
+                    "created_at": action["created_at"],
+                    "ip_address": action.get("ip_address"),
+                    "user_agent": action.get("user_agent")
+                })
+            
+            self.db_manager.log_query_success(
+                "family_admin_actions", "get_log", start_time, len(actions)
+            )
+            
+            self.logger.debug(
+                "Retrieved %d admin actions for family %s",
+                len(actions), family_id,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "total_count": total_count,
+                    "returned_count": len(actions)
+                }
+            )
+            
+            return {
+                "family_id": family_id,
+                "actions": enriched_actions,
+                "pagination": {
+                    "total_count": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": (offset + len(actions)) < total_count
+                }
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions, ValidationError) as e:
+            self.db_manager.log_query_error("family_admin_actions", "get_log", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            self.db_manager.log_query_error("family_admin_actions", "get_log", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to get admin actions log: %s", e, 
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id
+                }
+            )
+            raise FamilyError(f"Failed to get admin actions log: {str(e)}")
+
+    # Helper methods for multi-admin support
+    
+    async def _validate_admin_action_input(self, family_id: str, admin_user_id: str, 
+                                         target_user_id: str, action: str) -> None:
+        """Validate input parameters for admin actions."""
+        if not family_id or not family_id.strip():
+            raise ValidationError("Family ID is required", field="family_id", constraint="not_empty")
+        
+        if not admin_user_id or not admin_user_id.strip():
+            raise ValidationError("Admin user ID is required", field="admin_user_id", constraint="not_empty")
+        
+        if not target_user_id or not target_user_id.strip():
+            raise ValidationError("Target user ID is required", field="target_user_id", constraint="not_empty")
+        
+        if admin_user_id == target_user_id and action in ["promote", "demote"]:
+            # Allow self-demotion but with additional checks in the main method
+            if action == "promote":
+                raise ValidationError("Cannot promote yourself", field="target_user_id", constraint="not_self")
+        
+        valid_actions = ["promote", "demote", "backup_admin", "remove_backup"]
+        if action not in valid_actions:
+            raise ValidationError(
+                f"Invalid action: {action}. Valid actions: {', '.join(valid_actions)}",
+                field="action", value=action, constraint="valid_action"
+            )
+
+    async def _log_admin_action(self, family_id: str, admin_user_id: str, target_user_id: str,
+                               action_type: str, details: Dict[str, Any], session: ClientSession = None) -> None:
+        """Log admin action for audit trail."""
+        try:
+            admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+            
+            action_id = f"act_{uuid.uuid4().hex[:16]}"
+            now = datetime.now(timezone.utc)
+            
+            action_doc = {
+                "action_id": action_id,
+                "family_id": family_id,
+                "admin_user_id": admin_user_id,
+                "target_user_id": target_user_id,
+                "action_type": action_type,
+                "details": details,
+                "created_at": now,
+                "ip_address": None,  # Could be populated from request context
+                "user_agent": None   # Could be populated from request context
+            }
+            
+            if session:
+                await admin_actions_collection.insert_one(action_doc, session=session)
+            else:
+                await admin_actions_collection.insert_one(action_doc)
+            
+            self.logger.debug(
+                "Admin action logged: %s by %s on %s in family %s",
+                action_type, admin_user_id, target_user_id, family_id,
+                extra={
+                    "action_id": action_id,
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "target_user_id": target_user_id,
+                    "action_type": action_type
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to log admin action: %s", e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "admin_user_id": admin_user_id,
+                    "target_user_id": target_user_id,
+                    "action_type": action_type
+                }
+            )
+            # Don't raise exception - logging failure shouldn't break the main operation
+
+    async def _send_admin_promotion_notification(self, family_id: str, admin_user_id: str, 
+                                               target_user_id: str, session: ClientSession = None) -> None:
+        """Send notification for admin promotion."""
+        try:
+            # Get family and user information
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_user_id)
+            target_user = await self._get_user_by_id(target_user_id)
+            
+            # Create notification for all family admins
+            notification_data = {
+                "type": "admin_promoted",
+                "title": "New Family Administrator",
+                "message": f"{target_user.get('username', 'Unknown')} has been promoted to family administrator by {admin_user.get('username', 'Unknown')}",
+                "data": {
+                    "family_id": family_id,
+                    "family_name": family["name"],
+                    "promoted_user_id": target_user_id,
+                    "promoted_username": target_user.get("username", "Unknown"),
+                    "promoted_by": admin_user_id,
+                    "promoted_by_username": admin_user.get("username", "Unknown")
+                }
+            }
+            
+            # Send to all family admins (including the newly promoted one)
+            recipient_ids = family["admin_user_ids"] + [target_user_id]
+            recipient_ids = list(set(recipient_ids))  # Remove duplicates
+            
+            await self._create_family_notification(
+                family_id, recipient_ids, notification_data, session
+            )
+            
+        except Exception as e:
+            self.logger.error("Failed to send admin promotion notification: %s", e, exc_info=True)
+
+    async def _send_admin_demotion_notification(self, family_id: str, admin_user_id: str, 
+                                              target_user_id: str, session: ClientSession = None) -> None:
+        """Send notification for admin demotion."""
+        try:
+            # Get family and user information
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_user_id)
+            target_user = await self._get_user_by_id(target_user_id)
+            
+            # Create notification for all family admins
+            notification_data = {
+                "type": "admin_demoted",
+                "title": "Administrator Demoted",
+                "message": f"{target_user.get('username', 'Unknown')} has been demoted from family administrator by {admin_user.get('username', 'Unknown')}",
+                "data": {
+                    "family_id": family_id,
+                    "family_name": family["name"],
+                    "demoted_user_id": target_user_id,
+                    "demoted_username": target_user.get("username", "Unknown"),
+                    "demoted_by": admin_user_id,
+                    "demoted_by_username": admin_user.get("username", "Unknown")
+                }
+            }
+            
+            # Send to all remaining family admins and the demoted user
+            recipient_ids = family["admin_user_ids"] + [target_user_id]
+            recipient_ids = list(set(recipient_ids))  # Remove duplicates
+            
+            await self._create_family_notification(
+                family_id, recipient_ids, notification_data, session
+            )
+            
+        except Exception as e:
+            self.logger.error("Failed to send admin demotion notification: %s", e, exc_info=True)
+
+    async def _send_backup_admin_notification(self, family_id: str, admin_user_id: str, 
+                                            backup_user_id: str, action: str, session: ClientSession = None) -> None:
+        """Send notification for backup admin designation/removal."""
+        try:
+            # Get family and user information
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_user_id)
+            backup_user = await self._get_user_by_id(backup_user_id)
+            
+            if action == "designated":
+                title = "Backup Administrator Designated"
+                message = f"{backup_user.get('username', 'Unknown')} has been designated as a backup administrator by {admin_user.get('username', 'Unknown')}"
+            else:  # removed
+                title = "Backup Administrator Removed"
+                message = f"{backup_user.get('username', 'Unknown')} is no longer a backup administrator (removed by {admin_user.get('username', 'Unknown')})"
+            
+            # Create notification
+            notification_data = {
+                "type": f"backup_admin_{action}",
+                "title": title,
+                "message": message,
+                "data": {
+                    "family_id": family_id,
+                    "family_name": family["name"],
+                    "backup_user_id": backup_user_id,
+                    "backup_username": backup_user.get("username", "Unknown"),
+                    "action_by": admin_user_id,
+                    "action_by_username": admin_user.get("username", "Unknown"),
+                    "action": action
+                }
+            }
+            
+            # Send to all family admins and the backup admin
+            recipient_ids = family["admin_user_ids"] + [backup_user_id]
+            recipient_ids = list(set(recipient_ids))  # Remove duplicates
+            
+            await self._create_family_notification(
+                family_id, recipient_ids, notification_data, session
+            )
+            
+        except Exception as e:
+            self.logger.error("Failed to send backup admin notification: %s", e, exc_info=True)
+
+    async def _create_family_notification(self, family_id: str, recipient_ids: List[str], 
+                                        notification_data: Dict[str, Any], session: ClientSession = None) -> None:
+        """Create a family notification."""
+        try:
+            notifications_collection = self.db_manager.get_collection("family_notifications")
+            
+            notification_id = f"notif_{uuid.uuid4().hex[:16]}"
+            now = datetime.now(timezone.utc)
+            
+            notification_doc = {
+                "notification_id": notification_id,
+                "family_id": family_id,
+                "recipient_user_ids": recipient_ids,
+                "type": notification_data["type"],
+                "title": notification_data["title"],
+                "message": notification_data["message"],
+                "data": notification_data["data"],
+                "status": "pending",
+                "created_at": now,
+                "sent_at": None,
+                "read_by": {}
+            }
+            
+            if session:
+                await notifications_collection.insert_one(notification_doc, session=session)
+            else:
+                await notifications_collection.insert_one(notification_doc)
+            
+            self.logger.debug(
+                "Family notification created: %s for family %s",
+                notification_id, family_id,
+                extra={
+                    "notification_id": notification_id,
+                    "family_id": family_id,
+                    "recipient_count": len(recipient_ids),
+                    "type": notification_data["type"]
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to create family notification: %s", e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "recipient_count": len(recipient_ids) if recipient_ids else 0,
+                    "notification_type": notification_data.get("type", "unknown")
+                }
+            )
+            # Don't raise exception - notification failure shouldn't break the main operation
+
+    # Public notification management methods
+    
+    async def get_family_notifications(self, family_id: str, user_id: str, limit: int = 50, 
+                                     offset: int = 0, status_filter: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get family notifications for a user with pagination and filtering.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user requesting notifications
+            limit: Maximum number of notifications to return
+            offset: Number of notifications to skip
+            status_filter: Optional status filter ("pending", "sent", "read", "archived")
+            
+        Returns:
+            Dict containing notifications and metadata
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "limit": limit,
+            "offset": offset,
+            "status_filter": status_filter,
+            "operation": "get_family_notifications"
+        }
+        start_time = self.db_manager.log_query_start("family_notifications", "get_notifications", operation_context)
+        
+        try:
+            # Verify user is family member
+            await self._verify_family_membership(family_id, user_id)
+            
+            # Build query
+            query = {
+                "family_id": family_id,
+                "recipient_user_ids": user_id
+            }
+            
+            if status_filter:
+                if status_filter == "read":
+                    query[f"read_by.{user_id}"] = {"$exists": True}
+                elif status_filter == "unread":
+                    query[f"read_by.{user_id}"] = {"$exists": False}
+                else:
+                    query["status"] = status_filter
+            
+            # Get notifications with pagination
+            notifications_collection = self.db_manager.get_collection("family_notifications")
+            
+            # Get total count
+            total_count = await notifications_collection.count_documents(query)
+            
+            # Get notifications
+            cursor = notifications_collection.find(query).sort("created_at", -1).skip(offset).limit(limit)
+            notifications = await cursor.to_list(length=limit)
+            
+            # Process notifications for response
+            processed_notifications = []
+            for notification in notifications:
+                is_read = user_id in notification.get("read_by", {})
+                processed_notifications.append({
+                    "notification_id": notification["notification_id"],
+                    "type": notification["type"],
+                    "title": notification["title"],
+                    "message": notification["message"],
+                    "data": notification["data"],
+                    "status": notification["status"],
+                    "created_at": notification["created_at"],
+                    "is_read": is_read,
+                    "read_at": notification.get("read_by", {}).get(user_id)
+                })
+            
+            # Get unread count
+            unread_query = dict(query)
+            unread_query[f"read_by.{user_id}"] = {"$exists": False}
+            unread_count = await notifications_collection.count_documents(unread_query)
+            
+            self.db_manager.log_query_success(
+                "family_notifications", "get_notifications", start_time, len(processed_notifications)
+            )
+            
+            return {
+                "notifications": processed_notifications,
+                "total_count": total_count,
+                "unread_count": unread_count,
+                "has_more": offset + len(processed_notifications) < total_count,
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "next_offset": offset + limit if offset + len(processed_notifications) < total_count else None
+                }
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("family_notifications", "get_notifications", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_notifications", "get_notifications", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to get family notifications for user %s in family %s: %s", 
+                user_id, family_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to get notifications: {str(e)}")
+
+    async def mark_notifications_read(self, family_id: str, user_id: str, 
+                                    notification_ids: List[str]) -> Dict[str, Any]:
+        """
+        Mark specific notifications as read for a user.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user marking notifications as read
+            notification_ids: List of notification IDs to mark as read
+            
+        Returns:
+            Dict containing update results
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "notification_count": len(notification_ids),
+            "operation": "mark_notifications_read"
+        }
+        start_time = self.db_manager.log_query_start("family_notifications", "mark_read", operation_context)
+        
+        try:
+            # Verify user is family member
+            await self._verify_family_membership(family_id, user_id)
+            
+            if not notification_ids:
+                return {"marked_count": 0, "updated_notifications": []}
+            
+            # Update notifications
+            notifications_collection = self.db_manager.get_collection("family_notifications")
+            now = datetime.now(timezone.utc)
+            
+            # Mark notifications as read
+            result = await notifications_collection.update_many(
+                {
+                    "family_id": family_id,
+                    "notification_id": {"$in": notification_ids},
+                    "recipient_user_ids": user_id,
+                    f"read_by.{user_id}": {"$exists": False}  # Only update unread notifications
+                },
+                {
+                    "$set": {f"read_by.{user_id}": now}
+                }
+            )
+            
+            # Update user's unread count
+            await self._update_user_notification_count(user_id, family_id)
+            
+            self.db_manager.log_query_success(
+                "family_notifications", "mark_read", start_time, result.modified_count
+            )
+            
+            self.logger.info(
+                "Marked %d notifications as read for user %s in family %s",
+                result.modified_count, user_id, family_id,
+                extra={
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "marked_count": result.modified_count,
+                    "requested_count": len(notification_ids)
+                }
+            )
+            
+            return {
+                "marked_count": result.modified_count,
+                "updated_notifications": notification_ids[:result.modified_count]
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("family_notifications", "mark_read", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_notifications", "mark_read", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to mark notifications as read for user %s in family %s: %s", 
+                user_id, family_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to mark notifications as read: {str(e)}")
+
+    async def mark_all_notifications_read(self, family_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        Mark all notifications as read for a user in a family.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the user marking all notifications as read
+            
+        Returns:
+            Dict containing update results
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "operation": "mark_all_notifications_read"
+        }
+        start_time = self.db_manager.log_query_start("family_notifications", "mark_all_read", operation_context)
+        
+        try:
+            # Verify user is family member
+            await self._verify_family_membership(family_id, user_id)
+            
+            # Update all unread notifications
+            notifications_collection = self.db_manager.get_collection("family_notifications")
+            now = datetime.now(timezone.utc)
+            
+            result = await notifications_collection.update_many(
+                {
+                    "family_id": family_id,
+                    "recipient_user_ids": user_id,
+                    f"read_by.{user_id}": {"$exists": False}
+                },
+                {
+                    "$set": {f"read_by.{user_id}": now}
+                }
+            )
+            
+            # Update user's unread count to 0
+            await self._update_user_notification_count(user_id, family_id, force_count=0)
+            
+            self.db_manager.log_query_success(
+                "family_notifications", "mark_all_read", start_time, result.modified_count
+            )
+            
+            self.logger.info(
+                "Marked all %d notifications as read for user %s in family %s",
+                result.modified_count, user_id, family_id
+            )
+            
+            return {"marked_count": result.modified_count}
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("family_notifications", "mark_all_read", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("family_notifications", "mark_all_read", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to mark all notifications as read for user %s in family %s: %s", 
+                user_id, family_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to mark all notifications as read: {str(e)}")
+
+    async def update_notification_preferences(self, user_id: str, preferences: Dict[str, bool]) -> Dict[str, Any]:
+        """
+        Update notification preferences for a user.
+        
+        Args:
+            user_id: ID of the user
+            preferences: Dictionary of preference settings
+            
+        Returns:
+            Dict containing updated preferences
+        """
+        operation_context = {
+            "user_id": user_id,
+            "preferences": preferences,
+            "operation": "update_notification_preferences"
+        }
+        start_time = self.db_manager.log_query_start("users", "update_preferences", operation_context)
+        
+        try:
+            # Validate preferences
+            valid_preferences = {"email_notifications", "push_notifications", "sms_notifications"}
+            invalid_prefs = set(preferences.keys()) - valid_preferences
+            if invalid_prefs:
+                raise ValidationError(
+                    f"Invalid preference keys: {invalid_prefs}",
+                    field="preferences",
+                    value=list(invalid_prefs)
+                )
+            
+            # Update user preferences
+            users_collection = self.db_manager.get_collection("users")
+            now = datetime.now(timezone.utc)
+            
+            update_data = {}
+            for pref_key, pref_value in preferences.items():
+                update_data[f"family_notifications.preferences.{pref_key}"] = pref_value
+            
+            result = await users_collection.update_one(
+                {"_id": user_id},
+                {
+                    "$set": update_data,
+                    "$setOnInsert": {
+                        "family_notifications.unread_count": 0,
+                        "family_notifications.last_checked": now
+                    }
+                },
+                upsert=True
+            )
+            
+            # Get updated preferences
+            user = await users_collection.find_one(
+                {"_id": user_id},
+                {"family_notifications.preferences": 1}
+            )
+            
+            updated_preferences = user.get("family_notifications", {}).get("preferences", {})
+            
+            self.db_manager.log_query_success(
+                "users", "update_preferences", start_time, 1 if result.modified_count > 0 else 0
+            )
+            
+            self.logger.info(
+                "Updated notification preferences for user %s: %s",
+                user_id, preferences,
+                extra={"user_id": user_id, "preferences": preferences}
+            )
+            
+            return {"preferences": updated_preferences}
+            
+        except ValidationError as e:
+            self.db_manager.log_query_error("users", "update_preferences", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("users", "update_preferences", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to update notification preferences for user %s: %s", 
+                user_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to update notification preferences: {str(e)}")
+
+    async def get_notification_preferences(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get notification preferences for a user.
+        
+        Args:
+            user_id: ID of the user
+            
+        Returns:
+            Dict containing user's notification preferences
+        """
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            user = await users_collection.find_one(
+                {"_id": user_id},
+                {"family_notifications": 1}
+            )
+            
+            if not user:
+                raise FamilyError("User not found")
+            
+            family_notifications = user.get("family_notifications", {})
+            preferences = family_notifications.get("preferences", {
+                "email_notifications": True,
+                "push_notifications": True,
+                "sms_notifications": False
+            })
+            
+            return {
+                "preferences": preferences,
+                "unread_count": family_notifications.get("unread_count", 0),
+                "last_checked": family_notifications.get("last_checked")
+            }
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to get notification preferences for user %s: %s", 
+                user_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to get notification preferences: {str(e)}")
+
+    # Enhanced notification creation with templating
+    
+    async def send_sbd_transaction_notification(self, family_id: str, transaction_type: str, 
+                                              amount: int, from_user_id: str, to_user_id: Optional[str] = None,
+                                              transaction_id: Optional[str] = None) -> None:
+        """
+        Send notification for SBD token transactions.
+        
+        Args:
+            family_id: ID of the family
+            transaction_type: "spend" or "deposit"
+            amount: Transaction amount
+            from_user_id: User who initiated the transaction
+            to_user_id: User who received tokens (for spending)
+            transaction_id: Optional transaction ID for reference
+        """
+        try:
+            family = await self._get_family_by_id(family_id)
+            from_user = await self._get_user_by_id(from_user_id)
+            
+            # Get all family members as recipients
+            recipient_ids = await self._get_family_member_ids(family_id)
+            
+            # Create notification based on transaction type
+            if transaction_type == "spend":
+                notification_type = "sbd_spend"
+                title = "SBD Token Spending"
+                if to_user_id:
+                    to_user = await self._get_user_by_id(to_user_id)
+                    message = f"@{from_user['username']} spent {amount} SBD tokens to @{to_user['username']}"
+                else:
+                    message = f"@{from_user['username']} spent {amount} SBD tokens"
+            else:  # deposit
+                notification_type = "sbd_deposit"
+                title = "SBD Token Deposit"
+                message = f"@{from_user['username']} deposited {amount} SBD tokens to the family account"
+            
+            # Check if this is a large transaction
+            threshold = family["sbd_account"]["notification_settings"].get("large_transaction_threshold", 1000)
+            if amount >= threshold:
+                notification_type = "large_transaction"
+                title = f"Large Transaction Alert - {amount} SBD"
+                # For large transactions, notify only admins if configured
+                if family["sbd_account"]["notification_settings"].get("notify_admins_only", False):
+                    recipient_ids = family["admin_user_ids"]
+            
+            notification_data = {
+                "type": notification_type,
+                "title": title,
+                "message": message,
+                "data": {
+                    "transaction_type": transaction_type,
+                    "amount": amount,
+                    "from_user_id": from_user_id,
+                    "from_username": from_user["username"],
+                    "to_user_id": to_user_id,
+                    "transaction_id": transaction_id,
+                    "family_account": family["sbd_account"]["account_username"]
+                }
+            }
+            
+            await self._create_family_notification(family_id, recipient_ids, notification_data)
+            
+            # Update unread counts for recipients
+            for recipient_id in recipient_ids:
+                await self._update_user_notification_count(recipient_id, family_id)
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to send SBD transaction notification: %s", e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "transaction_type": transaction_type,
+                    "amount": amount,
+                    "from_user_id": from_user_id
+                }
+            )
+
+    async def send_spending_limit_notification(self, family_id: str, user_id: str, 
+                                             attempted_amount: int, limit: int) -> None:
+        """
+        Send notification when spending limit is reached or exceeded.
+        
+        Args:
+            family_id: ID of the family
+            user_id: User who reached the limit
+            attempted_amount: Amount they tried to spend
+            limit: Their spending limit
+        """
+        try:
+            family = await self._get_family_by_id(family_id)
+            user = await self._get_user_by_id(user_id)
+            
+            # Notify admins and the user who reached the limit
+            recipient_ids = list(set(family["admin_user_ids"] + [user_id]))
+            
+            notification_data = {
+                "type": "spending_limit_reached",
+                "title": "Spending Limit Reached",
+                "message": f"@{user['username']} attempted to spend {attempted_amount} SBD tokens but their limit is {limit}",
+                "data": {
+                    "user_id": user_id,
+                    "username": user["username"],
+                    "attempted_amount": attempted_amount,
+                    "spending_limit": limit,
+                    "family_account": family["sbd_account"]["account_username"]
+                }
+            }
+            
+            await self._create_family_notification(family_id, recipient_ids, notification_data)
+            
+            # Update unread counts
+            for recipient_id in recipient_ids:
+                await self._update_user_notification_count(recipient_id, family_id)
+                
+        except Exception as e:
+            self.logger.error(
+                "Failed to send spending limit notification: %s", e, exc_info=True
+            )
+
+    # Helper methods for notification system
+    
+    async def _verify_family_membership(self, family_id: str, user_id: str) -> None:
+        """Verify that a user is a member of the specified family."""
+        family = await self._get_family_by_id(family_id)
+        
+        # Check if user is in family members
+        users_collection = self.db_manager.get_collection("users")
+        user = await users_collection.find_one(
+            {
+                "_id": user_id,
+                "family_memberships.family_id": family_id
+            }
+        )
+        
+        if not user:
+            raise InsufficientPermissions("User is not a member of this family")
+
+    async def _get_family_member_ids(self, family_id: str) -> List[str]:
+        """Get all member IDs for a family."""
+        users_collection = self.db_manager.get_collection("users")
+        cursor = users_collection.find(
+            {"family_memberships.family_id": family_id},
+            {"_id": 1}
+        )
+        
+        members = await cursor.to_list(length=None)
+        return [str(member["_id"]) for member in members]
+
+    async def _update_user_notification_count(self, user_id: str, family_id: str, 
+                                            force_count: Optional[int] = None) -> None:
+        """Update the unread notification count for a user."""
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            
+            if force_count is not None:
+                # Set count to specific value
+                unread_count = force_count
+            else:
+                # Calculate actual unread count
+                notifications_collection = self.db_manager.get_collection("family_notifications")
+                unread_count = await notifications_collection.count_documents({
+                    "family_id": family_id,
+                    "recipient_user_ids": user_id,
+                    f"read_by.{user_id}": {"$exists": False}
+                })
+            
+            await users_collection.update_one(
+                {"_id": user_id},
+                {
+                    "$set": {
+                        "family_notifications.unread_count": unread_count,
+                        "family_notifications.last_checked": datetime.now(timezone.utc)
+                    }
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to update notification count for user %s: %s", 
+                user_id, e, exc_info=True
+            )
+
+    # Additional methods for RESTful API endpoints
+
+    async def get_family_details(self, family_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a specific family.
+        
+        Args:
+            family_id: ID of the family to get details for
+            user_id: ID of the user requesting details
+            
+        Returns:
+            Dict containing detailed family information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        start_time = self.db_manager.log_query_start("families", "get_family_details", 
+                                                   {"family_id": family_id, "user_id": user_id})
+        
+        try:
+            # Verify family membership
+            await self._verify_family_membership(family_id, user_id)
+            
+            # Get family data
+            family = await self._get_family_by_id(family_id)
+            
+            # Get SBD account balance
+            sbd_balance = await self._get_sbd_account_balance(family["sbd_account"]["account_username"])
+            
+            # Build comprehensive response
+            family_data = {
+                "family_id": family["family_id"],
+                "name": family["name"],
+                "admin_user_ids": family["admin_user_ids"],
+                "member_count": family["member_count"],
+                "created_at": family["created_at"],
+                "is_admin": user_id in family["admin_user_ids"],
+                "sbd_account": {
+                    "account_username": family["sbd_account"]["account_username"],
+                    "balance": sbd_balance,
+                    "is_frozen": family["sbd_account"]["is_frozen"],
+                    "frozen_by": family["sbd_account"].get("frozen_by"),
+                    "spending_permissions": family["sbd_account"]["spending_permissions"]
+                },
+                "usage_stats": {
+                    "current_members": family["member_count"],
+                    "max_members_allowed": 5,  # Default limit - should be from user settings
+                    "can_add_members": user_id in family["admin_user_ids"]
+                }
+            }
+            
+            self.db_manager.log_query_success("families", "get_family_details", start_time, 1)
+            return family_data
+            
+        except (FamilyNotFound, InsufficientPermissions):
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "get_family_details", start_time, e, 
+                                          {"family_id": family_id, "user_id": user_id})
+            raise FamilyError(f"Failed to get family details: {str(e)}")
+
+    async def remove_family_member(self, family_id: str, admin_id: str, member_id: str, 
+                                 request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Remove a member from the family with comprehensive cleanup.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin performing the removal
+            member_id: ID of the member to remove
+            request_context: Request context for security
+            
+        Returns:
+            Dict containing removal confirmation and cleanup details
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            MultipleAdminsRequired: If trying to remove last admin
+        """
+        start_time = self.db_manager.log_query_start("families", "remove_member", 
+                                                   {"family_id": family_id, "admin_id": admin_id, "member_id": member_id})
+        
+        session = None
+        
+        try:
+            # Verify admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can remove members")
+            
+            # Prevent removing last admin
+            if member_id in family["admin_user_ids"] and len(family["admin_user_ids"]) == 1:
+                raise MultipleAdminsRequired("Cannot remove the last family administrator")
+            
+            # Get member info for response
+            member_user = await self._get_user_by_id(member_id)
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Remove from family admin list if admin
+                if member_id in family["admin_user_ids"]:
+                    families_collection = self.db_manager.get_collection("families")
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {"$pull": {"admin_user_ids": member_id}},
+                        session=session
+                    )
+                
+                # Remove all relationships involving this member
+                relationships_collection = self.db_manager.get_collection("family_relationships")
+                relationships_result = await relationships_collection.delete_many(
+                    {
+                        "family_id": family_id,
+                        "$or": [
+                            {"user_a_id": member_id},
+                            {"user_b_id": member_id}
+                        ]
+                    },
+                    session=session
+                )
+                
+                # Remove from user's family memberships
+                users_collection = self.db_manager.get_collection("users")
+                await users_collection.update_one(
+                    {"_id": member_id},
+                    {"$pull": {"family_memberships": {"family_id": family_id}}},
+                    session=session
+                )
+                
+                # Remove spending permissions
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {"$unset": {f"sbd_account.spending_permissions.{member_id}": ""}},
+                    session=session
+                )
+                
+                # Update family member count
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {"$inc": {"member_count": -1}},
+                    session=session
+                )
+                
+                # Send notification to remaining family members
+                remaining_members = await self._get_family_member_ids(family_id)
+                if remaining_members:
+                    notification_data = {
+                        "type": "member_removed",
+                        "title": "Family Member Removed",
+                        "message": f"@{member_user.get('username', 'Unknown')} has been removed from the family",
+                        "data": {
+                            "removed_user_id": member_id,
+                            "removed_username": member_user.get("username", "Unknown"),
+                            "removed_by": admin_id,
+                            "removed_at": now.isoformat()
+                        }
+                    }
+                    await self._create_family_notification(family_id, remaining_members, notification_data)
+                
+                self.db_manager.log_query_success("families", "remove_member", start_time, 1)
+                
+                return {
+                    "message": "Family member removed successfully",
+                    "removed_user_id": member_id,
+                    "removed_username": member_user.get("username", "Unknown"),
+                    "relationships_cleaned": relationships_result.deleted_count,
+                    "permissions_revoked": True,
+                    "removed_at": now,
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, MultipleAdminsRequired):
+            raise
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                except Exception:
+                    pass
+            
+            self.db_manager.log_query_error("families", "remove_member", start_time, e, 
+                                          {"family_id": family_id, "admin_id": admin_id, "member_id": member_id})
+            raise TransactionError(f"Failed to remove family member: {str(e)}", 
+                                 operation="remove_member", rollback_successful=rollback_successful)
+        finally:
+            if session:
+                await session.end_session()
+
+    async def update_family_settings(self, family_id: str, admin_id: str, updates: Dict[str, Any], 
+                                   request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Update family settings and configuration.
+        
+        Args:
+            family_id: ID of the family to update
+            admin_id: ID of the admin performing the update
+            updates: Dictionary of settings to update
+            request_context: Request context for security
+            
+        Returns:
+            Dict containing update confirmation
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            ValidationError: If updates are invalid
+        """
+        start_time = self.db_manager.log_query_start("families", "update_settings", 
+                                                   {"family_id": family_id, "admin_id": admin_id})
+        
+        try:
+            # Verify admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can update family settings")
+            
+            # Validate updates
+            allowed_fields = ["name", "settings", "notification_settings"]
+            update_doc = {}
+            updated_fields = []
+            
+            for field, value in updates.items():
+                if field not in allowed_fields:
+                    continue
+                    
+                if field == "name":
+                    if not isinstance(value, str) or len(value.strip()) < MIN_FAMILY_NAME_LENGTH:
+                        raise ValidationError(f"Family name must be at least {MIN_FAMILY_NAME_LENGTH} characters")
+                    if len(value.strip()) > MAX_FAMILY_NAME_LENGTH:
+                        raise ValidationError(f"Family name must be at most {MAX_FAMILY_NAME_LENGTH} characters")
+                    update_doc["name"] = value.strip()
+                    updated_fields.append("name")
+                    
+                elif field == "settings":
+                    if isinstance(value, dict):
+                        for setting_key, setting_value in value.items():
+                            update_doc[f"settings.{setting_key}"] = setting_value
+                            updated_fields.append(f"settings.{setting_key}")
+                            
+                elif field == "notification_settings":
+                    if isinstance(value, dict):
+                        for setting_key, setting_value in value.items():
+                            update_doc[f"sbd_account.notification_settings.{setting_key}"] = setting_value
+                            updated_fields.append(f"notification_settings.{setting_key}")
+            
+            if not update_doc:
+                raise ValidationError("No valid fields to update")
+            
+            # Add update timestamp
+            update_doc["updated_at"] = datetime.now(timezone.utc)
+            
+            # Perform update
+            families_collection = self.db_manager.get_collection("families")
+            result = await families_collection.update_one(
+                {"family_id": family_id},
+                {"$set": update_doc}
+            )
+            
+            if result.matched_count == 0:
+                raise FamilyNotFound("Family not found")
+            
+            self.db_manager.log_query_success("families", "update_settings", start_time, 1)
+            
+            return {
+                "message": "Family settings updated successfully",
+                "family_id": family_id,
+                "updated_fields": updated_fields,
+                "updated_at": update_doc["updated_at"],
+                "transaction_safe": True
+            }
+            
+        except (FamilyNotFound, InsufficientPermissions, ValidationError):
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "update_settings", start_time, e, 
+                                          {"family_id": family_id, "admin_id": admin_id})
+            raise FamilyError(f"Failed to update family settings: {str(e)}")
+
+    # Account Recovery System Methods
+
+    async def designate_backup_admin(self, family_id: str, admin_id: str, backup_user_id: str, 
+                                   request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Designate a family member as backup administrator.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin performing the action
+            backup_user_id: ID of the user to designate as backup admin
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing backup admin designation confirmation
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            ValidationError: If backup user is invalid
+            BackupAdminError: If designation fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "backup_user_id": backup_user_id,
+            "operation": "designate_backup_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "designate_backup_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "admin_action", 5, 3600)
+            except Exception as e:
+                raise RateLimitExceeded("Admin action rate limit exceeded", action="admin_action", limit=5, window=3600)
+        
+        session = None
+        
+        try:
+            # Verify family exists and user has admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can designate backup administrators")
+            
+            # Verify backup user is a family member
+            if not await self._is_user_in_family(backup_user_id, family_id):
+                raise ValidationError("Backup admin must be a family member")
+            
+            # Verify backup user is not already an admin
+            if backup_user_id in family["admin_user_ids"]:
+                raise ValidationError("User is already a family administrator")
+            
+            # Check if user is already a backup admin
+            current_backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+            if backup_user_id in current_backup_admins:
+                raise ValidationError("User is already designated as backup administrator")
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family document with backup admin
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$addToSet": {"succession_plan.backup_admins": backup_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_id,
+                            "audit_trail.last_modified_at": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log the backup admin designation
+                await self._log_admin_action(
+                    family_id=family_id,
+                    admin_user_id=admin_id,
+                    target_user_id=backup_user_id,
+                    action_type="designate_backup_admin",
+                    details={
+                        "previous_role": "member",
+                        "new_role": "backup_admin",
+                        "designation_reason": "admin_succession_planning"
+                    },
+                    session=session
+                )
+                
+                # Get user info for response
+                backup_user = await self._get_user_by_id(backup_user_id)
+                admin_user = await self._get_user_by_id(admin_id)
+                
+                self.db_manager.log_query_success("families", "designate_backup_admin", start_time, 1)
+                
+                self.logger.info(
+                    "Backup admin designated: %s for family %s by admin %s",
+                    backup_user_id, family_id, admin_id,
+                    extra={
+                        "family_id": family_id,
+                        "backup_user_id": backup_user_id,
+                        "admin_id": admin_id,
+                        "transaction_safe": True
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "backup_username": backup_user.get("username", "Unknown"),
+                    "action": "designated",
+                    "role": "backup_admin",
+                    "performed_by": admin_id,
+                    "performed_by_username": admin_user.get("username", "Unknown"),
+                    "performed_at": now,
+                    "message": "User successfully designated as backup administrator",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, ValidationError, BackupAdminError, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "designate_backup_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback backup admin designation: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "designate_backup_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to designate backup admin for family %s: %s", family_id, e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "admin_id": admin_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise BackupAdminError(
+                f"Failed to designate backup administrator: {str(e)}",
+                operation="designate_backup_admin",
+                backup_admin=backup_user_id
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def remove_backup_admin(self, family_id: str, admin_id: str, backup_user_id: str,
+                                request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Remove backup administrator designation from a family member.
+        
+        Args:
+            family_id: ID of the family
+            admin_id: ID of the admin performing the action
+            backup_user_id: ID of the backup admin to remove
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing backup admin removal confirmation
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not admin
+            ValidationError: If backup user is invalid
+            BackupAdminError: If removal fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "admin_id": admin_id,
+            "backup_user_id": backup_user_id,
+            "operation": "remove_backup_admin",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "remove_backup_admin", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "admin_action", 5, 3600)
+            except Exception as e:
+                raise RateLimitExceeded("Admin action rate limit exceeded", action="admin_action", limit=5, window=3600)
+        
+        session = None
+        
+        try:
+            # Verify family exists and user has admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can remove backup administrators")
+            
+            # Check if user is currently a backup admin
+            current_backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+            if backup_user_id not in current_backup_admins:
+                raise ValidationError("User is not currently designated as backup administrator")
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Update family document to remove backup admin
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$pull": {"succession_plan.backup_admins": backup_user_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": admin_id,
+                            "audit_trail.last_modified_at": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log the backup admin removal
+                await self._log_admin_action(
+                    family_id=family_id,
+                    admin_user_id=admin_id,
+                    target_user_id=backup_user_id,
+                    action_type="remove_backup_admin",
+                    details={
+                        "previous_role": "backup_admin",
+                        "new_role": "member",
+                        "removal_reason": "admin_action"
+                    },
+                    session=session
+                )
+                
+                # Get user info for response
+                backup_user = await self._get_user_by_id(backup_user_id)
+                admin_user = await self._get_user_by_id(admin_id)
+                
+                self.db_manager.log_query_success("families", "remove_backup_admin", start_time, 1)
+                
+                self.logger.info(
+                    "Backup admin removed: %s from family %s by admin %s",
+                    backup_user_id, family_id, admin_id,
+                    extra={
+                        "family_id": family_id,
+                        "backup_user_id": backup_user_id,
+                        "admin_id": admin_id,
+                        "transaction_safe": True
+                    }
+                )
+                
+                return {
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "backup_username": backup_user.get("username", "Unknown"),
+                    "action": "removed",
+                    "role": "member",
+                    "performed_by": admin_id,
+                    "performed_by_username": admin_user.get("username", "Unknown"),
+                    "performed_at": now,
+                    "message": "Backup administrator designation removed successfully",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, ValidationError, BackupAdminError, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "remove_backup_admin", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback backup admin removal: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "remove_backup_admin", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to remove backup admin from family %s: %s", family_id, e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "backup_user_id": backup_user_id,
+                    "admin_id": admin_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise BackupAdminError(
+                f"Failed to remove backup administrator: {str(e)}",
+                operation="remove_backup_admin",
+                backup_admin=backup_user_id
+            )
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def initiate_account_recovery(self, family_id: str, initiator_id: str, recovery_reason: str,
+                                      request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Initiate account recovery process when admin accounts are compromised or deleted.
+        
+        Args:
+            family_id: ID of the family requiring recovery
+            initiator_id: ID of the family member initiating recovery
+            recovery_reason: Reason for initiating recovery
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing recovery initiation confirmation
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user cannot initiate recovery
+            ValidationError: If recovery conditions are not met
+            FamilyError: If recovery initiation fails
+        """
+        operation_context = {
+            "family_id": family_id,
+            "initiator_id": initiator_id,
+            "recovery_reason": recovery_reason,
+            "operation": "initiate_account_recovery",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "initiate_account_recovery", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "recovery_action", 2, 3600)
+            except Exception as e:
+                raise RateLimitExceeded("Recovery action rate limit exceeded", action="recovery_action", limit=2, window=3600)
+        
+        session = None
+        
+        try:
+            # Verify family exists
+            family = await self._get_family_by_id(family_id)
+            
+            # Verify initiator is a family member
+            if not await self._is_user_in_family(initiator_id, family_id):
+                raise InsufficientPermissions("Only family members can initiate account recovery")
+            
+            # Check if there are any active admins
+            active_admin_count = len(family["admin_user_ids"])
+            if active_admin_count > 0:
+                raise ValidationError("Account recovery can only be initiated when no active admins exist")
+            
+            # Check if there are backup admins available
+            backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+            if backup_admins:
+                # Automatically promote first backup admin
+                return await self._auto_promote_backup_admin(family_id, backup_admins[0], initiator_id)
+            
+            # No backup admins - initiate multi-member verification process
+            recovery_id = f"rec_{uuid.uuid4().hex[:16]}"
+            now = datetime.now(timezone.utc)
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                # Create recovery request
+                recovery_collection = self.db_manager.get_collection("family_recovery_requests")
+                recovery_doc = {
+                    "recovery_id": recovery_id,
+                    "family_id": family_id,
+                    "initiated_by": initiator_id,
+                    "recovery_reason": recovery_reason,
+                    "status": "pending_verification",
+                    "created_at": now,
+                    "expires_at": now + timedelta(hours=72),  # 72 hour window for verification
+                    "required_verifications": max(2, len(await self._get_family_members(family_id)) // 2),
+                    "verifications": [],
+                    "recovery_method": "multi_member_verification"
+                }
+                
+                await recovery_collection.insert_one(recovery_doc, session=session)
+                
+                # Log recovery initiation
+                await self._log_recovery_event(
+                    family_id=family_id,
+                    recovery_id=recovery_id,
+                    event_type="recovery_initiated",
+                    details={
+                        "initiated_by": initiator_id,
+                        "reason": recovery_reason,
+                        "method": "multi_member_verification",
+                        "required_verifications": recovery_doc["required_verifications"]
+                    },
+                    session=session
+                )
+                
+                # Notify all family members about recovery initiation
+                await self._notify_family_members_recovery(family_id, recovery_id, "recovery_initiated", session)
+                
+                self.db_manager.log_query_success("families", "initiate_account_recovery", start_time, 1)
+                
+                self.logger.info(
+                    "Account recovery initiated: %s for family %s by %s",
+                    recovery_id, family_id, initiator_id,
+                    extra={
+                        "recovery_id": recovery_id,
+                        "family_id": family_id,
+                        "initiator_id": initiator_id,
+                        "transaction_safe": True
+                    }
+                )
+                
+                return {
+                    "recovery_id": recovery_id,
+                    "family_id": family_id,
+                    "status": "pending_verification",
+                    "required_verifications": recovery_doc["required_verifications"],
+                    "expires_at": recovery_doc["expires_at"],
+                    "message": "Account recovery initiated. Multi-member verification required.",
+                    "transaction_safe": True
+                }
+                
+        except (FamilyNotFound, InsufficientPermissions, ValidationError, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("families", "initiate_account_recovery", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback recovery initiation: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("families", "initiate_account_recovery", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to initiate account recovery for family %s: %s", family_id, e,
+                exc_info=True,
+                extra={
+                    "family_id": family_id,
+                    "initiator_id": initiator_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise FamilyError(f"Failed to initiate account recovery: {str(e)}")
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def verify_account_recovery(self, recovery_id: str, verifier_id: str, verification_code: str,
+                                    request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Verify account recovery request by family member.
+        
+        Args:
+            recovery_id: ID of the recovery request
+            verifier_id: ID of the family member providing verification
+            verification_code: Verification code (email-based or other method)
+            request_context: Request context for rate limiting and security
+            
+        Returns:
+            Dict containing verification confirmation
+            
+        Raises:
+            ValidationError: If verification is invalid
+            FamilyError: If verification fails
+        """
+        operation_context = {
+            "recovery_id": recovery_id,
+            "verifier_id": verifier_id,
+            "operation": "verify_account_recovery",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("family_recovery_requests", "verify_recovery", operation_context)
+        
+        # Rate limiting check
+        if request_context:
+            try:
+                await self._check_rate_limit(request_context, "recovery_verification", 5, 3600)
+            except Exception as e:
+                raise RateLimitExceeded("Recovery verification rate limit exceeded", action="recovery_verification", limit=5, window=3600)
+        
+        session = None
+        
+        try:
+            # Get recovery request
+            recovery_collection = self.db_manager.get_collection("family_recovery_requests")
+            recovery_request = await recovery_collection.find_one({"recovery_id": recovery_id})
+            
+            if not recovery_request:
+                raise ValidationError("Recovery request not found")
+            
+            if recovery_request["status"] != "pending_verification":
+                raise ValidationError("Recovery request is not in pending verification status")
+            
+            if datetime.now(timezone.utc) > recovery_request["expires_at"]:
+                raise ValidationError("Recovery request has expired")
+            
+            # Verify user is a family member
+            family_id = recovery_request["family_id"]
+            if not await self._is_user_in_family(verifier_id, family_id):
+                raise InsufficientPermissions("Only family members can verify recovery requests")
+            
+            # Check if user has already verified
+            existing_verifications = recovery_request.get("verifications", [])
+            if any(v["verifier_id"] == verifier_id for v in existing_verifications):
+                raise ValidationError("User has already provided verification for this recovery request")
+            
+            # Validate verification code (simplified - in production would verify email codes, etc.)
+            if not verification_code or len(verification_code) < 6:
+                raise ValidationError("Invalid verification code")
+            
+            # Start transaction
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Add verification
+                verification = {
+                    "verifier_id": verifier_id,
+                    "verified_at": now,
+                    "verification_method": "email_code",
+                    "verification_code_hash": verification_code  # In production, would hash this
+                }
+                
+                await recovery_collection.update_one(
+                    {"recovery_id": recovery_id},
+                    {"$push": {"verifications": verification}},
+                    session=session
+                )
+                
+                # Check if we have enough verifications
+                updated_request = await recovery_collection.find_one({"recovery_id": recovery_id}, session=session)
+                current_verifications = len(updated_request["verifications"])
+                required_verifications = updated_request["required_verifications"]
+                
+                if current_verifications >= required_verifications:
+                    # Complete recovery process
+                    return await self._complete_account_recovery(recovery_id, session)
+                
+                # Log verification
+                await self._log_recovery_event(
+                    family_id=family_id,
+                    recovery_id=recovery_id,
+                    event_type="verification_provided",
+                    details={
+                        "verifier_id": verifier_id,
+                        "current_verifications": current_verifications,
+                        "required_verifications": required_verifications
+                    },
+                    session=session
+                )
+                
+                self.db_manager.log_query_success("family_recovery_requests", "verify_recovery", start_time, 1)
+                
+                return {
+                    "recovery_id": recovery_id,
+                    "verification_accepted": True,
+                    "current_verifications": current_verifications,
+                    "required_verifications": required_verifications,
+                    "recovery_complete": False,
+                    "message": f"Verification accepted. {required_verifications - current_verifications} more verifications needed.",
+                    "transaction_safe": True
+                }
+                
+        except (ValidationError, InsufficientPermissions, RateLimitExceeded) as e:
+            self.db_manager.log_query_error("family_recovery_requests", "verify_recovery", start_time, e, operation_context)
+            raise
+            
+        except Exception as e:
+            # Handle transaction rollback
+            rollback_successful = False
+            if session and session.in_transaction:
+                try:
+                    await session.abort_transaction()
+                    rollback_successful = True
+                except Exception as rollback_error:
+                    self.logger.error("Failed to rollback recovery verification: %s", rollback_error, exc_info=True)
+            
+            self.db_manager.log_query_error("family_recovery_requests", "verify_recovery", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to verify account recovery %s: %s", recovery_id, e,
+                exc_info=True,
+                extra={
+                    "recovery_id": recovery_id,
+                    "verifier_id": verifier_id,
+                    "rollback_successful": rollback_successful
+                }
+            )
+            
+            raise FamilyError(f"Failed to verify account recovery: {str(e)}")
+            
+        finally:
+            if session:
+                await session.end_session()
+
+    async def handle_admin_account_deletion(self, deleted_admin_id: str) -> None:
+        """
+        Handle automatic admin promotion when an admin account is deleted.
+        
+        This method is called by the user deletion system to ensure family continuity.
+        
+        Args:
+            deleted_admin_id: ID of the deleted admin account
+            
+        Raises:
+            FamilyError: If automatic promotion fails
+        """
+        operation_context = {
+            "deleted_admin_id": deleted_admin_id,
+            "operation": "handle_admin_deletion",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "handle_admin_deletion", operation_context)
+        
+        try:
+            # Find all families where the deleted user was an admin
+            families_collection = self.db_manager.get_collection("families")
+            affected_families = await families_collection.find({
+                "admin_user_ids": deleted_admin_id,
+                "is_active": True
+            }).to_list(None)
+            
+            for family in affected_families:
+                family_id = family["family_id"]
+                
+                # Remove deleted admin from admin list
+                remaining_admins = [admin_id for admin_id in family["admin_user_ids"] if admin_id != deleted_admin_id]
+                
+                if remaining_admins:
+                    # Still have other admins, just remove the deleted one
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {
+                            "$set": {"admin_user_ids": remaining_admins},
+                            "$inc": {"member_count": -1}
+                        }
+                    )
+                    
+                    # Log admin removal due to deletion
+                    await self._log_admin_action(
+                        family_id=family_id,
+                        admin_user_id="system",
+                        target_user_id=deleted_admin_id,
+                        action_type="admin_removed_account_deleted",
+                        details={
+                            "deletion_reason": "account_deleted",
+                            "remaining_admins": len(remaining_admins)
+                        }
+                    )
+                    
+                else:
+                    # No remaining admins - need to promote someone
+                    await self._handle_last_admin_deletion(family_id, deleted_admin_id)
+                
+            self.db_manager.log_query_success("families", "handle_admin_deletion", start_time, len(affected_families))
+            
+            self.logger.info(
+                "Handled admin account deletion for %d families: %s",
+                len(affected_families), deleted_admin_id,
+                extra={
+                    "deleted_admin_id": deleted_admin_id,
+                    "affected_families": len(affected_families)
+                }
+            )
+            
+        except Exception as e:
+            self.db_manager.log_query_error("families", "handle_admin_deletion", start_time, e, operation_context)
+            self.logger.error(
+                "Failed to handle admin account deletion %s: %s", deleted_admin_id, e,
+                exc_info=True,
+                extra={"deleted_admin_id": deleted_admin_id}
+            )
+            
+            raise FamilyError(f"Failed to handle admin account deletion: {str(e)}")
+
+    # Private helper methods for account recovery
+
+    async def _auto_promote_backup_admin(self, family_id: str, backup_admin_id: str, initiator_id: str) -> Dict[str, Any]:
+        """Automatically promote backup admin when primary admin is deleted."""
+        session = None
+        
+        try:
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            async with session.start_transaction():
+                now = datetime.now(timezone.utc)
+                
+                # Promote backup admin to full admin
+                families_collection = self.db_manager.get_collection("families")
+                await families_collection.update_one(
+                    {"family_id": family_id},
+                    {
+                        "$addToSet": {"admin_user_ids": backup_admin_id},
+                        "$pull": {"succession_plan.backup_admins": backup_admin_id},
+                        "$set": {
+                            "updated_at": now,
+                            "audit_trail.last_modified_by": "system_recovery",
+                            "audit_trail.last_modified_at": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Update user's family membership role
+                users_collection = self.db_manager.get_collection("users")
+                await users_collection.update_one(
+                    {
+                        "_id": backup_admin_id,
+                        "family_memberships.family_id": family_id
+                    },
+                    {
+                        "$set": {
+                            "family_memberships.$.role": "admin",
+                            "family_memberships.$.spending_permissions.can_spend": True,
+                            "family_memberships.$.spending_permissions.spending_limit": -1,
+                            "family_memberships.$.spending_permissions.last_updated": now
+                        }
+                    },
+                    session=session
+                )
+                
+                # Log automatic promotion
+                await self._log_admin_action(
+                    family_id=family_id,
+                    admin_user_id="system_recovery",
+                    target_user_id=backup_admin_id,
+                    action_type="auto_promote_backup_admin",
+                    details={
+                        "promotion_reason": "admin_account_recovery",
+                        "initiated_by": initiator_id,
+                        "promotion_method": "automatic_succession"
+                    },
+                    session=session
+                )
+                
+                # Get user info for response
+                backup_user = await self._get_user_by_id(backup_admin_id)
+                
+                self.logger.info(
+                    "Backup admin automatically promoted: %s for family %s",
+                    backup_admin_id, family_id,
+                    extra={
+                        "family_id": family_id,
+                        "backup_admin_id": backup_admin_id,
+                        "initiator_id": initiator_id
+                    }
+                )
+                
+                return {
+                    "recovery_method": "automatic_backup_promotion",
+                    "promoted_user_id": backup_admin_id,
+                    "promoted_username": backup_user.get("username", "Unknown"),
+                    "family_id": family_id,
+                    "promoted_at": now,
+                    "message": "Backup administrator automatically promoted to full administrator",
+                    "transaction_safe": True
+                }
+                
+        finally:
+            if session:
+                await session.end_session()
+
+    async def _handle_last_admin_deletion(self, family_id: str, deleted_admin_id: str) -> None:
+        """Handle deletion of the last admin in a family."""
+        # Check for backup admins first
+        family = await self._get_family_by_id(family_id)
+        backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
+        
+        if backup_admins:
+            # Promote first backup admin
+            await self._auto_promote_backup_admin(family_id, backup_admins[0], "system")
+        else:
+            # Find senior family member to promote
+            family_members = await self._get_family_members(family_id)
+            if family_members:
+                # Sort by join date and promote the most senior member
+                senior_member = min(family_members, key=lambda m: m.get("joined_at", datetime.now(timezone.utc)))
+                await self._promote_member_to_admin(family_id, senior_member["user_id"], "system_recovery")
+            else:
+                # No members left - deactivate family
+                await self._deactivate_family(family_id, "no_members_remaining")
+
+    async def _complete_account_recovery(self, recovery_id: str, session: ClientSession) -> Dict[str, Any]:
+        """Complete the account recovery process after sufficient verifications."""
+        recovery_collection = self.db_manager.get_collection("family_recovery_requests")
+        recovery_request = await recovery_collection.find_one({"recovery_id": recovery_id}, session=session)
+        
+        family_id = recovery_request["family_id"]
+        
+        # Find the most senior family member to promote
+        family_members = await self._get_family_members(family_id)
+        if not family_members:
+            raise FamilyError("No family members available for promotion")
+        
+        # Sort by join date and promote the most senior member
+        senior_member = min(family_members, key=lambda m: m.get("joined_at", datetime.now(timezone.utc)))
+        
+        # Promote to admin
+        await self._promote_member_to_admin(family_id, senior_member["user_id"], "recovery_system", session)
+        
+        # Update recovery request status
+        now = datetime.now(timezone.utc)
+        await recovery_collection.update_one(
+            {"recovery_id": recovery_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completed_at": now,
+                    "promoted_user_id": senior_member["user_id"]
+                }
+            },
+            session=session
+        )
+        
+        # Log recovery completion
+        await self._log_recovery_event(
+            family_id=family_id,
+            recovery_id=recovery_id,
+            event_type="recovery_completed",
+            details={
+                "promoted_user_id": senior_member["user_id"],
+                "promotion_method": "multi_member_verification",
+                "total_verifications": len(recovery_request["verifications"])
+            },
+            session=session
+        )
+        
+        return {
+            "recovery_id": recovery_id,
+            "recovery_complete": True,
+            "promoted_user_id": senior_member["user_id"],
+            "promoted_username": senior_member.get("username", "Unknown"),
+            "message": "Account recovery completed successfully. Senior member promoted to administrator.",
+            "transaction_safe": True
+        }
+
+    async def _promote_member_to_admin(self, family_id: str, user_id: str, promoted_by: str, session: ClientSession = None) -> None:
+        """Promote a family member to administrator."""
+        now = datetime.now(timezone.utc)
+        
+        # Update family document
+        families_collection = self.db_manager.get_collection("families")
+        await families_collection.update_one(
+            {"family_id": family_id},
+            {
+                "$addToSet": {"admin_user_ids": user_id},
+                "$set": {
+                    "updated_at": now,
+                    "audit_trail.last_modified_by": promoted_by,
+                    "audit_trail.last_modified_at": now
+                }
+            },
+            session=session
+        )
+        
+        # Update user's family membership role
+        users_collection = self.db_manager.get_collection("users")
+        await users_collection.update_one(
+            {
+                "_id": user_id,
+                "family_memberships.family_id": family_id
+            },
+            {
+                "$set": {
+                    "family_memberships.$.role": "admin",
+                    "family_memberships.$.spending_permissions.can_spend": True,
+                    "family_memberships.$.spending_permissions.spending_limit": -1,
+                    "family_memberships.$.spending_permissions.last_updated": now
+                }
+            },
+            session=session
+        )
+        
+        # Log promotion
+        await self._log_admin_action(
+            family_id=family_id,
+            admin_user_id=promoted_by,
+            target_user_id=user_id,
+            action_type="promote_to_admin",
+            details={
+                "promotion_reason": "account_recovery",
+                "previous_role": "member",
+                "new_role": "admin"
+            },
+            session=session
+        )
+
+    async def _get_family_members(self, family_id: str) -> List[Dict[str, Any]]:
+        """Get all family members with their details."""
+        users_collection = self.db_manager.get_collection("users")
+        members = await users_collection.find({
+            "family_memberships.family_id": family_id
+        }).to_list(None)
+        
+        family_members = []
+        for member in members:
+            for membership in member.get("family_memberships", []):
+                if membership["family_id"] == family_id:
+                    family_members.append({
+                        "user_id": str(member["_id"]),
+                        "username": member.get("username", "Unknown"),
+                        "email": member.get("email", ""),
+                        "role": membership["role"],
+                        "joined_at": membership["joined_at"]
+                    })
+                    break
+        
+        return family_members
+
+    async def _log_admin_action(self, family_id: str, admin_user_id: str, target_user_id: str,
+                              action_type: str, details: Dict[str, Any], session: ClientSession = None) -> None:
+        """Log admin actions for audit trail."""
+        admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+        
+        action_doc = {
+            "action_id": f"act_{uuid.uuid4().hex[:16]}",
+            "family_id": family_id,
+            "admin_user_id": admin_user_id,
+            "target_user_id": target_user_id,
+            "action_type": action_type,
+            "details": details,
+            "created_at": datetime.now(timezone.utc),
+            "ip_address": None,  # Could be populated from request context
+            "user_agent": None   # Could be populated from request context
+        }
+        
+        await admin_actions_collection.insert_one(action_doc, session=session)
+
+    async def _log_recovery_event(self, family_id: str, recovery_id: str, event_type: str,
+                                details: Dict[str, Any], session: ClientSession = None) -> None:
+        """Log recovery events for audit trail."""
+        recovery_events_collection = self.db_manager.get_collection("family_recovery_events")
+        
+        event_doc = {
+            "event_id": f"evt_{uuid.uuid4().hex[:16]}",
+            "family_id": family_id,
+            "recovery_id": recovery_id,
+            "event_type": event_type,
+            "details": details,
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        await recovery_events_collection.insert_one(event_doc, session=session)
+
+    async def _notify_family_members_recovery(self, family_id: str, recovery_id: str, event_type: str,
+                                            session: ClientSession = None) -> None:
+        """Notify all family members about recovery events."""
+        # This would integrate with the notification system
+        # For now, just log the notification
+        self.logger.info(
+            "Recovery notification sent to family %s: %s (recovery: %s)",
+            family_id, event_type, recovery_id
+        )
+
+    async def _deactivate_family(self, family_id: str, reason: str) -> None:
+        """Deactivate a family when no members remain."""
+        families_collection = self.db_manager.get_collection("families")
+        await families_collection.update_one(
+            {"family_id": family_id},
+            {
+                "$set": {
+                    "is_active": False,
+                    "deactivated_at": datetime.now(timezone.utc),
+                    "deactivation_reason": reason
+                }
+            }
+        )
+        
+        self.logger.info("Family deactivated: %s (reason: %s)", family_id, reason)
+
+    async def _log_virtual_account_security_event(self, account_id: str, username: str, event_type: str,
+                                                 details: Dict[str, Any], session: ClientSession = None) -> None:
+        """Log security events for virtual accounts."""
+        security_events_collection = self.db_manager.get_collection("virtual_account_security_events")
+        
+        event_doc = {
+            "event_id": f"sec_{uuid.uuid4().hex[:16]}",
+            "account_id": account_id,
+            "username": username,
+            "event_type": event_type,
+            "details": details,
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        await security_events_collection.insert_one(event_doc, session=session)
+
+
+    # Family Limits and Billing Integration Methods
+    
+    async def update_family_limits(self, user_id: str, new_limits: Dict[str, Any], 
+                                 updated_by: str, reason: str = None) -> Dict[str, Any]:
+        """
+        Update family limits for a user (admin/billing system use).
+        
+        Args:
+            user_id: ID of the user whose limits to update
+            new_limits: New limit values
+            updated_by: ID of the user/system updating the limits
+            reason: Reason for the update
+            
+        Returns:
+            Dict containing update results and audit information
+        """
+        try:
+            from second_brain_database.config import settings
+            
+            user = await self._get_user_by_id(user_id)
+            current_limits = user.get("family_limits", {})
+            
+            # Prepare the update
+            updated_limits = current_limits.copy()
+            previous_limits = current_limits.copy()
+            
+            # Update limits if provided
+            if "max_families_allowed" in new_limits:
+                updated_limits["max_families_allowed"] = new_limits["max_families_allowed"]
+            if "max_members_per_family" in new_limits:
+                updated_limits["max_members_per_family"] = new_limits["max_members_per_family"]
+            
+            # Set metadata
+            updated_limits["updated_at"] = datetime.now(timezone.utc)
+            updated_limits["updated_by"] = updated_by
+            
+            # Calculate grace period for downgrades
+            grace_period_expires = None
+            if new_limits.get("grace_period_days"):
+                grace_period_expires = datetime.now(timezone.utc) + timedelta(days=new_limits["grace_period_days"])
+                updated_limits["grace_period_expires"] = grace_period_expires
+            
+            # Validate new limits against current usage
+            validation_result = await self._validate_limit_changes(user_id, updated_limits, previous_limits)
+            
+            # Update user document
+            users_collection = self.db_manager.get_collection("users")
+            await users_collection.update_one(
+                {"_id": user_id},
+                {"$set": {"family_limits": updated_limits}}
+            )
+            
+            # Create audit log entry
+            audit_log_id = await self._create_limits_audit_log(
+                user_id, previous_limits, updated_limits, updated_by, reason
+            )
+            
+            # Track usage event if enabled
+            if settings.ENABLE_FAMILY_USAGE_TRACKING:
+                await self._track_usage_event(user_id, "limits_updated", {
+                    "previous_limits": previous_limits,
+                    "new_limits": updated_limits,
+                    "updated_by": updated_by
+                })
+            
+            self.logger.info("Family limits updated for user %s by %s", user_id, updated_by)
+            
+            return {
+                "user_id": user_id,
+                "previous_limits": previous_limits,
+                "new_limits": updated_limits,
+                "effective_date": updated_limits["updated_at"],
+                "grace_period_expires": grace_period_expires,
+                "updated_by": updated_by,
+                "updated_at": updated_limits["updated_at"],
+                "audit_log_id": audit_log_id,
+                "validation_warnings": validation_result.get("warnings", [])
+            }
+            
+        except Exception as e:
+            self.logger.error("Failed to update family limits for user %s: %s", user_id, e, exc_info=True)
+            raise FamilyError(f"Failed to update family limits: {str(e)}")
+
+    async def _validate_limit_changes(self, user_id: str, new_limits: Dict[str, Any], 
+                                    previous_limits: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate limit changes against current usage."""
+        try:
+            warnings = []
+            
+            # Check current usage
+            current_usage = await self.check_family_limits(user_id)
+            
+            # Check family count limit
+            new_max_families = new_limits.get("max_families_allowed", previous_limits.get("max_families_allowed", 1))
+            if current_usage["current_families"] > new_max_families:
+                warnings.append(f"User currently has {current_usage['current_families']} families but new limit is {new_max_families}")
+            
+            # Check member count limits
+            new_max_members = new_limits.get("max_members_per_family", previous_limits.get("max_members_per_family", 5))
+            for family_usage in current_usage["families_usage"]:
+                if family_usage["is_admin"] and family_usage["member_count"] > new_max_members:
+                    warnings.append(f"Family '{family_usage['name']}' has {family_usage['member_count']} members but new limit is {new_max_members}")
+            
+            return {"warnings": warnings}
+            
+        except Exception as e:
+            self.logger.warning("Failed to validate limit changes: %s", e)
+            return {"warnings": ["Could not validate limit changes"]}
+
+    async def _create_limits_audit_log(self, user_id: str, previous_limits: Dict[str, Any], 
+                                     new_limits: Dict[str, Any], updated_by: str, reason: str) -> str:
+        """Create audit log entry for limits update."""
+        try:
+            audit_collection = self.db_manager.get_collection("family_limits_audit")
+            
+            audit_entry = {
+                "audit_id": f"audit_{uuid.uuid4().hex[:16]}",
+                "user_id": user_id,
+                "action": "limits_updated",
+                "previous_limits": previous_limits,
+                "new_limits": new_limits,
+                "updated_by": updated_by,
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc),
+                "ip_address": None,  # TODO: Get from request context
+                "user_agent": None   # TODO: Get from request context
+            }
+            
+            await audit_collection.insert_one(audit_entry)
+            return audit_entry["audit_id"]
+            
+        except Exception as e:
+            self.logger.warning("Failed to create audit log entry: %s", e)
+            return f"audit_error_{uuid.uuid4().hex[:16]}"
+
+    async def get_usage_tracking_data(self, user_id: str, start_date: datetime = None, 
+                                    end_date: datetime = None, granularity: str = "daily") -> Dict[str, Any]:
+        """
+        Get family usage tracking data for billing integration.
+        
+        Args:
+            user_id: ID of the user
+            start_date: Start date for tracking data
+            end_date: End date for tracking data
+            granularity: Data granularity (daily, weekly, monthly)
+            
+        Returns:
+            Dict containing usage tracking data and metrics
+        """
+        try:
+            from second_brain_database.config import settings
+            
+            if not settings.ENABLE_FAMILY_USAGE_TRACKING:
+                raise FamilyError("Usage tracking is not enabled")
+            
+            # Set default date range if not provided
+            if not end_date:
+                end_date = datetime.now(timezone.utc)
+            if not start_date:
+                start_date = end_date - timedelta(days=30)
+            
+            # Get usage data
+            usage_data = await self._get_usage_tracking_data(user_id, start_date, end_date, granularity)
+            
+            # Get billing metrics
+            billing_metrics = await self._get_billing_usage_metrics(user_id, (end_date - start_date).days)
+            
+            # Generate summary
+            summary = {
+                "total_families_created": sum(1 for day in usage_data if "family_created" in day.get("events", [])),
+                "total_members_added": sum(1 for day in usage_data if "member_added" in day.get("events", [])),
+                "peak_usage_day": max(usage_data, key=lambda x: x.get("total_members", 0), default={}).get("date"),
+                "upgrade_recommended": len(billing_metrics.get("upgrade_recommendations", [])) > 0
+            }
+            
+            return {
+                "user_id": user_id,
+                "period_start": start_date,
+                "period_end": end_date,
+                "usage_data": usage_data,
+                "billing_metrics": billing_metrics,
+                "summary": summary
+            }
+            
+        except Exception as e:
+            self.logger.error("Failed to get usage tracking data for user %s: %s", user_id, e, exc_info=True)
+            raise FamilyError(f"Failed to get usage tracking data: {str(e)}")
+
+    async def _get_usage_tracking_data(self, user_id: str, start_date: datetime, 
+                                     end_date: datetime, granularity: str = "daily") -> List[Dict[str, Any]]:
+        """Get raw usage tracking data from the database."""
+        try:
+            usage_collection = self.db_manager.get_collection("family_usage_tracking")
+            
+            # Query usage data
+            cursor = usage_collection.find({
+                "user_id": user_id,
+                "timestamp": {"$gte": start_date, "$lte": end_date}
+            }).sort("timestamp", 1)
+            
+            usage_records = await cursor.to_list(length=None)
+            
+            # Aggregate data by granularity
+            if granularity == "daily":
+                return await self._aggregate_daily_usage(usage_records, start_date, end_date)
+            elif granularity == "weekly":
+                return await self._aggregate_weekly_usage(usage_records, start_date, end_date)
+            elif granularity == "monthly":
+                return await self._aggregate_monthly_usage(usage_records, start_date, end_date)
+            else:
+                raise ValueError(f"Unsupported granularity: {granularity}")
+                
+        except Exception as e:
+            self.logger.warning("Failed to get raw usage tracking data: %s", e)
+            return []
+
+    async def _aggregate_daily_usage(self, usage_records: List[Dict], start_date: datetime, 
+                                   end_date: datetime) -> List[Dict[str, Any]]:
+        """Aggregate usage data by day."""
+        try:
+            daily_data = {}
+            
+            # Initialize all days in range
+            current_date = start_date.date()
+            while current_date <= end_date.date():
+                daily_data[current_date.isoformat()] = {
+                    "date": current_date.isoformat(),
+                    "families_count": 0,
+                    "total_members": 0,
+                    "events": []
+                }
+                current_date += timedelta(days=1)
+            
+            # Aggregate records
+            for record in usage_records:
+                date_key = record["timestamp"].date().isoformat()
+                if date_key in daily_data:
+                    daily_data[date_key]["families_count"] = record.get("families_count", 0)
+                    daily_data[date_key]["total_members"] = record.get("total_members", 0)
+                    if record.get("event_type"):
+                        daily_data[date_key]["events"].append(record["event_type"])
+            
+            return list(daily_data.values())
+            
+        except Exception as e:
+            self.logger.warning("Failed to aggregate daily usage: %s", e)
+            return []
+
+    async def _aggregate_weekly_usage(self, usage_records: List[Dict], start_date: datetime, 
+                                    end_date: datetime) -> List[Dict[str, Any]]:
+        """Aggregate usage data by week."""
+        # TODO: Implement weekly aggregation
+        return await self._aggregate_daily_usage(usage_records, start_date, end_date)
+
+    async def _aggregate_monthly_usage(self, usage_records: List[Dict], start_date: datetime, 
+                                     end_date: datetime) -> List[Dict[str, Any]]:
+        """Aggregate usage data by month."""
+        # TODO: Implement monthly aggregation
+        return await self._aggregate_daily_usage(usage_records, start_date, end_date)
+
+    async def _track_usage_event(self, user_id: str, event_type: str, event_data: Dict[str, Any] = None):
+        """Track a family usage event for billing purposes."""
+        try:
+            from second_brain_database.config import settings
+            
+            if not settings.ENABLE_FAMILY_USAGE_TRACKING:
+                return
+            
+            usage_collection = self.db_manager.get_collection("family_usage_tracking")
+            
+            # Get current usage snapshot
+            current_usage = await self.check_family_limits(user_id)
+            
+            tracking_record = {
+                "user_id": user_id,
+                "timestamp": datetime.now(timezone.utc),
+                "event_type": event_type,
+                "event_data": event_data or {},
+                "families_count": current_usage["current_families"],
+                "total_members": sum(f.get("member_count", 0) for f in current_usage["families_usage"]),
+                "limits": {
+                    "max_families_allowed": current_usage["max_families_allowed"],
+                    "max_members_per_family": current_usage["max_members_per_family"]
+                }
+            }
+            
+            await usage_collection.insert_one(tracking_record)
+            
+            # Clean up old tracking data
+            await self._cleanup_old_usage_data(settings.FAMILY_USAGE_TRACKING_RETENTION_DAYS)
+            
+        except Exception as e:
+            self.logger.warning("Failed to track usage event %s for user %s: %s", event_type, user_id, e)
+
+    async def _cleanup_old_usage_data(self, retention_days: int):
+        """Clean up old usage tracking data."""
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            usage_collection = self.db_manager.get_collection("family_usage_tracking")
+            
+            result = await usage_collection.delete_many({
+                "timestamp": {"$lt": cutoff_date}
+            })
+            
+            if result.deleted_count > 0:
+                self.logger.debug("Cleaned up %d old usage tracking records", result.deleted_count)
+                
+        except Exception as e:
+            self.logger.warning("Failed to cleanup old usage data: %s", e)
+
+    async def enforce_family_limits(self, user_id: str, operation: str, 
+                                  context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Enforce family limits with upgrade messaging.
+        
+        Args:
+            user_id: ID of the user
+            operation: Operation being attempted (create_family, add_member)
+            context: Additional context for the operation
+            
+        Returns:
+            Dict containing enforcement result and upgrade messaging
+            
+        Raises:
+            FamilyLimitExceeded: If limits are exceeded and no grace period
+        """
+        try:
+            limits_info = await self.check_family_limits(user_id, include_billing_metrics=True)
+            
+            # Check specific operation limits
+            if operation == "create_family":
+                if not limits_info["can_create_family"]:
+                    # Check for grace period
+                    grace_period = await self._check_grace_period(user_id, "families")
+                    if not grace_period["active"]:
+                        raise FamilyLimitExceeded(
+                            limits_info["upgrade_messaging"]["primary_message"],
+                            current_count=limits_info["current_families"],
+                            max_allowed=limits_info["max_families_allowed"],
+                            limit_type="families"
+                        )
+                    else:
+                        return {
+                            "allowed": True,
+                            "grace_period": grace_period,
+                            "upgrade_messaging": limits_info["upgrade_messaging"]
+                        }
+            
+            elif operation == "add_member":
+                family_id = context.get("family_id") if context else None
+                if family_id:
+                    family_usage = next(
+                        (f for f in limits_info["families_usage"] if f["family_id"] == family_id),
+                        None
+                    )
+                    if family_usage and not family_usage["can_add_members"]:
+                        grace_period = await self._check_grace_period(user_id, "members", family_id)
+                        if not grace_period["active"]:
+                            raise FamilyLimitExceeded(
+                                f"Family member limit reached ({family_usage['member_count']}/{family_usage['max_members_allowed']})",
+                                current_count=family_usage["member_count"],
+                                max_allowed=family_usage["max_members_allowed"],
+                                limit_type="family_members"
+                            )
+                        else:
+                            return {
+                                "allowed": True,
+                                "grace_period": grace_period,
+                                "upgrade_messaging": limits_info["upgrade_messaging"]
+                            }
+            
+            return {
+                "allowed": True,
+                "limits_info": limits_info,
+                "upgrade_messaging": limits_info["upgrade_messaging"]
+            }
+            
+        except FamilyLimitExceeded:
+            raise
+        except Exception as e:
+            self.logger.error("Failed to enforce family limits: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to enforce limits: {str(e)}")
+
+    async def _check_grace_period(self, user_id: str, limit_type: str, 
+                                family_id: str = None) -> Dict[str, Any]:
+        """Check if user has an active grace period for limit downgrades."""
+        try:
+            user = await self._get_user_by_id(user_id)
+            family_limits = user.get("family_limits", {})
+            
+            grace_period_expires = family_limits.get("grace_period_expires")
+            if not grace_period_expires:
+                return {"active": False}
+            
+            now = datetime.now(timezone.utc)
+            if now > grace_period_expires:
+                return {"active": False, "expired": True}
+            
+            return {
+                "active": True,
+                "expires_at": grace_period_expires,
+                "days_remaining": (grace_period_expires - now).days,
+                "limit_type": limit_type
+            }
+            
+        except Exception as e:
+            self.logger.warning("Failed to check grace period: %s", e)
+            return {"active": False}
+
+    async def get_limit_status_display(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get formatted limit status for display in UI.
+        
+        Args:
+            user_id: ID of the user
+            
+        Returns:
+            Dict containing formatted limit status and display information
+        """
+        try:
+            limits_info = await self.check_family_limits(user_id, include_billing_metrics=True)
+            
+            # Format limit status for display
+            display_info = {
+                "limits_summary": {
+                    "families": {
+                        "current": limits_info["current_families"],
+                        "max": limits_info["max_families_allowed"],
+                        "percentage": (limits_info["current_families"] / limits_info["max_families_allowed"] * 100) if limits_info["max_families_allowed"] > 0 else 0,
+                        "status": "at_limit" if limits_info["current_families"] >= limits_info["max_families_allowed"] else "within_limit"
+                    }
+                },
+                "upgrade_messaging": limits_info["upgrade_messaging"],
+                "billing_metrics": limits_info.get("billing_metrics"),
+                "recommendations": []
+            }
+            
+            # Add member limits for admin families
+            admin_families = [f for f in limits_info["families_usage"] if f["is_admin"]]
+            if admin_families:
+                total_members = sum(f["member_count"] for f in admin_families)
+                max_total_members = len(admin_families) * limits_info["max_members_per_family"]
+                
+                display_info["limits_summary"]["members"] = {
+                    "current": total_members,
+                    "max": max_total_members,
+                    "percentage": (total_members / max_total_members * 100) if max_total_members > 0 else 0,
+                    "status": "at_limit" if total_members >= max_total_members else "within_limit"
+                }
+            
+            # Generate recommendations
+            if limits_info["current_families"] / limits_info["max_families_allowed"] > 0.8:
+                display_info["recommendations"].append({
+                    "type": "upgrade_soon",
+                    "message": "You're approaching your family limit. Consider upgrading to avoid restrictions.",
+                    "priority": "medium"
+                })
+            
+            if limits_info.get("billing_metrics", {}).get("upgrade_recommendations"):
+                for rec in limits_info["billing_metrics"]["upgrade_recommendations"]:
+                    display_info["recommendations"].append({
+                        "type": "billing_recommendation",
+                        "message": rec,
+                        "priority": "high"
+                    })
+            
+            return display_info
+            
+        except Exception as e:
+            self.logger.error("Failed to get limit status display: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to get limit status: {str(e)}")
 
 
 # Global family manager instance with dependency injection

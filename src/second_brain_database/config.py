@@ -156,6 +156,13 @@ class Settings(BaseSettings):
     FAMILY_INVITE_RATE_LIMIT: int = 10  # Max invitations sent per hour per user
     FAMILY_ADMIN_ACTION_RATE_LIMIT: int = 5  # Max admin actions per hour per user
     FAMILY_MEMBER_ACTION_RATE_LIMIT: int = 20  # Max member actions per hour per user
+    
+    # Family limits configuration for billing integration
+    DEFAULT_MAX_FAMILIES_ALLOWED: int = 1  # Default max families per user
+    DEFAULT_MAX_MEMBERS_PER_FAMILY: int = 5  # Default max members per family
+    FAMILY_LIMITS_GRACE_PERIOD_DAYS: int = 30  # Grace period for limit downgrades
+    ENABLE_FAMILY_USAGE_TRACKING: bool = True  # Track usage for billing
+    FAMILY_USAGE_TRACKING_RETENTION_DAYS: int = 365  # How long to keep usage data
 
     # Blacklist configuration
     BLACKLIST_THRESHOLD: int = 10  # Number of violations before blacklisting

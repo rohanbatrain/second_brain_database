@@ -350,6 +350,107 @@ class AdminActionRequest(BaseDocumentedModel):
             raise ValueError("Action must be either 'promote' or 'demote'")
         return v.lower()
 
+
+class BackupAdminRequest(BaseDocumentedModel):
+    """
+    Request model for backup admin designation/removal.
+    """
+    
+    action: str = Field(
+        ...,
+        description="Action to take: 'designate' or 'remove'",
+        example="designate"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "action": "designate"
+            }
+        }
+    }
+    
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        """Validate that the action is either designate or remove."""
+        if v.lower() not in ["designate", "remove"]:
+            logger.error("Invalid backup admin action: %s", v)
+            raise ValueError("Action must be either 'designate' or 'remove'")
+        return v.lower()
+
+
+class AdminActionsLogRequest(BaseDocumentedModel):
+    """
+    Request model for getting admin actions log.
+    """
+    
+    limit: int = Field(
+        50,
+        ge=1,
+        le=100,
+        description="Maximum number of records to return",
+        example=50
+    )
+    offset: int = Field(
+        0,
+        ge=0,
+        description="Number of records to skip",
+        example=0
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "limit": 50,
+                "offset": 0
+            }
+        }
+    }
+
+
+class InitiateRecoveryRequest(BaseDocumentedModel):
+    """
+    Request model for initiating account recovery.
+    """
+    
+    recovery_reason: str = Field(
+        ...,
+        max_length=500,
+        description="Reason for initiating account recovery",
+        example="All admin accounts have been compromised"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "recovery_reason": "All admin accounts have been compromised"
+            }
+        }
+    }
+
+
+class VerifyRecoveryRequest(BaseDocumentedModel):
+    """
+    Request model for verifying account recovery.
+    """
+    
+    verification_code: str = Field(
+        ...,
+        min_length=6,
+        max_length=20,
+        description="Verification code received via email or other method",
+        example="ABC123"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "verification_code": "ABC123"
+            }
+        }
+    }
+
 # Response Models
 class FamilyResponse(BaseDocumentedModel):
     """
@@ -770,9 +871,334 @@ class NotificationResponse(BaseDocumentedModel):
         }
     }
 
+class AdminActionResponse(BaseDocumentedModel):
+    """
+    Response model for admin promotion/demotion actions.
+    """
+    
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    target_user_id: str = Field(
+        ...,
+        description="User ID of the target user",
+        example="507f1f77bcf86cd799439011"
+    )
+    target_username: str = Field(
+        ...,
+        description="Username of the target user",
+        example="john_doe"
+    )
+    action: str = Field(
+        ...,
+        description="Action performed: 'promoted' or 'demoted'",
+        example="promoted"
+    )
+    new_role: str = Field(
+        ...,
+        description="New role of the user: 'admin' or 'member'",
+        example="admin"
+    )
+    performed_by: str = Field(
+        ...,
+        description="User ID of the admin who performed the action",
+        example="507f1f77bcf86cd799439012"
+    )
+    performed_by_username: str = Field(
+        ...,
+        description="Username of the admin who performed the action",
+        example="jane_smith"
+    )
+    performed_at: datetime = Field(
+        ...,
+        description="UTC timestamp when the action was performed",
+        example="2024-01-01T12:00:00Z"
+    )
+    message: str = Field(
+        ...,
+        description="Success message",
+        example="User successfully promoted to family administrator"
+    )
+    transaction_safe: bool = Field(
+        True,
+        description="Whether the operation was performed with transaction safety",
+        example=True
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "family_id": "fam_1234567890abcdef",
+                "target_user_id": "507f1f77bcf86cd799439011",
+                "target_username": "john_doe",
+                "action": "promoted",
+                "new_role": "admin",
+                "performed_by": "507f1f77bcf86cd799439012",
+                "performed_by_username": "jane_smith",
+                "performed_at": "2024-01-01T12:00:00Z",
+                "message": "User successfully promoted to family administrator",
+                "transaction_safe": True
+            }
+        }
+    }
+
+
+class BackupAdminResponse(BaseDocumentedModel):
+    """
+    Response model for backup admin designation/removal.
+    """
+    
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    backup_user_id: str = Field(
+        ...,
+        description="User ID of the backup admin",
+        example="507f1f77bcf86cd799439011"
+    )
+    backup_username: str = Field(
+        ...,
+        description="Username of the backup admin",
+        example="john_doe"
+    )
+    action: str = Field(
+        ...,
+        description="Action performed: 'designated' or 'removed'",
+        example="designated"
+    )
+    role: str = Field(
+        ...,
+        description="Role designation: 'backup_admin'",
+        example="backup_admin"
+    )
+    performed_by: str = Field(
+        ...,
+        description="User ID of the admin who performed the action",
+        example="507f1f77bcf86cd799439012"
+    )
+    performed_by_username: str = Field(
+        ...,
+        description="Username of the admin who performed the action",
+        example="jane_smith"
+    )
+    performed_at: datetime = Field(
+        ...,
+        description="UTC timestamp when the action was performed",
+        example="2024-01-01T12:00:00Z"
+    )
+    message: str = Field(
+        ...,
+        description="Success message",
+        example="User successfully designated as backup administrator"
+    )
+    transaction_safe: bool = Field(
+        True,
+        description="Whether the operation was performed with transaction safety",
+        example=True
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "family_id": "fam_1234567890abcdef",
+                "backup_user_id": "507f1f77bcf86cd799439011",
+                "backup_username": "john_doe",
+                "action": "designated",
+                "role": "backup_admin",
+                "performed_by": "507f1f77bcf86cd799439012",
+                "performed_by_username": "jane_smith",
+                "performed_at": "2024-01-01T12:00:00Z",
+                "message": "User successfully designated as backup administrator",
+                "transaction_safe": True
+            }
+        }
+    }
+
+
+class AdminActionLogEntry(BaseDocumentedModel):
+    """
+    Model for individual admin action log entry.
+    """
+    
+    action_id: str = Field(
+        ...,
+        description="Unique action identifier",
+        example="act_1234567890abcdef"
+    )
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    admin_user_id: str = Field(
+        ...,
+        description="User ID of the admin who performed the action",
+        example="507f1f77bcf86cd799439012"
+    )
+    admin_username: str = Field(
+        ...,
+        description="Username of the admin who performed the action",
+        example="jane_smith"
+    )
+    target_user_id: str = Field(
+        ...,
+        description="User ID of the target user",
+        example="507f1f77bcf86cd799439011"
+    )
+    target_username: str = Field(
+        ...,
+        description="Username of the target user",
+        example="john_doe"
+    )
+    action_type: str = Field(
+        ...,
+        description="Type of action performed",
+        example="promote_to_admin"
+    )
+    details: Dict[str, Any] = Field(
+        ...,
+        description="Additional action details",
+        example={"previous_role": "member", "new_role": "admin"}
+    )
+    created_at: datetime = Field(
+        ...,
+        description="UTC timestamp when the action was performed",
+        example="2024-01-01T12:00:00Z"
+    )
+    ip_address: Optional[str] = Field(
+        None,
+        description="IP address from which the action was performed",
+        example="192.168.1.100"
+    )
+    user_agent: Optional[str] = Field(
+        None,
+        description="User agent string from the request",
+        example="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "action_id": "act_1234567890abcdef",
+                "family_id": "fam_1234567890abcdef",
+                "admin_user_id": "507f1f77bcf86cd799439012",
+                "admin_username": "jane_smith",
+                "target_user_id": "507f1f77bcf86cd799439011",
+                "target_username": "john_doe",
+                "action_type": "promote_to_admin",
+                "details": {"previous_role": "member", "new_role": "admin"},
+                "created_at": "2024-01-01T12:00:00Z",
+                "ip_address": "192.168.1.100",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+        }
+    }
+
+
+class AdminActionsLogResponse(BaseDocumentedModel):
+    """
+    Response model for admin actions log.
+    """
+    
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    actions: List[AdminActionLogEntry] = Field(
+        ...,
+        description="List of admin actions",
+        example=[]
+    )
+    pagination: Dict[str, Any] = Field(
+        ...,
+        description="Pagination information",
+        example={
+            "total_count": 25,
+            "limit": 50,
+            "offset": 0,
+            "has_more": False
+        }
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "family_id": "fam_1234567890abcdef",
+                "actions": [
+                    {
+                        "action_id": "act_1234567890abcdef",
+                        "family_id": "fam_1234567890abcdef",
+                        "admin_user_id": "507f1f77bcf86cd799439012",
+                        "admin_username": "jane_smith",
+                        "target_user_id": "507f1f77bcf86cd799439011",
+                        "target_username": "john_doe",
+                        "action_type": "promote_to_admin",
+                        "details": {"previous_role": "member", "new_role": "admin"},
+                        "created_at": "2024-01-01T12:00:00Z",
+                        "ip_address": "192.168.1.100",
+                        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    }
+                ],
+                "pagination": {
+                    "total_count": 25,
+                    "limit": 50,
+                    "offset": 0,
+                    "has_more": False
+                }
+            }
+        }
+    }
+
+
+class FamilyUsageStats(BaseModel):
+    """Model for detailed family usage statistics."""
+    
+    family_id: str = Field(..., description="Family identifier")
+    name: str = Field(..., description="Family name")
+    member_count: int = Field(..., description="Current member count")
+    max_members_allowed: int = Field(..., description="Maximum members allowed for this family")
+    is_admin: bool = Field(..., description="Whether user is admin of this family")
+    can_add_members: bool = Field(..., description="Whether user can add more members")
+    members_remaining: int = Field(..., description="Number of members that can still be added")
+    created_at: datetime = Field(..., description="When family was created")
+    last_activity: Optional[datetime] = Field(None, description="Last family activity timestamp")
+
+
+class FamilyLimitStatus(BaseModel):
+    """Model for family limit status and enforcement."""
+    
+    limit_type: str = Field(..., description="Type of limit (families, members)")
+    current_usage: int = Field(..., description="Current usage count")
+    max_allowed: int = Field(..., description="Maximum allowed count")
+    percentage_used: float = Field(..., description="Percentage of limit used")
+    is_at_limit: bool = Field(..., description="Whether at the limit")
+    is_over_limit: bool = Field(..., description="Whether over the limit")
+    grace_period_expires: Optional[datetime] = Field(None, description="When grace period expires")
+    upgrade_required: bool = Field(..., description="Whether upgrade is required")
+
+
+class BillingUsageMetrics(BaseModel):
+    """Model for billing-related usage metrics."""
+    
+    period_start: datetime = Field(..., description="Start of tracking period")
+    period_end: datetime = Field(..., description="End of tracking period")
+    peak_families: int = Field(..., description="Peak number of families in period")
+    peak_members_total: int = Field(..., description="Peak total members across all families")
+    average_families: float = Field(..., description="Average families in period")
+    average_members_total: float = Field(..., description="Average total members in period")
+    family_creation_events: int = Field(..., description="Number of families created in period")
+    member_addition_events: int = Field(..., description="Number of members added in period")
+    upgrade_recommendations: List[str] = Field(default_factory=list, description="Upgrade recommendations")
+
+
 class FamilyLimitsResponse(BaseDocumentedModel):
     """
-    Response model for family limits and usage information.
+    Enhanced response model for family limits and usage information with billing integration.
     """
     
     max_families_allowed: int = Field(
@@ -790,15 +1216,20 @@ class FamilyLimitsResponse(BaseDocumentedModel):
         description="Current number of families the user belongs to",
         example=1
     )
-    families_usage: List[Dict[str, Any]] = Field(
+    families_usage: List[FamilyUsageStats] = Field(
         ...,
-        description="Usage details for each family",
+        description="Detailed usage statistics for each family",
         example=[
             {
                 "family_id": "fam_1234567890abcdef",
                 "name": "Smith Family",
                 "member_count": 4,
-                "is_admin": True
+                "max_members_allowed": 5,
+                "is_admin": True,
+                "can_add_members": True,
+                "members_remaining": 1,
+                "created_at": "2024-01-01T00:00:00Z",
+                "last_activity": "2024-01-15T12:00:00Z"
             }
         ]
     )
@@ -812,6 +1243,36 @@ class FamilyLimitsResponse(BaseDocumentedModel):
         description="Whether an upgrade is required to increase limits",
         example=True
     )
+    limit_status: List[FamilyLimitStatus] = Field(
+        ...,
+        description="Detailed status for each type of limit",
+        example=[
+            {
+                "limit_type": "families",
+                "current_usage": 1,
+                "max_allowed": 1,
+                "percentage_used": 100.0,
+                "is_at_limit": True,
+                "is_over_limit": False,
+                "grace_period_expires": None,
+                "upgrade_required": True
+            }
+        ]
+    )
+    billing_metrics: Optional[BillingUsageMetrics] = Field(
+        None,
+        description="Billing-related usage metrics for the current period"
+    )
+    upgrade_messaging: Dict[str, Any] = Field(
+        ...,
+        description="Messaging and recommendations for upgrades",
+        example={
+            "primary_message": "You've reached your family limit",
+            "upgrade_benefits": ["Create unlimited families", "Add up to 20 members per family"],
+            "call_to_action": "Upgrade to Pro to unlock more families",
+            "upgrade_url": "/billing/upgrade"
+        }
+    )
     
     model_config = {
         "json_schema_extra": {
@@ -824,11 +1285,45 @@ class FamilyLimitsResponse(BaseDocumentedModel):
                         "family_id": "fam_1234567890abcdef",
                         "name": "Smith Family",
                         "member_count": 4,
-                        "is_admin": True
+                        "max_members_allowed": 5,
+                        "is_admin": True,
+                        "can_add_members": True,
+                        "members_remaining": 1,
+                        "created_at": "2024-01-01T00:00:00Z",
+                        "last_activity": "2024-01-15T12:00:00Z"
                     }
                 ],
                 "can_create_family": False,
-                "upgrade_required": True
+                "upgrade_required": True,
+                "limit_status": [
+                    {
+                        "limit_type": "families",
+                        "current_usage": 1,
+                        "max_allowed": 1,
+                        "percentage_used": 100.0,
+                        "is_at_limit": True,
+                        "is_over_limit": False,
+                        "grace_period_expires": None,
+                        "upgrade_required": True
+                    }
+                ],
+                "billing_metrics": {
+                    "period_start": "2024-01-01T00:00:00Z",
+                    "period_end": "2024-01-31T23:59:59Z",
+                    "peak_families": 1,
+                    "peak_members_total": 4,
+                    "average_families": 1.0,
+                    "average_members_total": 4.0,
+                    "family_creation_events": 1,
+                    "member_addition_events": 3,
+                    "upgrade_recommendations": ["Consider Pro plan for unlimited families"]
+                },
+                "upgrade_messaging": {
+                    "primary_message": "You've reached your family limit",
+                    "upgrade_benefits": ["Create unlimited families", "Add up to 20 members per family"],
+                    "call_to_action": "Upgrade to Pro to unlock more families",
+                    "upgrade_url": "/billing/upgrade"
+                }
             }
         }
     }
@@ -996,3 +1491,790 @@ class FamilyNotificationPreferences(BaseModel):
         },
         description="Notification delivery preferences"
     )
+
+
+# Notification request models
+class MarkNotificationsReadRequest(BaseModel):
+    """Request model for marking notifications as read."""
+    
+    notification_ids: List[str] = Field(
+        ...,
+        description="List of notification IDs to mark as read",
+        example=["notif_1234567890abcdef", "notif_fedcba0987654321"]
+    )
+
+
+class UpdateNotificationPreferencesRequest(BaseModel):
+    """Request model for updating notification preferences."""
+    
+    preferences: Dict[str, bool] = Field(
+        ...,
+        description="Notification preference settings",
+        example={
+            "email_notifications": True,
+            "push_notifications": False,
+            "sms_notifications": False
+        }
+    )
+
+
+class NotificationListResponse(BaseDocumentedModel):
+    """Response model for notification list with pagination."""
+    
+    notifications: List[NotificationResponse] = Field(
+        ...,
+        description="List of notifications"
+    )
+    total_count: int = Field(
+        ...,
+        description="Total number of notifications",
+        example=25
+    )
+    unread_count: int = Field(
+        ...,
+        description="Number of unread notifications",
+        example=5
+    )
+    has_more: bool = Field(
+        ...,
+        description="Whether there are more notifications available",
+        example=True
+    )
+    pagination: Dict[str, Any] = Field(
+        ...,
+        description="Pagination information",
+        example={
+            "limit": 20,
+            "offset": 0,
+            "next_offset": 20
+        }
+    )
+
+
+class NotificationPreferencesResponse(BaseDocumentedModel):
+    """Response model for notification preferences."""
+    
+    preferences: Dict[str, bool] = Field(
+        ...,
+        description="Current notification preferences",
+        example={
+            "email_notifications": True,
+            "push_notifications": True,
+            "sms_notifications": False
+        }
+    )
+    unread_count: int = Field(
+        ...,
+        description="Current unread notification count",
+        example=3
+    )
+    last_checked: Optional[datetime] = Field(
+        None,
+        description="Last time notifications were checked",
+        example="2024-01-01T15:00:00Z"
+    )
+
+
+# Additional request models for new endpoints
+
+class InviteMemberRequest(BaseDocumentedModel):
+    """
+    Enhanced request model for inviting a family member.
+    
+    Supports both email and username identification with proper validation.
+    """
+    
+    identifier: str = Field(
+        ...,
+        description="Email address or username of the user to invite",
+        example="john.doe@example.com"
+    )
+    relationship_type: str = Field(
+        ...,
+        description="Relationship type from inviter's perspective",
+        example="child"
+    )
+    identifier_type: str = Field(
+        "email",
+        description="Type of identifier: 'email' or 'username'",
+        example="email"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "identifier": "john.doe@example.com",
+                "relationship_type": "child",
+                "identifier_type": "email"
+            }
+        }
+    }
+    
+    @field_validator("relationship_type")
+    @classmethod
+    def validate_relationship_type(cls, v: str) -> str:
+        """Validate that the relationship type is supported."""
+        if v.lower() not in RELATIONSHIP_TYPES:
+            logger.error("Invalid relationship type: %s", v)
+            raise ValueError(f"Relationship type must be one of: {list(RELATIONSHIP_TYPES.keys())}")
+        return v.lower()
+    
+    @field_validator("identifier_type")
+    @classmethod
+    def validate_identifier_type(cls, v: str) -> str:
+        """Validate that the identifier type is supported."""
+        if v.lower() not in ["email", "username"]:
+            logger.error("Invalid identifier type: %s", v)
+            raise ValueError("Identifier type must be either 'email' or 'username'")
+        return v.lower()
+
+
+class MarkNotificationsReadRequest(BaseDocumentedModel):
+    """
+    Request model for marking notifications as read.
+    """
+    
+    notification_ids: List[str] = Field(
+        ...,
+        description="List of notification IDs to mark as read",
+        example=["not_1234567890abcdef", "not_abcdef1234567890"]
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "notification_ids": ["not_1234567890abcdef", "not_abcdef1234567890"]
+            }
+        }
+    }
+
+
+class UpdateNotificationPreferencesRequest(BaseDocumentedModel):
+    """
+    Request model for updating notification preferences.
+    """
+    
+    email_notifications: Optional[bool] = Field(
+        None,
+        description="Enable/disable email notifications",
+        example=True
+    )
+    push_notifications: Optional[bool] = Field(
+        None,
+        description="Enable/disable push notifications",
+        example=True
+    )
+    sms_notifications: Optional[bool] = Field(
+        None,
+        description="Enable/disable SMS notifications",
+        example=False
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "email_notifications": True,
+                "push_notifications": True,
+                "sms_notifications": False
+            }
+        }
+    }
+
+
+# Additional response models
+
+class NotificationListResponse(BaseDocumentedModel):
+    """
+    Response model for paginated notification list.
+    """
+    
+    notifications: List[NotificationResponse] = Field(
+        ...,
+        description="List of notifications",
+        example=[]
+    )
+    pagination: Dict[str, Any] = Field(
+        ...,
+        description="Pagination information",
+        example={
+            "limit": 50,
+            "offset": 0,
+            "total_count": 150,
+            "has_more": True
+        }
+    )
+    unread_count: int = Field(
+        ...,
+        description="Total unread notification count",
+        example=5
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "notifications": [],
+                "pagination": {
+                    "limit": 50,
+                    "offset": 0,
+                    "total_count": 150,
+                    "has_more": True
+                },
+                "unread_count": 5
+            }
+        }
+    }
+
+
+class FamilyLimitsResponse(BaseDocumentedModel):
+    """
+    Response model for family limits and usage information.
+    """
+    
+    max_families_allowed: int = Field(
+        ...,
+        description="Maximum number of families user can create/join",
+        example=3
+    )
+    max_members_per_family: int = Field(
+        ...,
+        description="Maximum members per family for user's families",
+        example=10
+    )
+    current_families: int = Field(
+        ...,
+        description="Current number of families user belongs to",
+        example=2
+    )
+    families_usage: List[Dict[str, Any]] = Field(
+        ...,
+        description="Usage details for each family",
+        example=[
+            {
+                "family_id": "fam_1234567890abcdef",
+                "name": "Smith Family",
+                "member_count": 4,
+                "is_admin": True
+            }
+        ]
+    )
+    can_create_family: bool = Field(
+        ...,
+        description="Whether user can create another family",
+        example=True
+    )
+    upgrade_required: bool = Field(
+        ...,
+        description="Whether upgrade is needed for more families",
+        example=False
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "max_families_allowed": 3,
+                "max_members_per_family": 10,
+                "current_families": 2,
+                "families_usage": [
+                    {
+                        "family_id": "fam_1234567890abcdef",
+                        "name": "Smith Family",
+                        "member_count": 4,
+                        "is_admin": True
+                    }
+                ],
+                "can_create_family": True,
+                "upgrade_required": False
+            }
+        }
+    }
+
+class RecoveryInitiationResponse(BaseDocumentedModel):
+    """
+    Response model for account recovery initiation.
+    """
+    
+    recovery_id: str = Field(
+        ...,
+        description="Unique recovery request identifier",
+        example="rec_1234567890abcdef"
+    )
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    status: str = Field(
+        ...,
+        description="Recovery status",
+        example="pending_verification"
+    )
+    required_verifications: int = Field(
+        ...,
+        description="Number of verifications required to complete recovery",
+        example=2
+    )
+    expires_at: datetime = Field(
+        ...,
+        description="UTC timestamp when the recovery request expires",
+        example="2024-01-04T12:00:00Z"
+    )
+    message: str = Field(
+        ...,
+        description="Status message",
+        example="Account recovery initiated. Multi-member verification required."
+    )
+    transaction_safe: bool = Field(
+        True,
+        description="Whether the operation was performed with transaction safety",
+        example=True
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "recovery_id": "rec_1234567890abcdef",
+                "family_id": "fam_1234567890abcdef",
+                "status": "pending_verification",
+                "required_verifications": 2,
+                "expires_at": "2024-01-04T12:00:00Z",
+                "message": "Account recovery initiated. Multi-member verification required.",
+                "transaction_safe": True
+            }
+        }
+    }
+
+
+class RecoveryVerificationResponse(BaseDocumentedModel):
+    """
+    Response model for account recovery verification.
+    """
+    
+    recovery_id: str = Field(
+        ...,
+        description="Recovery request identifier",
+        example="rec_1234567890abcdef"
+    )
+    verification_accepted: bool = Field(
+        ...,
+        description="Whether the verification was accepted",
+        example=True
+    )
+    current_verifications: int = Field(
+        ...,
+        description="Current number of verifications received",
+        example=1
+    )
+    required_verifications: int = Field(
+        ...,
+        description="Total number of verifications required",
+        example=2
+    )
+    recovery_complete: bool = Field(
+        ...,
+        description="Whether the recovery process is complete",
+        example=False
+    )
+    promoted_user_id: Optional[str] = Field(
+        None,
+        description="User ID of promoted admin (if recovery complete)",
+        example="507f1f77bcf86cd799439011"
+    )
+    promoted_username: Optional[str] = Field(
+        None,
+        description="Username of promoted admin (if recovery complete)",
+        example="john_doe"
+    )
+    message: str = Field(
+        ...,
+        description="Status message",
+        example="Verification accepted. 1 more verification needed."
+    )
+    transaction_safe: bool = Field(
+        True,
+        description="Whether the operation was performed with transaction safety",
+        example=True
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "recovery_id": "rec_1234567890abcdef",
+                "verification_accepted": True,
+                "current_verifications": 1,
+                "required_verifications": 2,
+                "recovery_complete": False,
+                "promoted_user_id": None,
+                "promoted_username": None,
+                "message": "Verification accepted. 1 more verification needed.",
+                "transaction_safe": True
+            }
+        }
+    }
+
+# Request Models for Relationship Management
+class ModifyRelationshipRequest(BaseDocumentedModel):
+    """
+    Request model for modifying family relationship types.
+    
+    This model validates the request to change the relationship type between
+    two family members. Only family administrators can modify relationships.
+    """
+    
+    user_a_id: str = Field(
+        ...,
+        description="ID of the first user in the relationship",
+        min_length=1,
+        max_length=100
+    )
+    
+    user_b_id: str = Field(
+        ...,
+        description="ID of the second user in the relationship", 
+        min_length=1,
+        max_length=100
+    )
+    
+    new_relationship_type: str = Field(
+        ...,
+        description="New relationship type from user_a's perspective",
+        min_length=1,
+        max_length=50
+    )
+    
+    @field_validator('new_relationship_type')
+    @classmethod
+    def validate_relationship_type(cls, v: str) -> str:
+        """Validate that the relationship type is supported."""
+        if v not in RELATIONSHIP_TYPES:
+            raise ValueError(f"Invalid relationship type. Must be one of: {list(RELATIONSHIP_TYPES.keys())}")
+        return v
+    
+    @field_validator('user_a_id', 'user_b_id')
+    @classmethod
+    def validate_user_ids_different(cls, v: str, info) -> str:
+        """Validate that user IDs are different."""
+        if hasattr(info, 'data') and info.data:
+            if v == info.data.get('user_a_id') or v == info.data.get('user_b_id'):
+                if info.field_name == 'user_b_id' and v == info.data.get('user_a_id'):
+                    raise ValueError("User IDs must be different")
+        return v
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "user_a_id": "user_1234567890abcdef",
+                "user_b_id": "user_fedcba0987654321", 
+                "new_relationship_type": "sibling"
+            }
+        }
+
+
+# Response Models for Relationship Management
+class ModifyRelationshipResponse(BaseDocumentedModel):
+    """
+    Response model for relationship modification results.
+    
+    This model provides comprehensive information about the relationship
+    modification including the old and new relationship types.
+    """
+    
+    relationship_id: str = Field(
+        ...,
+        description="Unique identifier for the relationship"
+    )
+    
+    family_id: str = Field(
+        ...,
+        description="ID of the family containing the relationship"
+    )
+    
+    user_a_id: str = Field(
+        ...,
+        description="ID of the first user in the relationship"
+    )
+    
+    user_b_id: str = Field(
+        ...,
+        description="ID of the second user in the relationship"
+    )
+    
+    old_relationship_type: str = Field(
+        ...,
+        description="Previous relationship type from user_a's perspective"
+    )
+    
+    new_relationship_type: str = Field(
+        ...,
+        description="New relationship type from user_a's perspective"
+    )
+    
+    new_reciprocal_type: str = Field(
+        ...,
+        description="New reciprocal relationship type from user_b's perspective"
+    )
+    
+    modified_by: str = Field(
+        ...,
+        description="ID of the admin who modified the relationship"
+    )
+    
+    modified_at: datetime = Field(
+        ...,
+        description="Timestamp when the relationship was modified"
+    )
+    
+    transaction_safe: bool = Field(
+        ...,
+        description="Whether the operation was completed with transaction safety"
+    )
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "relationship_id": "rel_1234567890abcdef",
+                "family_id": "fam_1234567890abcdef",
+                "user_a_id": "user_1234567890abcdef",
+                "user_b_id": "user_fedcba0987654321",
+                "old_relationship_type": "cousin",
+                "new_relationship_type": "sibling",
+                "new_reciprocal_type": "sibling",
+                "modified_by": "user_admin123456789",
+                "modified_at": "2024-01-15T10:30:00Z",
+                "transaction_safe": True
+            }
+        }
+
+
+class RelationshipDetailsResponse(BaseDocumentedModel):
+    """
+    Response model for detailed relationship information.
+    
+    This model provides comprehensive information about a family relationship
+    including both users' perspectives and metadata.
+    """
+    
+    relationship_id: str = Field(
+        ...,
+        description="Unique identifier for the relationship"
+    )
+    
+    family_id: str = Field(
+        ...,
+        description="ID of the family containing the relationship"
+    )
+    
+    user_a: Dict[str, Any] = Field(
+        ...,
+        description="Information about the first user including username and relationship type"
+    )
+    
+    user_b: Dict[str, Any] = Field(
+        ...,
+        description="Information about the second user including username and relationship type"
+    )
+    
+    status: str = Field(
+        ...,
+        description="Status of the relationship (active, pending, etc.)"
+    )
+    
+    created_by: str = Field(
+        ...,
+        description="ID of the user who created the relationship"
+    )
+    
+    created_at: datetime = Field(
+        ...,
+        description="Timestamp when the relationship was created"
+    )
+    
+    updated_at: datetime = Field(
+        ...,
+        description="Timestamp when the relationship was last updated"
+    )
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "relationship_id": "rel_1234567890abcdef",
+                "family_id": "fam_1234567890abcdef",
+                "user_a": {
+                    "user_id": "user_1234567890abcdef",
+                    "username": "john_doe",
+                    "relationship_type": "parent"
+                },
+                "user_b": {
+                    "user_id": "user_fedcba0987654321", 
+                    "username": "jane_doe",
+                    "relationship_type": "child"
+                },
+                "status": "active",
+                "created_by": "user_1234567890abcdef",
+                "created_at": "2024-01-10T08:00:00Z",
+                "updated_at": "2024-01-15T10:30:00Z"
+            }
+        }
+
+# Enhanced models for family limits and billing integration
+
+class UpdateFamilyLimitsRequest(BaseDocumentedModel):
+    """
+    Request model for updating user family limits (admin/billing system use).
+    """
+    
+    max_families_allowed: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Maximum number of families the user can create or join"
+    )
+    max_members_per_family: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Maximum number of members per family for families where user is admin"
+    )
+    reason: Optional[str] = Field(
+        None,
+        description="Reason for the limit change (for audit purposes)"
+    )
+    effective_date: Optional[datetime] = Field(
+        None,
+        description="When the new limits should take effect (defaults to now)"
+    )
+    grace_period_days: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Grace period in days for limit downgrades"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "max_families_allowed": 3,
+                "max_members_per_family": 10,
+                "reason": "User upgraded to Pro plan",
+                "effective_date": "2024-01-01T00:00:00Z",
+                "grace_period_days": 30
+            }
+        }
+    }
+
+
+class FamilyUsageTrackingRequest(BaseDocumentedModel):
+    """
+    Request model for querying family usage tracking data.
+    """
+    
+    start_date: Optional[datetime] = Field(
+        None,
+        description="Start date for usage tracking query"
+    )
+    end_date: Optional[datetime] = Field(
+        None,
+        description="End date for usage tracking query"
+    )
+    include_billing_metrics: bool = Field(
+        True,
+        description="Whether to include billing-related metrics"
+    )
+    granularity: str = Field(
+        "daily",
+        description="Granularity of usage data (daily, weekly, monthly)"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-01-31T23:59:59Z",
+                "include_billing_metrics": True,
+                "granularity": "daily"
+            }
+        }
+    }
+
+
+class UpdateFamilyLimitsResponse(BaseDocumentedModel):
+    """
+    Response model for family limits update operations.
+    """
+    
+    user_id: str = Field(..., description="User ID whose limits were updated")
+    previous_limits: Dict[str, Any] = Field(..., description="Previous limit values")
+    new_limits: Dict[str, Any] = Field(..., description="New limit values")
+    effective_date: datetime = Field(..., description="When the new limits took effect")
+    grace_period_expires: Optional[datetime] = Field(None, description="When grace period expires")
+    updated_by: str = Field(..., description="Who updated the limits")
+    updated_at: datetime = Field(..., description="When the update was performed")
+    audit_log_id: str = Field(..., description="Audit log entry ID")
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "user_1234567890abcdef",
+                "previous_limits": {
+                    "max_families_allowed": 1,
+                    "max_members_per_family": 5
+                },
+                "new_limits": {
+                    "max_families_allowed": 3,
+                    "max_members_per_family": 10
+                },
+                "effective_date": "2024-01-01T00:00:00Z",
+                "grace_period_expires": "2024-01-31T23:59:59Z",
+                "updated_by": "admin_user_123",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "audit_log_id": "audit_1234567890abcdef"
+            }
+        }
+    }
+
+
+class FamilyUsageTrackingResponse(BaseDocumentedModel):
+    """
+    Response model for family usage tracking data.
+    """
+    
+    user_id: str = Field(..., description="User ID for the usage data")
+    period_start: datetime = Field(..., description="Start of tracking period")
+    period_end: datetime = Field(..., description="End of tracking period")
+    usage_data: List[Dict[str, Any]] = Field(..., description="Usage data points")
+    billing_metrics: Optional[BillingUsageMetrics] = Field(None, description="Billing metrics")
+    summary: Dict[str, Any] = Field(..., description="Usage summary")
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "user_1234567890abcdef",
+                "period_start": "2024-01-01T00:00:00Z",
+                "period_end": "2024-01-31T23:59:59Z",
+                "usage_data": [
+                    {
+                        "date": "2024-01-01",
+                        "families_count": 1,
+                        "total_members": 3,
+                        "events": ["family_created"]
+                    }
+                ],
+                "billing_metrics": {
+                    "period_start": "2024-01-01T00:00:00Z",
+                    "period_end": "2024-01-31T23:59:59Z",
+                    "peak_families": 1,
+                    "peak_members_total": 4,
+                    "average_families": 1.0,
+                    "average_members_total": 3.5,
+                    "family_creation_events": 1,
+                    "member_addition_events": 1,
+                    "upgrade_recommendations": []
+                },
+                "summary": {
+                    "total_families_created": 1,
+                    "total_members_added": 1,
+                    "peak_usage_day": "2024-01-15",
+                    "upgrade_recommended": False
+                }
+            }
+        }
+    }
