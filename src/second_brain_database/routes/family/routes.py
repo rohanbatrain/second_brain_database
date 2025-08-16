@@ -31,6 +31,15 @@ from second_brain_database.managers.family_manager import (
     ValidationError,
     family_manager,
 )
+from second_brain_database.utils.error_handling import (
+    ErrorContext, ErrorSeverity, create_user_friendly_error, sanitize_sensitive_data
+)
+from second_brain_database.utils.error_monitoring import record_error_event
+from second_brain_database.managers.family_audit_manager import (
+    FamilyAuditError,
+    ComplianceReportError,
+    family_audit_manager,
+)
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
@@ -50,6 +59,7 @@ from second_brain_database.routes.family.models import (
     InitiateRecoveryRequest,
     InviteMemberRequest,
     InvitationResponse,
+    LimitEnforcementResponse,
     MarkNotificationsReadRequest,
     NotificationListResponse,
     NotificationPreferencesResponse,
@@ -60,7 +70,10 @@ from second_brain_database.routes.family.models import (
     SBDAccountResponse,
     TokenRequestResponse,
     UpdateNotificationPreferencesRequest,
+    UpdateFamilyLimitsRequest,
+    UpdateFamilyLimitsResponse,
     UpdateSpendingPermissionsRequest,
+    UsageTrackingResponse,
     VerifyRecoveryRequest,
     ModifyRelationshipRequest,
     ModifyRelationshipResponse,
@@ -106,8 +119,31 @@ async def create_family(
         rate_limit_period=3600
     )
     
+    # Create error context for comprehensive error handling
+    error_context = ErrorContext(
+        operation="create_family_api",
+        user_id=user_id,
+        request_id=getattr(request.state, "request_id", None) if hasattr(request, "state") else None,
+        ip_address=getattr(request.client, "host", "unknown") if request.client else "unknown",
+        metadata={
+            "family_name": family_request.name,
+            "endpoint": "/family/create"
+        }
+    )
+    
     try:
-        family_data = await family_manager.create_family(user_id, family_request.name)
+        # Pass request context for rate limiting and security
+        request_context = {
+            "request": request,
+            "request_id": error_context.request_id,
+            "ip_address": error_context.ip_address
+        }
+        
+        family_data = await family_manager.create_family(
+            user_id, 
+            family_request.name,
+            request_context
+        )
         
         logger.info("Family created successfully: %s by user %s", 
                    family_data["family_id"], user_id)
@@ -128,23 +164,87 @@ async def create_family(
         )
         
     except FamilyLimitExceeded as e:
+        # Record error for monitoring
+        await record_error_event(e, error_context, ErrorSeverity.HIGH)
+        
         logger.warning("Family creation failed - limit exceeded for user %s: %s", user_id, e)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "FAMILY_LIMIT_EXCEEDED",
-                "message": str(e),
-                "upgrade_required": True
-            }
-        )
-    except FamilyError as e:
-        logger.error("Family creation failed for user %s: %s", user_id, e)
+        
+        # Check if error has user-friendly response from error handling system
+        if hasattr(e, 'user_friendly_response'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=e.user_friendly_response['error']
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "FAMILY_LIMIT_EXCEEDED",
+                    "message": str(e),
+                    "upgrade_required": True
+                }
+            )
+            
+    except ValidationError as e:
+        # Record error for monitoring
+        await record_error_event(e, error_context, ErrorSeverity.MEDIUM)
+        
+        logger.warning("Family creation failed - validation error for user %s: %s", user_id, e)
+        
+        # Create user-friendly error response
+        user_friendly_error = create_user_friendly_error(e, error_context)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=user_friendly_error['error']
+        )
+        
+    except RateLimitExceeded as e:
+        # Record error for monitoring
+        await record_error_event(e, error_context, ErrorSeverity.HIGH)
+        
+        logger.warning("Family creation failed - rate limit exceeded for user %s: %s", user_id, e)
+        
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
-                "error": "FAMILY_CREATION_FAILED",
-                "message": str(e)
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": "You are creating families too quickly. Please wait and try again.",
+                "retry_after": 3600  # 1 hour
             }
+        )
+        
+    except FamilyError as e:
+        # Record error for monitoring
+        await record_error_event(e, error_context, ErrorSeverity.HIGH)
+        
+        logger.error("Family creation failed for user %s: %s", user_id, e)
+        
+        # Check if error has user-friendly response from error handling system
+        if hasattr(e, 'user_friendly_response'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=e.user_friendly_response['error']
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "FAMILY_CREATION_FAILED",
+                    "message": str(e)
+                }
+            )
+            
+    except Exception as e:
+        # Record unexpected error for monitoring
+        await record_error_event(e, error_context, ErrorSeverity.CRITICAL)
+        
+        logger.error("Unexpected error in family creation for user %s: %s", user_id, e, exc_info=True)
+        
+        # Create user-friendly error response for unexpected errors
+        user_friendly_error = create_user_friendly_error(e, error_context)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=user_friendly_error['error']
         )
 
 
@@ -1173,19 +1273,25 @@ async def get_admin_actions_log(
 @router.get("/limits", response_model=FamilyLimitsResponse)
 async def get_family_limits(
     request: Request,
+    include_billing_metrics: bool = False,
     current_user: dict = Depends(enforce_all_lockdowns)
 ) -> FamilyLimitsResponse:
     """
     Get the current user's family limits and usage information.
     
-    Returns information about family creation limits, member limits,
-    and current usage statistics for billing integration.
+    Returns comprehensive information about family creation limits, member limits,
+    current usage statistics, and billing integration data.
     
     **Rate Limiting:** 30 requests per hour per user
     
+    **Parameters:**
+    - include_billing_metrics: Include detailed billing metrics in response
+    
     **Returns:**
     - Current limits and usage statistics
+    - Detailed limit status and enforcement information
     - Upgrade requirements and recommendations
+    - Optional billing metrics for usage tracking
     """
     user_id = str(current_user["_id"])
     
@@ -1198,9 +1304,16 @@ async def get_family_limits(
     )
     
     try:
-        limits_data = await family_manager.check_family_limits(user_id)
+        # Get comprehensive limits data with billing metrics if requested
+        limits_data = await family_manager.check_family_limits(
+            user_id, 
+            include_billing_metrics=include_billing_metrics
+        )
         
-        logger.debug("Retrieved family limits for user %s", user_id)
+        logger.debug(
+            "Retrieved family limits for user %s (billing_metrics=%s)", 
+            user_id, include_billing_metrics
+        )
         
         return FamilyLimitsResponse(
             max_families_allowed=limits_data["max_families_allowed"],
@@ -1208,7 +1321,10 @@ async def get_family_limits(
             current_families=limits_data["current_families"],
             families_usage=limits_data["families_usage"],
             can_create_family=limits_data["can_create_family"],
-            upgrade_required=limits_data["upgrade_required"]
+            upgrade_required=limits_data["upgrade_required"],
+            limit_status=limits_data["limit_status"],
+            billing_metrics=limits_data.get("billing_metrics"),
+            upgrade_messaging=limits_data["upgrade_messaging"]
         )
         
     except FamilyError as e:
@@ -1217,7 +1333,230 @@ async def get_family_limits(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "LIMITS_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve family limits"
+                "message": "Failed to retrieve family limits",
+                "context": {"user_id": user_id}
+            }
+        )
+
+
+@router.get("/usage-tracking", response_model=UsageTrackingResponse)
+async def get_usage_tracking_data(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    granularity: str = "daily",
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> UsageTrackingResponse:
+    """
+    Get family usage tracking data for billing integration.
+    
+    Returns detailed usage metrics over a specified time period for billing
+    and analytics purposes. This endpoint provides comprehensive data about
+    family creation, member additions, and usage patterns.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Parameters:**
+    - start_date: Start date in ISO format (defaults to 30 days ago)
+    - end_date: End date in ISO format (defaults to now)
+    - granularity: Data granularity - "daily", "weekly", or "monthly"
+    
+    **Returns:**
+    - Usage tracking data and metrics
+    - Peak usage statistics
+    - Billing recommendations
+    - Historical usage patterns
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting for usage tracking (more restrictive)
+    await security_manager.check_rate_limit(
+        request,
+        f"family_usage_tracking_{user_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        from datetime import datetime, timezone, timedelta
+        
+        # Parse date parameters
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "start_date must be in ISO format"
+                    }
+                )
+        else:
+            start_dt = datetime.now(timezone.utc) - timedelta(days=30)
+            
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "end_date must be in ISO format"
+                    }
+                )
+        else:
+            end_dt = datetime.now(timezone.utc)
+        
+        # Validate granularity
+        if granularity not in ["daily", "weekly", "monthly"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_GRANULARITY",
+                    "message": "granularity must be 'daily', 'weekly', or 'monthly'"
+                }
+            )
+        
+        # Get usage tracking data
+        usage_data = await family_manager.get_usage_tracking_data(
+            user_id, start_dt, end_dt, granularity
+        )
+        
+        logger.debug(
+            "Retrieved usage tracking data for user %s (period: %s to %s, granularity: %s)", 
+            user_id, start_dt.isoformat(), end_dt.isoformat(), granularity
+        )
+        
+        return UsageTrackingResponse(**usage_data)
+        
+    except FamilyError as e:
+        logger.error("Failed to get usage tracking data for user %s: %s", user_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "USAGE_TRACKING_FAILED",
+                "message": "Failed to retrieve usage tracking data",
+                "context": {"user_id": user_id}
+            }
+        )
+
+
+@router.put("/limits", response_model=UpdateFamilyLimitsResponse)
+async def update_family_limits(
+    request: Request,
+    limits_update: UpdateFamilyLimitsRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> UpdateFamilyLimitsResponse:
+    """
+    Update family limits for the current user.
+    
+    This endpoint allows updating family limits, typically used by billing
+    systems or administrators to adjust user limits based on subscription changes.
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Parameters:**
+    - max_families_allowed: New maximum families allowed
+    - max_members_per_family: New maximum members per family
+    - validate_existing: Whether to validate existing families against new limits
+    
+    **Returns:**
+    - Updated limits information
+    - Validation results for existing families
+    - Enforcement status
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting for limit updates (more restrictive)
+    await security_manager.check_rate_limit(
+        request,
+        f"family_limits_update_{user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        # Prepare new limits dict
+        new_limits = {}
+        if limits_update.max_families_allowed is not None:
+            new_limits["max_families_allowed"] = limits_update.max_families_allowed
+        if limits_update.max_members_per_family is not None:
+            new_limits["max_members_per_family"] = limits_update.max_members_per_family
+        
+        # Update family limits
+        update_result = await family_manager.update_family_limits(
+            user_id,
+            new_limits,
+            updated_by=user_id,
+            reason="User-initiated limits update"
+        )
+        
+        logger.info(
+            "Updated family limits for user %s: families=%d, members=%d", 
+            user_id, limits_update.max_families_allowed, limits_update.max_members_per_family
+        )
+        
+        return UpdateFamilyLimitsResponse(**update_result)
+        
+    except FamilyError as e:
+        logger.error("Failed to update family limits for user %s: %s", user_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "LIMITS_UPDATE_FAILED",
+                "message": str(e),
+                "context": {"user_id": user_id}
+            }
+        )
+
+
+@router.get("/limits/enforcement", response_model=LimitEnforcementResponse)
+async def get_limit_enforcement_status(
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> LimitEnforcementResponse:
+    """
+    Get detailed limit enforcement status and validation results.
+    
+    Returns comprehensive information about current limit enforcement,
+    including validation results for existing families and grace periods.
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Returns:**
+    - Current enforcement status
+    - Validation results for existing families
+    - Grace period information
+    - Compliance recommendations
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_limit_enforcement_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+    
+    try:
+        # Get limit enforcement status
+        enforcement_status = await family_manager.get_limit_enforcement_status(user_id)
+        
+        logger.debug("Retrieved limit enforcement status for user %s", user_id)
+        
+        return LimitEnforcementResponse(**enforcement_status)
+        
+    except FamilyError as e:
+        logger.error("Failed to get limit enforcement status for user %s: %s", user_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "ENFORCEMENT_STATUS_FAILED",
+                "message": "Failed to retrieve limit enforcement status",
+                "context": {"user_id": user_id}
             }
         )
 
@@ -3687,5 +4026,514 @@ async def verify_account_recovery(
             detail={
                 "error": "RECOVERY_VERIFICATION_FAILED",
                 "message": str(e)
+            }
+        )
+
+# SBD Token Audit and Compliance Endpoints
+
+@router.get("/{family_id}/sbd-transactions/history")
+async def get_family_sbd_transaction_history(
+    request: Request,
+    family_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    transaction_types: Optional[str] = None,
+    include_audit_trail: bool = True,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Get comprehensive family SBD transaction history with audit trails and family context.
+    
+    This endpoint provides detailed transaction history including:
+    - Family member attribution for all transactions
+    - Comprehensive audit trail information
+    - Transaction context and compliance metadata
+    - Filtering by date range and transaction types
+    - Pagination support for large datasets
+    
+    Args:
+        family_id: ID of the family
+        start_date: Start date filter (ISO format)
+        end_date: End date filter (ISO format)
+        transaction_types: Comma-separated list of transaction types to filter
+        include_audit_trail: Whether to include detailed audit trail information
+        limit: Maximum number of transactions to return (max 1000)
+        offset: Number of transactions to skip for pagination
+        
+    Returns:
+        Comprehensive transaction history with family context and audit trails
+        
+    Raises:
+        403: If user lacks permission to access family audit information
+        404: If family not found
+        400: If invalid parameters provided
+        500: If audit retrieval fails
+    """
+    try:
+        # Rate limiting
+        await security_manager.check_rate_limit(
+            request, f"family_audit_history_{current_user['username']}", 
+            rate_limit_requests=20, rate_limit_period=300
+        )
+        
+        user_id = str(current_user["_id"])
+        
+        # Validate and parse parameters
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            try:
+                from datetime import datetime
+                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "start_date must be in ISO format"
+                    }
+                )
+        
+        if end_date:
+            try:
+                from datetime import datetime
+                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "end_date must be in ISO format"
+                    }
+                )
+        
+        # Parse transaction types
+        parsed_transaction_types = None
+        if transaction_types:
+            parsed_transaction_types = [t.strip() for t in transaction_types.split(',')]
+        
+        # Validate limit
+        if limit > 1000:
+            limit = 1000
+        
+        # Get transaction history with family context
+        result = await family_audit_manager.get_family_transaction_history_with_context(
+            family_id=family_id,
+            user_id=user_id,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            transaction_types=parsed_transaction_types,
+            include_audit_trail=include_audit_trail,
+            limit=limit,
+            offset=offset
+        )
+        
+        logger.info(
+            "Family SBD transaction history retrieved: %d records for family %s by user %s",
+            len(result["transactions"]), family_id, user_id
+        )
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "data": result
+            }
+        )
+        
+    except FamilyAuditError as e:
+        if e.error_code == "INSUFFICIENT_PERMISSIONS":
+            logger.warning("Insufficient permissions for transaction history: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "INSUFFICIENT_PERMISSIONS",
+                    "message": str(e)
+                }
+            )
+        elif "not found" in str(e).lower():
+            logger.warning("Family not found for transaction history: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "FAMILY_NOT_FOUND",
+                    "message": str(e)
+                }
+            )
+        else:
+            logger.error("Failed to retrieve transaction history: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "AUDIT_RETRIEVAL_FAILED",
+                    "message": str(e)
+                }
+            )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for transaction history: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error("Unexpected error retrieving transaction history: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": "Failed to retrieve transaction history"
+            }
+        )
+
+
+@router.post("/{family_id}/compliance/report")
+async def generate_family_compliance_report(
+    request: Request,
+    family_id: str,
+    report_type: str = "comprehensive",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    export_format: str = "json",
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Generate comprehensive compliance report for family SBD transactions.
+    
+    This endpoint generates detailed compliance reports including:
+    - Transaction volume and pattern analysis
+    - Family member activity summaries
+    - Audit trail integrity verification
+    - Compliance flags and risk indicators
+    - Regulatory compliance information
+    
+    Args:
+        family_id: ID of the family
+        report_type: Type of report (comprehensive, summary, transactions_only)
+        start_date: Start date for report period (ISO format)
+        end_date: End date for report period (ISO format)
+        export_format: Format for export (json, csv, pdf)
+        
+    Returns:
+        Comprehensive compliance report with audit information
+        
+    Raises:
+        403: If user is not family admin
+        404: If family not found
+        400: If invalid parameters provided
+        500: If report generation fails
+    """
+    try:
+        # Rate limiting for compliance reports (more restrictive)
+        await security_manager.check_rate_limit(
+            request, f"family_compliance_report_{current_user['username']}", 
+            rate_limit_requests=5, rate_limit_period=3600
+        )
+        
+        user_id = str(current_user["_id"])
+        
+        # Validate report type
+        valid_report_types = ["comprehensive", "summary", "transactions_only"]
+        if report_type not in valid_report_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_REPORT_TYPE",
+                    "message": f"report_type must be one of: {', '.join(valid_report_types)}"
+                }
+            )
+        
+        # Validate export format
+        valid_formats = ["json", "csv", "pdf"]
+        if export_format not in valid_formats:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_EXPORT_FORMAT",
+                    "message": f"export_format must be one of: {', '.join(valid_formats)}"
+                }
+            )
+        
+        # Parse dates
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            try:
+                from datetime import datetime
+                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "start_date must be in ISO format"
+                    }
+                )
+        
+        if end_date:
+            try:
+                from datetime import datetime
+                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "end_date must be in ISO format"
+                    }
+                )
+        
+        # Generate compliance report
+        report = await family_audit_manager.generate_compliance_report(
+            family_id=family_id,
+            user_id=user_id,
+            report_type=report_type,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            export_format=export_format
+        )
+        
+        logger.info(
+            "Compliance report generated: %s for family %s by admin %s",
+            report["report_metadata"]["report_id"], family_id, user_id
+        )
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "data": report
+            }
+        )
+        
+    except ComplianceReportError as e:
+        if "admin" in str(e).lower() or "permission" in str(e).lower():
+            logger.warning("Insufficient admin permissions for compliance report: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
+                    "message": "Only family admins can generate compliance reports"
+                }
+            )
+        elif "not found" in str(e).lower():
+            logger.warning("Family not found for compliance report: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "FAMILY_NOT_FOUND",
+                    "message": str(e)
+                }
+            )
+        else:
+            logger.error("Failed to generate compliance report: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "COMPLIANCE_REPORT_FAILED",
+                    "message": str(e)
+                }
+            )
+    except FamilyAuditError as e:
+        if e.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS":
+            logger.warning("Insufficient admin permissions for compliance report: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
+                    "message": str(e)
+                }
+            )
+        else:
+            logger.error("Audit error generating compliance report: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "AUDIT_ERROR",
+                    "message": str(e)
+                }
+            )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for compliance report: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error("Unexpected error generating compliance report: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": "Failed to generate compliance report"
+            }
+        )
+
+
+@router.get("/{family_id}/audit/integrity-check")
+async def verify_audit_trail_integrity(
+    request: Request,
+    family_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Verify integrity of family audit trail records.
+    
+    This endpoint performs cryptographic verification of audit trail integrity including:
+    - Hash verification for all audit records
+    - Detection of corrupted or tampered records
+    - Missing audit trail identification
+    - Comprehensive integrity reporting
+    
+    Args:
+        family_id: ID of the family
+        start_date: Start date for verification period (ISO format)
+        end_date: End date for verification period (ISO format)
+        
+    Returns:
+        Audit trail integrity verification results
+        
+    Raises:
+        403: If user is not family admin
+        404: If family not found
+        400: If invalid parameters provided
+        500: If integrity check fails
+    """
+    try:
+        # Rate limiting for integrity checks
+        await security_manager.check_rate_limit(
+            request, f"family_audit_integrity_{current_user['username']}", 
+            rate_limit_requests=10, rate_limit_period=3600
+        )
+        
+        user_id = str(current_user["_id"])
+        
+        # Verify admin permissions
+        try:
+            await family_audit_manager._verify_family_admin_permission(family_id, user_id)
+        except FamilyAuditError as e:
+            if e.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
+                        "message": "Only family admins can verify audit trail integrity"
+                    }
+                )
+            raise
+        
+        # Parse dates
+        parsed_start_date = None
+        parsed_end_date = None
+        
+        if start_date:
+            try:
+                from datetime import datetime
+                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "start_date must be in ISO format"
+                    }
+                )
+        
+        if end_date:
+            try:
+                from datetime import datetime
+                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "INVALID_DATE_FORMAT",
+                        "message": "end_date must be in ISO format"
+                    }
+                )
+        
+        # Set default date range if not provided (last 30 days)
+        if not parsed_start_date and not parsed_end_date:
+            from datetime import datetime, timedelta, timezone
+            parsed_end_date = datetime.now(timezone.utc)
+            parsed_start_date = parsed_end_date - timedelta(days=30)
+        
+        # Perform integrity verification
+        integrity_results = await family_audit_manager._verify_audit_trail_integrity(
+            family_id, parsed_start_date, parsed_end_date
+        )
+        
+        logger.info(
+            "Audit trail integrity check completed for family %s by admin %s: %s",
+            family_id, user_id, "PASSED" if integrity_results["integrity_verified"] else "FAILED"
+        )
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "data": {
+                    "family_id": family_id,
+                    "verification_period": {
+                        "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
+                        "end_date": parsed_end_date.isoformat() if parsed_end_date else None
+                    },
+                    "integrity_results": integrity_results
+                }
+            }
+        )
+        
+    except FamilyAuditError as e:
+        if e.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS":
+            logger.warning("Insufficient admin permissions for integrity check: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
+                    "message": str(e)
+                }
+            )
+        elif "not found" in str(e).lower():
+            logger.warning("Family not found for integrity check: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "FAMILY_NOT_FOUND",
+                    "message": str(e)
+                }
+            )
+        else:
+            logger.error("Failed to verify audit trail integrity: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "INTEGRITY_CHECK_FAILED",
+                    "message": str(e)
+                }
+            )
+    except RateLimitExceeded as e:
+        logger.warning("Rate limit exceeded for integrity check: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error("Unexpected error during integrity check: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": "Failed to verify audit trail integrity"
             }
         )

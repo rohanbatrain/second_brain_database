@@ -2278,3 +2278,224 @@ class FamilyUsageTrackingResponse(BaseDocumentedModel):
             }
         }
     }
+
+
+class UsageDataPoint(BaseModel):
+    """Model for individual usage data points."""
+    
+    date: datetime = Field(..., description="Date of the usage data point")
+    families_count: int = Field(..., description="Number of families on this date")
+    total_members: int = Field(..., description="Total members across all families")
+    events: List[str] = Field(default_factory=list, description="Events that occurred on this date")
+    daily_activity_score: float = Field(0.0, description="Activity score for the day")
+
+
+class UsageTrackingSummary(BaseModel):
+    """Model for usage tracking summary statistics."""
+    
+    total_families_created: int = Field(..., description="Total families created in period")
+    total_members_added: int = Field(..., description="Total members added in period")
+    peak_usage_day: Optional[str] = Field(None, description="Date with highest usage")
+    average_daily_families: float = Field(..., description="Average families per day")
+    average_daily_members: float = Field(..., description="Average members per day")
+    upgrade_recommended: bool = Field(..., description="Whether upgrade is recommended")
+    usage_trend: str = Field(..., description="Usage trend: 'increasing', 'stable', 'decreasing'")
+
+
+class UsageTrackingResponse(BaseDocumentedModel):
+    """
+    Response model for family usage tracking data.
+    
+    Provides comprehensive usage metrics for billing integration and analytics.
+    """
+    
+    user_id: str = Field(..., description="User ID for the tracking data")
+    period_start: datetime = Field(..., description="Start of tracking period")
+    period_end: datetime = Field(..., description="End of tracking period")
+    granularity: str = Field(..., description="Data granularity (daily, weekly, monthly)")
+    
+    usage_data: List[UsageDataPoint] = Field(
+        ...,
+        description="Usage data points for the specified period"
+    )
+    
+    billing_metrics: BillingUsageMetrics = Field(
+        ...,
+        description="Billing-related usage metrics"
+    )
+    
+    summary: UsageTrackingSummary = Field(
+        ...,
+        description="Summary statistics for the tracking period"
+    )
+    
+    current_limits: Dict[str, Any] = Field(
+        ...,
+        description="Current user limits for context"
+    )
+    
+    recommendations: List[str] = Field(
+        default_factory=list,
+        description="Usage-based recommendations"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "507f1f77bcf86cd799439011",
+                "period_start": "2024-01-01T00:00:00Z",
+                "period_end": "2024-01-31T23:59:59Z",
+                "granularity": "daily",
+                "usage_data": [
+                    {
+                        "date": "2024-01-01T00:00:00Z",
+                        "families_count": 1,
+                        "total_members": 3,
+                        "events": ["family_created", "member_added"],
+                        "daily_activity_score": 8.5
+                    }
+                ],
+                "billing_metrics": {
+                    "period_start": "2024-01-01T00:00:00Z",
+                    "period_end": "2024-01-31T23:59:59Z",
+                    "peak_families": 1,
+                    "peak_members_total": 5,
+                    "average_families": 1.0,
+                    "average_members_total": 4.2,
+                    "family_creation_events": 1,
+                    "member_addition_events": 2,
+                    "upgrade_recommendations": ["Consider Pro plan for unlimited families"]
+                },
+                "summary": {
+                    "total_families_created": 1,
+                    "total_members_added": 2,
+                    "peak_usage_day": "2024-01-15",
+                    "average_daily_families": 1.0,
+                    "average_daily_members": 4.2,
+                    "upgrade_recommended": False,
+                    "usage_trend": "stable"
+                },
+                "current_limits": {
+                    "max_families_allowed": 1,
+                    "max_members_per_family": 5,
+                    "current_families": 1
+                },
+                "recommendations": [
+                    "Your usage is within limits",
+                    "Consider upgrading for unlimited families"
+                ]
+            }
+        }
+    }
+
+
+class LimitEnforcementStatus(BaseModel):
+    """Model for individual limit enforcement status."""
+    
+    limit_type: str = Field(..., description="Type of limit being enforced")
+    is_enforced: bool = Field(..., description="Whether limit is currently enforced")
+    current_value: int = Field(..., description="Current usage value")
+    limit_value: int = Field(..., description="Limit threshold value")
+    is_compliant: bool = Field(..., description="Whether current usage is compliant")
+    grace_period_active: bool = Field(False, description="Whether grace period is active")
+    grace_period_expires: Optional[datetime] = Field(None, description="When grace period expires")
+    enforcement_action: str = Field(..., description="Action taken when limit exceeded")
+
+
+class FamilyValidationResult(BaseModel):
+    """Model for family validation against limits."""
+    
+    family_id: str = Field(..., description="Family identifier")
+    family_name: str = Field(..., description="Family name")
+    is_compliant: bool = Field(..., description="Whether family is compliant with limits")
+    current_members: int = Field(..., description="Current member count")
+    member_limit: int = Field(..., description="Member limit for this family")
+    violations: List[str] = Field(default_factory=list, description="List of limit violations")
+    recommended_actions: List[str] = Field(default_factory=list, description="Recommended actions")
+
+
+class LimitEnforcementResponse(BaseDocumentedModel):
+    """
+    Response model for limit enforcement status.
+    
+    Provides detailed information about current limit enforcement and compliance.
+    """
+    
+    user_id: str = Field(..., description="User ID")
+    overall_compliance: bool = Field(..., description="Overall compliance status")
+    enforcement_active: bool = Field(..., description="Whether enforcement is active")
+    
+    limit_statuses: List[LimitEnforcementStatus] = Field(
+        ...,
+        description="Status for each type of limit"
+    )
+    
+    family_validations: List[FamilyValidationResult] = Field(
+        ...,
+        description="Validation results for each family"
+    )
+    
+    grace_periods: Dict[str, Any] = Field(
+        ...,
+        description="Active grace periods information"
+    )
+    
+    compliance_summary: Dict[str, Any] = Field(
+        ...,
+        description="Summary of compliance status"
+    )
+    
+    recommendations: List[str] = Field(
+        default_factory=list,
+        description="Compliance recommendations"
+    )
+    
+    last_updated: datetime = Field(..., description="When status was last updated")
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "507f1f77bcf86cd799439011",
+                "overall_compliance": True,
+                "enforcement_active": True,
+                "limit_statuses": [
+                    {
+                        "limit_type": "families",
+                        "is_enforced": True,
+                        "current_value": 1,
+                        "limit_value": 1,
+                        "is_compliant": True,
+                        "grace_period_active": False,
+                        "grace_period_expires": None,
+                        "enforcement_action": "block_creation"
+                    }
+                ],
+                "family_validations": [
+                    {
+                        "family_id": "fam_1234567890abcdef",
+                        "family_name": "Smith Family",
+                        "is_compliant": True,
+                        "current_members": 4,
+                        "member_limit": 5,
+                        "violations": [],
+                        "recommended_actions": []
+                    }
+                ],
+                "grace_periods": {
+                    "active_periods": [],
+                    "expired_periods": []
+                },
+                "compliance_summary": {
+                    "total_families": 1,
+                    "compliant_families": 1,
+                    "total_violations": 0,
+                    "grace_periods_active": 0
+                },
+                "recommendations": [
+                    "All limits are compliant",
+                    "No action required"
+                ],
+                "last_updated": "2024-01-15T12:00:00Z"
+            }
+        }
+    }

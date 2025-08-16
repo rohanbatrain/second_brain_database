@@ -98,6 +98,34 @@ async def lifespan(_app: FastAPI):
 
         log_application_lifecycle("database_indexes_ready", {"indexes_duration": f"{indexes_duration:.3f}s"})
 
+        # Family audit trail indexes creation with performance logging
+        audit_indexes_start = time.time()
+        logger.info("Creating/verifying family audit trail indexes...")
+
+        try:
+            from second_brain_database.database.family_audit_indexes import create_family_audit_indexes
+            await create_family_audit_indexes()
+            audit_indexes_duration = time.time() - audit_indexes_start
+            
+            log_application_lifecycle(
+                "family_audit_indexes_ready", 
+                {"audit_indexes_duration": f"{audit_indexes_duration:.3f}s"}
+            )
+        except Exception as audit_error:
+            audit_indexes_duration = time.time() - audit_indexes_start
+            logger.warning(
+                "Failed to create family audit trail indexes: %s (duration: %.3fs)",
+                audit_error, audit_indexes_duration
+            )
+            # Continue startup even if audit indexes fail
+            log_application_lifecycle(
+                "family_audit_indexes_failed",
+                {
+                    "error": str(audit_error),
+                    "audit_indexes_duration": f"{audit_indexes_duration:.3f}s"
+                }
+            )
+
     except Exception as e:
         startup_duration = time.time() - startup_start_time
         log_application_lifecycle(

@@ -422,3 +422,104 @@ async def family_system_liveness(request: Request) -> JSONResponse:
             },
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE
         )
+
+
+@router.get("/error-handling")
+async def get_error_handling_health(
+    request: Request,
+    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+) -> JSONResponse:
+    """
+    Get health status of the error handling and resilience system.
+    
+    Provides comprehensive information about:
+    - Circuit breaker states and statistics
+    - Bulkhead capacity and utilization
+    - Error monitoring statistics
+    - Recovery system status
+    - Recent error patterns and alerts
+    
+    **Rate Limiting:** 5 requests per hour per user
+    
+    **Requirements:**
+    - User must be authenticated as admin
+    
+    **Returns:**
+    - Error handling system health status
+    - Circuit breaker and bulkhead statistics
+    - Error monitoring metrics
+    - Recovery system performance
+    """
+    user_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"error_handling_health_{user_id}",
+        rate_limit_requests=5,
+        rate_limit_period=3600
+    )
+    
+    try:
+        from second_brain_database.utils.error_handling import get_error_handling_health
+        from second_brain_database.utils.error_recovery import recovery_manager
+        from second_brain_database.utils.error_monitoring import error_monitor
+        
+        # Get error handling component health
+        error_handling_health = await get_error_handling_health()
+        
+        # Get recovery system statistics
+        recovery_stats = recovery_manager.get_recovery_stats()
+        recent_recoveries = recovery_manager.get_recent_recoveries(limit=5)
+        
+        # Get error monitoring statistics
+        monitoring_stats = error_monitor.get_monitoring_stats()
+        error_patterns = error_monitor.get_error_patterns(limit=10)
+        active_alerts = error_monitor.get_active_alerts()
+        
+        logger.info(
+            "Error handling health check requested by admin %s",
+            user_id
+        )
+        
+        response_data = {
+            "status": "healthy" if error_handling_health["overall_healthy"] else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error_handling": error_handling_health,
+            "recovery_system": {
+                "statistics": recovery_stats,
+                "recent_recoveries": recent_recoveries
+            },
+            "error_monitoring": {
+                "statistics": monitoring_stats,
+                "top_error_patterns": error_patterns,
+                "active_alerts": active_alerts
+            },
+            "system_resilience": {
+                "circuit_breakers_healthy": all(
+                    cb["state"] != "open" for cb in error_handling_health["circuit_breakers"].values()
+                ),
+                "bulkheads_healthy": all(
+                    bulkhead["rejection_rate"] < 0.1 for bulkhead in error_handling_health["bulkheads"].values()
+                ),
+                "recovery_rate_healthy": recovery_stats["success_rate"] > 0.7,
+                "error_rate_healthy": monitoring_stats["error_statistics"]["error_rate_24h"] < 10.0
+            }
+        }
+        
+        status_code = status.HTTP_200_OK if error_handling_health["overall_healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
+        
+        return JSONResponse(
+            content=response_data,
+            status_code=status_code
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get error handling health status: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "ERROR_HANDLING_HEALTH_CHECK_FAILED",
+                "message": "Failed to retrieve error handling system health status"
+            }
+        )

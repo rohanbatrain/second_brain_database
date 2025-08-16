@@ -5,25 +5,39 @@ This module provides the FamilyManager class, which manages family creation,
 member invitations, bidirectional relationships, and SBD token integration
 following the established manager patterns in the codebase with enterprise-grade
 patterns including dependency injection, transaction safety, and comprehensive
-error handling.
+error handling with resilience features.
 
 Enterprise Features:
     - Dependency injection for testability and modularity
     - Transaction safety with MongoDB sessions for critical operations
     - Comprehensive error handling with custom exception hierarchy
+    - Circuit breaker and bulkhead patterns for resilience
+    - Automatic retry with exponential backoff
+    - Graceful degradation for system failures
+    - Error monitoring and alerting integration
     - Secure token generation using cryptographically secure methods
     - Configurable family limits with real-time validation
     - Comprehensive audit logging for all operations
     - Rate limiting integration for abuse prevention
+
+Resilience Features:
+    - Circuit breakers for external service protection
+    - Bulkhead pattern for resource isolation
+    - Automatic error recovery with intelligent retry strategies
+    - Graceful degradation when services are unavailable
+    - Real-time error monitoring and alerting
+    - User-friendly error message translation
 
 Logging:
     - Uses the centralized logging manager with structured context
     - Logs all family operations, SBD transactions, and security events
     - Performance metrics tracking for all database operations
     - All exceptions are logged with full traceback and context
+    - Error monitoring with pattern detection and alerting
 """
 
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Protocol, runtime_checkable
@@ -37,6 +51,19 @@ from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.security_manager import security_manager
+
+# Import enterprise error handling and resilience features
+from second_brain_database.utils.error_handling import (
+    handle_errors, ErrorContext, ErrorSeverity, RetryConfig, RetryStrategy,
+    validate_input, create_user_friendly_error, sanitize_sensitive_data
+)
+from second_brain_database.utils.error_recovery import (
+    recovery_manager, RecoveryStrategy, recover_from_database_error,
+    recover_from_redis_error, recover_with_graceful_degradation
+)
+from second_brain_database.utils.error_monitoring import (
+    record_error_event, error_monitor
+)
 
 logger = get_logger(prefix="[FamilyManager]")
 
@@ -317,6 +344,19 @@ class FamilyManager:
         self._family_cache = {}
         self._cache_ttl = 300  # 5 minutes cache TTL
 
+    @handle_errors(
+        operation_name="create_family",
+        circuit_breaker="family_operations",
+        bulkhead="family_creation",
+        retry_config=RetryConfig(
+            max_attempts=3,
+            strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
+            retryable_exceptions=[PyMongoError, ConnectionError],
+            non_retryable_exceptions=[FamilyLimitExceeded, ValidationError]
+        ),
+        timeout=30.0,
+        user_friendly_errors=True
+    )
     async def create_family(self, user_id: str, name: Optional[str] = None, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Create a new family with the user as administrator using transaction safety.
@@ -336,6 +376,18 @@ class FamilyManager:
             TransactionError: If database transaction fails
             FamilyError: If family creation fails
         """
+        # Create error context for comprehensive error handling
+        error_context = ErrorContext(
+            operation="create_family",
+            user_id=user_id,
+            request_id=request_context.get("request_id") if request_context else None,
+            ip_address=request_context.get("ip_address") if request_context else None,
+            metadata={
+                "family_name": name,
+                "has_request_context": bool(request_context)
+            }
+        )
+        
         operation_context = {
             "user_id": user_id, 
             "name": name, 
@@ -344,11 +396,43 @@ class FamilyManager:
         }
         start_time = self.db_manager.log_query_start("families", "create_family", operation_context)
         
-        # Rate limiting check
+        # Input validation with comprehensive security controls
+        try:
+            validation_schema = {
+                "user_id": {
+                    "required": True,
+                    "type": str,
+                    "min_length": 1,
+                    "max_length": 100,
+                    "pattern": r"^[a-zA-Z0-9_-]+$"
+                },
+                "name": {
+                    "required": False,
+                    "type": str,
+                    "min_length": MIN_FAMILY_NAME_LENGTH,
+                    "max_length": MAX_FAMILY_NAME_LENGTH,
+                    "validator": lambda x: not any(prefix in x.lower() for prefix in RESERVED_PREFIXES)
+                }
+            }
+            
+            input_data = {"user_id": user_id}
+            if name:
+                input_data["name"] = name
+                
+            validated_data = validate_input(input_data, validation_schema, error_context)
+            user_id = validated_data["user_id"]
+            name = validated_data.get("name")
+            
+        except Exception as e:
+            await record_error_event(e, error_context, ErrorSeverity.MEDIUM)
+            raise ValidationError(f"Input validation failed: {str(e)}")
+
+        # Rate limiting check with error monitoring
         if request_context:
             try:
                 await self._check_rate_limit(request_context, "family_creation", FAMILY_CREATION_RATE_LIMIT, 3600)
             except Exception as e:
+                await record_error_event(e, error_context, ErrorSeverity.HIGH)
                 raise RateLimitExceeded(
                     "Family creation rate limit exceeded", 
                     action="family_creation", 
@@ -465,6 +549,10 @@ class FamilyManager:
             # These are expected validation errors, don't wrap them
             self.db_manager.log_query_error("families", "create_family", start_time, e, operation_context)
             
+            # Record error for monitoring and analysis
+            severity = ErrorSeverity.HIGH if isinstance(e, FamilyLimitExceeded) else ErrorSeverity.MEDIUM
+            await record_error_event(e, error_context, severity)
+            
             # Log to monitoring system
             if MONITORING_ENABLED:
                 duration = time.time() - start_time
@@ -499,6 +587,26 @@ class FamilyManager:
                     self.logger.error("Failed to rollback transaction: %s", rollback_error, exc_info=True)
             
             self.db_manager.log_query_error("families", "create_family", start_time, e, operation_context)
+            
+            # Record error for monitoring with high severity for unexpected errors
+            await record_error_event(e, error_context, ErrorSeverity.CRITICAL)
+            
+            # Attempt error recovery for database-related errors
+            if isinstance(e, (PyMongoError, ConnectionError)):
+                self.logger.info("Attempting database error recovery for family creation")
+                try:
+                    recovery_success, recovery_result = await recover_from_database_error(e, error_context)
+                    if recovery_success:
+                        self.logger.info("Database recovery successful, retrying family creation")
+                        # The retry will be handled by the @handle_errors decorator
+                        # Record successful recovery
+                        await record_error_event(e, error_context, ErrorSeverity.MEDIUM, 
+                                                recovery_attempted=True, recovery_successful=True)
+                except Exception as recovery_error:
+                    self.logger.error("Database recovery failed: %s", recovery_error)
+                    await record_error_event(recovery_error, error_context, ErrorSeverity.CRITICAL,
+                                            recovery_attempted=True, recovery_successful=False)
+            
             self.logger.error(
                 "Failed to create family for user %s: %s", user_id, e, 
                 exc_info=True,
@@ -506,15 +614,21 @@ class FamilyManager:
                     "user_id": user_id,
                     "family_name": name,
                     "rollback_successful": rollback_successful,
-                    "transaction_id": str(session.session_id) if session else None
+                    "transaction_id": str(session.session_id) if session else None,
+                    "error_context": sanitize_sensitive_data(error_context.to_dict())
                 }
             )
             
-            raise TransactionError(
+            # Create user-friendly error for API responses
+            user_friendly_error = create_user_friendly_error(e, error_context, include_technical_details=False)
+            
+            transaction_error = TransactionError(
                 f"Failed to create family: {str(e)}", 
                 operation="create_family",
                 rollback_successful=rollback_successful
             )
+            transaction_error.user_friendly_response = user_friendly_error
+            raise transaction_error
             
         finally:
             if session:
@@ -2541,6 +2655,33 @@ class FamilyManager:
             self.logger.error("Error checking family membership: %s", e, exc_info=True)
             return False
 
+    async def get_family_id_by_sbd_account(self, sbd_username: str) -> Optional[str]:
+        """
+        Get family ID by SBD account username.
+        
+        Args:
+            sbd_username: SBD account username
+            
+        Returns:
+            Family ID if found, None otherwise
+        """
+        try:
+            families_collection = self.db_manager.get_collection("families")
+            family = await families_collection.find_one(
+                {"sbd_account.account_username": sbd_username}
+            )
+            
+            if family:
+                return family["family_id"]
+            return None
+            
+        except Exception as e:
+            self.logger.warning(
+                "Failed to get family ID by SBD account %s: %s",
+                sbd_username, e
+            )
+            return None
+
     async def is_virtual_family_account(self, username: str) -> bool:
         """
         Check if a username corresponds to a virtual family account.
@@ -2673,6 +2814,45 @@ class FamilyManager:
         except Exception as e:
             self.logger.error("Error checking username availability: %s", e, exc_info=True)
             return False
+
+    async def validate_username_against_reserved_prefixes(self, username: str) -> Tuple[bool, str]:
+        """
+        Validate username against reserved prefixes used by the family system.
+        
+        Args:
+            username: Username to validate
+            
+        Returns:
+            Tuple[bool, str]: (is_valid, error_message)
+        """
+        try:
+            if not username or not isinstance(username, str):
+                return False, "Username must be a non-empty string"
+            
+            username_lower = username.lower()
+            
+            # Check against reserved prefixes
+            for prefix in RESERVED_PREFIXES:
+                if username_lower.startswith(prefix):
+                    return False, f"Username cannot start with reserved prefix '{prefix}'"
+            
+            # Additional validation rules
+            if len(username) < 3:
+                return False, "Username must be at least 3 characters long"
+            
+            if len(username) > 50:
+                return False, "Username cannot exceed 50 characters"
+            
+            # Check for valid characters (alphanumeric, underscore, hyphen)
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+$', username):
+                return False, "Username can only contain letters, numbers, underscores, and hyphens"
+            
+            return True, ""
+            
+        except Exception as e:
+            self.logger.error("Error validating username against reserved prefixes: %s", e, exc_info=True)
+            return False, "Username validation failed due to system error"
 
     async def _send_invitation_email(self, invitation: Dict[str, Any], family: Dict[str, Any]) -> None:
         """Send family invitation email."""
@@ -8848,7 +9028,7 @@ class FamilyManager:
     async def get_usage_tracking_data(self, user_id: str, start_date: datetime = None, 
                                     end_date: datetime = None, granularity: str = "daily") -> Dict[str, Any]:
         """
-        Get family usage tracking data for billing integration.
+        Get comprehensive family usage tracking data for billing integration.
         
         Args:
             user_id: ID of the user
@@ -8857,7 +9037,7 @@ class FamilyManager:
             granularity: Data granularity (daily, weekly, monthly)
             
         Returns:
-            Dict containing usage tracking data and metrics
+            Dict containing comprehensive usage tracking data and metrics
         """
         try:
             from second_brain_database.config import settings
@@ -8877,26 +9057,266 @@ class FamilyManager:
             # Get billing metrics
             billing_metrics = await self._get_billing_usage_metrics(user_id, (end_date - start_date).days)
             
-            # Generate summary
+            # Get current limits for context
+            current_limits = await self.check_family_limits(user_id, include_billing_metrics=False)
+            
+            # Calculate enhanced summary statistics
+            total_families_created = sum(1 for day in usage_data if "family_created" in day.get("events", []))
+            total_members_added = sum(1 for day in usage_data if "member_added" in day.get("events", []))
+            
+            # Find peak usage day
+            peak_day = max(usage_data, key=lambda x: x.get("total_members", 0), default={})
+            peak_usage_day = peak_day.get("date").isoformat() if peak_day.get("date") else None
+            
+            # Calculate averages
+            total_days = len(usage_data) if usage_data else 1
+            avg_daily_families = sum(day.get("families_count", 0) for day in usage_data) / total_days
+            avg_daily_members = sum(day.get("total_members", 0) for day in usage_data) / total_days
+            
+            # Determine usage trend
+            usage_trend = self._calculate_usage_trend(usage_data)
+            
+            # Generate recommendations
+            recommendations = self._generate_usage_recommendations(
+                current_limits, billing_metrics, total_families_created, total_members_added
+            )
+            
             summary = {
-                "total_families_created": sum(1 for day in usage_data if "family_created" in day.get("events", [])),
-                "total_members_added": sum(1 for day in usage_data if "member_added" in day.get("events", [])),
-                "peak_usage_day": max(usage_data, key=lambda x: x.get("total_members", 0), default={}).get("date"),
-                "upgrade_recommended": len(billing_metrics.get("upgrade_recommendations", [])) > 0
+                "total_families_created": total_families_created,
+                "total_members_added": total_members_added,
+                "peak_usage_day": peak_usage_day,
+                "average_daily_families": round(avg_daily_families, 2),
+                "average_daily_members": round(avg_daily_members, 2),
+                "upgrade_recommended": len(billing_metrics.get("upgrade_recommendations", [])) > 0,
+                "usage_trend": usage_trend
             }
             
             return {
                 "user_id": user_id,
                 "period_start": start_date,
                 "period_end": end_date,
+                "granularity": granularity,
                 "usage_data": usage_data,
                 "billing_metrics": billing_metrics,
-                "summary": summary
+                "summary": summary,
+                "current_limits": {
+                    "max_families_allowed": current_limits["max_families_allowed"],
+                    "max_members_per_family": current_limits["max_members_per_family"],
+                    "current_families": current_limits["current_families"]
+                },
+                "recommendations": recommendations
             }
             
         except Exception as e:
             self.logger.error("Failed to get usage tracking data for user %s: %s", user_id, e, exc_info=True)
             raise FamilyError(f"Failed to get usage tracking data: {str(e)}")
+
+    def _calculate_usage_trend(self, usage_data: List[Dict[str, Any]]) -> str:
+        """Calculate usage trend from historical data."""
+        try:
+            if len(usage_data) < 7:  # Need at least a week of data
+                return "insufficient_data"
+            
+            # Split data into first and second half
+            mid_point = len(usage_data) // 2
+            first_half = usage_data[:mid_point]
+            second_half = usage_data[mid_point:]
+            
+            # Calculate average members for each half
+            first_avg = sum(day.get("total_members", 0) for day in first_half) / len(first_half)
+            second_avg = sum(day.get("total_members", 0) for day in second_half) / len(second_half)
+            
+            # Determine trend
+            if second_avg > first_avg * 1.1:  # 10% increase
+                return "increasing"
+            elif second_avg < first_avg * 0.9:  # 10% decrease
+                return "decreasing"
+            else:
+                return "stable"
+                
+        except Exception as e:
+            self.logger.warning("Failed to calculate usage trend: %s", e)
+            return "unknown"
+
+    def _generate_usage_recommendations(self, current_limits: Dict[str, Any], 
+                                      billing_metrics: Dict[str, Any],
+                                      families_created: int, members_added: int) -> List[str]:
+        """Generate usage-based recommendations."""
+        try:
+            recommendations = []
+            
+            # Check if approaching limits
+            families_usage_pct = (current_limits["current_families"] / 
+                                current_limits["max_families_allowed"]) * 100
+            
+            if families_usage_pct >= 80:
+                recommendations.append("You're approaching your family limit - consider upgrading")
+            elif families_usage_pct >= 100:
+                recommendations.append("You've reached your family limit - upgrade to create more families")
+            
+            # Check activity levels
+            if families_created > 0 and members_added > 5:
+                recommendations.append("High activity detected - Pro plan offers unlimited families and members")
+            
+            # Check billing metrics recommendations
+            billing_recs = billing_metrics.get("upgrade_recommendations", [])
+            recommendations.extend(billing_recs)
+            
+            # Default recommendation if none generated
+            if not recommendations:
+                if current_limits["current_families"] == 0:
+                    recommendations.append("Create your first family to start managing shared resources")
+                else:
+                    recommendations.append("Your usage is within limits - continue enjoying family features")
+            
+            return recommendations[:5]  # Limit to 5 recommendations
+            
+        except Exception as e:
+            self.logger.warning("Failed to generate usage recommendations: %s", e)
+            return ["Contact support for personalized recommendations"]
+
+    async def get_limit_enforcement_status(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get detailed limit enforcement status and validation results.
+        
+        Args:
+            user_id: ID of the user
+            
+        Returns:
+            Dict containing comprehensive enforcement status information
+        """
+        try:
+            from second_brain_database.config import settings
+            
+            # Get current limits and usage
+            limits_data = await self.check_family_limits(user_id, include_billing_metrics=False)
+            user = await self._get_user_by_id(user_id)
+            
+            # Get user's families for validation
+            family_memberships = user.get("family_memberships", [])
+            
+            # Check enforcement status for each limit type
+            limit_statuses = []
+            family_validations = []
+            overall_compliance = True
+            total_violations = 0
+            
+            # Family count limit status
+            families_limit_status = {
+                "limit_type": "families",
+                "is_enforced": True,
+                "current_value": limits_data["current_families"],
+                "limit_value": limits_data["max_families_allowed"],
+                "is_compliant": limits_data["current_families"] <= limits_data["max_families_allowed"],
+                "grace_period_active": False,
+                "grace_period_expires": None,
+                "enforcement_action": "block_creation"
+            }
+            
+            if not families_limit_status["is_compliant"]:
+                overall_compliance = False
+                total_violations += 1
+            
+            limit_statuses.append(families_limit_status)
+            
+            # Validate each family against member limits
+            compliant_families = 0
+            for membership in family_memberships:
+                try:
+                    family = await self._get_family_by_id(membership["family_id"])
+                    if not family:
+                        continue
+                    
+                    is_admin = user_id in family["admin_user_ids"]
+                    member_limit = limits_data["max_members_per_family"] if is_admin else family.get("max_members_allowed", limits_data["max_members_per_family"])
+                    
+                    violations = []
+                    recommended_actions = []
+                    is_compliant = family["member_count"] <= member_limit
+                    
+                    if not is_compliant:
+                        violations.append(f"Member count ({family['member_count']}) exceeds limit ({member_limit})")
+                        recommended_actions.append("Remove members or upgrade limits")
+                        overall_compliance = False
+                        total_violations += 1
+                    else:
+                        compliant_families += 1
+                    
+                    family_validations.append({
+                        "family_id": family["family_id"],
+                        "family_name": family["name"],
+                        "is_compliant": is_compliant,
+                        "current_members": family["member_count"],
+                        "member_limit": member_limit,
+                        "violations": violations,
+                        "recommended_actions": recommended_actions
+                    })
+                    
+                except Exception as e:
+                    self.logger.warning("Failed to validate family %s: %s", membership["family_id"], e)
+                    continue
+            
+            # Member limit enforcement status (aggregate)
+            if family_validations:
+                total_members = sum(fv["current_members"] for fv in family_validations if fv["is_compliant"])
+                total_member_limit = sum(fv["member_limit"] for fv in family_validations)
+                
+                members_limit_status = {
+                    "limit_type": "members",
+                    "is_enforced": True,
+                    "current_value": total_members,
+                    "limit_value": total_member_limit,
+                    "is_compliant": all(fv["is_compliant"] for fv in family_validations),
+                    "grace_period_active": False,
+                    "grace_period_expires": None,
+                    "enforcement_action": "block_addition"
+                }
+                
+                limit_statuses.append(members_limit_status)
+            
+            # Check for active grace periods
+            grace_periods = {
+                "active_periods": [],
+                "expired_periods": []
+            }
+            
+            # Generate compliance recommendations
+            recommendations = []
+            if overall_compliance:
+                recommendations.append("All limits are compliant")
+                recommendations.append("No action required")
+            else:
+                if limits_data["current_families"] > limits_data["max_families_allowed"]:
+                    recommendations.append("Family count exceeds limit - consider upgrading")
+                
+                non_compliant_families = [fv for fv in family_validations if not fv["is_compliant"]]
+                if non_compliant_families:
+                    recommendations.append(f"{len(non_compliant_families)} families exceed member limits")
+                    recommendations.append("Remove members or upgrade to higher limits")
+            
+            # Compliance summary
+            compliance_summary = {
+                "total_families": len(family_validations),
+                "compliant_families": compliant_families,
+                "total_violations": total_violations,
+                "grace_periods_active": len(grace_periods["active_periods"])
+            }
+            
+            return {
+                "user_id": user_id,
+                "overall_compliance": overall_compliance,
+                "enforcement_active": True,
+                "limit_statuses": limit_statuses,
+                "family_validations": family_validations,
+                "grace_periods": grace_periods,
+                "compliance_summary": compliance_summary,
+                "recommendations": recommendations,
+                "last_updated": datetime.now(timezone.utc)
+            }
+            
+        except Exception as e:
+            self.logger.error("Failed to get limit enforcement status for user %s: %s", user_id, e, exc_info=True)
+            raise FamilyError(f"Failed to get limit enforcement status: {str(e)}")
 
     async def _get_usage_tracking_data(self, user_id: str, start_date: datetime, 
                                      end_date: datetime, granularity: str = "daily") -> List[Dict[str, Any]]:

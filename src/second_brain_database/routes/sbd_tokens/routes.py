@@ -7,6 +7,7 @@ from pymongo.errors import PyMongoError
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.family_manager import family_manager
+from second_brain_database.managers.family_audit_manager import family_audit_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
@@ -142,16 +143,27 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                     }
                     
                     # Add family member attribution if spending from family account
+                    family_id = None
                     if await family_manager.is_virtual_family_account(from_user):
                         user_id = str(current_user["_id"])
                         username = current_user["username"]
-                        family_note = f"Spent by family member @{username}"
-                        if note:
-                            send_txn["note"] = f"{note} ({family_note})"
-                        else:
-                            send_txn["note"] = family_note
-                        send_txn["family_member_id"] = user_id
-                        send_txn["family_member_username"] = username
+                        
+                        # Get family ID for audit trail
+                        family_id = await family_manager.get_family_id_by_sbd_account(from_user)
+                        
+                        # Enhanced family member attribution with audit context
+                        enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
+                            send_txn, family_id, user_id, username, {
+                                "transaction_type": "send",
+                                "recipient": to_user,
+                                "original_note": note,
+                                "request_context": {
+                                    "ip_address": getattr(request, "client", {}).get("host"),
+                                    "user_agent": request.headers.get("user-agent")
+                                }
+                            }
+                        )
+                        send_txn.update(enhanced_send_txn)
                     elif note:
                         send_txn["note"] = note
                     res1 = await users_collection.update_one(
@@ -176,13 +188,20 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                     if await family_manager.is_virtual_family_account(from_user):
                         user_id = str(current_user["_id"])
                         username = current_user["username"]
-                        family_note = f"Sent by family member @{username}"
-                        if note:
-                            receive_txn["note"] = f"{note} ({family_note})"
-                        else:
-                            receive_txn["note"] = family_note
-                        receive_txn["family_member_id"] = user_id
-                        receive_txn["family_member_username"] = username
+                        
+                        # Enhanced family member attribution for receive transaction
+                        enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
+                            receive_txn, family_id, user_id, username, {
+                                "transaction_type": "receive",
+                                "sender": from_user,
+                                "original_note": note,
+                                "request_context": {
+                                    "ip_address": getattr(request, "client", {}).get("host"),
+                                    "user_agent": request.headers.get("user-agent")
+                                }
+                            }
+                        )
+                        receive_txn.update(enhanced_receive_txn)
                     elif note:
                         receive_txn["note"] = note
                     await users_collection.update_one(
@@ -190,6 +209,37 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         {"$inc": {"sbd_tokens": amount}, "$push": {"sbd_tokens_transactions": receive_txn}},
                         session=session,
                     )
+                    # Log comprehensive audit trail for family transactions
+                    if family_id:
+                        try:
+                            await family_audit_manager.log_sbd_transaction_audit(
+                                family_id=family_id,
+                                transaction_id=transaction_id,
+                                transaction_type="send",
+                                amount=amount,
+                                from_account=from_user,
+                                to_account=to_user,
+                                family_member_id=str(current_user["_id"]),
+                                family_member_username=current_user["username"],
+                                transaction_context={
+                                    "original_note": note,
+                                    "enhanced_note": send_txn.get("note"),
+                                    "request_metadata": {
+                                        "ip_address": getattr(request, "client", {}).get("host"),
+                                        "user_agent": request.headers.get("user-agent"),
+                                        "timestamp": now_iso
+                                    },
+                                    "transaction_flow": "family_to_external",
+                                    "compliance_flags": ["family_spending"]
+                                },
+                                session=session
+                            )
+                        except Exception as audit_error:
+                            logger.warning(
+                                "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
+                                transaction_id, audit_error
+                            )
+                    
                     logger.info(
                         "[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)",
                         amount,
@@ -232,16 +282,27 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
             }
             
             # Add family member attribution if spending from family account
+            family_id = None
             if await family_manager.is_virtual_family_account(from_user):
                 user_id = str(current_user["_id"])
                 username = current_user["username"]
-                family_note = f"Spent by family member @{username}"
-                if note:
-                    send_txn["note"] = f"{note} ({family_note})"
-                else:
-                    send_txn["note"] = family_note
-                send_txn["family_member_id"] = user_id
-                send_txn["family_member_username"] = username
+                
+                # Get family ID for audit trail
+                family_id = await family_manager.get_family_id_by_sbd_account(from_user)
+                
+                # Enhanced family member attribution with audit context
+                enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
+                    send_txn, family_id, user_id, username, {
+                        "transaction_type": "send",
+                        "recipient": to_user,
+                        "original_note": note,
+                        "request_context": {
+                            "ip_address": getattr(request, "client", {}).get("host"),
+                            "user_agent": request.headers.get("user-agent")
+                        }
+                    }
+                )
+                send_txn.update(enhanced_send_txn)
             elif note:
                 send_txn["note"] = note
             res1 = await users_collection.update_one(
@@ -263,19 +324,56 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
             if await family_manager.is_virtual_family_account(from_user):
                 user_id = str(current_user["_id"])
                 username = current_user["username"]
-                family_note = f"Sent by family member @{username}"
-                if note:
-                    receive_txn["note"] = f"{note} ({family_note})"
-                else:
-                    receive_txn["note"] = family_note
-                receive_txn["family_member_id"] = user_id
-                receive_txn["family_member_username"] = username
+                
+                # Enhanced family member attribution for receive transaction
+                enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
+                    receive_txn, family_id, user_id, username, {
+                        "transaction_type": "receive",
+                        "sender": from_user,
+                        "original_note": note,
+                        "request_context": {
+                            "ip_address": getattr(request, "client", {}).get("host"),
+                            "user_agent": request.headers.get("user-agent")
+                        }
+                    }
+                )
+                receive_txn.update(enhanced_receive_txn)
             elif note:
                 receive_txn["note"] = note
             await users_collection.update_one(
                 {"username": to_user},
                 {"$inc": {"sbd_tokens": amount}, "$push": {"sbd_tokens_transactions": receive_txn}},
             )
+            # Log comprehensive audit trail for family transactions (non-replica set)
+            if family_id:
+                try:
+                    await family_audit_manager.log_sbd_transaction_audit(
+                        family_id=family_id,
+                        transaction_id=transaction_id,
+                        transaction_type="send",
+                        amount=amount,
+                        from_account=from_user,
+                        to_account=to_user,
+                        family_member_id=str(current_user["_id"]),
+                        family_member_username=current_user["username"],
+                        transaction_context={
+                            "original_note": note,
+                            "enhanced_note": send_txn.get("note"),
+                            "request_metadata": {
+                                "ip_address": getattr(request, "client", {}).get("host"),
+                                "user_agent": request.headers.get("user-agent"),
+                                "timestamp": now_iso
+                            },
+                            "transaction_flow": "family_to_external",
+                            "compliance_flags": ["family_spending", "non_replica_set"]
+                        }
+                    )
+                except Exception as audit_error:
+                    logger.warning(
+                        "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
+                        transaction_id, audit_error
+                    )
+            
             logger.info(
                 "[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)", amount, from_user, to_user, transaction_id
             )
