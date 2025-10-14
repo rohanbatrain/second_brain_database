@@ -6,6 +6,7 @@ DEBUG=false
 BASE_URL=dev-app-sbd.rohanbatra.in
 
 # MongoDB Configuration
+
 MONGODB_URL=mongodb://localhost:27017
 MONGODB_DATABASE=SecondBrainDatabase
 MONGODB_CONNECTION_TIMEOUT=10000
@@ -25,6 +26,15 @@ FERNET_KEY=yfjiuawph38gy3hubofygHw*HEUiF8iuHBDSFOUWYEfhoIFJMvdsoUVBSIYVGOBein
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0
+# Local Redis (used in development)
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_DB=0
+# If you use a cloud Redis in prod, set REDIS_STORAGE_URI and credentials.
+# REDIS_STORAGE_URI=redis://:REPLACE_WITH_PASSWORD@host:port/0
+# REDIS_USERNAME=default
+# REDIS_PASSWORD=REPLACE_WITH_PASSWORD
+
 
 # Rate Limiting
 RATE_LIMIT_REQUESTS=100

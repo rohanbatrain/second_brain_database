@@ -23,6 +23,8 @@ class DatabaseManager:
         self.client: Optional[AsyncIOMotorClient] = None
         self.database: Optional[AsyncIOMotorDatabase] = None
         self._connection_retries = 3
+        # Will be set after connect(); True when connected to a replica-set or mongos that supports transactions
+        self.transactions_supported: Optional[bool] = None
 
     async def connect(self):
         """Connect to MongoDB with retry logic"""
@@ -79,6 +81,22 @@ class DatabaseManager:
                 ping_start = time.time()
                 await self.client.admin.command("ping")
                 ping_duration = time.time() - ping_start
+                # Detect whether the server supports transactions (i.e., is part of a replica set or a mongos)
+                try:
+                    # 'hello' is preferred; fallback to isMaster for older servers
+                    try:
+                        hello = await self.client.admin.command({"hello": 1})
+                    except Exception:
+                        hello = await self.client.admin.command({"isMaster": 1})
+
+                    # Replica set: presence of setName -> transactions supported
+                    # Mongos: msg == 'isdbgrid' indicates mongos (which supports transactions)
+                    self.transactions_supported = bool(
+                        hello.get("setName") or hello.get("msg") == "isdbgrid"
+                    )
+                except Exception:
+                    # If detection fails, be conservative and assume transactions are not supported
+                    self.transactions_supported = False
 
                 total_duration = time.time() - start_time
                 perf_logger.info(
@@ -655,6 +673,14 @@ class DatabaseManager:
 
         except Exception as e:
             health_logger.error("Connection pool monitoring failed: %s", e)
+
+    async def initialize(self):
+        """Initialize database connection (alias for connect)"""
+        await self.connect()
+        
+    async def close(self):
+        """Close database connection (alias for disconnect)"""
+        await self.disconnect()
 
 
 # Global database manager instance

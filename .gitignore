@@ -181,3 +181,5 @@ cython_debug/
 *.json
 .sbd
 *.kiro
+.sbd
+.sbd

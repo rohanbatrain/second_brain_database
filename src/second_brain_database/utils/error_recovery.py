@@ -125,9 +125,21 @@ class ErrorRecoveryManager:
         self.recovery_history: List[RecoveryContext] = []
         self.health_check_tasks: Dict[str, asyncio.Task] = {}
         self.recovery_callbacks: Dict[str, List[Callable]] = {}
+        self._health_monitoring_started = False
         
-        # Start background health monitoring
-        asyncio.create_task(self._start_health_monitoring())
+        # Don't start health monitoring during import - will be started lazily
+    
+    def _ensure_health_monitoring_started(self):
+        """Ensure health monitoring is started (lazy initialization)"""
+        if not self._health_monitoring_started:
+            try:
+                # Only start if we're in an async context
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self._start_health_monitoring())
+                self._health_monitoring_started = True
+            except RuntimeError:
+                # No running event loop, will start later when needed
+                pass
     
     async def recover_from_error(
         self,
@@ -150,6 +162,9 @@ class ErrorRecoveryManager:
         Returns:
             Tuple of (success, result) where success indicates if recovery worked
         """
+        # Ensure health monitoring is started
+        self._ensure_health_monitoring_started()
+        
         recovery_id = f"{context.operation}_{int(time.time() * 1000)}"
         
         recovery_context = RecoveryContext(

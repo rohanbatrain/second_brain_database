@@ -127,7 +127,16 @@ class Settings(BaseSettings):
     MONGODB_PASSWORD: Optional[SecretStr] = None
 
     # Redis configuration
-    REDIS_URL: str = ""  # Must be set in .sbd or environment
+    # Redis configuration
+    # REDIS_URL is the effective URL used by the app. It can be provided directly
+    # or will be constructed from REDIS_STORAGE_URI or host/port/credentials below.
+    REDIS_URL: Optional[str] = None
+    REDIS_STORAGE_URI: Optional[str] = None
+    REDIS_HOST: str = "127.0.0.1"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_USERNAME: Optional[str] = None
+    REDIS_PASSWORD: Optional[SecretStr] = None
 
     # Permanent Token configuration
     PERMANENT_TOKENS_ENABLED: bool = True  # Enable/disable permanent token feature
@@ -237,7 +246,7 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name} must be set via environment or .sbd and not hardcoded!")
         return v
 
-    @field_validator("MONGODB_URL", "REDIS_URL", mode="before")
+    @field_validator("MONGODB_URL", mode="before")
     @classmethod
     def no_empty_urls(cls, v, info):
         if not v or not str(v).strip():
@@ -262,3 +271,22 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings: Settings = Settings()
+
+# Compute effective REDIS_URL if not explicitly provided.
+# Precedence: explicit REDIS_URL -> REDIS_STORAGE_URI -> constructed from host/port/db and optional credentials.
+if not settings.REDIS_URL:
+    if settings.REDIS_STORAGE_URI:
+        settings.REDIS_URL = settings.REDIS_STORAGE_URI
+    else:
+        # Build credentials part
+        creds = ""
+        if settings.REDIS_USERNAME or settings.REDIS_PASSWORD:
+            username = settings.REDIS_USERNAME or ""
+            password = settings.REDIS_PASSWORD.get_secret_value() if settings.REDIS_PASSWORD else ""
+            # If only password present, use :password@ form
+            if username and password:
+                creds = f"{username}:{password}@"
+            elif password and not username:
+                creds = f":{password}@"
+
+        settings.REDIS_URL = f"redis://{creds}{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"

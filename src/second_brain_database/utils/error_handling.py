@@ -736,8 +736,10 @@ def handle_errors(
                         
                         # Retry logic
                         if retry_config:
+                            async def circuit_breaker_func():
+                                return await cb.call(func, *args, **kwargs)
                             result = await retry_with_backoff(
-                                lambda: cb.call(func, *args, **kwargs),
+                                circuit_breaker_func,
                                 retry_config,
                                 context
                             )

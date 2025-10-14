@@ -238,13 +238,22 @@ class ErrorMonitor:
         
         # Background tasks
         self.monitoring_task = None
-        self.start_monitoring()
+        self._monitoring_started = False
+        # Don't start monitoring during import - will be started lazily
     
     def start_monitoring(self):
         """Start background monitoring tasks."""
-        if self.monitoring_task is None or self.monitoring_task.done():
-            self.monitoring_task = asyncio.create_task(self._monitoring_loop())
-            self.logger.info("Error monitoring started")
+        if not self._monitoring_started:
+            try:
+                # Only start if we're in an async context
+                loop = asyncio.get_running_loop()
+                if self.monitoring_task is None or self.monitoring_task.done():
+                    self.monitoring_task = asyncio.create_task(self._monitoring_loop())
+                    self.logger.info("Error monitoring started")
+                    self._monitoring_started = True
+            except RuntimeError:
+                # No running event loop, will start later when needed
+                self.logger.debug("No event loop available, monitoring will start later")
     
     def stop_monitoring(self):
         """Stop background monitoring tasks."""
@@ -270,6 +279,8 @@ class ErrorMonitor:
             recovery_attempted: Whether recovery was attempted
             recovery_successful: Whether recovery was successful
         """
+        # Ensure monitoring is started when we actually use the error monitor
+        self.start_monitoring()
         event = ErrorEvent(
             timestamp=datetime.now(timezone.utc),
             operation=context.operation,

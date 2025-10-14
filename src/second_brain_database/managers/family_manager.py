@@ -51,6 +51,7 @@ from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.security_manager import security_manager
+from bson import ObjectId
 
 # Import enterprise error handling and resilience features
 from second_brain_database.utils.error_handling import (
@@ -460,6 +461,16 @@ class FamilyManager:
             # Validate and generate SBD account username
             sbd_account_username = await self._generate_unique_sbd_username(name)
             
+            # If the database doesn't support transactions (e.g., local standalone Mongo),
+            # fall back to a careful non-transactional flow with compensating cleanup.
+            if getattr(self.db_manager, "transactions_supported", False) is False:
+                self.logger.warning(
+                    "Database does not support transactions; using non-transactional fallback for create_family"
+                )
+                return await self._create_family_non_transactional(
+                    user_id, name, family_id, sbd_account_username, limits_info, start_time, operation_context
+                )
+
             # Start transaction
             session = await client.start_session()
             
@@ -710,6 +721,11 @@ class FamilyManager:
             # Validate relationship logic (prevent contradictory relationships)
             await self._validate_relationship_logic(inviter_id, invitee_id, relationship_type, family_id)
             
+            # If the database doesn't support transactions, use a non-transactional path
+            if getattr(self.db_manager, "transactions_supported", False) is False:
+                self.logger.warning("Database does not support transactions; using non-transactional invite flow")
+                return await self._create_invitation_non_transactional(family_id, inviter_id, invitee_user, relationship_type, start_time)
+
             # Start transaction for invitation creation
             client = self.db_manager.client
             session = await client.start_session()
@@ -876,10 +892,15 @@ class FamilyManager:
             # Check if invitation is still valid
             if invitation["status"] != "pending":
                 raise InvitationNotFound("Invitation has already been responded to")
-            
-            if datetime.now(timezone.utc) > invitation["expires_at"]:
+
+            # Normalize datetimes (DB may contain naive datetimes). Treat naive as UTC.
+            expires_at = invitation.get("expires_at")
+            if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            if expires_at and datetime.now(timezone.utc) > expires_at:
                 raise InvitationNotFound("Invitation has expired")
-            
+
             now = datetime.now(timezone.utc)
             
             if action.lower() == "accept":
@@ -1689,6 +1710,139 @@ class FamilyManager:
             {"$push": {"family_memberships": membership}},
             session=session
         )
+
+    # --- Non-transactional fallbacks ---------------------------------
+    async def _create_virtual_account_non_transactional(self, username: str, family_id: str) -> Dict[str, Any]:
+        """
+        Create virtual SBD account without a DB transaction. Returns the created virtual_account doc.
+        Caller must perform compensating cleanup if subsequent steps fail.
+        """
+        users_collection = self.db_manager.get_collection("users")
+        now = datetime.now(timezone.utc)
+        account_id = f"va_{uuid.uuid4().hex[:16]}"
+
+        virtual_account = {
+            "username": username,
+            "sbd_tokens": 0,
+            "sbd_tokens_transactions": [],
+            "email": f"{username}@system.internal",
+            "is_virtual_account": True,
+            "managed_by_family": family_id,
+            "created_at": now,
+            "updated_at": now,
+            "account_type": "family_virtual",
+            "status": "active",
+            "account_id": account_id,
+            "security_settings": {"creation_method": "family_system", "requires_family_auth": True},
+            "audit_trail": {"created_by_system": "family_manager", "creation_timestamp": now},
+            "access_controls": {"authorized_family_members": [], "spending_permissions": {}},
+            "retention_policy": {"retain_transactions": True},
+            "performance_metrics": {"total_transactions": 0}
+        }
+
+        try:
+            result = await users_collection.insert_one(virtual_account)
+            virtual_account["_id"] = result.inserted_id
+            self.logger.info("Non-transactional virtual account created: %s (account_id=%s)", username, account_id)
+            return virtual_account
+        except Exception as e:
+            self.logger.error("Failed to create non-transactional virtual account %s: %s", username, e, exc_info=True)
+            raise TransactionError(f"Failed to create virtual account non-transactionally: {e}", operation="create_virtual_account")
+
+    async def _add_user_to_family_membership_non_transactional(self, user_id: str, family_id: str, role: str, joined_at: datetime) -> None:
+        """Add user to family membership list without a DB transaction."""
+        users_collection = self.db_manager.get_collection("users")
+        # Resolve canonical user document to ensure correct _id type
+        user_doc = await self._get_user_by_id(user_id)
+        canonical_id = user_doc.get("_id")
+
+        membership = {
+            "family_id": family_id,
+            "role": role,
+            "joined_at": joined_at,
+            "spending_permissions": {
+                "can_spend": role == "admin",
+                "spending_limit": -1 if role == "admin" else 0,
+                "last_updated": joined_at
+            },
+            "status": "active"
+        }
+
+        try:
+            result = await users_collection.update_one({"_id": canonical_id}, {"$push": {"family_memberships": membership}})
+            # Log update outcome for observability
+            self.logger.info("Membership update for user %s -> matched=%d modified=%d", canonical_id, result.matched_count, result.modified_count)
+            if result.matched_count == 0:
+                raise TransactionError(f"No matching user found for membership update (id={canonical_id})", operation="add_membership")
+        except Exception as e:
+            self.logger.error("Failed to add user %s to family %s non-transactionally: %s", user_id, family_id, e, exc_info=True)
+            raise TransactionError(f"Failed to add user to family non-transactionally: {e}", operation="add_membership")
+
+    async def _create_family_non_transactional(self, user_id: str, name: str, family_id: str, sbd_account_username: str, limits_info: Dict[str, Any], start_time: float, operation_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Non-transactional fallback for family creation. Performs operations in order and cleans up on failure.
+        This is intended for local/dev environments where MongoDB transactions are not available.
+        """
+        families_collection = self.db_manager.get_collection("families")
+        now = datetime.now(timezone.utc)
+        family_doc = await self._build_family_document(family_id, name, user_id, sbd_account_username, now)
+
+        # Keep track of what we've created so we can compensate on failure
+        created_virtual_account = None
+        created_family = None
+
+        try:
+            # Insert family document first
+            res = await families_collection.insert_one(family_doc)
+            created_family = res.inserted_id
+
+            # Create virtual account
+            created_virtual_account = await self._create_virtual_account_non_transactional(sbd_account_username, family_id)
+
+            # Add user to membership
+            await self._add_user_to_family_membership_non_transactional(user_id, family_id, "admin", now)
+
+            # Cache and log success
+            self._cache_family(family_id, family_doc)
+            self.db_manager.log_query_success("families", "create_family_non_transactional", start_time, 1, f"Family created non-transactionally: {family_id}")
+
+            self.logger.info("Family created (non-transactional) %s by user %s", family_id, user_id, extra={"family_id": family_id})
+
+            return {
+                "family_id": family_id,
+                "name": name,
+                "admin_user_ids": [user_id],
+                "member_count": 1,
+                "created_at": now,
+                "sbd_account": {
+                    "account_username": sbd_account_username,
+                    "balance": 0,
+                    "is_frozen": False
+                },
+                "limits_info": limits_info,
+                "transaction_safe": False
+            }
+
+        except Exception as e:
+            # Attempt compensating cleanup
+            cleanup_errors = []
+            try:
+                if created_virtual_account:
+                    # remove virtual account
+                    users_collection = self.db_manager.get_collection("users")
+                    await users_collection.delete_one({"_id": created_virtual_account.get("_id")})
+            except Exception as ce:
+                cleanup_errors.append(str(ce))
+
+            try:
+                if created_family:
+                    await families_collection.delete_one({"_id": created_family})
+            except Exception as ce:
+                cleanup_errors.append(str(ce))
+
+            self.db_manager.log_query_error("families", "create_family_non_transactional", start_time, e, operation_context)
+            self.logger.error("Non-transactional family creation failed for user %s: %s; cleanup_errors=%s", user_id, e, cleanup_errors, exc_info=True)
+            raise TransactionError(f"Failed to create family non-transactionally: {e}", operation="create_family")
     
     def _get_operation_rate_limit(self, operation: str) -> int:
         """Get rate limit for specific family operations using configuration."""
@@ -1915,7 +2069,17 @@ class FamilyManager:
     async def _get_user_by_id(self, user_id: str) -> Dict[str, Any]:
         """Get user document by ID."""
         users_collection = db_manager.get_collection("users")
+        # Try direct lookup first (maybe _id stored as ObjectId or string)
         user = await users_collection.find_one({"_id": user_id})
+        if not user:
+            # If user_id looks like an ObjectId hex string, try converting
+            try:
+                if isinstance(user_id, str) and len(user_id) == 24:
+                    oid = ObjectId(user_id)
+                    user = await users_collection.find_one({"_id": oid})
+            except Exception:
+                user = None
+
         if not user:
             raise FamilyError(f"User not found: {user_id}")
         return user
@@ -2009,7 +2173,10 @@ class FamilyManager:
     async def _add_user_to_family_membership(self, user_id: str, family_id: str, role: str, joined_at: datetime) -> None:
         """Add user to family membership list."""
         users_collection = db_manager.get_collection("users")
-        
+        # Resolve canonical user document to ensure correct _id type
+        user_doc = await self._get_user_by_id(user_id)
+        canonical_id = user_doc.get("_id")
+
         membership = {
             "family_id": family_id,
             "role": role,
@@ -2020,11 +2187,11 @@ class FamilyManager:
                 "last_updated": joined_at
             }
         }
-        
-        await users_collection.update_one(
-            {"_id": user_id},
-            {"$push": {"family_memberships": membership}}
-        )
+
+        result = await users_collection.update_one({"_id": canonical_id}, {"$push": {"family_memberships": membership}})
+        self.logger.info("Legacy membership update for user %s -> matched=%d modified=%d", canonical_id, result.matched_count, result.modified_count)
+        if result.matched_count == 0:
+            raise FamilyError(f"Failed to add user to family: no matching user for id {canonical_id}")
 
     async def _create_bidirectional_relationship(self, family_id: str, user_a_id: str, user_b_id: str, 
                                                relationship_type: str) -> None:
@@ -2268,6 +2435,45 @@ class FamilyManager:
         finally:
             if session:
                 await session.end_session()
+
+    async def _create_invitation_non_transactional(self, family_id: str, inviter_id: str, invitee_user: Dict[str, Any], relationship_type: str, start_time: float) -> Dict[str, Any]:
+        """
+        Non-transactional invitation creation for environments without transaction support.
+        Inserts invitation, attempts to send email, and updates the invitation document accordingly.
+        """
+        invitations_collection = self.db_manager.get_collection("family_invitations")
+        family = await self._get_family_by_id(family_id)
+
+        invitation_data = await self._generate_secure_invitation(family_id, inviter_id, invitee_user, relationship_type)
+        try:
+            await invitations_collection.insert_one(invitation_data["document"])
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "create_invitation_non_transactional", start_time, e, {"family_id": family_id})
+            self.logger.error("Failed to insert invitation non-transactionally: %s", e, exc_info=True)
+            raise TransactionError(f"Failed to create invitation: {e}")
+
+        # Send the email (best-effort; failure doesn't remove the invitation)
+        email_sent = await self._send_invitation_email_safe(invitation_data["document"], family)
+
+        try:
+            await invitations_collection.update_one({"invitation_id": invitation_data["invitation_id"]}, {"$set": {"email_sent": email_sent, "email_sent_at": datetime.now(timezone.utc) if email_sent else None, "email_attempts": 1}})
+        except Exception as e:
+            # Log but don't treat as fatal — we already have the invitation stored
+            self.logger.warning("Failed to update email_sent status on invitation %s: %s", invitation_data["invitation_id"], e, exc_info=True)
+
+        self.db_manager.log_query_success("family_invitations", "create_invitation_non_transactional", start_time, 1, f"Invitation created non-transactionally: {invitation_data['invitation_id']}")
+
+        return {
+            "invitation_id": invitation_data["invitation_id"],
+            "family_name": family.get("name"),
+            "invitee_email": invitation_data["document"].get("invitee_email"),
+            "invitee_username": invitee_user.get("username"),
+            "relationship_type": relationship_type,
+            "expires_at": invitation_data["expires_at"],
+            "status": "pending",
+            "email_sent": email_sent,
+            "transaction_safe": False
+        }
 
     async def get_family_relationships(self, family_id: str, user_id: str) -> List[Dict[str, Any]]:
         """
@@ -2707,7 +2913,7 @@ class FamilyManager:
 
     # Duplicate method removed - keeping only the first definition
 
-    async def generate_collision_resistant_family_username(self, family_name: str, max_attempts: int = 10) -> str:
+    async def generate_collision_resistant_family_username(self, family_name: str, max_attempts: int = 20) -> str:
         """
         Generate a collision-resistant virtual family account username.
         
@@ -2727,19 +2933,22 @@ class FamilyManager:
         # Try base name first
         base_username = f"{VIRTUAL_ACCOUNT_PREFIX}{sanitized_name}"
         
+        attempted_candidates = []
         for attempt in range(max_attempts):
             candidate_username = base_username
-            
+
             # Add suffix for collision avoidance after first attempt
             if attempt > 0:
-                # Use timestamp-based suffix for uniqueness
-                timestamp_suffix = str(int(datetime.now(timezone.utc).timestamp()))[-6:]
-                candidate_username = f"{base_username}_{timestamp_suffix}"
-            
+                # Use uuid-based suffix for stronger uniqueness
+                uuid_suffix = uuid.uuid4().hex[:8]
+                candidate_username = f"{base_username}_{uuid_suffix}"
+
+            attempted_candidates.append(candidate_username)
+
             # Check if username is available
             if await self._is_username_available(candidate_username):
-                # Validate against reserved prefixes (should pass since we're using family_ prefix)
-                is_valid, error_msg = await self.validate_username_against_reserved_prefixes(candidate_username)
+                # Validate against reserved prefixes - allow the virtual account prefix for family accounts
+                is_valid, error_msg = await self.validate_username_against_reserved_prefixes(candidate_username, allow_virtual_prefix=True)
                 if is_valid:
                     self.logger.info(
                         "Generated collision-resistant family username: %s (attempt %d)", 
@@ -2753,6 +2962,16 @@ class FamilyManager:
                     )
         
         # If we can't generate a unique username, raise an error
+        # Log attempted candidates for debugging
+        try:
+            self.logger.error(
+                "Unable to generate unique family username after %d attempts. Candidates tried: %s",
+                max_attempts, ",".join(attempted_candidates)
+            )
+        except Exception:
+            # Best-effort logging; don't fail on logging problems
+            pass
+
         raise ValidationError(
             f"Unable to generate unique family username after {max_attempts} attempts",
             field="family_name",
@@ -2815,7 +3034,7 @@ class FamilyManager:
             self.logger.error("Error checking username availability: %s", e, exc_info=True)
             return False
 
-    async def validate_username_against_reserved_prefixes(self, username: str) -> Tuple[bool, str]:
+    async def validate_username_against_reserved_prefixes(self, username: str, allow_virtual_prefix: bool = False) -> Tuple[bool, str]:
         """
         Validate username against reserved prefixes used by the family system.
         
@@ -2831,8 +3050,11 @@ class FamilyManager:
             
             username_lower = username.lower()
             
-            # Check against reserved prefixes
+            # Check against reserved prefixes. Allow virtual account prefix when requested
             for prefix in RESERVED_PREFIXES:
+                if allow_virtual_prefix and prefix == VIRTUAL_ACCOUNT_PREFIX:
+                    # Skip blocking the virtual account prefix when explicitly allowed
+                    continue
                 if username_lower.startswith(prefix):
                     return False, f"Username cannot start with reserved prefix '{prefix}'"
             

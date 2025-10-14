@@ -100,3 +100,10 @@ docker run -p 8000:8000 second-brain-database
 ## License
 
 [Add your license information here]
+
+## Redis Configuration
+
+This service uses Redis for short-lived session/state and abuse tracking.
+See `docs/REDIS.md` for details on local-first vs cloud Redis fallback and an
+example `.env.production.example` showing how to provide `REDIS_STORAGE_URI` for
+managed Redis providers.

@@ -101,7 +101,12 @@ def ping_loki_and_flush_if_available():
     """
     logger = get_logger()
     try:
-        resp = requests.get(LOKI_HEALTH_URL, timeout=5)
+        # Use shorter timeout and more aggressive connection settings
+        resp = requests.get(
+            LOKI_HEALTH_URL, 
+            timeout=(2, 3),  # (connect_timeout, read_timeout)
+            headers={'Connection': 'close'}  # Don't keep connection alive
+        )
         if resp.status_code == 200:
             logger.info("[LoggingManager] Loki is available. Flushing buffer and switching to Loki logging.")
             if LOKI_BUFFER_FLUSH_ENABLED:
@@ -124,13 +129,30 @@ def ping_loki_and_flush_if_available():
                 logger.info("[LoggingManager] Buffer flush is disabled by admin toggle.")
         else:
             logger.warning(f"[LoggingManager] Loki health check failed: status {resp.status_code}")
+    except (requests.exceptions.RequestException, requests.exceptions.Timeout, 
+            requests.exceptions.ConnectionError) as e:
+        logger.warning(f"[LoggingManager] Loki health check connection failed: {e}")
     except Exception as e:
         logger.warning(f"[LoggingManager] Loki health check exception: {e}")
-    # Schedule next ping
-    threading.Timer(LOKI_PING_INTERVAL_SECONDS, ping_loki_and_flush_if_available).start()
+    finally:
+        # Always schedule next ping, even if this one failed
+        try:
+            timer = threading.Timer(LOKI_PING_INTERVAL_SECONDS, ping_loki_and_flush_if_available)
+            timer.daemon = True  # Make it a daemon thread so it doesn't prevent process exit
+            timer.start()
+        except Exception as timer_e:
+            logger.error(f"[LoggingManager] Failed to schedule next Loki ping: {timer_e}")
 
-# Start the daily ping/flush scheduler at import
-threading.Timer(10, ping_loki_and_flush_if_available).start()  # Delay 10s to avoid race at startup
+# Start the daily ping/flush scheduler at import with error handling
+try:
+    timer = threading.Timer(10, ping_loki_and_flush_if_available)
+    timer.daemon = True  # Make it a daemon thread so it doesn't prevent process exit
+    timer.start()  # Delay 10s to avoid race at startup
+except Exception as e:
+    # If we can't start the timer, log it but don't crash the application
+    logging.getLogger("Second_Brain_Database").warning(
+        f"[LoggingManager] Failed to start Loki ping scheduler: {e}. Loki integration disabled."
+    )
 
 def _write_to_buffer(record: logging.LogRecord) -> None:
     """
