@@ -1705,11 +1705,28 @@ class FamilyManager:
             "status": "active"
         }
         
-        await users_collection.update_one(
-            {"_id": user_id},
+        # Try with string ID first, then ObjectId if needed
+        query = {"_id": user_id}
+        result = await users_collection.update_one(
+            query,
             {"$push": {"family_memberships": membership}},
             session=session
         )
+        
+        # If no match, try converting to ObjectId
+        if result.matched_count == 0 and isinstance(user_id, str) and len(user_id) == 24:
+            try:
+                query = {"_id": ObjectId(user_id)}
+                result = await users_collection.update_one(
+                    query,
+                    {"$push": {"family_memberships": membership}},
+                    session=session
+                )
+            except Exception:
+                pass
+        
+        if result.matched_count == 0:
+            raise FamilyError(f"Failed to add user to family membership: user not found - {user_id}")
 
     # --- Non-transactional fallbacks ---------------------------------
     async def _create_virtual_account_non_transactional(self, username: str, family_id: str) -> Dict[str, Any]:
@@ -3107,13 +3124,14 @@ class FamilyManager:
             self.logger.error("Error sending invitation email: %s", e, exc_info=True)
             # Don't raise exception - invitation was created successfully
 
-    async def delete_family(self, family_id: str, admin_user_id: str) -> Dict[str, Any]:
+    async def delete_family(self, family_id: str, admin_user_id: str, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Delete a family and clean up all associated resources.
         
         Args:
             family_id: ID of the family to delete
             admin_user_id: ID of the admin user requesting deletion
+            request_context: Request context for rate limiting and security (optional)
             
         Returns:
             Dict containing deletion confirmation
@@ -3143,7 +3161,7 @@ class FamilyManager:
             await self._remove_family_memberships(member_ids, family_id)
             
             # Delete all family relationships
-            await self._delete_family_relationships(family_id)
+            relationships_deleted = await self._delete_family_relationships(family_id)
             
             # Delete all family invitations
             await self._delete_family_invitations(family_id)
@@ -3156,6 +3174,7 @@ class FamilyManager:
             
             # Finally, delete the family document
             families_collection = db_manager.get_collection("families")
+            deletion_timestamp = datetime.now(timezone.utc)
             await families_collection.delete_one({"family_id": family_id})
             
             db_manager.log_query_success("families", "delete_family", start_time, 1,
@@ -3167,7 +3186,11 @@ class FamilyManager:
                 "status": "success",
                 "family_id": family_id,
                 "message": "Family and all associated resources have been deleted",
-                "members_affected": len(member_ids)
+                "members_notified": len(member_ids),
+                "relationships_cleaned": relationships_deleted,
+                "sbd_account_handled": True,
+                "deleted_at": deletion_timestamp,
+                "transaction_safe": False  # Not using transactions for deletion yet
             }
             
         except (FamilyNotFound, InsufficientPermissions):
@@ -3249,8 +3272,8 @@ class FamilyManager:
         except Exception as e:
             self.logger.error("Error removing family memberships for family %s: %s", family_id, e, exc_info=True)
 
-    async def _delete_family_relationships(self, family_id: str) -> None:
-        """Delete all relationships for a family."""
+    async def _delete_family_relationships(self, family_id: str) -> int:
+        """Delete all relationships for a family and return count."""
         try:
             relationships_collection = db_manager.get_collection("family_relationships")
             result = await relationships_collection.delete_many({"family_id": family_id})
@@ -3258,8 +3281,11 @@ class FamilyManager:
             self.logger.info("Deleted %d family relationships for family %s", 
                            result.deleted_count, family_id)
             
+            return result.deleted_count
+            
         except Exception as e:
             self.logger.error("Error deleting family relationships for family %s: %s", family_id, e, exc_info=True)
+            return 0
 
     async def _delete_family_invitations(self, family_id: str) -> None:
         """Delete all invitations for a family."""
@@ -7761,12 +7787,27 @@ class FamilyManager:
         
         # Check if user is in family members
         users_collection = self.db_manager.get_collection("users")
+        
+        # Try with string ID first
         user = await users_collection.find_one(
             {
                 "_id": user_id,
                 "family_memberships.family_id": family_id
             }
         )
+        
+        # If not found and user_id looks like ObjectId, try converting
+        if not user and isinstance(user_id, str) and len(user_id) == 24:
+            try:
+                oid = ObjectId(user_id)
+                user = await users_collection.find_one(
+                    {
+                        "_id": oid,
+                        "family_memberships.family_id": family_id
+                    }
+                )
+            except Exception:
+                pass
         
         if not user:
             raise InsufficientPermissions("User is not a member of this family")
