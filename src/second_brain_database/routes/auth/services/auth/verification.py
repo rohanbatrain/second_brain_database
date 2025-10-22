@@ -17,7 +17,6 @@ from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.utils.logging_utils import (
     DatabaseLogger,
     SecurityLogger,
-    log_database_operation,
     log_error_with_context,
     log_performance,
     log_security_event,
@@ -148,11 +147,10 @@ async def resend_verification_email_service(
             logger.debug("Looking up user by username: %s", username)
             user = await db_manager.get_collection("users").find_one({"username": username})
 
-        log_database_operation(
-            operation="find_user_for_verification_resend",
-            collection="users",
-            query={"email" if email else "username": identifier},
-            result={"found": user is not None},
+        logger.info(
+            "Database lookup for verification resend - Collection: users, Query: %s, Found: %s",
+            {"email" if email else "username": identifier},
+            user is not None
         )
 
         if not user:
@@ -185,11 +183,10 @@ async def resend_verification_email_service(
             {"_id": user["_id"]}, {"$set": {"verification_token": verification_token}}
         )
 
-        log_database_operation(
-            operation="update_verification_token",
-            collection="users",
-            query={"_id": str(user["_id"])},
-            result={"modified_count": update_result.modified_count},
+        logger.info(
+            "Database update for verification token - Collection: users, User ID: %s, Modified: %d",
+            str(user["_id"]),
+            update_result.modified_count
         )
 
         if update_result.modified_count == 0:

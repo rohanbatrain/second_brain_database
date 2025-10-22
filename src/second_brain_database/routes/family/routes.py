@@ -12,7 +12,7 @@ All endpoints require authentication and follow the established security pattern
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from second_brain_database.managers.family_manager import (
@@ -63,6 +63,7 @@ from second_brain_database.routes.family.models import (
     MarkNotificationsReadRequest,
     NotificationListResponse,
     NotificationPreferencesResponse,
+    ReceivedInvitationResponse,
     RecoveryInitiationResponse,
     RecoveryVerificationResponse,
     RespondToInvitationRequest,
@@ -310,6 +311,203 @@ async def get_my_families(
         )
 
 
+
+@router.get(
+    "/my-invitations",
+    response_model=List[ReceivedInvitationResponse],
+    summary="Get received family invitations",
+    description="""
+    Retrieve all family invitations received by the current authenticated user.
+    
+    This endpoint returns invitations where the current user is the invitee,
+    matching either by user ID or email address. Useful for implementing an
+    in-app "Received Invitations" screen where users can see pending family
+    invitations and accept/decline them directly.
+    
+    **Key Features:**
+    - Returns invitations sent TO the authenticated user
+    - Includes complete family and inviter information
+    - Supports filtering by invitation status
+    - Sorted by creation date (newest first)
+    
+    **Use Cases:**
+    - Display pending family invitations in mobile app
+    - Show invitation history (accepted/declined/expired)
+    - Implement in-app invitation management
+    
+    **Rate Limiting:** 20 requests per hour per user
+    
+    **Next Steps:**
+    After retrieving invitations, users can:
+    - Accept: POST /family/invitations/{invitation_id}/respond with action="accept"
+    - Decline: POST /family/invitations/{invitation_id}/respond with action="decline"
+    
+    **Response Details:**
+    - `invitation_id`: Use this to accept/decline the invitation
+    - `family_id`: ID of the family you're invited to join
+    - `family_name`: Human-readable name of the family
+    - `inviter_username`: Who sent you the invitation
+    - `relationship_type`: Your proposed role (parent, child, sibling, etc.)
+    - `status`: Current state (pending, accepted, declined, expired, cancelled)
+    - `expires_at`: When invitation becomes invalid
+    - `invitation_token`: Optional token for email-based acceptance
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved invitations",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "invitation_id": "inv_abc123xyz789",
+                            "family_id": "fam_def456uvw012",
+                            "family_name": "Johnson Family",
+                            "inviter_user_id": "user_123abc",
+                            "inviter_username": "john_johnson",
+                            "relationship_type": "child",
+                            "status": "pending",
+                            "expires_at": "2025-10-28T14:30:00Z",
+                            "created_at": "2025-10-21T14:30:00Z",
+                            "invitation_token": "tok_xyz789abc123"
+                        }
+                    ]
+                }
+            }
+        },
+        401: {
+            "description": "Unauthorized - Invalid or missing authentication token"
+        },
+        429: {
+            "description": "Rate limit exceeded - Too many requests"
+        },
+        500: {
+            "description": "Internal server error - Failed to retrieve invitations"
+        }
+    },
+    tags=["Family Invitations"]
+)
+async def get_my_invitations(
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns),
+    status: Optional[str] = Query(
+        None,
+        description="Filter by invitation status",
+        example="pending",
+        pattern="^(pending|accepted|declined|expired|cancelled)$"
+    ),
+) -> List[ReceivedInvitationResponse]:
+    """
+    Get invitations received by the current authenticated user.
+
+    Returns a list of invitations sent to the user (by invitee_user_id or invitee_email).
+    Includes complete family and inviter information for each invitation.
+    """
+    user_id = str(current_user["_id"])
+    user_email = current_user.get("email")
+
+    # Validate status parameter
+    if status and status not in ["pending", "accepted", "declined", "expired", "cancelled"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_STATUS_FILTER",
+                "message": f"Invalid status '{status}'. Must be one of: pending, accepted, declined, expired, cancelled"
+            }
+        )
+
+    # Rate limit: 20 requests per hour for listing received invitations
+    await security_manager.check_rate_limit(
+        request,
+        f"received_invitations_{user_id}",
+        rate_limit_requests=20,
+        rate_limit_period=3600
+    )
+
+    try:
+        invitations = await family_manager.get_received_invitations(
+            user_id=user_id,
+            user_email=user_email,
+            status_filter=status
+        )
+        
+        # Filter invitations based on required conditions:
+        # 1. Has recipient info (invitee_email OR invitee_username)
+        # 2. Has inviter OR family info (inviter_username not "Unknown" OR family_name not "Unknown Family")
+        # 3. Not in bad expired state: if expired and status is not pending, skip it
+        
+        filtered_invitations = []
+        for invitation in invitations:
+            # Check recipient info
+            invitee_email = invitation.get("invitee_email") or ""
+            invitee_username = invitation.get("invitee_username") or ""
+            has_recipient_info = (invitee_email.strip() != "") or (invitee_username.strip() != "")
+            
+            # Check inviter OR family info
+            inviter_username = invitation.get("inviter_username", "Unknown")
+            family_name = invitation.get("family_name", "Unknown Family")
+            has_inviter_or_family_info = (
+                (inviter_username and inviter_username != "Unknown") or
+                (family_name and family_name != "Unknown Family")
+            )
+            
+            # Check expired state
+            invitation_status = invitation.get("status", "")
+            expires_at = invitation.get("expires_at")
+            is_expired = False
+            if expires_at:
+                from datetime import datetime, timezone
+                # Handle both aware and naive datetimes
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                is_expired = datetime.now(timezone.utc) > expires_at
+            
+            # If expired and status is not pending, skip this invitation
+            if is_expired and invitation_status != "pending":
+                logger.debug("Skipping invitation %s: expired with non-pending status %s", 
+                           invitation.get("invitation_id"), invitation_status)
+                continue
+            
+            # Apply all required conditions
+            if not (has_recipient_info and has_inviter_or_family_info):
+                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)", 
+                           invitation.get("invitation_id"), has_recipient_info, has_inviter_or_family_info)
+                continue
+            
+            filtered_invitations.append(invitation)
+        
+        logger.info(
+            "User %s retrieved %d received invitations (%d passed validation, status_filter=%s)",
+            user_id, len(filtered_invitations), len(invitations), status or "all"
+        )
+        
+        return [ReceivedInvitationResponse(**inv) for inv in filtered_invitations]
+        
+    except FamilyError as e:
+        logger.error(
+            "Failed to fetch received invitations for user %s: %s",
+            user_id, e, exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "FAILED_TO_FETCH_INVITATIONS",
+                "message": "Unable to retrieve family invitations. Please try again later."
+            }
+        )
+    except Exception as e:
+        logger.error(
+            "Unexpected error fetching received invitations for user %s: %s",
+            user_id, e, exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred. Please try again later."
+            }
+        )
+
+
 @router.post("/{family_id}/invite", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
 async def invite_family_member(
     request: Request,
@@ -358,6 +556,8 @@ async def invite_family_member(
             invitation_id=invitation_data["invitation_id"],
             family_name=invitation_data["family_name"],
             inviter_username=current_user["username"],
+            invitee_email=invitation_data.get("invitee_email"),
+            invitee_username=invitation_data.get("invitee_username"),
             relationship_type=invitation_data["relationship_type"],
             status="pending",
             expires_at=invitation_data["expires_at"],
@@ -624,22 +824,24 @@ async def decline_invitation_by_token(
 async def get_family_invitations(
     request: Request,
     family_id: str,
-    status: Optional[str] = None,
+    status_filter: Optional[str] = None,
     current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[InvitationResponse]:
     """
     Get all invitations for a family.
     
-    Only family administrators can view invitations.
+    Only family administrators can view invitation details.
+    Non-admin family members will receive an empty list.
     Optionally filter by status (pending, accepted, declined, expired).
     
     **Rate Limiting:** 20 requests per hour per user
     
     **Requirements:**
-    - User must be a family administrator
+    - User must be a member of the family
     
     **Returns:**
-    - List of family invitations with details
+    - List of family invitations with details (admins only)
+    - Empty list for non-admin members
     """
     user_id = str(current_user["_id"])
     
@@ -652,21 +854,63 @@ async def get_family_invitations(
     )
     
     try:
-        invitations = await family_manager.get_family_invitations(family_id, user_id, status)
+        invitations = await family_manager.get_family_invitations(family_id, user_id, status_filter)
         
         logger.debug("Retrieved %d invitations for family %s", len(invitations), family_id)
         
         invitation_responses = []
         for invitation in invitations:
+            # Filter invitations based on required conditions:
+            # 1. Has recipient info (invitee_email OR invitee_username)
+            invitee_email = invitation.get("invitee_email") or ""
+            invitee_username = invitation.get("invitee_username") or ""
+            has_recipient_info = (invitee_email.strip() != "") or (invitee_username.strip() != "")
+            
+            # 2. Has inviter OR family info (inviter_username not "Unknown" OR family_name not "Unknown Family")
+            inviter_username = invitation.get("inviter_username", "Unknown")
+            family_name = invitation.get("family_name", "Unknown Family")
+            has_inviter_or_family_info = (
+                (inviter_username and inviter_username != "Unknown") or
+                (family_name and family_name != "Unknown Family")
+            )
+            
+            # 3. Not in bad expired state: if expired and status is not pending, skip it
+            invitation_status = invitation.get("status", "")
+            expires_at = invitation.get("expires_at")
+            is_expired = False
+            if expires_at:
+                from datetime import datetime, timezone
+                # Handle both aware and naive datetimes
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                is_expired = datetime.now(timezone.utc) > expires_at
+            
+            # If expired and status is not pending, skip this invitation
+            if is_expired and invitation_status != "pending":
+                logger.debug("Skipping invitation %s: expired with non-pending status %s", 
+                           invitation["invitation_id"], invitation_status)
+                continue
+            
+            # Apply all required conditions
+            if not (has_recipient_info and has_inviter_or_family_info):
+                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)", 
+                           invitation["invitation_id"], has_recipient_info, has_inviter_or_family_info)
+                continue
+            
             invitation_responses.append(InvitationResponse(
                 invitation_id=invitation["invitation_id"],
-                family_name="",  # Will be filled by the response model
-                inviter_username=invitation["inviter_username"],
+                family_name=family_name,
+                inviter_username=inviter_username,
+                invitee_email=invitation.get("invitee_email"),
+                invitee_username=invitation.get("invitee_username"),
                 relationship_type=invitation["relationship_type"],
                 status=invitation["status"],
                 expires_at=invitation["expires_at"],
                 created_at=invitation["created_at"]
             ))
+        
+        logger.info("Filtered invitations: %d out of %d passed validation for family %s", 
+                   len(invitation_responses), len(invitations), family_id)
         
         return invitation_responses
         
@@ -680,14 +924,9 @@ async def get_family_invitations(
             }
         )
     except InsufficientPermissions as e:
-        logger.warning("Insufficient permissions for viewing invitations: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
-        )
+        logger.info("User %s does not have admin permissions to view invitations for family %s, returning empty list", user_id, family_id)
+        # Return empty list instead of 403 to allow graceful handling in client
+        return []
     except FamilyError as e:
         logger.error("Failed to get family invitations: %s", e)
         raise HTTPException(
@@ -1009,7 +1248,7 @@ async def manage_admin_role(
                 "message": str(e)
             }
         )
-    except family_manager.AdminActionError as e:
+    except AdminActionError as e:
         logger.warning("Admin action validation failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1018,7 +1257,7 @@ async def manage_admin_role(
                 "message": str(e)
             }
         )
-    except family_manager.MultipleAdminsRequired as e:
+    except MultipleAdminsRequired as e:
         logger.warning("Multiple admins required for action: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2923,7 +3162,7 @@ async def get_family_members(
     Returns detailed member information including relationships,
     roles, and spending permissions.
     
-    **Rate Limiting:** 20 requests per hour per user
+    **Rate Limiting:** 3600 requests per hour per user
     
     **Requirements:**
     - User must be a member of the family
@@ -2937,7 +3176,7 @@ async def get_family_members(
     await security_manager.check_rate_limit(
         request,
         f"family_members_{user_id}",
-        rate_limit_requests=20,
+        rate_limit_requests=3600,
         rate_limit_period=3600
     )
     
@@ -2948,11 +3187,24 @@ async def get_family_members(
         
         member_responses = []
         for member in members_data:
+            # Extract primary relationship from the current user's perspective
+            # If the current user has a relationship with this member, use it; otherwise use a default
+            primary_relationship = "member"  # Default fallback
+            if member.get("relationships"):
+                # Find relationship with the current user (if any)
+                for rel in member["relationships"]:
+                    if rel.get("related_user_id") == user_id:
+                        primary_relationship = rel.get("relationship_type", "member")
+                        break
+                # If no direct relationship with current user, use the first relationship
+                if primary_relationship == "member" and member["relationships"]:
+                    primary_relationship = member["relationships"][0].get("relationship_type", "member")
+            
             member_responses.append(FamilyMemberResponse(
                 user_id=member["user_id"],
                 username=member["username"],
                 email=member["email"],
-                relationship_type=member["relationship_type"],
+                relationship_type=primary_relationship,
                 role=member["role"],
                 joined_at=member["joined_at"],
                 spending_permissions=member["spending_permissions"]

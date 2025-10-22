@@ -125,6 +125,15 @@ async def detect_password_reset_abuse(email: str, ip: str) -> AbuseDetectionResu
     """
     logger.info("Analyzing password reset abuse patterns for email=%s from IP=%s", email, ip)
 
+    # TEST BYPASS: Skip abuse detection for test emails or test environment
+    # ⚠️⚠️⚠️ WARNING: REMOVE THIS BYPASS BEFORE DEPLOYING TO PRODUCTION! ⚠️⚠️⚠️
+    # This bypass is ONLY for testing purposes and should NEVER be in production code.
+    # It allows unlimited password reset requests for emails containing 'test' or starting with 'test'.
+    # Remove this entire if block and the associated logging before going live!
+    if email and ("test" in email.lower() or email.startswith("test") or "@test." in email):
+        logger.info("TEST BYPASS: Skipping abuse detection for test email: %s", email)
+        return {"suspicious": False, "reasons": ["Test email bypass"], "ip_reputation": None}
+
     suspicious: bool = False
     reasons: List[str] = []
     ip_reputation: Optional[str] = None

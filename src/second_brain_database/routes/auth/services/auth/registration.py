@@ -138,6 +138,9 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         "temporary_ip_access_tokens": [],
         "temporary_user_agent_access_tokens": [],
         "temporary_ip_bypasses": [],
+        # SBD Token fields
+        "sbd_tokens": 0,
+        "sbd_tokens_transactions": [],
     }
 
     # Insert user into database

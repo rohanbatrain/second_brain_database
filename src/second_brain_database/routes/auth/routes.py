@@ -383,6 +383,12 @@ async def verify_email(request: Request, token: str = None, username: str = None
     set_auth_logging_context(ip_address=request_info["ip_address"])
 
     await security_manager.check_rate_limit(request, "verify-email")
+    
+    # Check if request is from a web browser (render HTML) or API client (return JSON)
+    user_agent = request.headers.get("user-agent", "").lower()
+    accept_header = request.headers.get("accept", "").lower()
+    is_browser = "mozilla" in user_agent or "chrome" in user_agent or "safari" in user_agent or "text/html" in accept_header
+    is_mobile_app = any(app in user_agent for app in ["emotion_tracker", "dart", "flutter"])
 
     if not token and not username:
         auth_logger.log_email_verification(
@@ -392,6 +398,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
             success=False,
             reason="Token or username required",
         )
+        if is_browser and not is_mobile_app:
+            from second_brain_database.routes.auth.main import render_email_verification_page
+            return render_email_verification_page(request, success=False, message="Verification Failed: No Token Provided")
         raise HTTPException(status_code=400, detail="Token or username required.")
 
     try:
@@ -401,6 +410,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
             auth_logger.log_email_verification(
                 user_id="token_based", email="unknown", ip_address=request_info["ip_address"], success=True
             )
+            if is_browser and not is_mobile_app:
+                from second_brain_database.routes.auth.main import render_email_verification_page
+                return render_email_verification_page(request, success=True)
             return {"message": "Email verified successfully"}
 
         # Securely handle username-based verification
@@ -413,6 +425,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
                 success=False,
                 reason="Invalid username",
             )
+            if is_browser and not is_mobile_app:
+                from second_brain_database.routes.auth.main import render_email_verification_page
+                return render_email_verification_page(request, success=False, message="Verification Failed: Invalid Username")
             raise HTTPException(status_code=400, detail="Invalid username")
 
         if user.get("is_verified", False):
@@ -423,6 +438,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
                 success=True,
                 reason="Already verified",
             )
+            if is_browser and not is_mobile_app:
+                from second_brain_database.routes.auth.main import render_email_verification_page
+                return render_email_verification_page(request, success=True, message="Email Already Verified")
             return {"message": "Email already verified"}
 
         verification_token = user.get("verification_token")
@@ -434,6 +452,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
                 success=False,
                 reason="No verification token found",
             )
+            if is_browser and not is_mobile_app:
+                from second_brain_database.routes.auth.main import render_email_verification_page
+                return render_email_verification_page(request, success=False, message="Verification Failed: No Token Found")
             raise HTTPException(status_code=400, detail="No verification token found for this user.")
 
         await verify_user_email(verification_token)
@@ -442,10 +463,17 @@ async def verify_email(request: Request, token: str = None, username: str = None
         auth_logger.log_email_verification(
             user_id=username, email=user.get("email", "unknown"), ip_address=request_info["ip_address"], success=True
         )
-
+        
+        if is_browser and not is_mobile_app:
+            from second_brain_database.routes.auth.main import render_email_verification_page
+            return render_email_verification_page(request, success=True)
         return {"message": "Email verified successfully"}
 
-    except HTTPException:
+    except HTTPException as e:
+        if is_browser and not is_mobile_app:
+            from second_brain_database.routes.auth.main import render_email_verification_page
+            error_msg = str(e.detail) if hasattr(e, 'detail') else "Verification Failed"
+            return render_email_verification_page(request, success=False, message=f"Verification Failed: {error_msg}")
         raise
     except Exception as e:
         auth_logger.log_email_verification(
@@ -456,6 +484,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
             reason=f"Internal error: {str(e)}",
         )
         logger.error("Email verification failed: %s", str(e), exc_info=True)
+        if is_browser and not is_mobile_app:
+            from second_brain_database.routes.auth.main import render_email_verification_page
+            return render_email_verification_page(request, success=False, message="Verification Failed: Internal Error")
         raise HTTPException(status_code=500, detail="Email verification failed")
 
 
@@ -570,7 +601,18 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     Compatible with both JSON requests and OAuth2 form data.
     """
     await security_manager.check_rate_limit(request, "login")
+    
+    # Log request details for debugging (especially for mobile apps)
+    user_agent = request.headers.get("user-agent", "")
     content_type = request.headers.get("content-type", "")
+    is_mobile_app = any(app in user_agent.lower() for app in ["emotion_tracker", "dart", "flutter"])
+    
+    if is_mobile_app:
+        logger.info(
+            "POST /auth/login from mobile app - User-Agent: %s, Content-Type: %s, Method: %s, URL: %s",
+            user_agent[:100], content_type, request.method, str(request.url)
+        )
+    
     # Default values
     username = email = password = two_fa_code = two_fa_method = None
     client_side_encryption = False
@@ -3139,6 +3181,9 @@ async def webauthn_authenticate_complete(
 async def login_page(request: Request):
     """
     Serve secure login page with both password and WebAuthn authentication options.
+    
+    For mobile/desktop apps (like Flutter), returns JSON error instead of HTML.
+    For web browsers, HTML rendering is currently disabled.
     """
     await security_manager.check_rate_limit(
         request,
@@ -3148,7 +3193,34 @@ async def login_page(request: Request):
     )
     request_info = extract_request_info(request)
     logger.info("Login page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
+    
+    # Check if request is from a mobile/desktop app (not a web browser)
+    user_agent = request.headers.get("user-agent", "").lower()
+    is_mobile_app = any(app in user_agent for app in ["emotion_tracker", "dart", "flutter"])
+    
+    if is_mobile_app:
+        # Return JSON error for mobile/desktop apps instead of HTML/redirect
+        logger.warning(
+            "GET /auth/login accessed from mobile app - User-Agent: %s, Headers: %s", 
+            user_agent, 
+            dict(request.headers)
+        )
+        return JSONResponse(
+            status_code=405,
+            content={
+                "error": "METHOD_NOT_ALLOWED",
+                "message": "GET method not allowed. Please use POST /auth/login for authentication.",
+                "hint": "This endpoint only accepts POST requests with JSON body containing username/email and password.",
+                "debug_info": {
+                    "received_method": "GET",
+                    "expected_method": "POST",
+                    "correct_endpoint": "POST /auth/login",
+                    "your_user_agent": request.headers.get("user-agent", "unknown")
+                }
+            }
+        )
+    
+    # Disabled: do not render HTML page for web browsers
     # try:
     #     from second_brain_database.routes.auth.routes_html import render_login_page
     #     return render_login_page()

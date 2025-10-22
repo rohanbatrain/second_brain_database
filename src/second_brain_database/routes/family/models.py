@@ -58,6 +58,7 @@ class InvitationStatus(str, Enum):
     ACCEPTED = "accepted"
     DECLINED = "declined"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 class RelationshipStatus(str, Enum):
     """Enumeration of relationship statuses."""
@@ -617,6 +618,16 @@ class InvitationResponse(BaseDocumentedModel):
         description="Username of the person who sent the invitation",
         example="jane_smith"
     )
+    invitee_email: Optional[str] = Field(
+        None,
+        description="Email of the invited user (if available)",
+        example="john.doe@example.com"
+    )
+    invitee_username: Optional[str] = Field(
+        None,
+        description="Username of the invited user (if available)",
+        example="john_doe"
+    )
     relationship_type: str = Field(
         ...,
         description="Proposed relationship type",
@@ -644,10 +655,89 @@ class InvitationResponse(BaseDocumentedModel):
                 "invitation_id": "inv_1234567890abcdef",
                 "family_name": "Smith Family",
                 "inviter_username": "jane_smith",
+                "invitee_email": "john.doe@example.com",
+                "invitee_username": "john_doe",
                 "relationship_type": "child",
                 "status": "pending",
                 "expires_at": "2024-01-08T12:00:00Z",
                 "created_at": "2024-01-01T12:00:00Z"
+            }
+        }
+    }
+
+
+class ReceivedInvitationResponse(BaseDocumentedModel):
+    """
+    Response model for invitations received by a user.
+    
+    Used by GET /family/my-invitations endpoint to show invitations
+    sent TO the current authenticated user.
+    """
+    
+    invitation_id: str = Field(
+        ...,
+        description="Unique invitation identifier",
+        example="inv_abc123xyz789"
+    )
+    family_id: str = Field(
+        ...,
+        description="ID of the family the user is invited to join",
+        example="fam_def456uvw012"
+    )
+    family_name: str = Field(
+        ...,
+        description="Name of the family",
+        example="Johnson Family"
+    )
+    inviter_user_id: str = Field(
+        ...,
+        description="User ID of the person who sent the invitation",
+        example="user_123abc"
+    )
+    inviter_username: str = Field(
+        ...,
+        description="Username of the inviter",
+        example="john_johnson"
+    )
+    relationship_type: str = Field(
+        ...,
+        description="Proposed relationship type for the invitee",
+        example="child"
+    )
+    status: InvitationStatus = Field(
+        ...,
+        description="Current invitation status",
+        example=InvitationStatus.PENDING
+    )
+    expires_at: datetime = Field(
+        ...,
+        description="UTC timestamp when invitation expires",
+        example="2025-10-28T14:30:00Z"
+    )
+    created_at: datetime = Field(
+        ...,
+        description="UTC timestamp when invitation was created",
+        example="2025-10-21T14:30:00Z"
+    )
+    invitation_token: Optional[str] = Field(
+        None,
+        description="Optional token for email-based invitation acceptance",
+        example="tok_xyz789abc123"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "invitation_id": "inv_abc123xyz789",
+                "family_id": "fam_def456uvw012",
+                "family_name": "Johnson Family",
+                "inviter_user_id": "user_123abc",
+                "inviter_username": "john_johnson",
+                "relationship_type": "child",
+                "status": "pending",
+                "expires_at": "2025-10-28T14:30:00Z",
+                "created_at": "2025-10-21T14:30:00Z",
+                "invitation_token": "tok_xyz789abc123"
             }
         }
     }

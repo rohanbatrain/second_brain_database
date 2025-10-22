@@ -716,7 +716,21 @@ class FamilyManager:
             invitee_id = str(invitee_user["_id"])
             
             # Check for existing membership or pending invitations
-            await self._check_existing_membership_and_invitations(invitee_id, family_id)
+            existing_invitation = await self._check_existing_membership_and_invitations(invitee_id, family_id)
+            
+            # If there's an existing pending invitation, return it in the expected format
+            if existing_invitation:
+                return {
+                    "invitation_id": existing_invitation["invitation_id"],
+                    "family_name": family["name"],
+                    "invitee_email": invitee_user.get("email", ""),
+                    "invitee_username": invitee_user.get("username", ""),
+                    "relationship_type": existing_invitation.get("relationship_type", relationship_type),
+                    "expires_at": existing_invitation.get("expires_at"),
+                    "status": "pending",
+                    "email_sent": existing_invitation.get("email_sent", False),
+                    "transaction_safe": False  # Existing invitation, not created in transaction
+                }
             
             # Validate relationship logic (prevent contradictory relationships)
             await self._validate_relationship_logic(inviter_id, invitee_id, relationship_type, family_id)
@@ -1940,6 +1954,26 @@ class FamilyManager:
                 relationship_type=relationship_type,
                 valid_types=list(RELATIONSHIP_TYPES.keys())
             )
+        
+        # Edge case: Prevent users from inviting themselves
+        inviter_user = await self._get_user_by_id(inviter_id)
+        inviter_email = inviter_user.get("email", "").lower()
+        inviter_username = inviter_user.get("username", "").lower()
+        
+        if identifier_type == "email" and identifier.lower() == inviter_email:
+            raise ValidationError(
+                "You cannot invite yourself to a family",
+                field="identifier",
+                value="[REDACTED]",  # Don't expose email in error
+                constraint="not_self_invite"
+            )
+        elif identifier_type == "username" and identifier.lower() == inviter_username:
+            raise ValidationError(
+                "You cannot invite yourself to a family",
+                field="identifier",
+                value=identifier,
+                constraint="not_self_invite"
+            )
     
     async def _check_family_member_limits_detailed(self, family_id: str, admin_id: str) -> None:
         """Check if family can add more members with detailed error context."""
@@ -1982,8 +2016,20 @@ class FamilyManager:
         
         return invitee_user
     
-    async def _check_existing_membership_and_invitations(self, invitee_id: str, family_id: str) -> None:
-        """Check if user is already in family or has pending invitations."""
+    async def _check_existing_membership_and_invitations(self, invitee_id: str, family_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if user is already in family or has pending/recent invitations.
+        
+        Handles edge cases:
+        1. User is already a member
+        2. User has a pending invitation (not expired) - RETURNS the invitation instead of raising error
+        3. User has recently declined an invitation (within 24 hours - prevents spam)
+        4. User has multiple pending invitations (cleanup old ones)
+        5. User has accepted but relationship not yet created (race condition)
+        
+        Returns:
+            Optional[Dict]: Existing pending invitation if found, None otherwise
+        """
         # Check existing membership
         if await self._is_user_in_family(invitee_id, family_id):
             raise ValidationError(
@@ -1991,20 +2037,80 @@ class FamilyManager:
                 field="invitee_id", value=invitee_id, constraint="not_already_member"
             )
         
-        # Check for pending invitations
         invitations_collection = self.db_manager.get_collection("family_invitations")
-        existing_invitation = await invitations_collection.find_one({
+        now = datetime.now(timezone.utc)
+        
+        # Check for pending invitations (not expired)
+        existing_pending = await invitations_collection.find_one({
             "family_id": family_id,
             "invitee_user_id": invitee_id,
             "status": "pending",
-            "expires_at": {"$gt": datetime.now(timezone.utc)}
+            "expires_at": {"$gt": now}
         })
         
-        if existing_invitation:
-            raise ValidationError(
-                "User already has a pending invitation to this family", 
-                field="invitee_id", value=invitee_id, constraint="no_pending_invitation"
+        if existing_pending:
+            # Return existing pending invitation instead of raising error
+            # This allows idempotent behavior - same invitation can be "sent" multiple times
+            
+            self.logger.info(
+                "Found existing pending invitation %s for user %s in family %s - returning existing invitation",
+                existing_pending["invitation_id"], invitee_id, family_id
             )
+            
+            # Return the MongoDB document - caller will format it
+            return existing_pending
+        
+        # Check for recently declined invitations (within 24 hours - anti-spam)
+        recent_declined = await invitations_collection.find_one({
+            "family_id": family_id,
+            "invitee_user_id": invitee_id,
+            "status": "declined",
+            "responded_at": {"$gt": now - timedelta(hours=24)}
+        })
+        
+        if recent_declined:
+            # Ensure responded_at is timezone-aware for comparison
+            responded_at = recent_declined["responded_at"]
+            if responded_at.tzinfo is None:
+                responded_at = responded_at.replace(tzinfo=timezone.utc)
+            
+            time_remaining = 24 - int((now - responded_at).total_seconds() / 3600)
+            
+            declined_at_str = responded_at.isoformat() if isinstance(responded_at, datetime) else str(responded_at)
+            
+            raise ValidationError(
+                f"User recently declined an invitation. Please wait {time_remaining} hours before sending another. "
+                f"Declined at: {declined_at_str}", 
+                field="invitee_id", 
+                value=invitee_id, 
+                constraint="recently_declined"
+            )
+        
+        # Cleanup: Auto-cancel old pending invitations that expired
+        expired_invitations = await invitations_collection.update_many(
+            {
+                "family_id": family_id,
+                "invitee_user_id": invitee_id,
+                "status": "pending",
+                "expires_at": {"$lte": now}
+            },
+            {
+                "$set": {
+                    "status": "expired",
+                    "responded_at": now,
+                    "auto_expired": True
+                }
+            }
+        )
+        
+        if expired_invitations.modified_count > 0:
+            self.logger.info(
+                "Auto-expired %d old invitations for user %s in family %s",
+                expired_invitations.modified_count, invitee_id, family_id
+            )
+        
+        # No existing pending invitation found
+        return None
     
     async def _validate_relationship_logic(self, inviter_id: str, invitee_id: str, 
                                          relationship_type: str, family_id: str) -> None:
@@ -2043,6 +2149,8 @@ class FamilyManager:
             "inviter_user_id": inviter_id,
             "invitee_email": invitee_user.get("email", ""),
             "invitee_user_id": str(invitee_user["_id"]),
+            # store invitee username at creation time for easier reads
+            "invitee_username": invitee_user.get("username", ""),
             "relationship_type": relationship_type.lower(),
             "invitation_token": invitation_token,
             "status": "pending",
@@ -5918,30 +6026,65 @@ class FamilyManager:
             if status_filter:
                 query["status"] = status_filter
             
-            # Get invitations
+            # Use aggregation to populate inviter and invitee usernames and family name atomically.
             invitations_collection = self.db_manager.get_collection("family_invitations")
-            invitations_cursor = invitations_collection.find(query).sort("created_at", -1)
-            
+
+            pipeline = [
+                {"$match": query},
+                {"$sort": {"created_at": -1}},
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "inviter_user_id",
+                        "foreignField": "_id",
+                        "as": "inviter_doc"
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "invitee_user_id",
+                        "foreignField": "_id",
+                        "as": "invitee_doc"
+                    }
+                }
+            ]
+
+            # Projection to provide defensive defaults when lookups fail
+            pipeline.append({
+                "$project": {
+                    "invitation_id": 1,
+                    "family_id": 1,
+                    "inviter_user_id": 1,
+                    "inviter_username": {"$ifNull": [{"$arrayElemAt": ["$inviter_doc.username", 0]}, "Unknown"]},
+                    "invitee_email": 1,
+                    "invitee_user_id": 1,
+                    "invitee_username": {"$ifNull": [{"$arrayElemAt": ["$invitee_doc.username", 0]}, None]},
+                    "relationship_type": 1,
+                    "status": 1,
+                    "expires_at": 1,
+                    "created_at": 1,
+                    "responded_at": 1,
+                    "email_sent": 1,
+                    "email_sent_at": 1
+                }
+            })
+
             invitations = []
-            async for invitation in invitations_cursor:
-                # Get inviter information
-                try:
-                    inviter = await self._get_user_by_id(invitation["inviter_user_id"])
-                    inviter_username = inviter.get("username", "Unknown")
-                except:
-                    inviter_username = "Unknown"
-                
+            async for invitation in invitations_collection.aggregate(pipeline):
+                # Ensure keys exist and provide consistent shapes
                 invitations.append({
-                    "invitation_id": invitation["invitation_id"],
-                    "family_id": invitation["family_id"],
-                    "inviter_user_id": invitation["inviter_user_id"],
-                    "inviter_username": inviter_username,
-                    "invitee_email": invitation["invitee_email"],
+                    "invitation_id": invitation.get("invitation_id"),
+                    "family_id": invitation.get("family_id"),
+                    "inviter_user_id": invitation.get("inviter_user_id"),
+                    "inviter_username": invitation.get("inviter_username", "Unknown"),
+                    "invitee_email": invitation.get("invitee_email"),
                     "invitee_user_id": invitation.get("invitee_user_id"),
-                    "relationship_type": invitation["relationship_type"],
-                    "status": invitation["status"],
-                    "expires_at": invitation["expires_at"],
-                    "created_at": invitation["created_at"],
+                    "invitee_username": invitation.get("invitee_username"),
+                    "relationship_type": invitation.get("relationship_type"),
+                    "status": invitation.get("status"),
+                    "expires_at": invitation.get("expires_at"),
+                    "created_at": invitation.get("created_at"),
                     "responded_at": invitation.get("responded_at"),
                     "email_sent": invitation.get("email_sent", False),
                     "email_sent_at": invitation.get("email_sent_at")
@@ -5961,6 +6104,119 @@ class FamilyManager:
             self.db_manager.log_query_error("family_invitations", "get_invitations", start_time, e, operation_context)
             self.logger.error("Failed to get family invitations: %s", e, exc_info=True)
             raise FamilyError(f"Failed to get family invitations: {str(e)}")
+
+    async def get_received_invitations(self, user_id: str, user_email: Optional[str] = None, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get invitations received by a user (either by invitee_user_id or invitee_email).
+
+        Args:
+            user_id: User ID of the recipient (string)
+            user_email: Optional email of the recipient to match invitee_email
+            status_filter: Optional status filter ("pending", "accepted", "declined", "expired")
+
+        Returns:
+            List of invitation dictionaries with complete family and inviter information
+            
+        Raises:
+            FamilyError: If database query fails
+        """
+        operation_context = {
+            "user_id": user_id,
+            "user_email": user_email,
+            "status_filter": status_filter,
+            "operation": "get_received_invitations"
+        }
+        start_time = self.db_manager.log_query_start("family_invitations", "get_received_invitations", operation_context)
+
+        try:
+            # Build query: match invitee_user_id OR invitee_email
+            query_conditions = [{"invitee_user_id": user_id}]
+            if user_email:
+                query_conditions.append({"invitee_email": user_email})
+            
+            query = {"$or": query_conditions}
+            if status_filter:
+                query["status"] = status_filter
+
+            invitations_collection = self.db_manager.get_collection("family_invitations")
+
+            pipeline = [
+                {"$match": query},
+                {"$sort": {"created_at": -1}},
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "inviter_user_id",
+                        "foreignField": "_id",
+                        "as": "inviter_doc"
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "families",
+                        "localField": "family_id",
+                        "foreignField": "family_id",
+                        "as": "family_doc"
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "invitee_user_id",
+                        "foreignField": "_id",
+                        "as": "invitee_doc"
+                    }
+                },
+                {
+                    "$project": {
+                        "invitation_id": 1,
+                        "family_id": 1,
+                        "family_name": {"$ifNull": [{"$arrayElemAt": ["$family_doc.name", 0]}, "Unknown Family"]},
+                        "inviter_user_id": 1,
+                        "inviter_username": {"$ifNull": [{"$arrayElemAt": ["$inviter_doc.username", 0]}, "Unknown"]},
+                        "invitee_email": 1,
+                        "invitee_user_id": 1,
+                        "invitee_username": {"$ifNull": [{"$arrayElemAt": ["$invitee_doc.username", 0]}, None]},
+                        "relationship_type": 1,
+                        "status": 1,
+                        "expires_at": 1,
+                        "created_at": 1,
+                        "invitation_token": 1
+                    }
+                }
+            ]
+
+            invitations = []
+            async for invitation in invitations_collection.aggregate(pipeline):
+                invitations.append({
+                    "invitation_id": invitation.get("invitation_id"),
+                    "family_id": invitation.get("family_id"),
+                    "family_name": invitation.get("family_name", "Unknown Family"),
+                    "inviter_user_id": invitation.get("inviter_user_id"),
+                    "inviter_username": invitation.get("inviter_username", "Unknown"),
+                    "relationship_type": invitation.get("relationship_type"),
+                    "status": invitation.get("status"),
+                    "expires_at": invitation.get("expires_at"),
+                    "created_at": invitation.get("created_at"),
+                    "invitation_token": invitation.get("invitation_token"),
+                    "invitee_email": invitation.get("invitee_email"),
+                    "invitee_user_id": invitation.get("invitee_user_id"),
+                    "invitee_username": invitation.get("invitee_username")
+                })
+
+            self.db_manager.log_query_success("family_invitations", "get_received_invitations", start_time, len(invitations))
+            
+            self.logger.info(
+                "Retrieved %d received invitations for user %s (status_filter=%s)",
+                len(invitations), user_id, status_filter
+            )
+            
+            return invitations
+
+        except Exception as e:
+            self.db_manager.log_query_error("family_invitations", "get_received_invitations", start_time, e, operation_context)
+            self.logger.error("Failed to get received invitations for user %s: %s", user_id, e, exc_info=True)
+            raise FamilyError(f"Failed to get received invitations: {str(e)}")
 
     async def resend_invitation(self, invitation_id: str, admin_user_id: str) -> Dict[str, Any]:
         """
@@ -6215,15 +6471,86 @@ class FamilyManager:
                     current_admin=admin_user_id
                 )
             
-            # Start transaction
-            client = self.db_manager.client
-            session = await client.start_session()
+            # Check if MongoDB supports transactions (replica set)
+            is_replica_set = False
+            try:
+                ismaster = await self.db_manager.client.admin.command("ismaster")
+                is_replica_set = bool(ismaster.get("setName"))
+            except Exception as e:
+                self.logger.warning("Could not determine replica set status: %s", e)
             
-            async with session.start_transaction():
-                now = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            families_collection = self.db_manager.get_collection("families")
+            users_collection = self.db_manager.get_collection("users")
+            
+            if is_replica_set:
+                # Use transaction for replica set
+                client = self.db_manager.client
+                session = await client.start_session()
                 
+                async with session.start_transaction():
+                    # Update family document to add new admin
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {
+                            "$push": {"admin_user_ids": target_user_id},
+                            "$set": {
+                                "updated_at": now,
+                                "audit_trail.last_modified_by": admin_user_id,
+                                "audit_trail.last_modified_at": now,
+                            },
+                            "$inc": {"audit_trail.version": 1}
+                        },
+                        session=session
+                    )
+                    
+                    # Update user's family membership role
+                    await users_collection.update_one(
+                        {
+                            "_id": target_user_id,
+                            "family_memberships.family_id": family_id
+                        },
+                        {
+                            "$set": {
+                                "family_memberships.$.role": "admin",
+                                "family_memberships.$.spending_permissions.can_spend": True,
+                                "family_memberships.$.spending_permissions.spending_limit": -1,
+                                "family_memberships.$.spending_permissions.last_updated": now
+                            }
+                        },
+                        session=session
+                    )
+                    
+                    # Update SBD account spending permissions
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {
+                            "$set": {
+                                f"sbd_account.spending_permissions.{target_user_id}": {
+                                    "role": "admin",
+                                    "spending_limit": -1,
+                                    "can_spend": True,
+                                    "updated_by": admin_user_id,
+                                    "updated_at": now
+                                }
+                            }
+                        },
+                        session=session
+                    )
+                    
+                    # Log admin action
+                    await self._log_admin_action(
+                        family_id, admin_user_id, target_user_id, "promote_to_admin",
+                        {"previous_role": "member", "new_role": "admin"}, session
+                    )
+                    
+                    # Send notification
+                    await self._send_admin_promotion_notification(
+                        family_id, admin_user_id, target_user_id, session
+                    )
+            else:
+                # Non-transactional operations for standalone MongoDB
                 # Update family document to add new admin
-                families_collection = self.db_manager.get_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -6232,14 +6559,12 @@ class FamilyManager:
                             "updated_at": now,
                             "audit_trail.last_modified_by": admin_user_id,
                             "audit_trail.last_modified_at": now,
-                            "$inc": {"audit_trail.version": 1}
-                        }
-                    },
-                    session=session
+                        },
+                        "$inc": {"audit_trail.version": 1}
+                    }
                 )
                 
                 # Update user's family membership role
-                users_collection = self.db_manager.get_collection("users")
                 await users_collection.update_one(
                     {
                         "_id": target_user_id,
@@ -6252,8 +6577,7 @@ class FamilyManager:
                             "family_memberships.$.spending_permissions.spending_limit": -1,
                             "family_memberships.$.spending_permissions.last_updated": now
                         }
-                    },
-                    session=session
+                    }
                 )
                 
                 # Update SBD account spending permissions
@@ -6269,19 +6593,18 @@ class FamilyManager:
                                 "updated_at": now
                             }
                         }
-                    },
-                    session=session
+                    }
                 )
                 
-                # Log admin action
+                # Log admin action (without session)
                 await self._log_admin_action(
                     family_id, admin_user_id, target_user_id, "promote_to_admin",
-                    {"previous_role": "member", "new_role": "admin"}, session
+                    {"previous_role": "member", "new_role": "admin"}, None
                 )
                 
-                # Send notification
+                # Send notification (without session)
                 await self._send_admin_promotion_notification(
-                    family_id, admin_user_id, target_user_id, session
+                    family_id, admin_user_id, target_user_id, None
                 )
                 
                 self.db_manager.log_query_success(
@@ -6427,26 +6750,108 @@ class FamilyManager:
                     current_admins=current_admin_count
                 )
             
-            # Prevent self-demotion unless there are backup admins or multiple admins
-            if admin_user_id == target_user_id and current_admin_count <= 2:
+            # Prevent self-demotion only if it would leave no admins (only 1 admin exists)
+            # Fixed: Changed from <= 2 to < 2 so that with 2 admins, self-demotion is allowed
+            if admin_user_id == target_user_id and current_admin_count < 2:
                 backup_admins = family.get("succession_plan", {}).get("backup_admins", [])
                 if not backup_admins:
                     raise AdminActionError(
-                        "Cannot demote yourself without designated backup admins",
+                        "Cannot demote yourself as the last admin without designated backup admins",
                         action="demote",
                         target_user=target_user_id,
                         current_admin=admin_user_id
                     )
             
-            # Start transaction
-            client = self.db_manager.client
-            session = await client.start_session()
+            # Check if MongoDB supports transactions (replica set detection)
+            is_replica_set = False
+            try:
+                ismaster = await self.db_manager.client.admin.command("ismaster")
+                is_replica_set = bool(ismaster.get("setName"))
+            except Exception as e:
+                self.logger.warning("Could not determine replica set status: %s", e)
             
-            async with session.start_transaction():
-                now = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            families_collection = self.db_manager.get_collection("families")
+            users_collection = self.db_manager.get_collection("users")
+            
+            if is_replica_set:
+                # Use transactions for replica sets
+                client = self.db_manager.client
+                session = await client.start_session()
+                
+                async with session.start_transaction():
+                    # Update family document to remove admin
+                    # Note: $inc must be a top-level update operator (sibling to $set),
+                    # not nested inside the $set document. Nesting $inc inside $set
+                    # creates a replacement-document situation and causes a WriteError
+                    # (see MongoDB error about '$' prefixed fields in replacement documents).
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {
+                            "$pull": {"admin_user_ids": target_user_id},
+                            "$set": {
+                                "updated_at": now,
+                                "audit_trail.last_modified_by": admin_user_id,
+                                "audit_trail.last_modified_at": now
+                            },
+                            "$inc": {"audit_trail.version": 1}
+                        },
+                        session=session
+                    )
+                    
+                    # Update user's family membership role
+                    await users_collection.update_one(
+                        {
+                            "_id": target_user_id,
+                            "family_memberships.family_id": family_id
+                        },
+                        {
+                            "$set": {
+                                "family_memberships.$.role": "member",
+                                "family_memberships.$.spending_permissions.can_spend": False,
+                                "family_memberships.$.spending_permissions.spending_limit": 0,
+                                "family_memberships.$.spending_permissions.last_updated": now
+                            }
+                        },
+                        session=session
+                    )
+                    
+                    # Update SBD account spending permissions
+                    await families_collection.update_one(
+                        {"family_id": family_id},
+                        {
+                            "$set": {
+                                f"sbd_account.spending_permissions.{target_user_id}": {
+                                    "role": "member",
+                                    "spending_limit": 0,
+                                    "can_spend": False,
+                                    "updated_by": admin_user_id,
+                                    "updated_at": now
+                                }
+                            }
+                        },
+                        session=session
+                    )
+                    
+                    # Log admin action
+                    await self._log_admin_action(
+                        family_id, admin_user_id, target_user_id, "demote_from_admin",
+                        {"previous_role": "admin", "new_role": "member"}, session
+                    )
+                    
+                    # Send notification
+                    await self._send_admin_demotion_notification(
+                        family_id, admin_user_id, target_user_id, session
+                    )
+            else:
+                # Non-transactional fallback for standalone MongoDB
+                session = None
                 
                 # Update family document to remove admin
-                families_collection = self.db_manager.get_collection("families")
+                # Note: $inc must be a top-level update operator (sibling to $set),
+                # not nested inside the $set document. Nesting $inc inside $set
+                # creates a replacement-document situation and causes a WriteError
+                # (see MongoDB error about '$' prefixed fields in replacement documents).
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -6454,15 +6859,13 @@ class FamilyManager:
                         "$set": {
                             "updated_at": now,
                             "audit_trail.last_modified_by": admin_user_id,
-                            "audit_trail.last_modified_at": now,
-                            "$inc": {"audit_trail.version": 1}
-                        }
-                    },
-                    session=session
+                            "audit_trail.last_modified_at": now
+                        },
+                        "$inc": {"audit_trail.version": 1}
+                    }
                 )
                 
                 # Update user's family membership role
-                users_collection = self.db_manager.get_collection("users")
                 await users_collection.update_one(
                     {
                         "_id": target_user_id,
@@ -6475,8 +6878,7 @@ class FamilyManager:
                             "family_memberships.$.spending_permissions.spending_limit": 0,
                             "family_memberships.$.spending_permissions.last_updated": now
                         }
-                    },
-                    session=session
+                    }
                 )
                 
                 # Update SBD account spending permissions
@@ -6492,19 +6894,18 @@ class FamilyManager:
                                 "updated_at": now
                             }
                         }
-                    },
-                    session=session
+                    }
                 )
                 
-                # Log admin action
+                # Log admin action (no session)
                 await self._log_admin_action(
                     family_id, admin_user_id, target_user_id, "demote_from_admin",
-                    {"previous_role": "admin", "new_role": "member"}, session
+                    {"previous_role": "admin", "new_role": "member"}, None
                 )
                 
-                # Send notification
+                # Send notification (no session)
                 await self._send_admin_demotion_notification(
-                    family_id, admin_user_id, target_user_id, session
+                    family_id, admin_user_id, target_user_id, None
                 )
                 
                 self.db_manager.log_query_success(

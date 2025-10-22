@@ -291,6 +291,7 @@ app = FastAPI(
     redoc_url=docs_config.redoc_url,
     openapi_url=docs_config.openapi_url,
     lifespan=lifespan,
+    redirect_slashes=False,  # Disable automatic slash redirects to prevent POST->GET conversion on macOS
     # Additional OpenAPI configuration
     openapi_tags=[
         {"name": "Authentication", "description": "User authentication, registration, and session management"},

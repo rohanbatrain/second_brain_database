@@ -496,8 +496,8 @@ async def admob_ssv_reward(
             {"status": "error", "detail": "Duplicate or replayed transaction"}, status_code=HTTP_401_UNAUTHORIZED
         )
 
-    # Only process if reward_item is 'token' and reward_amount is 10
-    if reward_item == "token" and reward_amount == 10:
+    # Process token rewards - credit exactly reward_amount tokens
+    if reward_item == "token" and reward_amount >= 1:
         user = await users_collection.find_one({"username": user_id})
         logger.debug(f"User lookup for reward: {user}")
         if user:
@@ -507,7 +507,7 @@ async def admob_ssv_reward(
             receive_txn = {
                 "type": "receive",
                 "from": "sbd_ads",
-                "amount": 10,
+                "amount": reward_amount,
                 "timestamp": now_iso,
                 "transaction_id": txn_id,
             }
@@ -516,7 +516,10 @@ async def admob_ssv_reward(
             update_result = await users_collection.update_one(
                 {"username": user_id},
                 {
-                    "$inc": {"sbd_tokens": 10},
+                    "$inc": {"sbd_tokens": reward_amount},
+                    "$setOnInsert": {
+                        "sbd_tokens_transactions": []
+                    },
                     "$push": {
                         "admob_ssv_transactions": {"transaction_id": txn_id, "timestamp": timestamp},
                         "sbd_tokens_transactions": receive_txn,
@@ -525,9 +528,9 @@ async def admob_ssv_reward(
             )
             logger.debug(f"Update result: {update_result.raw_result}")
             if update_result.modified_count:
-                logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +10 tokens, tx={txn_id}")
+                logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +{reward_amount} tokens, tx={txn_id}")
                 # Log the send transaction for sbd_ads
-                send_txn = {"type": "send", "to": user_id, "amount": 10, "timestamp": now_iso, "transaction_id": txn_id}
+                send_txn = {"type": "send", "to": user_id, "amount": reward_amount, "timestamp": now_iso, "transaction_id": txn_id}
                 if note:
                     send_txn["note"] = note
                 await users_collection.update_one(
