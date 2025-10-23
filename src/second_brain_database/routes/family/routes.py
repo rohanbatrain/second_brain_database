@@ -44,6 +44,7 @@ from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.routes.family.models import (
+    AdminActionLogEntry,
     AdminActionRequest,
     AdminActionResponse,
     AdminActionsLogRequest,
@@ -53,7 +54,6 @@ from second_brain_database.routes.family.models import (
     CreateFamilyRequest,
     CreateTokenRequestRequest,
     FamilyLimitsResponse,
-    FamilyMemberResponse,
     FamilyResponse,
     FreezeAccountRequest,
     InitiateRecoveryRequest,
@@ -80,6 +80,7 @@ from second_brain_database.routes.family.models import (
     ModifyRelationshipResponse,
     RelationshipDetailsResponse,
 )
+from second_brain_database.models.family_models import FamilyMemberResponse
 
 # Import health check router
 from second_brain_database.routes.family.health import router as health_router
@@ -3768,7 +3769,7 @@ async def get_family_sbd_account(
             balance=account_data["balance"],
             is_frozen=account_data["is_frozen"],
             frozen_by=account_data.get("frozen_by"),
-            spending_permissions=account_data["spending_permissions"],
+            member_permissions=account_data["spending_permissions"],
             recent_transactions=account_data["recent_transactions"]
         )
         
@@ -3801,10 +3802,11 @@ async def get_family_sbd_account(
         )
 
 
-@router.put("/{family_id}/sbd-account/permissions")
+@router.put("/{family_id}/spending-permissions/{target_user_id}")
 async def update_spending_permissions(
     request: Request,
     family_id: str,
+    target_user_id: str,
     permissions_request: UpdateSpendingPermissionsRequest,
     current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
@@ -3836,27 +3838,19 @@ async def update_spending_permissions(
     
     try:
         permissions_data = await family_manager.update_spending_permissions(
-            family_id, admin_id, permissions_request.user_id,
+            family_id, admin_id, target_user_id,
             {
                 "spending_limit": permissions_request.spending_limit,
                 "can_spend": permissions_request.can_spend
-            },
-            {"request": request}
+            }
         )
         
         logger.info("Spending permissions updated for user %s in family %s by admin %s", 
-                   permissions_request.user_id, family_id, admin_id)
+                   target_user_id, family_id, admin_id)
         
         return JSONResponse(
             content={
-                "status": "success",
-                "message": permissions_data["message"],
-                "family_id": permissions_data["family_id"],
-                "target_user_id": permissions_data["target_user_id"],
-                "new_permissions": permissions_data["new_permissions"],
-                "updated_by": permissions_data["updated_by"],
-                "updated_at": permissions_data["updated_at"].isoformat(),
-                "transaction_safe": permissions_data["transaction_safe"]
+                "new_permissions": permissions_data["new_permissions"]
             },
             status_code=status.HTTP_200_OK
         )

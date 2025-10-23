@@ -63,7 +63,7 @@ curl -v http://localhost:8000/health
 2. **Check Configuration**
    ```bash
    # Validate configuration file
-   python3 -c "
+   uv run python -c "
    from second_brain_database.config import get_settings
    settings = get_settings()
    print('Configuration loaded successfully')
@@ -389,7 +389,7 @@ curl -v https://2fa-service.example.com/health
 1. **Verify JWT Configuration**
    ```bash
    # Check JWT secret key is set
-   python3 -c "
+   uv run python -c "
    from second_brain_database.config import get_settings
    settings = get_settings()
    print('JWT secret configured:', bool(settings.SECRET_KEY))
@@ -436,7 +436,7 @@ sudo journalctl -u sbd-api | grep -i "rate limit"
 redis-cli keys "*rate_limit*"
 
 # Check rate limit configuration
-python3 -c "
+uv run python -c "
 from second_brain_database.managers.security_manager import security_manager
 print('Rate limiting enabled:', security_manager.rate_limiting_enabled)
 "
@@ -505,7 +505,7 @@ db.family_invitations.countDocuments({status: 'pending'})
 1. **Check Email Service**
    ```bash
    # Test email sending
-   python3 -c "
+   uv run python -c "
    from second_brain_database.managers.email import send_test_email
    import asyncio
    asyncio.run(send_test_email('test@example.com'))

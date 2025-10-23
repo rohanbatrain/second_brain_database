@@ -920,11 +920,24 @@ async def buy_theme(
             )
             return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
-        # Add theme to user's owned collection
+        # Add theme to the correct owned collection (user or family)
         db_start = time.time()
+        # Default target is the purchasing user
+        target_username = username
+        theme_entry_to_store = dict(theme_entry)
+        if payment_result.get("payment_type") == "family":
+            # Store on family virtual account and include audit fields
+            target_username = payment_result.get("from_account")
+            theme_entry_to_store.update({
+                "purchased_by_user_id": user_id,
+                "purchased_by_username": username,
+                "family_transaction_id": transaction_id,
+            })
+
         result = await users_collection.update_one(
-            {"username": username},
-            {"$push": {"themes_owned": theme_entry}},
+            {"username": target_username},
+            {"$push": {"themes_owned": theme_entry_to_store}},
+            upsert=True,
         )
         db_duration = time.time() - db_start
 
@@ -1046,10 +1059,21 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
         # Process payment
         payment_result = await process_payment(payment_details, price, avatar_details, current_user, transaction_id)
         
-        # Add avatar to user's owned collection
+        # Add avatar to the correct owned collection (user or family)
+        target_username = username
+        avatar_entry_to_store = dict(avatar_entry)
+        if payment_result.get("payment_type") == "family":
+            target_username = payment_result.get("from_account")
+            avatar_entry_to_store.update({
+                "purchased_by_user_id": user_id,
+                "purchased_by_username": username,
+                "family_transaction_id": transaction_id,
+            })
+
         result = await users_collection.update_one(
-            {"username": username},
-            {"$push": {"avatars_owned": avatar_entry}},
+            {"username": target_username},
+            {"$push": {"avatars_owned": avatar_entry_to_store}},
+            upsert=True,
         )
         
         logger.info(f"[AVATAR BUY] Update result for user {username}: modified_count={result.modified_count}")
@@ -1143,10 +1167,21 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
         # Process payment
         payment_result = await process_payment(payment_details, price, banner_details, current_user, transaction_id)
         
-        # Add banner to user's owned collection
+        # Add banner to the correct owned collection (user or family)
+        target_username = username
+        banner_entry_to_store = dict(banner_entry)
+        if payment_result.get("payment_type") == "family":
+            target_username = payment_result.get("from_account")
+            banner_entry_to_store.update({
+                "purchased_by_user_id": user_id,
+                "purchased_by_username": username,
+                "family_transaction_id": transaction_id,
+            })
+
         result = await users_collection.update_one(
-            {"username": username},
-            {"$push": {"banners_owned": banner_entry}},
+            {"username": target_username},
+            {"$push": {"banners_owned": banner_entry_to_store}},
+            upsert=True,
         )
         
         logger.info(f"[BANNER BUY] Update result for user {username}: modified_count={result.modified_count}")
@@ -1243,12 +1278,23 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
         # Process payment
         payment_result = await process_payment(payment_details, price, bundle_details, current_user, transaction_id)
         
-        # Add bundle to user's owned collection
+        # Add bundle to the correct owned collection (user or family)
+        target_username = username
+        bundle_entry_to_store = dict(bundle_entry)
+        if payment_result.get("payment_type") == "family":
+            target_username = payment_result.get("from_account")
+            bundle_entry_to_store.update({
+                "purchased_by_user_id": user_id,
+                "purchased_by_username": username,
+                "family_transaction_id": transaction_id,
+            })
+
         result = await users_collection.update_one(
-            {"username": username},
-            {"$push": {"bundles_owned": bundle_entry}},
+            {"username": target_username},
+            {"$push": {"bundles_owned": bundle_entry_to_store}},
+            upsert=True,
         )
-        
+
         if result.modified_count == 0:
             logger.error(f"[BUNDLE BUY] Failed to add bundle to user {username} buying bundle_id={bundle_id}")
             return JSONResponse(
@@ -1704,8 +1750,22 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
         update_operations[owned_field]["$each"].append(owned_item_entry)
 
     # Perform all updates in a single operation if possible, or one per type
+    # If payment_result indicates a family payment, target the family virtual account
+    target_username = username
+    if payment_result.get("payment_type") == "family":
+        target_username = payment_result.get("from_account")
+        # Add audit metadata to each pushed entry
+        for field, push_value in update_operations.items():
+            if "$each" in push_value:
+                for entry in push_value["$each"]:
+                    entry.update({
+                        "purchased_by_user_id": user_id,
+                        "purchased_by_username": username,
+                        "family_transaction_id": transaction_id,
+                    })
+
     for owned_field, push_value in update_operations.items():
-        await users_collection.update_one({"username": username}, {"$push": {owned_field: push_value}})
+        await users_collection.update_one({"username": target_username}, {"$push": {owned_field: push_value}}, upsert=True)
 
     # Clear the relevant cart(s)
     await shop_collection.update_one({"username": username}, {"$set": {f"carts.{app_name}": []}})

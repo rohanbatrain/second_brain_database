@@ -134,8 +134,8 @@ class FamilyEndToEndWorkflowTester:
             if not invitation_found:
                 await self.log_test_result(
                     test_name, False, 
-                    d): {e}
-")
+                    f"Invitation creation failed: {e}"
+                )
                 workflow_data["admin_action"] = {"error": str(e), "note": "May not be implemented"}
             
             # Step 4: Test succession planning activation

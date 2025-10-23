@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 with patch('second_brain_database.managers.redis_manager.RedisManager'), \
      patch('second_brain_database.database.DatabaseManager'):
     
-    from second_brain_database.utils.error_handling import (
+    from second_brain_database.managers.family_manager import (
         FamilyError, FamilyNotFound, InsufficientPermissions, ValidationError,
         AccountFrozen, TokenRequestNotFound, RateLimitExceeded
     )

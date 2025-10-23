@@ -39,6 +39,7 @@ from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.profile.routes import router as profile_router
 from second_brain_database.routes.family.routes import router as family_router
+from second_brain_database.routes.websockets import router as websockets_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -652,6 +653,7 @@ routers_config = [
     ("banners", banners_router, "Banner management endpoints"),
     ("profile", profile_router, "User profile management endpoints"),
     ("family", family_router, "Family management and relationship endpoints"),
+    ("websockets", websockets_router, "WebSocket communication endpoints"),
 ]
 
 logger.info("Including API routers...")

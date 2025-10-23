@@ -484,7 +484,7 @@ mongorestore --uri="mongodb://localhost:27017/second_brain_database_recovery" \
 log "Applying oplog entries up to $TARGET_TIME..."
 
 # Convert target time to MongoDB timestamp
-TARGET_TIMESTAMP=$(python3 -c "
+TARGET_TIMESTAMP=$(uv run python -c "
 import datetime
 from bson.timestamp import Timestamp
 dt = datetime.datetime.fromisoformat('$TARGET_TIME'.replace('Z', '+00:00'))

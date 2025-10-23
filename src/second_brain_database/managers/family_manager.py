@@ -1196,7 +1196,15 @@ class FamilyManager:
                 
                 if family_membership:
                     member_info["joined_at"] = family_membership["joined_at"]
-                    member_info["spending_permissions"] = family_membership.get("spending_permissions", {})
+                    # Transform spending_permissions from family document (authoritative source)
+                    family_spending_permissions = family["sbd_account"]["spending_permissions"].get(member_id, {})
+                    member_info["spending_permissions"] = {
+                        "role": member_info["role"],  # Use the role from member_info
+                        "spending_limit": family_spending_permissions.get("spending_limit", 0),
+                        "can_spend": family_spending_permissions.get("can_spend", False),
+                        "updated_by": family_spending_permissions.get("updated_by", ""),
+                        "updated_at": family_spending_permissions.get("updated_at", datetime.now(timezone.utc))
+                    }
                 
                 members_list.append(member_info)
             
@@ -3974,9 +3982,39 @@ class FamilyManager:
                 "frozen_by": family["sbd_account"].get("frozen_by"),
                 "frozen_at": family["sbd_account"].get("frozen_at"),
                 "spending_permissions": family["sbd_account"]["spending_permissions"],
+                # Backwards-compatible simplified map for frontend: keyed by user_id -> { can_spend, spending_limit }
+                "member_permissions": {
+                    uid: {
+                        "can_spend": (perm.get("can_spend") if isinstance(perm, dict) else False),
+                        "spending_limit": (perm.get("spending_limit") if isinstance(perm, dict) else 0)
+                    }
+                    for uid, perm in family["sbd_account"]["spending_permissions"].items()
+                },
                 "notification_settings": family["sbd_account"]["notification_settings"],
                 "recent_transactions": recent_transactions
             }
+
+            # Try to enrich with virtual account metadata (account_id, account_name, currency)
+            try:
+                users_collection = self.db_manager.get_collection("users")
+                virtual_account = await users_collection.find_one({"username": account_username, "is_virtual_account": True}, {"account_id": 1, "account_name": 1, "currency": 1})
+                if virtual_account:
+                    account_data["account_id"] = virtual_account.get("account_id")
+                    # Prefer family-stored name, fallback to virtual account name
+                    account_data["account_name"] = family["sbd_account"].get("name") or virtual_account.get("account_name")
+                    account_data["currency"] = virtual_account.get("currency") or "SBD"
+                else:
+                    account_data["account_id"] = None
+                    account_data["account_name"] = family["sbd_account"].get("name")
+                    account_data["currency"] = "SBD"
+            except Exception:
+                # Non-fatal enrichment
+                account_data.setdefault("account_id", None)
+                account_data.setdefault("account_name", family["sbd_account"].get("name"))
+                account_data.setdefault("currency", "SBD")
+
+            # Freeze reason canonical key for frontend
+            account_data["freeze_reason"] = family["sbd_account"].get("freeze_reason")
             
             self.db_manager.log_query_success(
                 "families", "get_family_sbd_account", start_time, 1,
@@ -3986,14 +4024,51 @@ class FamilyManager:
             self.logger.debug("Retrieved SBD account for family %s by user %s", family_id, user_id)
             
             return account_data
-            
+
         except (FamilyNotFound, InsufficientPermissions) as e:
             self.db_manager.log_query_error("families", "get_family_sbd_account", start_time, e, operation_context)
             raise
         except Exception as e:
             self.db_manager.log_query_error("families", "get_family_sbd_account", start_time, e, operation_context)
-            self.logger.error("Failed to get family SBD account %s: %s", family_id, e, exc_info=True)
-            raise FamilyError(f"Failed to retrieve SBD account information: {str(e)}")
+            self.logger.error("Failed to get family SBD account: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve SBD account: {str(e)}")
+
+    async def get_family_owned_items(self, family_id: str, item_type: str) -> List[Dict[str, Any]]:
+        """
+        Get items owned by a family's virtual SBD account.
+
+        Args:
+            family_id: ID of the family
+            item_type: "avatar", "theme", "banner", or "bundle"
+
+        Returns:
+            List of owned item entry dicts for the family (empty list if none)
+
+        Raises:
+            FamilyNotFound: If family doesn't exist
+        """
+        try:
+            # Resolve family and virtual account username
+            family = await self._get_family_by_id(family_id)
+            account_username = family["sbd_account"]["account_username"]
+
+            users_collection = self.db_manager.get_collection("users")
+            field = f"{item_type}s_owned"
+
+            projection = {field: 1}
+            family_user = await users_collection.find_one({"username": account_username, "is_virtual_account": True}, projection)
+            if not family_user:
+                return []
+
+            return family_user.get(field, []) or []
+
+        except FamilyNotFound:
+            raise
+        except Exception as e:
+            self.logger.error("Failed to get family-owned items for family %s: %s", family_id, e, exc_info=True)
+            return []
+            
+    
 
     async def update_spending_permissions(self, family_id: str, admin_id: str, target_user_id: str, 
                                         permissions: Dict[str, Any]) -> Dict[str, Any]:
@@ -4041,7 +4116,7 @@ class FamilyManager:
                 "spending_limit": permissions["spending_limit"],
                 "can_spend": permissions["can_spend"],
                 "updated_by": admin_id,
-                "updated_at": now
+                "updated_at": now.isoformat()
             }
             
             # Update family document
@@ -4087,7 +4162,15 @@ class FamilyManager:
             self.logger.info("Updated spending permissions for user %s in family %s by admin %s", 
                            target_user_id, family_id, admin_id)
             
-            return updated_permissions
+            return {
+                "message": "Spending permissions updated successfully",
+                "family_id": family_id,
+                "target_user_id": target_user_id,
+                "new_permissions": updated_permissions,
+                "updated_by": admin_id,
+                "updated_at": now.isoformat(),
+                "transaction_safe": True
+            }
             
         except (FamilyNotFound, InsufficientPermissions) as e:
             self.db_manager.log_query_error("families", "update_spending_permissions", start_time, e, operation_context)
@@ -5002,6 +5085,107 @@ class FamilyManager:
             self.logger.error("Failed to get family SBD balance for %s: %s", account_username, e)
             return 0
 
+    async def get_family_available_balance(self, family_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        Get the available balance for family SBD spending, considering account freeze status,
+        user permissions, spending limits, and pending requests.
+        
+        Args:
+            family_id: ID of the family
+            user_id: ID of the requesting user
+            
+        Returns:
+            Dict containing available balance information
+            
+        Raises:
+            FamilyNotFound: If family doesn't exist
+            InsufficientPermissions: If user is not a family member
+        """
+        operation_context = {
+            "family_id": family_id,
+            "user_id": user_id,
+            "operation": "get_family_available_balance",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        start_time = self.db_manager.log_query_start("families", "get_family_available_balance", operation_context)
+        
+        try:
+            # Verify family exists and user is a member
+            family = await self._get_family_by_id(family_id)
+            
+            if not await self._is_user_family_member(user_id, family_id):
+                raise InsufficientPermissions("You must be a family member to check available balance")
+            
+            # Get current total balance
+            account_username = family["sbd_account"]["account_username"]
+            total_balance = await self.get_family_sbd_balance(account_username)
+            
+            # Check if account is frozen
+            is_frozen = family["sbd_account"]["is_frozen"]
+            
+            # Get user's spending permissions
+            user_permissions = family["sbd_account"]["spending_permissions"].get(user_id, {})
+            can_spend = user_permissions.get("can_spend", False)
+            spending_limit = user_permissions.get("spending_limit", 0)
+            
+            # Calculate available balance based on permissions and limits
+            available_balance = 0
+            
+            if is_frozen:
+                # Account is frozen - no spending allowed
+                available_balance = 0
+                reason = "Account is frozen"
+            elif not can_spend:
+                # User doesn't have spending permission
+                available_balance = 0
+                reason = "Spending not permitted for this user"
+            elif spending_limit == -1:
+                # Unlimited spending (admin)
+                available_balance = total_balance
+                reason = "Unlimited spending permission"
+            else:
+                # Limited spending - use minimum of total balance and spending limit
+                available_balance = min(total_balance, spending_limit)
+                reason = f"Limited to {spending_limit} tokens"
+            
+            # Get count of pending requests (if any affect available balance)
+            pending_requests_count = await self._get_pending_requests_count(family_id)
+            
+            # Get account name (fallback to username if not set)
+            account_name = family["sbd_account"].get("name", account_username)
+            
+            balance_info = {
+                "family_id": family_id,
+                "account_username": account_username,
+                "account_name": account_name,
+                "total_balance": total_balance,
+                "available_balance": available_balance,
+                "is_frozen": is_frozen,
+                "can_spend": can_spend,
+                "spending_limit": spending_limit,
+                "pending_requests_count": pending_requests_count,
+                "reason": reason,
+                "last_updated": datetime.now(timezone.utc)
+            }
+            
+            self.db_manager.log_query_success(
+                "families", "get_family_available_balance", start_time, 1,
+                f"Available balance retrieved: {available_balance}"
+            )
+            
+            self.logger.debug("Retrieved available balance for family %s user %s: %d available of %d total", 
+                            family_id, user_id, available_balance, total_balance)
+            
+            return balance_info
+            
+        except (FamilyNotFound, InsufficientPermissions) as e:
+            self.db_manager.log_query_error("families", "get_family_available_balance", start_time, e, operation_context)
+            raise
+        except Exception as e:
+            self.db_manager.log_query_error("families", "get_family_available_balance", start_time, e, operation_context)
+            self.logger.error("Failed to get family available balance: %s", e, exc_info=True)
+            raise FamilyError(f"Failed to retrieve available balance: {str(e)}")
+
     async def _get_recent_family_transactions(self, account_username: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Get recent transactions for a family account.
@@ -5032,6 +5216,25 @@ class FamilyManager:
         except Exception as e:
             self.logger.error("Failed to get recent family transactions for %s: %s", account_username, e)
             return []
+
+    async def _get_pending_requests_count(self, family_id: str) -> int:
+        """
+        Get the count of pending requests that might affect available balance.
+        
+        Args:
+            family_id: ID of the family
+            
+        Returns:
+            int: Count of pending requests
+        """
+        try:
+            # For now, return 0 as we don't have pending request functionality implemented
+            # This can be expanded later to include pending token requests, etc.
+            return 0
+            
+        except Exception as e:
+            self.logger.error("Failed to get pending requests count for family %s: %s", family_id, e)
+            return 0
 
     async def freeze_family_account(self, family_id: str, admin_id: str, reason: str) -> Dict[str, Any]:
         """
@@ -5714,6 +5917,7 @@ class FamilyManager:
             
             # Get family account details
             account_username = family["sbd_account"]["account_username"]
+            account_name = family["sbd_account"].get("name", account_username)
             current_balance = await self.get_family_sbd_balance(account_username)
             
             # Get transactions from virtual account
@@ -5752,11 +5956,14 @@ class FamilyManager:
                 enhanced_transactions.append(enhanced_txn)
             
             transaction_data = {
+                "family_id": family_id,
                 "account_username": account_username,
+                "account_name": account_name,
                 "current_balance": current_balance,
                 "transactions": enhanced_transactions,
-                "total_transactions": len(all_transactions),
-                "has_more": (skip + limit) < len(all_transactions)
+                "total_count": len(all_transactions),
+                "has_more": (skip + limit) < len(all_transactions),
+                "retrieved_at": datetime.now(timezone.utc)
             }
             
             self.db_manager.log_query_success(

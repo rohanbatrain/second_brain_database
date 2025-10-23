@@ -102,6 +102,33 @@ class DatabaseLogger:
         }
         self.logger.info(log_data)
 
+    def log_query(self, context: DatabaseContext):
+        """Log database query with appropriate level based on success/error."""
+        if hasattr(context, 'error') and context.error:
+            self.logger.error(f"DB {context.operation.upper()} on {context.collection} FAILED - {context.error} - Duration: {context.duration:.3f}s")
+        else:
+            result_info = f" - Results: {context.result_count}" if context.result_count is not None else ""
+            self.logger.info(f"DB {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s{result_info}")
+
+    def log_slow_query(self, context: DatabaseContext, threshold: float = 1.0):
+        """Log slow database queries."""
+        self.logger.warning(f"SLOW QUERY: {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s (threshold: {threshold:.3f}s)")
+
+
+class PerformanceLogger:
+    """Specialized logger for performance monitoring."""
+
+    def __init__(self, prefix: str = "[PERFORMANCE]"):
+        self.logger = get_logger(name="Second_Brain_Database_Performance", prefix=prefix)
+
+    def log_operation(self, operation_name: str, duration: float):
+        """Log operation performance."""
+        self.logger.info(f"Operation '{operation_name}' completed in {duration:.3f}s")
+
+    def log_slow_operation(self, operation_name: str, duration: float, threshold: float = 1.0):
+        """Log slow operations."""
+        self.logger.warning(f"SLOW OPERATION: '{operation_name}' took {duration:.3f}s (threshold: {threshold:.3f}s)")
+
 
 def log_auth_success(
     event_type: str,

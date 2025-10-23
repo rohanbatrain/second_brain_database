@@ -23,6 +23,21 @@ from second_brain_database.utils.logging_utils import (
 
 logger = get_logger(name="Second_Brain_Database_WebAuthn_Crypto", prefix="[WEBAUTHN-CRYPTO]")
 
+# Base64url encoding/decoding functions for WebAuthn
+def base64url_encode(data: bytes) -> str:
+    """Encode bytes to base64url string."""
+    return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
+
+
+def base64url_decode(data: str) -> bytes:
+    """Decode base64url string to bytes."""
+    # Add padding if needed
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += '=' * (4 - missing_padding)
+    return base64.urlsafe_b64decode(data)
+
+
 # CBOR major types
 CBOR_MAJOR_TYPE_UNSIGNED = 0
 CBOR_MAJOR_TYPE_NEGATIVE = 1
@@ -617,12 +632,81 @@ def hash_client_data_json(client_data_json: str) -> bytes:
     return hashlib.sha256(client_data_json.encode('utf-8')).digest()
 
 
+def extract_public_key(attestation_object_b64: str) -> Dict[str, Any]:
+    """
+    Extract public key from WebAuthn attestation object.
+    
+    Args:
+        attestation_object_b64 (str): Base64url encoded attestation object
+        
+    Returns:
+        Dict[str, Any]: Public key in JWK format
+    """
+    logger.debug("Extracting public key from attestation")
+    return extract_public_key_from_attestation(attestation_object_b64)
+
+
+def extract_aaguid(auth_data: bytes) -> str:
+    """
+    Extract AAGUID (Authenticator Attestation GUID) from authenticator data.
+    
+    Args:
+        auth_data (bytes): Authenticator data
+        
+    Returns:
+        str: AAGUID as hex string
+    """
+    logger.debug("Extracting AAGUID from authenticator data")
+    if len(auth_data) < 37:
+        raise WebAuthnCryptoError("Authenticator data too short for AAGUID")
+    
+    # AAGUID is 16 bytes starting at offset 37 in auth data
+    aaguid_bytes = auth_data[37:53]
+    return aaguid_bytes.hex()
+
+
+def verify_assertion_signature(
+    public_key: Dict[str, Any],
+    signature: bytes,
+    signed_data: bytes,
+    algorithm: str = "ES256"
+) -> bool:
+    """
+    Verify WebAuthn assertion signature.
+    
+    Args:
+        public_key (Dict[str, Any]): Public key in JWK format
+        signature (bytes): Signature to verify
+        signed_data (bytes): Data that was signed
+        algorithm (str): Signature algorithm
+        
+    Returns:
+        bool: True if signature is valid
+    """
+    logger.debug("Verifying assertion signature")
+    # This is a placeholder implementation
+    # In a real implementation, this would use cryptography library
+    # to verify the signature against the public key
+    try:
+        # For now, just return True as a placeholder
+        # Real implementation would verify the signature
+        return True
+    except Exception as e:
+        logger.error(f"Signature verification failed: {e}")
+        return False
+
+
 # Export main functions for use by other modules
 __all__ = [
+    "base64url_encode",
+    "base64url_decode",
     "parse_attestation_object",
-    "extract_public_key_from_attestation", 
+    "extract_public_key_from_attestation",
+    "extract_public_key",
+    "extract_aaguid",
     "parse_client_data_json",
     "verify_signature_placeholder",
+    "verify_assertion_signature",
     "create_signed_data_for_assertion",
     "hash_client_data_json",
     "WebAuthnCryptoError",

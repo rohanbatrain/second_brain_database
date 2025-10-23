@@ -181,8 +181,8 @@ class MarkNotificationsReadRequest(BaseModel):
 
 
 # Response Models
-class SpendingPermissionsResponse(BaseModel):
-    """Response model for spending permissions."""
+class MemberPermissionsResponse(BaseModel):
+    """Response model for member permissions."""
     role: str
     spending_limit: int
     can_spend: bool
@@ -197,7 +197,7 @@ class SBDAccountResponse(BaseModel):
     is_frozen: bool
     frozen_by: Optional[str] = None
     frozen_at: Optional[datetime] = None
-    spending_permissions: Dict[str, SpendingPermissionsResponse]
+    member_permissions: Dict[str, MemberPermissionsResponse]
     notification_settings: Dict[str, Any]
     recent_transactions: List[Dict[str, Any]] = []
 
@@ -250,7 +250,7 @@ class FamilyMemberResponse(BaseModel):
     email: str
     role: str
     joined_at: datetime
-    spending_permissions: SpendingPermissionsResponse
+    spending_permissions: MemberPermissionsResponse
     relationships: List[RelationshipResponse] = []
     is_active: bool = True
 

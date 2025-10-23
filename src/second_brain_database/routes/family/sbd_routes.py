@@ -140,7 +140,8 @@ async def update_spending_permissions(
     )
     
     try:
-        permissions_data = await family_manager.update_spending_permissions(
+        # Perform the update
+        await family_manager.update_spending_permissions(
             family_id,
             admin_id,
             permissions_request.user_id,
@@ -149,22 +150,15 @@ async def update_spending_permissions(
                 "can_spend": permissions_request.can_spend
             }
         )
-        
+
+        # Retrieve full updated account to return to frontend (frontend expects full SBDAccount shape)
+        account_data = await family_manager.get_family_sbd_account(family_id, admin_id)
+
         logger.info("Updated spending permissions for user %s in family %s by admin %s", 
                    permissions_request.user_id, family_id, admin_id)
-        
+
         return JSONResponse(
-            content={
-                "status": "success",
-                "message": "Spending permissions updated successfully",
-                "data": {
-                    "user_id": permissions_request.user_id,
-                    "spending_limit": permissions_request.spending_limit,
-                    "can_spend": permissions_request.can_spend,
-                    "updated_by": admin_id,
-                    "updated_at": permissions_data["updated_at"].isoformat()
-                }
-            },
+            content=account_data,
             status_code=status.HTTP_200_OK
         )
         
@@ -496,5 +490,79 @@ async def validate_spending_permission(
             detail={
                 "error": "VALIDATION_FAILED",
                 "message": "Failed to validate spending permission"
+            }
+        )
+
+
+@router.get("/{family_id}/sbd-account/available-balance")
+async def get_family_available_balance(
+    request: Request,
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Get available balance information for a family SBD account.
+
+    Returns comprehensive available balance information including total balance,
+    available balance considering user permissions, account status, and spending limits.
+
+    **Rate Limiting:** 30 requests per hour per user
+
+    **Requirements:**
+    - User must be a family member
+
+    **Returns:**
+    - Available balance information with permission details and account status
+    """
+    user_id = str(current_user["_id"])
+
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_available_balance_{user_id}",
+        rate_limit_requests=30,
+        rate_limit_period=3600
+    )
+
+    try:
+        available_balance_data = await family_manager.get_family_available_balance(family_id, user_id)
+
+        logger.debug("Retrieved available balance for family %s by user %s: %d available of %d total",
+                    family_id, user_id, available_balance_data["available_balance"],
+                    available_balance_data["total_balance"])
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "data": available_balance_data
+            },
+            status_code=status.HTTP_200_OK
+        )
+
+    except FamilyNotFound:
+        logger.warning("Family not found for available balance request: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for available balance access: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to get family available balance: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "AVAILABLE_BALANCE_RETRIEVAL_FAILED",
+                "message": "Failed to retrieve available balance information"
             }
         )

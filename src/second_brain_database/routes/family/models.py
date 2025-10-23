@@ -535,65 +535,41 @@ class FamilyResponse(BaseDocumentedModel):
         }
     }
 
-class FamilyMemberResponse(BaseDocumentedModel):
+class MemberPermissionsResponse(BaseDocumentedModel):
     """
-    Response model for family member information.
+    Response model for family member permissions.
+    
+    Contains spending permissions and limits for a family member.
     """
     
-    user_id: str = Field(
+    can_spend: bool = Field(
         ...,
-        description="User ID of the family member",
-        example="507f1f77bcf86cd799439011"
+        description="Whether the member can spend from the family account",
+        example=True
     )
-    username: str = Field(
+    spending_limit: int = Field(
         ...,
-        description="Username of the family member",
-        example="john_doe"
+        description="Spending limit in SBD tokens. Use -1 for unlimited spending.",
+        example=1000
     )
-    email: str = Field(
+    last_updated: datetime = Field(
         ...,
-        description="Email address of the family member",
-        example="john.doe@example.com"
+        description="UTC timestamp when permissions were last updated",
+        example="2024-01-01T12:00:00Z"
     )
-    relationship_type: str = Field(
+    updated_by: str = Field(
         ...,
-        description="Relationship type from current user's perspective",
-        example="child"
-    )
-    role: str = Field(
-        ...,
-        description="Role in the family: 'admin' or 'member'",
-        example="member"
-    )
-    joined_at: datetime = Field(
-        ...,
-        description="UTC timestamp when the member joined the family",
-        example="2024-01-01T12:30:00Z"
-    )
-    spending_permissions: Dict[str, Any] = Field(
-        ...,
-        description="SBD spending permissions for this member",
-        example={
-            "can_spend": True,
-            "spending_limit": 1000,
-            "last_updated": "2024-01-01T12:00:00Z"
-        }
+        description="Username of the admin who last updated permissions",
+        example="jane_smith"
     )
     
     model_config = {
         "json_schema_extra": {
             "example": {
-                "user_id": "507f1f77bcf86cd799439011",
-                "username": "john_doe",
-                "email": "john.doe@example.com",
-                "relationship_type": "child",
-                "role": "member",
-                "joined_at": "2024-01-01T12:30:00Z",
-                "spending_permissions": {
-                    "can_spend": True,
-                    "spending_limit": 1000,
-                    "last_updated": "2024-01-01T12:00:00Z"
-                }
+                "can_spend": True,
+                "spending_limit": 1000,
+                "last_updated": "2024-01-01T12:00:00Z",
+                "updated_by": "jane_smith"
             }
         }
     }
@@ -767,7 +743,7 @@ class SBDAccountResponse(BaseDocumentedModel):
         description="Username of admin who froze the account",
         example=None
     )
-    spending_permissions: Dict[str, Any] = Field(
+    member_permissions: Dict[str, Any] = Field(
         ...,
         description="Spending permissions for all family members",
         example={
@@ -801,7 +777,7 @@ class SBDAccountResponse(BaseDocumentedModel):
                 "balance": 5000,
                 "is_frozen": False,
                 "frozen_by": None,
-                "spending_permissions": {
+                "member_permissions": {
                     "507f1f77bcf86cd799439011": {
                         "can_spend": True,
                         "spending_limit": 1000,

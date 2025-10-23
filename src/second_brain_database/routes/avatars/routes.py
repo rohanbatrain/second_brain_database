@@ -13,6 +13,7 @@ from second_brain_database.docs.models import (
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
+from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
     log_database_operation,
@@ -253,10 +254,38 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(enfor
                 duration,
                 username,
             )
-            return {"avatars_owned": []}
+            # Check family-owned avatars if user has family memberships
+            try:
+                family_entries = await family_manager.get_user_families(str(current_user["_id"]), username)
+                combined = []
+                for f in family_entries:
+                    try:
+                        fam_items = await family_manager.get_family_owned_items(f["family_id"], "avatar")
+                        combined.extend(fam_items)
+                    except Exception:
+                        continue
+                return {"avatars_owned": combined}
+            except Exception:
+                return {"avatars_owned": []}
 
-        owned_count = len(user["avatars_owned"])
+        owned_list = list(user.get("avatars_owned", []))
 
+        # Merge family-owned avatars (avoid duplicates by avatar_id)
+        try:
+            family_entries = await family_manager.get_user_families(str(current_user["_id"]), username)
+            for f in family_entries:
+                try:
+                    fam_items = await family_manager.get_family_owned_items(f["family_id"], "avatar")
+                    for it in fam_items:
+                        if not any(existing.get("avatar_id") == it.get("avatar_id") for existing in owned_list):
+                            owned_list.append(it)
+                except Exception:
+                    continue
+        except Exception:
+            # Ignore family merge failures
+            pass
+
+        owned_count = len(owned_list)
         logger.info("[%s] Retrieved owned avatars - User: %s, Count: %d", request_id, username, owned_count)
 
         duration = time.time() - start_time
@@ -268,7 +297,7 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(enfor
             owned_count,
         )
 
-        return {"avatars_owned": user["avatars_owned"]}
+        return {"avatars_owned": owned_list}
 
     except Exception as e:
         duration = time.time() - start_time
@@ -398,6 +427,20 @@ async def set_current_avatar(request: Request, data: dict, current_user: dict = 
         avatars = user.get("avatars", {}) if user else {}
         owned = set(a.get("avatar_id") for a in user.get("avatars_owned", []) if a.get("avatar_id")) if user else set()
         rented = user.get("avatars_rented", []) if user else []
+
+        # Also include family-owned avatars in ownership checks
+        try:
+            family_entries = await family_manager.get_user_families(str(current_user["_id"]), username)
+            for f in family_entries:
+                try:
+                    fam_items = await family_manager.get_family_owned_items(f["family_id"], "avatar")
+                    for it in fam_items:
+                        if it.get("avatar_id"):
+                            owned.add(it.get("avatar_id"))
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
         # Check ownership/rental
         if avatar_id not in owned:

@@ -227,10 +227,10 @@ KEEPALIVE_TIMEOUT=5
 
 ```bash
 # Generate Fernet key for encryption
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
 # Generate JWT secret key
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 # Generate MongoDB keyfile
 openssl rand -base64 756 > /etc/mongodb-keyfile
