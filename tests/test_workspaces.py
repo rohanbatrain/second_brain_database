@@ -144,3 +144,48 @@ class TestMemberManagement:
         response = client.delete(f"/workspaces/{test_workspace['workspace_id']}/members/{test_workspace['owner_id']}", headers=owner_auth["headers"])
         assert response.status_code == 400
         assert response.json()["detail"]["error"] == "OWNER_CANNOT_BE_REMOVED"
+
+class TestWorkspaceUpdate:
+    async def test_update_workspace_success(self, client: TestClient, owner_auth, test_workspace):
+        response = client.put(
+            f"/workspaces/{test_workspace['workspace_id']}",
+            headers=owner_auth["headers"],
+            json={"name": "Updated Workspace Name", "description": "Updated description"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Updated Workspace Name"
+        assert data["description"] == "Updated description"
+
+    async def test_update_workspace_as_non_admin_fail(self, client: TestClient, member_auth, test_workspace):
+        response = client.put(
+            f"/workspaces/{test_workspace['workspace_id']}",
+            headers=member_auth["headers"],
+            json={"name": "Should Not Update"}
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["error"] == "INSUFFICIENT_PERMISSIONS"
+
+class TestWorkspaceDeletion:
+    async def test_delete_workspace_success(self, client: TestClient, owner_auth):
+        # Create a workspace to delete
+        create_response = client.post(
+            "/workspaces/",
+            headers=owner_auth["headers"],
+            json={"name": "Workspace to Delete", "description": "Will be deleted"}
+        )
+        assert create_response.status_code == 201
+        workspace_id = create_response.json()["workspace_id"]
+        
+        # Delete the workspace
+        delete_response = client.delete(f"/workspaces/{workspace_id}", headers=owner_auth["headers"])
+        assert delete_response.status_code == 204
+        
+        # Verify it's gone
+        get_response = client.get(f"/workspaces/{workspace_id}", headers=owner_auth["headers"])
+        assert get_response.status_code == 404
+
+    async def test_delete_workspace_as_non_owner_fail(self, client: TestClient, member_auth, test_workspace):
+        response = client.delete(f"/workspaces/{test_workspace['workspace_id']}", headers=member_auth["headers"])
+        assert response.status_code == 400
+        assert response.json()["detail"]["error"] == "INSUFFICIENT_PERMISSIONS"

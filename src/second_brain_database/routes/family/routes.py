@@ -645,6 +645,7 @@ async def invite_family_member(
                    invitation_data["invitation_id"], invite_request.identifier, 
                    invite_request.identifier_type, family_id)
         
+        # Use authoritative created_at and token returned by the manager when available
         return InvitationResponse(
             invitation_id=invitation_data["invitation_id"],
             family_name=invitation_data["family_name"],
@@ -654,7 +655,7 @@ async def invite_family_member(
             relationship_type=invitation_data["relationship_type"],
             status="pending",
             expires_at=invitation_data["expires_at"],
-            created_at=invitation_data["expires_at"]  # Using expires_at as placeholder
+            created_at=invitation_data.get("created_at") or invitation_data["expires_at"],
         )
         
     except FamilyNotFound:

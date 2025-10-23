@@ -784,6 +784,8 @@ class FamilyManager:
                     "invitee_username": invitee_user.get("username", ""),
                     "relationship_type": existing_invitation.get("relationship_type", relationship_type),
                     "expires_at": existing_invitation.get("expires_at"),
+                    "created_at": existing_invitation.get("created_at"),
+                    "invitation_token": existing_invitation.get("invitation_token"),
                     "status": "pending",
                     "email_sent": existing_invitation.get("email_sent", False),
                     "transaction_safe": False  # Existing invitation, not created in transaction
@@ -883,6 +885,8 @@ class FamilyManager:
                     "invitee_username": invitee_user.get("username", ""),
                     "relationship_type": relationship_type,
                     "expires_at": invitation_data["expires_at"],
+                    "created_at": invitation_data["document"].get("created_at"),
+                    "invitation_token": invitation_data.get("token"),
                     "status": "pending",
                     "email_sent": email_sent,
                     "transaction_safe": True
@@ -1262,11 +1266,31 @@ class FamilyManager:
                         "updated_by": family_spending_permissions.get("updated_by", ""),
                         "updated_at": family_spending_permissions.get("updated_at", datetime.now(timezone.utc))
                     }
+                else:
+                    # Handle case where user doesn't have family_membership entry
+                    # This shouldn't normally happen, but provide defaults to prevent errors
+                    member_info["joined_at"] = datetime.now(timezone.utc)
+                    member_info["spending_permissions"] = {
+                        "role": member_info["role"],
+                        "spending_limit": 0,
+                        "can_spend": False,
+                        "updated_by": "",
+                        "updated_at": datetime.now(timezone.utc)
+                    }
                 
                 members_list.append(member_info)
             
             # Sort by join date
-            members_list.sort(key=lambda x: x.get("joined_at", datetime.min.replace(tzinfo=timezone.utc)))
+            def safe_datetime_sort_key(member):
+                joined_at = member.get("joined_at")
+                if joined_at is None:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                # Ensure datetime is timezone-aware
+                if joined_at.tzinfo is None:
+                    joined_at = joined_at.replace(tzinfo=timezone.utc)
+                return joined_at
+            
+            members_list.sort(key=safe_datetime_sort_key)
             
             db_manager.log_query_success("family_relationships", "get_family_members", start_time, 
                                        len(members_list), f"Retrieved {len(members_list)} family members")
@@ -2964,6 +2988,8 @@ class FamilyManager:
             "invitee_username": invitee_user.get("username"),
             "relationship_type": relationship_type,
             "expires_at": invitation_data["expires_at"],
+            "created_at": invitation_data["document"].get("created_at"),
+            "invitation_token": invitation_data.get("token"),
             "status": "pending",
             "email_sent": email_sent,
             "transaction_safe": False
@@ -6645,17 +6671,41 @@ class FamilyManager:
                 {
                     "$lookup": {
                         "from": "users",
-                        "localField": "inviter_user_id",
-                        "foreignField": "_id",
+                        "let": {"inviter_id": "$inviter_user_id"},
+                        "pipeline": [
+                            {
+                                "$match": {
+                                    "$expr": {
+                                        "$eq": ["$_id", {"$toObjectId": "$$inviter_id"}]
+                                    }
+                                }
+                            }
+                        ],
                         "as": "inviter_doc"
                     }
                 },
                 {
                     "$lookup": {
                         "from": "users",
-                        "localField": "invitee_user_id",
-                        "foreignField": "_id",
+                        "let": {"invitee_id": "$invitee_user_id"},
+                        "pipeline": [
+                            {
+                                "$match": {
+                                    "$expr": {
+                                        "$eq": ["$_id", {"$toObjectId": "$$invitee_id"}]
+                                    }
+                                }
+                            }
+                        ],
                         "as": "invitee_doc"
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "families",
+                        "localField": "family_id",
+                        "foreignField": "family_id",
+                        "as": "family_doc"
                     }
                 }
             ]
@@ -6665,6 +6715,7 @@ class FamilyManager:
                 "$project": {
                     "invitation_id": 1,
                     "family_id": 1,
+                    "family_name": {"$ifNull": [{"$arrayElemAt": ["$family_doc.name", 0]}, "Unknown Family"]},
                     "inviter_user_id": 1,
                     "inviter_username": {"$ifNull": [{"$arrayElemAt": ["$inviter_doc.username", 0]}, "Unknown"]},
                     "invitee_email": 1,
@@ -6686,6 +6737,7 @@ class FamilyManager:
                 invitations.append({
                     "invitation_id": invitation.get("invitation_id"),
                     "family_id": invitation.get("family_id"),
+                    "family_name": invitation.get("family_name", "Unknown Family"),
                     "inviter_user_id": invitation.get("inviter_user_id"),
                     "inviter_username": invitation.get("inviter_username", "Unknown"),
                     "invitee_email": invitation.get("invitee_email"),
@@ -6756,8 +6808,16 @@ class FamilyManager:
                 {
                     "$lookup": {
                         "from": "users",
-                        "localField": "inviter_user_id",
-                        "foreignField": "_id",
+                        "let": {"inviter_id": "$inviter_user_id"},
+                        "pipeline": [
+                            {
+                                "$match": {
+                                    "$expr": {
+                                        "$eq": ["$_id", {"$toObjectId": "$$inviter_id"}]
+                                    }
+                                }
+                            }
+                        ],
                         "as": "inviter_doc"
                     }
                 },
@@ -6772,8 +6832,16 @@ class FamilyManager:
                 {
                     "$lookup": {
                         "from": "users",
-                        "localField": "invitee_user_id",
-                        "foreignField": "_id",
+                        "let": {"invitee_id": "$invitee_user_id"},
+                        "pipeline": [
+                            {
+                                "$match": {
+                                    "$expr": {
+                                        "$eq": ["$_id", {"$toObjectId": "$$invitee_id"}]
+                                    }
+                                }
+                            }
+                        ],
                         "as": "invitee_doc"
                     }
                 },

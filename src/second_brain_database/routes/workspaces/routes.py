@@ -44,6 +44,11 @@ class AddMemberRequest(BaseModel):
     user_id_to_add: str
     role: str = Field(..., pattern="^(admin|editor|viewer)$")
 
+class UpdateWorkspaceRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=3, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    settings: Optional[dict] = None
+
 # --- Router Setup ---
 
 router = APIRouter(
@@ -105,6 +110,47 @@ async def get_workspace(
         return workspace
     except (WorkspaceNotFound, InsufficientPermissions) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": e.error_code, "message": str(e)})
+
+
+@router.put("/{workspace_id}", response_model=WorkspaceResponse)
+async def update_workspace(
+    workspace_id: str,
+    req: UpdateWorkspaceRequest,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Update a workspace's details. (Requires admin privileges)."""
+    admin_user_id = str(current_user["_id"])
+    try:
+        workspace = await workspace_manager.update_workspace(
+            workspace_id=workspace_id,
+            admin_user_id=admin_user_id,
+            name=req.name,
+            description=req.description,
+            settings=req.settings
+        )
+        workspace['created_at'] = workspace['created_at'].isoformat()
+        workspace['updated_at'] = workspace['updated_at'].isoformat()
+        return workspace
+    except (WorkspaceNotFound, InsufficientPermissions) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.error_code, "message": str(e)})
+
+
+@router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workspace(
+    workspace_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Delete a workspace. (Requires owner privileges)."""
+    admin_user_id = str(current_user["_id"])
+    try:
+        deleted = await workspace_manager.delete_workspace(
+            workspace_id=workspace_id,
+            admin_user_id=admin_user_id
+        )
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "WORKSPACE_NOT_FOUND", "message": "Workspace not found"})
+    except (WorkspaceNotFound, InsufficientPermissions) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.error_code, "message": str(e)})
 
 
 @router.post("/{workspace_id}/members", response_model=WorkspaceResponse)

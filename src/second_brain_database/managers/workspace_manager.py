@@ -154,6 +154,47 @@ class WorkspaceManager:
         workspace["members"] = [m for m in workspace["members"] if m["user_id"] != user_id_to_remove]
         return workspace
 
+    async def update_workspace(self, workspace_id: str, admin_user_id: str, name: Optional[str] = None, description: Optional[str] = None, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Updates a workspace's details."""
+        workspace = await self._find_workspace_if_admin(workspace_id, admin_user_id)
+
+        update_data = {}
+        if name is not None:
+            update_data["name"] = name
+        if description is not None:
+            update_data["description"] = description
+        if settings is not None:
+            update_data["settings"] = settings
+
+        if not update_data:
+            return workspace  # No changes to make
+
+        update_data["updated_at"] = datetime.now(timezone.utc)
+
+        result = await self.workspaces_collection.update_one(
+            {"workspace_id": workspace_id},
+            {"$set": update_data}
+        )
+
+        if result.modified_count == 0:
+            raise WorkspaceError("Failed to update workspace.")
+
+        # Return updated workspace
+        updated_workspace = await self.workspaces_collection.find_one({"workspace_id": workspace_id})
+        return updated_workspace
+
+    async def delete_workspace(self, workspace_id: str, admin_user_id: str) -> bool:
+        """Deletes a workspace. Only the owner can delete the workspace."""
+        workspace = await self.workspaces_collection.find_one({"workspace_id": workspace_id})
+        if not workspace:
+            raise WorkspaceNotFound()
+
+        if workspace["owner_id"] != admin_user_id:
+            raise InsufficientPermissions("Only the workspace owner can delete the workspace.")
+
+        result = await self.workspaces_collection.delete_one({"workspace_id": workspace_id})
+        return result.deleted_count > 0
+
     # --- Private Helper & Security Methods ---
 
     async def _find_workspace_if_member(self, workspace_id: str, user_id: str) -> Dict[str, Any]:
