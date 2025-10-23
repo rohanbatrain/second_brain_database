@@ -11,6 +11,7 @@ All endpoints require authentication and follow the established security pattern
 """
 
 from typing import List, Optional
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -80,7 +81,7 @@ from second_brain_database.routes.family.models import (
     ModifyRelationshipResponse,
     RelationshipDetailsResponse,
 )
-from second_brain_database.models.family_models import FamilyMemberResponse
+from second_brain_database.models.family_models import DenyPurchaseRequest, FamilyMemberResponse, PurchaseRequestResponse
 
 # Import health check router
 from second_brain_database.routes.family.health import router as health_router
@@ -312,6 +313,97 @@ async def get_my_families(
         )
 
 
+@router.get(
+    "/wallet/purchase-requests",
+    response_model=List[PurchaseRequestResponse],
+    tags=["Family Wallet"],
+    summary="Get pending purchase requests",
+)
+async def get_purchase_requests(
+    family_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Get purchase requests for a family.
+    - Admins can see all requests for their family.
+    - Members can only see their own requests.
+    """
+    user_id = str(current_user["_id"])
+    try:
+        requests = await family_manager.get_purchase_requests(family_id=family_id, user_id=user_id)
+        return requests
+    except FamilyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/wallet/purchase-requests/{request_id}/approve",
+    response_model=PurchaseRequestResponse,
+    tags=["Family Wallet"],
+    summary="Approve a purchase request",
+)
+async def approve_purchase_request(
+    request_id: str,
+    request: Request,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Approve a family member's purchase request.
+    - Only admins can approve requests.
+    - Approving a request will trigger the purchase and deduct tokens from the family wallet.
+    """
+    admin_id = str(current_user["_id"])
+    req_id = str(uuid.uuid4())
+    request_context = {
+        "request": request,
+        "request_id": req_id,
+        "ip_address": request.client.host,
+    }
+    try:
+        approved_request = await family_manager.approve_purchase_request(
+            request_id=request_id, admin_id=admin_id, request_context=request_context
+        )
+        return approved_request
+    except InsufficientPermissions as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except FamilyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/wallet/purchase-requests/{request_id}/deny",
+    response_model=PurchaseRequestResponse,
+    tags=["Family Wallet"],
+    summary="Deny a purchase request",
+)
+async def deny_purchase_request(
+    request_id: str,
+    request: Request,
+    body: DenyPurchaseRequest,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Deny a family member's purchase request.
+    - Only admins can deny requests.
+    """
+    admin_id = str(current_user["_id"])
+    req_id = str(uuid.uuid4())
+    request_context = {
+        "request": request,
+        "request_id": req_id,
+        "ip_address": request.client.host,
+    }
+    try:
+        denied_request = await family_manager.deny_purchase_request(
+            request_id=request_id, admin_id=admin_id, reason=body.reason, request_context=request_context
+        )
+        return denied_request
+    except InsufficientPermissions as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except FamilyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 
 @router.get(
     "/my-invitations",
@@ -416,11 +508,11 @@ async def get_my_invitations(
             }
         )
 
-    # Rate limit: 20 requests per hour for listing received invitations
+    # Rate limit: 60 requests per hour for listing received invitations (increased)
     await security_manager.check_rate_limit(
         request,
         f"received_invitations_{user_id}",
-        rate_limit_requests=20,
+        rate_limit_requests=60,
         rate_limit_period=3600
     )
 
@@ -2573,14 +2665,23 @@ async def update_notification_preferences(
     )
     
     try:
+        # Build preferences dict from individual fields
+        preferences = {}
+        if preferences_request.email_notifications is not None:
+            preferences["email_notifications"] = preferences_request.email_notifications
+        if preferences_request.push_notifications is not None:
+            preferences["push_notifications"] = preferences_request.push_notifications
+        if preferences_request.sms_notifications is not None:
+            preferences["sms_notifications"] = preferences_request.sms_notifications
+        
         result = await family_manager.update_notification_preferences(
             user_id=user_id,
-            preferences=preferences_request.preferences
+            preferences=preferences
         )
         
         logger.info(
             "Updated notification preferences for user %s: %s",
-            user_id, preferences_request.preferences
+            user_id, preferences
         )
         
         # Get full preferences including unread count
@@ -2771,6 +2872,8 @@ async def get_pending_token_requests(
             response_requests.append(TokenRequestResponse(
                 request_id=req["request_id"],
                 requester_username=req["requester_username"],
+                from_user_id=req.get("requester_user_id"),
+                from_username=req.get("requester_username"),
                 amount=req["amount"],
                 reason=req["reason"],
                 status=req["status"],
@@ -3946,8 +4049,10 @@ async def get_family_transactions(
         )
     
     try:
+        # family_manager.get_family_transactions expects (family_id, user_id, skip, limit)
+        # The route receives (limit, offset) so pass them in the correct order: offset -> skip, limit -> limit
         transactions_data = await family_manager.get_family_transactions(
-            family_id, user_id, limit, offset
+            family_id, user_id, offset, limit
         )
         
         logger.debug("Retrieved %d transactions for family %s", 

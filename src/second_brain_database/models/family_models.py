@@ -704,6 +704,53 @@ class FamilyTokenRequestDocument(BaseModel):
         }
 
 
+class PurchaseRequestDocument(BaseModel):
+    """Database document model for family_purchase_requests collection."""
+    request_id: str
+    family_id: str
+    requester_info: "PurchaseRequestUserInfo"
+    item_info: "PurchaseRequestItemInfo"
+    cost: int
+    status: str = "PENDING"
+    created_at: datetime
+    reviewed_by_info: Optional["PurchaseRequestUserInfo"] = None
+    reviewed_at: Optional[datetime] = None
+    denial_reason: Optional[str] = None
+    transaction_id: Optional[str] = None
+
+    @validator('status')
+    def validate_status(cls, v):
+        valid_statuses = ["PENDING", "APPROVED", "DENIED"]
+        if v not in valid_statuses:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "request_id": "pr_abc123def456",
+                "family_id": "fam_abc123def456",
+                "requester_info": {
+                    "user_id": "user_456",
+                    "username": "someuser"
+                },
+                "item_info": {
+                    "item_id": "item_123",
+                    "name": "Gold Sword",
+                    "item_type": "weapon",
+                    "image_url": "/items/gold_sword.png"
+                },
+                "cost": 100,
+                "status": "PENDING",
+                "created_at": "2024-01-01T00:00:00Z",
+                "reviewed_by_info": None,
+                "reviewed_at": None,
+                "denial_reason": None,
+                "transaction_id": None
+            }
+        }
+
+
 # Error Response Models
 class FamilyErrorResponse(BaseModel):
     """Error response model for family operations."""

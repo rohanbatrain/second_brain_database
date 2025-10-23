@@ -315,6 +315,9 @@ class DatabaseManager:
             # Family management collections indexes
             await self._create_family_management_indexes()
 
+            # Workspace management collections indexes
+            await self._create_workspace_management_indexes()
+
             total_duration = time.time() - start_time
             perf_logger.info("Database index creation completed successfully in %.3fs", total_duration)
             db_logger.info("Database indexes created successfully")
@@ -645,6 +648,24 @@ class DatabaseManager:
             
         except Exception as e:
             db_logger.error("Failed to create family management indexes: %s", e)
+            raise
+
+    async def _create_workspace_management_indexes(self):
+        """Create comprehensive indexes for workspace management collections."""
+        try:
+            db_logger.info("Creating indexes for workspace management collections")
+            
+            # Workspaces collection indexes
+            workspaces_collection = self.get_collection("workspaces")
+            await self._create_index_if_not_exists(workspaces_collection, "workspace_id", {"unique": True})
+            await self._create_index_if_not_exists(workspaces_collection, "owner_id", {})
+            await self._create_index_if_not_exists(workspaces_collection, "members.user_id", {})
+            await self._create_index_if_not_exists(workspaces_collection, "created_at", {})
+            
+            db_logger.info("Workspace management collection indexes created successfully")
+            
+        except Exception as e:
+            db_logger.error("Failed to create workspace management indexes: %s", e)
             raise
 
     async def monitor_connection_pool(self):

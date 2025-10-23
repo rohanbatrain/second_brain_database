@@ -887,6 +887,47 @@ async def buy_theme(
         try:
             payment_details = await validate_payment_method(payment_method, user_id, username, price)
         except HTTPException as e:
+            if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+                logger.info(
+                    "[%s] Family spending denied for user %s, creating purchase request.",
+                    request_id,
+                    username,
+                )
+                try:
+                    # Create a purchase request
+                    purchase_request = await family_manager.create_purchase_request(
+                        family_id=payment_method.family_id,
+                        requester_id=user_id,
+                        item_info={
+                            "item_id": theme_id,
+                            "name": theme_details["name"],
+                            "item_type": "theme",
+                            "image_url": None, # Or get it from somewhere if available
+                        },
+                        cost=price,
+                        request_context={
+                            "request_id": request_id,
+                            "ip_address": client_ip,
+                        },
+                    )
+                    return JSONResponse(
+                        {
+                            "status": "pending_approval",
+                            "detail": "Purchase request created and is pending approval from a family admin.",
+                            "purchase_request": purchase_request,
+                        },
+                        status_code=202,
+                    )
+                except Exception as pr_e:
+                    logger.error(
+                        "[%s] Failed to create purchase request for user %s: %s",
+                        request_id,
+                        username,
+                        pr_e,
+                    )
+                    # Fallback to the original error
+                    return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+
             logger.warning(
                 "[%s] POST /shop/themes/buy payment validation failed - User: %s, Error: %s",
                 request_id,
@@ -1038,6 +1079,40 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
     try:
         payment_details = await validate_payment_method(payment_method, user_id, username, price)
     except HTTPException as e:
+        if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+            client_ip = security_manager.get_client_ip(request)
+            request_id = str(uuid4())[:8]
+            logger.info(f"[AVATAR BUY] Family spending denied for user {username}, creating purchase request.")
+            try:
+                # Create a purchase request
+                purchase_request = await family_manager.create_purchase_request(
+                    family_id=payment_method.family_id,
+                    requester_id=user_id,
+                    item_info={
+                        "item_id": avatar_id,
+                        "name": avatar_details["name"],
+                        "item_type": "avatar",
+                        "image_url": None, # Or get it from somewhere if available
+                    },
+                    cost=price,
+                    request_context={
+                        "request_id": request_id,
+                        "ip_address": client_ip,
+                    },
+                )
+                return JSONResponse(
+                    {
+                        "status": "pending_approval",
+                        "detail": "Purchase request created and is pending approval from a family admin.",
+                        "purchase_request": purchase_request,
+                    },
+                    status_code=202,
+                )
+            except Exception as pr_e:
+                logger.error(f"[AVATAR BUY ERROR] Failed to create purchase request for user {username}: {pr_e}")
+                # Fallback to the original error
+                return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+        
         return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     
     # Prepare transaction data
@@ -1146,6 +1221,40 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
     try:
         payment_details = await validate_payment_method(payment_method, user_id, username, price)
     except HTTPException as e:
+        if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+            client_ip = security_manager.get_client_ip(request)
+            request_id = str(uuid4())[:8]
+            logger.info(f"[BANNER BUY] Family spending denied for user {username}, creating purchase request.")
+            try:
+                # Create a purchase request
+                purchase_request = await family_manager.create_purchase_request(
+                    family_id=payment_method.family_id,
+                    requester_id=user_id,
+                    item_info={
+                        "item_id": banner_id,
+                        "name": banner_details["name"],
+                        "item_type": "banner",
+                        "image_url": None, # Or get it from somewhere if available
+                    },
+                    cost=price,
+                    request_context={
+                        "request_id": request_id,
+                        "ip_address": client_ip,
+                    },
+                )
+                return JSONResponse(
+                    {
+                        "status": "pending_approval",
+                        "detail": "Purchase request created and is pending approval from a family admin.",
+                        "purchase_request": purchase_request,
+                    },
+                    status_code=202,
+                )
+            except Exception as pr_e:
+                logger.error(f"[BANNER BUY ERROR] Failed to create purchase request for user {username}: {pr_e}")
+                # Fallback to the original error
+                return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+        
         return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     
     # Prepare transaction data
@@ -1257,6 +1366,40 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
     try:
         payment_details = await validate_payment_method(payment_method, user_id, username, price)
     except HTTPException as e:
+        if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+            client_ip = security_manager.get_client_ip(request)
+            request_id = str(uuid4())[:8]
+            logger.info(f"[BUNDLE BUY] Family spending denied for user {username}, creating purchase request.")
+            try:
+                # Create a purchase request
+                purchase_request = await family_manager.create_purchase_request(
+                    family_id=payment_method.family_id,
+                    requester_id=user_id,
+                    item_info={
+                        "item_id": bundle_id,
+                        "name": bundle_details["name"],
+                        "item_type": "bundle",
+                        "image_url": None, # Or get it from somewhere if available
+                    },
+                    cost=price,
+                    request_context={
+                        "request_id": request_id,
+                        "ip_address": client_ip,
+                    },
+                )
+                return JSONResponse(
+                    {
+                        "status": "pending_approval",
+                        "detail": "Purchase request created and is pending approval from a family admin.",
+                        "purchase_request": purchase_request,
+                    },
+                    status_code=202,
+                )
+            except Exception as pr_e:
+                logger.error(f"[BUNDLE BUY ERROR] Failed to create purchase request for user {username}: {pr_e}")
+                # Fallback to the original error
+                return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+        
         return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     
     # Prepare transaction data
@@ -1588,6 +1731,49 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
         try:
             payment_details = await validate_payment_method(payment_method, user_id, username, total_price)
         except HTTPException as e:
+            if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+                client_ip = security_manager.get_client_ip(request)
+                request_id_base = str(uuid4())[:8]
+                logger.info(f"[CART CHECKOUT] Family spending denied for user {username}, creating purchase requests for cart items.")
+                
+                purchase_requests = []
+                try:
+                    for i, item in enumerate(items_to_checkout):
+                        request_id = f"{request_id_base}-{i}"
+                        item_type = item.get("type")
+                        item_id_key = f"{item_type}_id"
+                        item_id = item.get(item_id_key)
+
+                        purchase_request = await family_manager.create_purchase_request(
+                            family_id=payment_method.family_id,
+                            requester_id=user_id,
+                            item_info={
+                                "item_id": item_id,
+                                "name": item.get("name"),
+                                "item_type": item_type,
+                                "image_url": item.get("image_url"),
+                            },
+                            cost=item.get("price"),
+                            request_context={
+                                "request_id": request_id,
+                                "ip_address": client_ip,
+                            },
+                        )
+                        purchase_requests.append(purchase_request)
+
+                    return JSONResponse(
+                        {
+                            "status": "pending_approval",
+                            "detail": "Purchase requests for cart items created and are pending approval from a family admin.",
+                            "purchase_requests": purchase_requests,
+                        },
+                        status_code=202,
+                    )
+                except Exception as pr_e:
+                    logger.error(f"[CART CHECKOUT ERROR] Failed to create purchase requests for user {username}: {pr_e}")
+                    # Fallback to the original error
+                    return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
+
             return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
         # Prepare transaction data

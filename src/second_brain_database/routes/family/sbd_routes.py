@@ -22,6 +22,7 @@ from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.routes.family.models import (
+    DirectTransferRequest,
     FreezeAccountRequest,
     SBDAccountResponse,
     UpdateSpendingPermissionsRequest,
@@ -506,7 +507,7 @@ async def get_family_available_balance(
     Returns comprehensive available balance information including total balance,
     available balance considering user permissions, account status, and spending limits.
 
-    **Rate Limiting:** 30 requests per hour per user
+    **Rate Limiting:** 1 request per second per user
 
     **Requirements:**
     - User must be a family member
@@ -520,8 +521,8 @@ async def get_family_available_balance(
     await security_manager.check_rate_limit(
         request,
         f"family_available_balance_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=3600
+        rate_limit_requests=1,
+        rate_limit_period=1
     )
 
     try:
@@ -564,5 +565,93 @@ async def get_family_available_balance(
             detail={
                 "error": "AVAILABLE_BALANCE_RETRIEVAL_FAILED",
                 "message": "Failed to retrieve available balance information"
+            }
+        )
+
+
+@router.post("/{family_id}/sbd-account/transfer")
+async def direct_transfer_tokens(
+    request: Request,
+    family_id: str,
+    transfer_request: DirectTransferRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+) -> JSONResponse:
+    """
+    Directly transfer SBD tokens from family account to a recipient (admin-only).
+    
+    Allows family administrators to transfer tokens directly to users or external accounts
+    without going through the normal token request/approval workflow. This is useful for
+    immediate transfers, rewards, or administrative adjustments.
+    
+    **Rate Limiting:** 10 requests per hour per user
+    
+    **Requirements:**
+    - User must be a family administrator
+    - Family account must not be frozen
+    - Sufficient balance in family account
+    - Recipient must exist (user_id or username)
+    
+    **Returns:**
+    - Transfer confirmation with transaction details
+    """
+    admin_id = str(current_user["_id"])
+    
+    # Apply rate limiting
+    await security_manager.check_rate_limit(
+        request,
+        f"family_direct_transfer_{admin_id}",
+        rate_limit_requests=10,
+        rate_limit_period=3600
+    )
+    
+    try:
+        # Perform the direct transfer
+        transfer_result = await family_manager.direct_transfer_tokens(
+            family_id,
+            admin_id,
+            transfer_request.recipient_type,
+            transfer_request.recipient_identifier,
+            transfer_request.amount,
+            transfer_request.reason
+        )
+        
+        logger.info("Direct token transfer completed: %s - %d tokens from family %s to %s by admin %s", 
+                   transfer_result["transaction_id"], transfer_request.amount, family_id, 
+                   transfer_result["recipient_username"], admin_id)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": f"Successfully transferred {transfer_request.amount} tokens",
+                "data": transfer_result
+            },
+            status_code=status.HTTP_200_OK
+        )
+        
+    except FamilyNotFound:
+        logger.warning("Family not found for direct transfer: %s", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "FAMILY_NOT_FOUND",
+                "message": "Family not found"
+            }
+        )
+    except InsufficientPermissions as e:
+        logger.warning("Insufficient permissions for direct transfer: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "INSUFFICIENT_PERMISSIONS",
+                "message": str(e)
+            }
+        )
+    except FamilyError as e:
+        logger.error("Failed to perform direct token transfer: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "DIRECT_TRANSFER_FAILED",
+                "message": str(e)
             }
         )

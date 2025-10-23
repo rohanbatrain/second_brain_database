@@ -51,6 +51,7 @@ from second_brain_database.managers.email import email_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.models.family_models import PurchaseRequestDocument, PurchaseRequestUserInfo, PurchaseRequestItemInfo
 from bson import ObjectId
 
 # Import enterprise error handling and resilience features
@@ -644,6 +645,62 @@ class FamilyManager:
         finally:
             if session:
                 await session.end_session()
+
+    async def _send_direct_transfer_notification(self, family_id: str, recipient_user_id: str, 
+                                               amount: int, admin_id: str, reason: str, transaction_id: str) -> None:
+        """Send notification about direct token transfer to recipient."""
+        try:
+            admin_user = await self._get_user_by_id(admin_id)
+            
+            notification_data = {
+                "type": "direct_token_transfer_received",
+                "title": "Tokens Received",
+                "message": f"You have received {amount} tokens directly from your family account. Reason: {reason}",
+                "data": {
+                    "amount": amount,
+                    "reason": reason,
+                    "transferred_by": admin_id,
+                    "admin_username": admin_user.get("username", "Admin") if admin_user else "Admin",
+                    "transaction_id": transaction_id,
+                    "transfer_completed": True
+                }
+            }
+            
+            await self._send_family_notification(family_id, [recipient_user_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send direct transfer notification: %s", e)
+
+    async def _send_direct_transfer_admin_notification(self, family_id: str, admin_id: str, 
+                                                     recipient_username: str, amount: int, reason: str, transaction_id: str) -> None:
+        """Send notification about direct token transfer to other family admins."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_id)
+            
+            # Send to other admins (not the one who performed the transfer)
+            other_admins = [aid for aid in family["admin_user_ids"] if aid != admin_id]
+            
+            if other_admins:
+                notification_data = {
+                    "type": "direct_token_transfer_admin",
+                    "title": "Direct Token Transfer",
+                    "message": f"{admin_user.get('username', 'Admin') if admin_user else 'Admin'} transferred {amount} tokens to {recipient_username}. Reason: {reason}",
+                    "data": {
+                        "amount": amount,
+                        "reason": reason,
+                        "recipient_username": recipient_username,
+                        "transferred_by": admin_id,
+                        "admin_username": admin_user.get("username", "Admin") if admin_user else "Admin",
+                        "transaction_id": transaction_id,
+                        "transfer_completed": True
+                    }
+                }
+                
+                await self._send_family_notification(family_id, other_admins, notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send direct transfer admin notification: %s", e)
 
     async def invite_member(self, family_id: str, inviter_id: str, identifier: str, relationship_type: str, 
                            identifier_type: str = "email", request_context: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -1341,6 +1398,310 @@ class FamilyManager:
         except Exception as e:
             self.logger.error("Failed to check family limits for user %s: %s", user_id, e, exc_info=True)
             raise FamilyError(f"Failed to check family limits: {str(e)}")
+
+    # --- Purchase Request Management ---
+
+    async def create_purchase_request(self, family_id: str, requester_id: str, item_info: Dict[str, Any], cost: int, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Creates a purchase request for a family member.
+
+        Args:
+            family_id: The ID of the family.
+            requester_id: The ID of the user making the request.
+            item_info: A dictionary with item details (item_id, name, item_type, image_url).
+            cost: The cost of the item.
+            request_context: The request context for logging.
+
+        Returns:
+            A dictionary with the created purchase request.
+        """
+        error_context = ErrorContext(
+            operation="create_purchase_request",
+            user_id=requester_id,
+            request_id=request_context.get("request_id") if request_context else None,
+            ip_address=request_context.get("ip_address") if request_context else None,
+            metadata={"family_id": family_id, "item_id": item_info.get("item_id"), "cost": cost},
+        )
+
+        try:
+            # 1. Get requester info
+            requester_user = await self._get_user_by_id(requester_id)
+            requester_info = PurchaseRequestUserInfo(
+                user_id=requester_id, username=requester_user.get("username", "Unknown")
+            )
+
+            # 2. Create PurchaseRequestDocument
+            request_id = f"pr_{uuid.uuid4().hex[:16]}"
+            
+            item_info_model = PurchaseRequestItemInfo(**item_info)
+
+            purchase_request_doc = PurchaseRequestDocument(
+                request_id=request_id,
+                family_id=family_id,
+                requester_info=requester_info,
+                item_info=item_info_model,
+                cost=cost,
+                status="PENDING",
+                created_at=datetime.now(timezone.utc),
+            )
+
+            # 3. Insert into DB
+            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            await purchase_requests_collection.insert_one(purchase_request_doc.model_dump(by_alias=True))
+
+            # 4. Send notification to family admins
+            family = await self._get_family_by_id(family_id)
+            admin_ids = family.get("admin_user_ids", [])
+            
+            if hasattr(self, 'send_family_notification'):
+                await self.send_family_notification(
+                    family_id=family_id,
+                    notification_type="purchase_request_created",
+                    data={
+                        "request_id": request_id,
+                        "requester_username": requester_info.username,
+                        "item_name": item_info.get("name"),
+                        "cost": cost,
+                    },
+                    recipient_user_ids=admin_ids,
+                )
+
+            self.logger.info(
+                "Purchase request created: %s for family %s by user %s",
+                request_id,
+                family_id,
+                requester_id,
+            )
+
+            return purchase_request_doc.model_dump()
+
+        except Exception as e:
+            await record_error_event(e, error_context, ErrorSeverity.HIGH)
+            self.logger.error(
+                "Failed to create purchase request for family %s: %s", family_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to create purchase request: {str(e)}")
+
+    async def get_purchase_requests(self, family_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Get purchase requests for a family.
+        Admins see all, members see their own.
+        """
+        error_context = ErrorContext(
+            operation="get_purchase_requests",
+            user_id=user_id,
+            metadata={"family_id": family_id},
+        )
+        try:
+            family = await self._get_family_by_id(family_id)
+            is_admin = user_id in family.get("admin_user_ids", [])
+
+            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            
+            query = {"family_id": family_id}
+            if not is_admin:
+                query["requester_info.user_id"] = user_id
+
+            requests_cursor = purchase_requests_collection.find(query).sort("created_at", -1)
+            
+            requests = await requests_cursor.to_list(length=100) # Limit to 100 for now
+
+            self.logger.info(
+                "Retrieved %d purchase requests for family %s for user %s (admin: %s)",
+                len(requests),
+                family_id,
+                user_id,
+                is_admin,
+            )
+
+            return requests
+
+        except Exception as e:
+            await record_error_event(e, error_context, ErrorSeverity.MEDIUM)
+            self.logger.error(
+                "Failed to get purchase requests for family %s: %s", family_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to get purchase requests: {str(e)}")
+
+    async def approve_purchase_request(self, request_id: str, admin_id: str, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Approve a purchase request.
+        """
+        error_context = ErrorContext(
+            operation="approve_purchase_request",
+            user_id=admin_id,
+            request_id=request_context.get("request_id") if request_context else None,
+            ip_address=request_context.get("ip_address") if request_context else None,
+            metadata={"request_id": request_id},
+        )
+        try:
+            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            
+            # 1. Get the purchase request
+            purchase_request = await purchase_requests_collection.find_one({"request_id": request_id})
+            if not purchase_request:
+                raise FamilyError("Purchase request not found")
+
+            if purchase_request["status"] != "PENDING":
+                raise FamilyError(f"Purchase request is already {purchase_request['status']}")
+
+            family_id = purchase_request["family_id"]
+            
+            # 2. Security check: user is an admin
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family.get("admin_user_ids", []):
+                raise InsufficientPermissions("Only family admins can approve purchase requests.")
+
+            # 3. Re-validate funds
+            family_sbd_username = family["sbd_account"]["account_username"]
+            balance = await self.get_family_sbd_balance(family_sbd_username)
+            cost = purchase_request["cost"]
+            if balance < cost:
+                raise FamilyError(f"Insufficient family funds. Required: {cost}, Available: {balance}")
+
+            # 4. Process payment
+            from second_brain_database.routes.shop.routes import process_payment
+
+            requester_user = await self._get_user_by_id(purchase_request["requester_info"]["user_id"])
+
+            payment_details = {
+                "payment_type": "family",
+                "account_username": family_sbd_username,
+                "family_id": family_id,
+                "family_name": family["name"],
+            }
+            item_details = purchase_request["item_info"]
+            transaction_id = f"txn_{uuid.uuid4().hex[:16]}"
+
+            payment_result = await process_payment(
+                payment_details=payment_details,
+                amount=cost,
+                item_details=item_details,
+                current_user=requester_user, # The payment is on behalf of the requester
+                transaction_id=transaction_id,
+            )
+
+            # 5. Update purchase request status
+            now = datetime.now(timezone.utc)
+            admin_user = await self._get_user_by_id(admin_id)
+            reviewed_by_info = PurchaseRequestUserInfo(
+                user_id=admin_id, username=admin_user.get("username", "Unknown")
+            )
+
+            await purchase_requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "APPROVED",
+                        "reviewed_at": now,
+                        "reviewed_by_info": reviewed_by_info.model_dump(),
+                        "transaction_id": transaction_id,
+                    }
+                },
+            )
+
+            # 6. Notify requester
+            if hasattr(self, 'send_family_notification'):
+                await self.send_family_notification(
+                    family_id=family_id,
+                    notification_type="purchase_request_approved",
+                    data={
+                        "request_id": request_id,
+                        "item_name": item_details["name"],
+                        "admin_username": reviewed_by_info.username,
+                    },
+                    recipient_user_ids=[purchase_request["requester_info"]["user_id"]],
+                )
+            
+            self.logger.info(
+                "Purchase request %s approved by admin %s", request_id, admin_id
+            )
+
+            purchase_request["status"] = "APPROVED"
+            return purchase_request
+
+        except Exception as e:
+            await record_error_event(e, error_context, ErrorSeverity.HIGH)
+            self.logger.error(
+                "Failed to approve purchase request %s: %s", request_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to approve purchase request: {str(e)}")
+
+    async def deny_purchase_request(self, request_id: str, admin_id: str, reason: Optional[str] = None, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Deny a purchase request.
+        """
+        error_context = ErrorContext(
+            operation="deny_purchase_request",
+            user_id=admin_id,
+            request_id=request_context.get("request_id") if request_context else None,
+            ip_address=request_context.get("ip_address") if request_context else None,
+            metadata={"request_id": request_id, "reason": reason},
+        )
+        try:
+            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+
+            # 1. Get the purchase request
+            purchase_request = await purchase_requests_collection.find_one({"request_id": request_id})
+            if not purchase_request:
+                raise FamilyError("Purchase request not found")
+
+            if purchase_request["status"] != "PENDING":
+                raise FamilyError(f"Purchase request is already {purchase_request['status']}")
+
+            family_id = purchase_request["family_id"]
+
+            # 2. Security check: user is an admin
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family.get("admin_user_ids", []):
+                raise InsufficientPermissions("Only family admins can deny purchase requests.")
+
+            # 3. Update purchase request status
+            now = datetime.now(timezone.utc)
+            admin_user = await self._get_user_by_id(admin_id)
+            reviewed_by_info = PurchaseRequestUserInfo(
+                user_id=admin_id, username=admin_user.get("username", "Unknown")
+            )
+
+            await purchase_requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "DENIED",
+                        "reviewed_at": now,
+                        "reviewed_by_info": reviewed_by_info.model_dump(),
+                        "denial_reason": reason,
+                    }
+                },
+            )
+
+            # 4. Notify requester
+            if hasattr(self, 'send_family_notification'):
+                await self.send_family_notification(
+                    family_id=family_id,
+                    notification_type="purchase_request_denied",
+                    data={
+                        "request_id": request_id,
+                        "item_name": purchase_request["item_info"]["name"],
+                        "admin_username": reviewed_by_info.username,
+                        "reason": reason,
+                    },
+                    recipient_user_ids=[purchase_request["requester_info"]["user_id"]],
+                )
+
+            self.logger.info(
+                "Purchase request %s denied by admin %s", request_id, admin_id
+            )
+
+            purchase_request["status"] = "DENIED"
+            return purchase_request
+
+        except Exception as e:
+            await record_error_event(e, error_context, ErrorSeverity.HIGH)
+            self.logger.error(
+                "Failed to deny purchase request %s: %s", request_id, e, exc_info=True
+            )
+            raise FamilyError(f"Failed to deny purchase request: {str(e)}")
 
     async def _get_family_last_activity(self, family_id: str) -> Optional[datetime]:
         """Get the last activity timestamp for a family."""
@@ -4389,7 +4750,14 @@ class FamilyManager:
             
             # Check if request has expired
             now = datetime.now(timezone.utc)
-            if now > request_doc["expires_at"]:
+            expires_at = request_doc["expires_at"]
+            
+            # Handle timezone-aware vs naive datetime comparison
+            if expires_at.tzinfo is None:
+                # expires_at is naive, assume UTC
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+            if now > expires_at:
                 # Auto-expire the request
                 await requests_collection.update_one(
                     {"request_id": request_id},
@@ -4880,13 +5248,17 @@ class FamilyManager:
             family = await self._get_family_by_id(family_id)
             requester = await self._get_user_by_id(request_doc["requester_user_id"])
             
+            # Ensure notification payload contains canonical 'from' fields for frontend consumption
             notification_data = {
                 "type": "token_request_created",
                 "title": "New Token Request",
                 "message": f"{requester.get('username', 'Unknown')} requested {request_doc['amount']} tokens: {request_doc['reason']}",
                 "data": {
                     "request_id": request_doc["request_id"],
+                    "requester_user_id": request_doc.get("requester_user_id"),
                     "requester_username": requester.get("username", "Unknown"),
+                    "from_user_id": request_doc.get("requester_user_id"),
+                    "from_username": requester.get("username", "Unknown"),
                     "amount": request_doc["amount"],
                     "reason": request_doc["reason"],
                     "expires_at": request_doc["expires_at"].isoformat()
@@ -4941,12 +5313,31 @@ class FamilyManager:
                 "expired": f"Your token request for {request_doc['amount']} tokens has expired"
             }
             
+            # Map notification_type to correct enum values
+            type_mapping = {
+                "approve": "approved",
+                "deny": "denied"
+            }
+            mapped_type = type_mapping.get(notification_type, notification_type)
+            
+            # Attach canonical from/requester fields so UI can show "From:" reliably
+            requester_username = ""
+            try:
+                requester = await self._get_user_by_id(request_doc.get("requester_user_id"))
+                requester_username = requester.get("username", "")
+            except Exception:
+                requester_username = ""
+
             notification_data = {
-                "type": f"token_request_{notification_type}",
+                "type": f"token_request_{mapped_type}",
                 "title": f"Token Request {notification_type.title()}",
                 "message": notification_messages.get(notification_type, f"Token request {notification_type}"),
                 "data": {
                     "request_id": request_doc["request_id"],
+                    "requester_user_id": request_doc.get("requester_user_id"),
+                    "requester_username": requester_username,
+                    "from_user_id": request_doc.get("requester_user_id"),
+                    "from_username": requester_username,
                     "amount": request_doc["amount"],
                     "reason": request_doc["reason"],
                     "status": request_doc["status"],
@@ -4969,6 +5360,10 @@ class FamilyManager:
             else:
                 approved_by_text = "automatically"
             
+            # Include canonical from fields (who approved/transferred)
+            from_user_id = approved_by if approved_by != "system" else None
+            from_username = admin_user.get("username", "System") if approved_by != "system" and 'admin_user' in locals() else "System"
+
             notification_data = {
                 "type": "token_transfer_completed",
                 "title": "Tokens Transferred",
@@ -4977,7 +5372,9 @@ class FamilyManager:
                     "amount": amount,
                     "approved_by": approved_by,
                     "request_id": request_id,
-                    "transfer_completed": True
+                    "transfer_completed": True,
+                    "from_user_id": from_user_id,
+                    "from_username": from_username
                 }
             }
             
@@ -5532,7 +5929,10 @@ class FamilyManager:
             if emergency_request["status"] != "pending":
                 raise FamilyError("Emergency request is no longer pending")
             
-            if datetime.now(timezone.utc) > emergency_request["expires_at"]:
+            expires_at = emergency_request["expires_at"]
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
                 raise FamilyError("Emergency request has expired")
             
             # Verify approver is a family member
@@ -5670,7 +6070,10 @@ class FamilyManager:
             if emergency_request["status"] != "pending":
                 raise FamilyError("Emergency request is no longer pending")
             
-            if datetime.now(timezone.utc) > emergency_request["expires_at"]:
+            expires_at = emergency_request["expires_at"]
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
                 raise FamilyError("Emergency request has expired")
             
             # Verify rejector is a family member
@@ -6461,7 +6864,10 @@ class FamilyManager:
                 raise InvitationNotFound("Can only resend pending invitations")
             
             # Check if invitation is expired
-            if datetime.now(timezone.utc) > invitation["expires_at"]:
+            expires_at = invitation["expires_at"]
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
                 raise InvitationNotFound("Cannot resend expired invitation")
             
             # Verify user has admin permissions for the family
@@ -8238,10 +8644,23 @@ class FamilyManager:
         """
         try:
             users_collection = self.db_manager.get_collection("users")
+            
+            # Try with string ID first
             user = await users_collection.find_one(
                 {"_id": user_id},
                 {"family_notifications": 1}
             )
+            
+            # If not found and user_id looks like ObjectId, try converting
+            if not user and isinstance(user_id, str) and len(user_id) == 24:
+                try:
+                    oid = ObjectId(user_id)
+                    user = await users_collection.find_one(
+                        {"_id": oid},
+                        {"family_notifications": 1}
+                    )
+                except Exception:
+                    pass
             
             if not user:
                 raise FamilyError("User not found")
@@ -9265,7 +9684,10 @@ class FamilyManager:
             if recovery_request["status"] != "pending_verification":
                 raise ValidationError("Recovery request is not in pending verification status")
             
-            if datetime.now(timezone.utc) > recovery_request["expires_at"]:
+            expires_at = recovery_request["expires_at"]
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
                 raise ValidationError("Recovery request has expired")
             
             # Verify user is a family member
@@ -10472,6 +10894,169 @@ class FamilyManager:
         except Exception as e:
             self.logger.error("Failed to get limit status display: %s", e, exc_info=True)
             raise FamilyError(f"Failed to get limit status: {str(e)}")
+
+    async def direct_transfer_tokens(self, family_id: str, admin_id: str, recipient_identifier: str, 
+                                   recipient_type: str, amount: int, reason: str, request_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Directly transfer tokens from family account to a member (admin only)."""
+        try:
+            # Input validation
+            if amount <= 0:
+                raise ValueError("Transfer amount must be positive")
+            
+            if not reason or not reason.strip():
+                raise ValueError("Transfer reason is required")
+            
+            if recipient_type not in ["user_id", "username"]:
+                raise ValueError("Invalid recipient type. Must be 'user_id' or 'username'")
+            
+            if not recipient_identifier or not recipient_identifier.strip():
+                raise ValueError("Recipient identifier is required")
+            
+            # Verify admin permissions
+            family = await self._get_family_by_id(family_id)
+            if admin_id not in family["admin_user_ids"]:
+                raise InsufficientPermissions("Only family admins can perform direct transfers")
+            
+            # Check if family account is frozen
+            if family["sbd_account"]["is_frozen"]:
+                raise FamilyError("Family account is frozen and cannot perform transfers")
+            
+            # Get family balance
+            family_balance = await self.get_family_sbd_balance(family["sbd_account"]["account_username"])
+            if family_balance < amount:
+                raise FamilyError(f"Insufficient family balance. Required: {amount}, Available: {family_balance}")
+            
+            # Find recipient
+            if recipient_type == "user_id":
+                recipient_user = await self._get_user_by_id(recipient_identifier)
+            else:  # username
+                recipient_user = await self._get_user_by_username(recipient_identifier)
+            
+            if not recipient_user:
+                raise FamilyError(f"Recipient {recipient_type} '{recipient_identifier}' not found")
+            
+            recipient_user_id = str(recipient_user["_id"])
+            
+            # Verify recipient is family member
+            if not await self._is_user_in_family(recipient_user_id, family_id):
+                raise FamilyError("Recipient must be a family member")
+            
+            recipient_username = recipient_user.get("username", "Unknown")
+            
+            # Start transaction for atomic transfer
+            client = self.db_manager.client
+            session = await client.start_session()
+            
+            try:
+                async with session.start_transaction():
+                    transaction_id = f"txn_{uuid.uuid4().hex[:16]}"
+                    
+                    # Update family balance (decrease)
+                    await self._update_family_balance_transactional(
+                        family["sbd_account"]["account_username"], -amount, transaction_id, 
+                        f"Direct transfer to {recipient_username}: {reason}", session
+                    )
+                    
+                    # Update recipient balance (increase)
+                    await self._update_user_balance_transactional(
+                        recipient_user_id, amount, transaction_id, 
+                        f"Direct transfer from family account: {reason}", session
+                    )
+                    
+                    # Log transaction
+                    await self._log_family_transaction(
+                        family_id, transaction_id, "direct_transfer", -amount, 
+                        f"Direct transfer to {recipient_username}: {reason}", 
+                        admin_id, recipient_user_id, session
+                    )
+                    
+                    # Send notifications
+                    await self._send_direct_transfer_notification(
+                        family_id, recipient_user_id, amount, admin_id, reason, transaction_id
+                    )
+                    
+                    await self._send_direct_transfer_admin_notification(
+                        family_id, admin_id, recipient_username, amount, reason, transaction_id
+                    )
+                    
+                    return {
+                        "success": True,
+                        "transaction_id": transaction_id,
+                        "amount": amount,
+                        "recipient": recipient_username,
+                        "reason": reason,
+                        "transferred_at": datetime.utcnow().isoformat()
+                    }
+                    
+            except Exception as e:
+                # Transaction will be automatically rolled back
+                self.logger.error("Direct token transfer transaction failed: %s", e)
+                raise e
+                
+            finally:
+                await session.end_session()
+                
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            self.logger.error("Direct token transfer failed: %s", e)
+            raise Exception(f"Direct token transfer failed: {str(e)}")
+
+    async def _send_direct_transfer_notification(self, family_id: str, recipient_user_id: str, 
+                                               amount: int, admin_id: str, reason: str, transaction_id: str) -> None:
+        """Send notification about direct token transfer to recipient."""
+        try:
+            admin_user = await self._get_user_by_id(admin_id)
+            
+            notification_data = {
+                "type": "direct_token_transfer_received",
+                "title": "Tokens Received",
+                "message": f"You have received {amount} tokens directly from your family account. Reason: {reason}",
+                "data": {
+                    "amount": amount,
+                    "reason": reason,
+                    "transferred_by": admin_id,
+                    "admin_username": admin_user.get("username", "Admin") if admin_user else "Admin",
+                    "transaction_id": transaction_id,
+                    "transfer_completed": True
+                }
+            }
+            
+            await self._send_family_notification(family_id, [recipient_user_id], notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send direct transfer notification: %s", e)
+
+    async def _send_direct_transfer_admin_notification(self, family_id: str, admin_id: str, 
+                                                     recipient_username: str, amount: int, reason: str, transaction_id: str) -> None:
+        """Send notification about direct token transfer to other family admins."""
+        try:
+            family = await self._get_family_by_id(family_id)
+            admin_user = await self._get_user_by_id(admin_id)
+            
+            # Send to other admins (not the one who performed the transfer)
+            other_admins = [aid for aid in family["admin_user_ids"] if aid != admin_id]
+            
+            if other_admins:
+                notification_data = {
+                    "type": "direct_token_transfer_admin",
+                    "title": "Direct Token Transfer",
+                    "message": f"{admin_user.get('username', 'Admin') if admin_user else 'Admin'} transferred {amount} tokens to {recipient_username}. Reason: {reason}",
+                    "data": {
+                        "amount": amount,
+                        "reason": reason,
+                        "recipient_username": recipient_username,
+                        "transferred_by": admin_id,
+                        "admin_username": admin_user.get("username", "Admin") if admin_user else "Admin",
+                        "transaction_id": transaction_id,
+                        "transfer_completed": True
+                    }
+                }
+                
+                await self._send_family_notification(family_id, other_admins, notification_data)
+            
+        except Exception as e:
+            self.logger.error("Failed to send direct transfer admin notification: %s", e)
 
 
 # Global family manager instance with dependency injection

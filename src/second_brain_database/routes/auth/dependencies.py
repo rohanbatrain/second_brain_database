@@ -12,6 +12,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.managers.workspace_manager import workspace_manager
 from second_brain_database.routes.auth.services.auth.password import send_blocked_ip_notification
 from second_brain_database.utils.logging_utils import log_security_event
 
@@ -22,11 +23,28 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     """
-    Dependency function to retrieve the current authenticated user
-    based on the provided OAuth2 token.
+    Dependency function to retrieve the current authenticated user, augmented with
+    their workspace memberships and roles.
     """
     from second_brain_database.routes.auth.services.auth.login import get_current_user
-    return await get_current_user(token)
+    
+    # 1. Get the core user object
+    user = await get_current_user(token)
+    
+    if user:
+        # 2. Augment the user object with their workspace data
+        try:
+            user_id = str(user["_id"])
+            user_workspaces = await workspace_manager.get_workspaces_for_user(user_id)
+            user["workspaces"] = user_workspaces
+            logger.debug(f"User {user_id} is a member of {len(user_workspaces)} workspaces.")
+        except Exception as e:
+            logger.error(f"Failed to retrieve workspaces for user {user.get('_id')}: {e}")
+            # Decide if this should be a hard fail or not. For now, we'll allow login
+            # but the user won't have workspace context.
+            user["workspaces"] = []
+
+    return user
 
 
 async def enforce_ip_lockdown(

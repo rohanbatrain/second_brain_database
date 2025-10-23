@@ -50,6 +50,14 @@ class NotificationType(str, Enum):
     TOKEN_REQUEST_APPROVED = "token_request_approved"
     TOKEN_REQUEST_DENIED = "token_request_denied"
     PERMISSIONS_UPDATED = "permissions_updated"
+    TOKEN_TRANSFER_COMPLETED = "token_transfer_completed"
+    DIRECT_TOKEN_TRANSFER_RECEIVED = "direct_token_transfer_received"
+    DIRECT_TOKEN_TRANSFER_ADMIN = "direct_token_transfer_admin"
+    RELATIONSHIP_MODIFIED = "relationship_modified"
+    EMERGENCY_UNFREEZE_REQUEST = "emergency_unfreeze_request"
+    EMERGENCY_UNFREEZE_EXECUTED = "emergency_unfreeze_executed"
+    UPGRADE_SOON = "upgrade_soon"
+    BILLING_RECOMMENDATION = "billing_recommendation"
 
 # Status enums
 class InvitationStatus(str, Enum):
@@ -812,6 +820,16 @@ class TokenRequestResponse(BaseDocumentedModel):
     requester_username: str = Field(
         ...,
         description="Username of the person who made the request",
+        example="john_doe"
+    )
+    from_user_id: Optional[str] = Field(
+        None,
+        description="Canonical 'from' user id (same as requester_user_id for token requests)",
+        example="68f3c68604839468a2f226f0"
+    )
+    from_username: Optional[str] = Field(
+        None,
+        description="Canonical 'from' username (same as requester_username for token requests)",
         example="john_doe"
     )
     amount: int = Field(
@@ -2562,6 +2580,133 @@ class LimitEnforcementResponse(BaseDocumentedModel):
                     "No action required"
                 ],
                 "last_updated": "2024-01-15T12:00:00Z"
+            }
+        }
+    }
+
+
+class DirectTransferRequest(BaseDocumentedModel):
+    """
+    Request model for direct SBD token transfer from family account.
+
+    Allows family administrators to directly transfer tokens from the family
+    account to any user or external account. Bypasses the normal request/approval
+    workflow for immediate transfers.
+    """
+
+    recipient_identifier: str = Field(
+        ...,
+        description="Username or user ID of the recipient",
+        example="john_doe"
+    )
+    amount: int = Field(
+        ...,
+        gt=0,
+        description="Amount of SBD tokens to transfer",
+        example=500
+    )
+    reason: str = Field(
+        ...,
+        max_length=TOKEN_REQUEST_REASON_MAX_LENGTH,
+        description="Reason for the direct transfer",
+        example="Emergency funds for school supplies"
+    )
+    recipient_type: str = Field(
+        "user",
+        description="Type of recipient: 'user' for internal users, 'external' for external accounts",
+        example="user"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "recipient_identifier": "john_doe",
+                "amount": 500,
+                "reason": "Emergency funds for school supplies",
+                "recipient_type": "user"
+            }
+        }
+    }
+
+    @field_validator("recipient_type")
+    @classmethod
+    def validate_recipient_type(cls, v: str) -> str:
+        """Validate that the recipient type is supported."""
+        if v.lower() not in ["user", "external"]:
+            logger.error("Invalid recipient type: %s", v)
+            raise ValueError("Recipient type must be either 'user' or 'external'")
+        return v.lower()
+
+
+class DirectTransferResponse(BaseDocumentedModel):
+    """
+    Response model for direct SBD token transfer.
+    """
+
+    transfer_id: str = Field(
+        ...,
+        description="Unique transfer identifier",
+        example="xfer_1234567890abcdef"
+    )
+    family_id: str = Field(
+        ...,
+        description="Family identifier",
+        example="fam_1234567890abcdef"
+    )
+    recipient_identifier: str = Field(
+        ...,
+        description="Recipient username or ID",
+        example="john_doe"
+    )
+    amount: int = Field(
+        ...,
+        description="Amount transferred",
+        example=500
+    )
+    reason: str = Field(
+        ...,
+        description="Transfer reason",
+        example="Emergency funds for school supplies"
+    )
+    transferred_by: str = Field(
+        ...,
+        description="User ID of admin who performed transfer",
+        example="507f1f77bcf86cd799439011"
+    )
+    transferred_by_username: str = Field(
+        ...,
+        description="Username of admin who performed transfer",
+        example="jane_smith"
+    )
+    transferred_at: datetime = Field(
+        ...,
+        description="UTC timestamp when transfer was completed",
+        example="2024-01-01T12:00:00Z"
+    )
+    transaction_id: Optional[str] = Field(
+        None,
+        description="Blockchain transaction ID",
+        example="txn_abcdef1234567890"
+    )
+    message: str = Field(
+        ...,
+        description="Success message",
+        example="Direct transfer completed successfully"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "transfer_id": "xfer_1234567890abcdef",
+                "family_id": "fam_1234567890abcdef",
+                "recipient_identifier": "john_doe",
+                "amount": 500,
+                "reason": "Emergency funds for school supplies",
+                "transferred_by": "507f1f77bcf86cd799439011",
+                "transferred_by_username": "jane_smith",
+                "transferred_at": "2024-01-01T12:00:00Z",
+                "transaction_id": "txn_abcdef1234567890",
+                "message": "Direct transfer completed successfully"
             }
         }
     }

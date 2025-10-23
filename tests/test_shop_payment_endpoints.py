@@ -733,11 +733,13 @@ class TestShopPaymentSystemErrorProof:
         # Cleanup
         await users_collection.delete_many({"username": {"$in": [test_user["username"], family_user["username"]]}})
 
-    @patch('second_brain_database.routes.auth.services.auth.login.get_current_user')
-    async def test_payment_options_comprehensive(self, mock_get_current_user, test_db_setup):
+    @patch('second_brain_database.routes.auth.dependencies.enforce_all_lockdowns')
+    async def test_payment_options_comprehensive(self, mock_enforce_lockdowns, test_db_setup):
         """Test comprehensive payment options retrieval with real database operations."""
-        # Setup mock to return test user
-        mock_get_current_user.return_value = test_db_setup["test_user"]
+        # Setup mock to return the test user directly
+        users_collection = db_manager.get_collection("users")
+        user_doc = await users_collection.find_one({"username": test_db_setup["test_user"]["username"]})
+        mock_enforce_lockdowns.return_value = user_doc
         
         # Create test client with proper headers
         client = TestClient(app)
