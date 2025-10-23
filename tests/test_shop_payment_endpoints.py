@@ -657,21 +657,21 @@ class TestShopPaymentSystemErrorProof:
     """Comprehensive error-proof tests using real database operations and authentication."""
 
     @pytest.fixture
-    async def setup_test_data(self):
-        """Set up test fixtures with real database operations."""
+    async def test_db_setup(self):
+        """Set up test database with real users, families, and accounts."""
         # Connect to database
         await db_manager.connect()
 
         # Create test users
         test_user = {
-            "username": "test_user_error_proof",
-            "email": "test_error_proof@example.com",
+            "username": "test_user_comprehensive",
+            "email": "test_comprehensive@example.com",
             "password": "testpass123"
         }
 
         family_user = {
-            "username": "test_family_member_error_proof",
-            "email": "family_error_proof@example.com",
+            "username": "test_family_member_comprehensive",
+            "email": "family_comprehensive@example.com",
             "password": "testpass123"
         }
 
@@ -717,8 +717,8 @@ class TestShopPaymentSystemErrorProof:
             TestClient(app), user_token, family_token, test_user, family_user
         )
 
-        # Create FastAPI test client
-        client = TestClient(app)
+        # Get test family data
+        test_family = await family_manager.get_family_by_id(test_family_id)
 
         yield {
             "test_user": test_user,
@@ -726,46 +726,54 @@ class TestShopPaymentSystemErrorProof:
             "user_token": user_token,
             "family_token": family_token,
             "test_family_id": test_family_id,
-            "client": client
+            "test_family": test_family,
+            "jwt_token": user_token  # For backward compatibility
         }
 
         # Cleanup
-        await users_collection.delete_many({"username": {"$in": [test_user["username"], family_user["username"]]}})    @pytest.mark.asyncio
-    async def test_payment_options_comprehensive(self, setup_test_data):
-        """Test payment options endpoint with real database data."""
-        data = setup_test_data
+        await users_collection.delete_many({"username": {"$in": [test_user["username"], family_user["username"]]}})
+
+    @patch('second_brain_database.routes.auth.services.auth.login.get_current_user')
+    async def test_payment_options_comprehensive(self, mock_get_current_user, test_db_setup):
+        """Test comprehensive payment options retrieval with real database operations."""
+        # Setup mock to return test user
+        mock_get_current_user.return_value = test_db_setup["test_user"]
         
-        # Mock authentication to bypass JWT issues for now
-        with patch('second_brain_database.routes.auth.services.auth.login.get_current_user') as mock_get_user:
-            mock_user = {
-                "_id": "507f1f77bcf86cd799439011",
-                "username": data["test_user"]["username"],
-                "email": data["test_user"]["email"],
-                "sbd_tokens": 1000
-            }
-            mock_get_user.return_value = mock_user
-            
-            headers = {"Authorization": f"Bearer {data['user_token']}"}
-            response = data["client"].get("/shop/payment-options", headers=headers)
-            assert response.status_code == 200
-
-            response_data = response.json()
-            assert "data" in response_data
-            assert "payment_options" in response_data["data"]
-
-            personal = response_data["data"]["payment_options"]["personal"]
-            assert personal["available_tokens"] == 1000
-            assert personal["can_spend"] is True
-
-            family = response_data["data"]["payment_options"]["family"]
-            assert len(family) > 0
-            # Verify family account details
-            family_option = family[0]
-            assert "family_id" in family_option
-            assert "family_name" in family_option
-            assert "available_tokens" in family_option
-            assert "can_spend" in family_option
-            assert "spending_limit" in family_option
+        # Create test client with proper headers
+        client = TestClient(app)
+        headers = {
+            "Authorization": f"Bearer {test_db_setup['jwt_token']}",
+            "User-Agent": "emotion_tracker/1.0.0",
+            "X-Forwarded-For": "127.0.0.1"
+        }
+        
+        # Test payment options endpoint
+        response = client.get("/shop/payment-options", headers=headers)
+        
+        # Assert successful response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "payment_options" in data["data"]
+        
+        # Verify personal balance
+        personal_balance = data["data"]["payment_options"]["personal"]["balance"]
+        assert personal_balance == 1000  # From test setup
+        
+        # Verify family accounts (should include test family)
+        family_accounts = data["data"]["payment_options"]["family"]
+        assert len(family_accounts) >= 1
+        
+        # Find the test family account
+        test_family = None
+        for family in family_accounts:
+            if family["family_id"] == test_db_setup["test_family"]["family_id"]:
+                test_family = family
+                break
+        
+        assert test_family is not None
+        assert test_family["balance"] == 5000  # From test setup
+        assert test_family["can_spend"] is True  # User has spending permissions
 
     @pytest.mark.asyncio
     async def test_personal_payment_success(self, setup_test_data):

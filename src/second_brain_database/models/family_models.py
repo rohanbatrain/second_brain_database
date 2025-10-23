@@ -29,7 +29,8 @@ NOTIFICATION_TYPES = [
     "sbd_spend", "sbd_deposit", "large_transaction", "spending_limit_reached",
     "account_frozen", "account_unfrozen", "admin_promoted", "admin_demoted",
     "member_added", "member_removed", "token_request_created", 
-    "token_request_approved", "token_request_denied", "permissions_updated"
+    "token_request_approved", "token_request_denied", "permissions_updated",
+    "purchase_request_created", "purchase_request_approved", "purchase_request_denied"
 ]
 
 
@@ -178,6 +179,37 @@ class MarkNotificationsReadRequest(BaseModel):
         if not v:
             raise ValueError("At least one notification ID must be provided")
         return v
+
+# --- Models for Purchase Requests ---
+class PurchaseRequestUserInfo(BaseModel):
+    """Information about a user involved in a purchase request."""
+    user_id: str
+    username: str
+
+class PurchaseRequestItemInfo(BaseModel):
+    """Information about the item being requested."""
+    item_id: str
+    name: str
+    item_type: str
+    image_url: Optional[str] = None
+
+class PurchaseRequestResponse(BaseModel):
+    """Response model for a single purchase request."""
+    request_id: str
+    family_id: str
+    requester: PurchaseRequestUserInfo
+    item: PurchaseRequestItemInfo
+    cost: int
+    status: Literal["PENDING", "APPROVED", "DENIED"]
+    created_at: datetime
+    reviewed_by: Optional[PurchaseRequestUserInfo] = None
+    reviewed_at: Optional[datetime] = None
+
+class DenyPurchaseRequest(BaseModel):
+    """Request model for denying a purchase request."""
+    reason: Optional[str] = Field(None, max_length=500, description="Optional reason for denial")
+
+# --- End of Purchase Request Models ---
 
 
 # Response Models

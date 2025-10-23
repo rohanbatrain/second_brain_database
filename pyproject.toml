@@ -247,6 +247,7 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests"
 ]
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
