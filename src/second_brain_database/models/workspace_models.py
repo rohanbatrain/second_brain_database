@@ -2,7 +2,7 @@
 Pydantic models for the fully-featured Teams/Workspaces feature.
 """
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class WorkspaceMember(BaseModel):
@@ -26,6 +26,38 @@ class WorkspaceSettings(BaseModel):
         description="The default role assigned to newly invited members."
     )
 
+class WorkspaceSBDAccount(BaseModel):
+    """SBD account configuration for workspace shared token management."""
+    account_username: str = Field(
+        default="",
+        description="Virtual account username for the workspace"
+    )
+    is_frozen: bool = Field(
+        default=False,
+        description="Whether the account is currently frozen"
+    )
+    frozen_by: Optional[str] = Field(
+        None,
+        description="Username of admin who froze the account"
+    )
+    frozen_at: Optional[datetime] = Field(
+        None,
+        description="When the account was frozen"
+    )
+    spending_permissions: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Spending permissions for all workspace members"
+    )
+    notification_settings: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "notify_on_spend": True,
+            "notify_on_deposit": True,
+            "large_transaction_threshold": 1000,
+            "notify_admins_only": False
+        },
+        description="Notification settings for SBD transactions"
+    )
+
 class WorkspaceDocument(BaseModel):
     """Database document model for the workspaces collection."""
     workspace_id: str = Field(..., description="Unique identifier for the workspace.")
@@ -36,3 +68,9 @@ class WorkspaceDocument(BaseModel):
     settings: WorkspaceSettings = Field(default_factory=WorkspaceSettings, description="Settings for the workspace.")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # SBD account information for team wallet functionality
+    sbd_account: WorkspaceSBDAccount = Field(
+        default_factory=WorkspaceSBDAccount,
+        description="SBD account configuration for shared token management"
+    )

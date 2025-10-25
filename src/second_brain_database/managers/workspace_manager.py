@@ -97,7 +97,11 @@ class WorkspaceManager:
             updated_at=datetime.now(timezone.utc)
         )
 
-        await self.workspaces_collection.insert_one(workspace_doc.model_dump(by_alias=True))
+        # Insert the workspace into the database
+        result = await self.workspaces_collection.insert_one(workspace_doc.model_dump(by_alias=True))
+        if not result.inserted_id:
+            raise WorkspaceError("Failed to create workspace in database")
+
         self.logger.info(f"Successfully created workspace {workspace_doc.workspace_id} for user {user_id}")
         return workspace_doc.model_dump()
 
@@ -153,6 +157,37 @@ class WorkspaceManager:
 
         workspace["members"] = [m for m in workspace["members"] if m["user_id"] != user_id_to_remove]
         return workspace
+
+    async def update_member_role(self, workspace_id: str, admin_user_id: str, user_id_to_update: str, new_role: str) -> Dict[str, Any]:
+        """Updates a member's role in a workspace."""
+        workspace = await self._find_workspace_if_admin(workspace_id, admin_user_id)
+
+        # Check if the user to update is a member
+        member_found = False
+        for member in workspace["members"]:
+            if member["user_id"] == user_id_to_update:
+                member_found = True
+                break
+
+        if not member_found:
+            raise UserNotMember()
+
+        # Prevent changing owner's role
+        if workspace["owner_id"] == user_id_to_update:
+            raise OwnerCannotBeRemoved("Cannot change the workspace owner's role.")
+
+        # Update the member's role
+        result = await self.workspaces_collection.update_one(
+            {"workspace_id": workspace_id, "members.user_id": user_id_to_update},
+            {"$set": {"members.$.role": new_role, "updated_at": datetime.now(timezone.utc)}}
+        )
+
+        if result.modified_count == 0:
+            raise WorkspaceError("Failed to update member role.")
+
+        # Return updated workspace
+        updated_workspace = await self.workspaces_collection.find_one({"workspace_id": workspace_id})
+        return updated_workspace
 
     async def update_workspace(self, workspace_id: str, admin_user_id: str, name: Optional[str] = None, description: Optional[str] = None, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Updates a workspace's details."""
