@@ -1,0 +1,3 @@
+[submodule "src/second_brain_database/integrations/n8n-nodes-second-brain-database"]
+	path = src/second_brain_database/integrations/n8n-nodes-second-brain-database
+	url = https://github.com/rohanbatrain/n8n-nodes-second-brain-database
