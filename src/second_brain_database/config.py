@@ -232,6 +232,74 @@ class Settings(BaseSettings):
     DOCS_CORS_HEADERS: str = "Content-Type,Authorization"  # Allowed headers for docs CORS
     DOCS_CORS_MAX_AGE: int = 3600  # CORS preflight cache duration
 
+    # --- Voice agent integrations ---
+    # Ollama local LLM host (include scheme), default to local Ollama HTTP server
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "ollama-small"  # default model name to use with Ollama
+
+    # LiveKit server configuration (for generating tokens / admin operations)
+    LIVEKIT_API_KEY: Optional[str] = None
+    LIVEKIT_API_SECRET: Optional[SecretStr] = None
+    LIVEKIT_URL: Optional[str] = None  # e.g. https://your-livekit-host:7880
+
+    # Voice processing configuration
+    VOICE_SAMPLE_RATE: int = 16000  # Audio sample rate for processing
+    VOICE_CHUNK_SIZE: int = 1024  # Audio chunk size for streaming
+    VOICE_MAX_AUDIO_LENGTH: int = 30  # Max audio length in seconds for STT
+    VOICE_TTS_VOICE: str = "en"  # TTS voice/language
+
+    # --- FastMCP Server Configuration ---
+    # MCP Server basic configuration
+    MCP_ENABLED: bool = True  # Enable/disable MCP server
+    MCP_SERVER_NAME: str = "SecondBrainMCP"  # MCP server name
+    MCP_SERVER_VERSION: str = "1.0.0"  # MCP server version
+    MCP_SERVER_HOST: str = "localhost"  # Host to bind MCP server to
+    MCP_SERVER_PORT: int = 3001  # Port for MCP server
+    MCP_DEBUG_MODE: bool = False  # Enable debug mode for MCP server
+    
+    # MCP Security configuration
+    MCP_SECURITY_ENABLED: bool = True  # Enable security for MCP tools
+    MCP_REQUIRE_AUTH: bool = True  # Require authentication for MCP tools
+    MCP_AUDIT_ENABLED: bool = True  # Enable audit logging for MCP operations
+    
+    # MCP Rate limiting configuration
+    MCP_RATE_LIMIT_ENABLED: bool = True  # Enable rate limiting for MCP tools
+    MCP_RATE_LIMIT_REQUESTS: int = 100  # Max MCP requests per period per user
+    MCP_RATE_LIMIT_PERIOD: int = 60  # Rate limit period in seconds
+    MCP_RATE_LIMIT_BURST: int = 10  # Burst limit for MCP requests
+    
+    # MCP Performance configuration
+    MCP_MAX_CONCURRENT_TOOLS: int = 50  # Maximum concurrent tool executions
+    MCP_REQUEST_TIMEOUT: int = 30  # Request timeout in seconds
+    MCP_TOOL_EXECUTION_TIMEOUT: int = 60  # Tool execution timeout in seconds
+    
+    # MCP Tool configuration
+    MCP_TOOLS_ENABLED: bool = True  # Enable MCP tools
+    MCP_RESOURCES_ENABLED: bool = True  # Enable MCP resources
+    MCP_PROMPTS_ENABLED: bool = True  # Enable MCP prompts
+    
+    # MCP Access control configuration
+    MCP_ALLOWED_ORIGINS: Optional[str] = None  # Comma-separated allowed origins for MCP
+    MCP_IP_WHITELIST: Optional[str] = None  # Comma-separated IP whitelist for MCP access
+    MCP_CORS_ENABLED: bool = False  # Enable CORS for MCP server
+    
+    # MCP Monitoring configuration
+    MCP_METRICS_ENABLED: bool = True  # Enable metrics collection for MCP
+    MCP_HEALTH_CHECK_ENABLED: bool = True  # Enable health check endpoints
+    MCP_PERFORMANCE_MONITORING: bool = True  # Enable performance monitoring
+    
+    # MCP Error handling configuration
+    MCP_ERROR_RECOVERY_ENABLED: bool = True  # Enable error recovery mechanisms
+    MCP_CIRCUIT_BREAKER_ENABLED: bool = True  # Enable circuit breaker pattern
+    MCP_RETRY_ENABLED: bool = True  # Enable retry logic for failed operations
+    MCP_RETRY_MAX_ATTEMPTS: int = 3  # Maximum retry attempts
+    MCP_RETRY_BACKOFF_FACTOR: float = 2.0  # Exponential backoff factor
+    
+    # MCP Cache configuration
+    MCP_CACHE_ENABLED: bool = True  # Enable caching for MCP operations
+    MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)
+    MCP_CONTEXT_CACHE_TTL: int = 60  # User context cache TTL in seconds
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"
@@ -253,6 +321,42 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name} must be set via environment or .sbd and not empty!")
         return v
 
+    @field_validator("MCP_SERVER_PORT", mode="before")
+    @classmethod
+    def validate_mcp_port(cls, v):
+        """Validate MCP server port is in acceptable range."""
+        port = int(v)
+        if port < 1024 or port > 65535:
+            raise ValueError("MCP_SERVER_PORT must be between 1024 and 65535")
+        return port
+
+    @field_validator("MCP_RATE_LIMIT_REQUESTS", "MCP_MAX_CONCURRENT_TOOLS", mode="before")
+    @classmethod
+    def validate_positive_integers(cls, v, info):
+        """Validate that MCP numeric settings are positive."""
+        value = int(v)
+        if value <= 0:
+            raise ValueError(f"{info.field_name} must be a positive integer")
+        return value
+
+    @field_validator("MCP_REQUEST_TIMEOUT", "MCP_TOOL_EXECUTION_TIMEOUT", mode="before")
+    @classmethod
+    def validate_timeout_values(cls, v, info):
+        """Validate timeout values are reasonable."""
+        timeout = int(v)
+        if timeout < 1 or timeout > 300:
+            raise ValueError(f"{info.field_name} must be between 1 and 300 seconds")
+        return timeout
+
+    @field_validator("MCP_RETRY_BACKOFF_FACTOR", mode="before")
+    @classmethod
+    def validate_backoff_factor(cls, v):
+        """Validate retry backoff factor is reasonable."""
+        factor = float(v)
+        if factor < 1.0 or factor > 10.0:
+            raise ValueError("MCP_RETRY_BACKOFF_FACTOR must be between 1.0 and 10.0")
+        return factor
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
@@ -267,6 +371,25 @@ class Settings(BaseSettings):
     def should_cache_docs(self) -> bool:
         """Determine if documentation should be cached."""
         return self.is_production and self.DOCS_CACHE_ENABLED
+
+    @property
+    def mcp_should_be_enabled(self) -> bool:
+        """Determine if MCP server should be enabled based on configuration."""
+        return self.MCP_ENABLED and not (self.is_production and not self.MCP_SECURITY_ENABLED)
+
+    @property
+    def mcp_allowed_origins_list(self) -> list:
+        """Get list of allowed origins for MCP CORS."""
+        if not self.MCP_ALLOWED_ORIGINS:
+            return []
+        return [origin.strip() for origin in self.MCP_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def mcp_ip_whitelist_list(self) -> list:
+        """Get list of whitelisted IPs for MCP access."""
+        if not self.MCP_IP_WHITELIST:
+            return []
+        return [ip.strip() for ip in self.MCP_IP_WHITELIST.split(",") if ip.strip()]
 
 
 # Global settings instance

@@ -11,7 +11,7 @@ authors = [
 ]
 description = "A Python package that serves as the foundation for my Second Brain database, designed to store and organize knowledge for easy retrieval through various applications."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -40,6 +40,8 @@ dependencies = [
     "aiohttp>=3.8.0,<4.0.0", # Alternative HTTP client
     # QR Code Generation
     "qrcode[pil]>=7.4.0,<8.0.0", # QR code generation with PIL support
+    # MCP Integration
+    "fastmcp>=0.4.0,<0.5.0", # FastMCP framework for Model Context Protocol
     # Monitoring and Metrics
     "prometheus-fastapi-instrumentator>=7.0.0,<8.0.0",
     "python-multipart>=0.0.20",
@@ -93,9 +95,19 @@ test = [
     "jsonschema>=4.0.0,<5.0.0",  # For API response validation in tests
 ]
 
+voice = [
+    # Voice Agent Dependencies
+    "pydub>=0.25.0,<1.0.0",  # Audio processing and manipulation
+    "sounddevice>=0.4.0,<1.0.0",  # Audio I/O for recording/playback
+    "ffmpeg-python>=0.2.0,<1.0.0",  # FFmpeg wrapper for audio transcoding
+    "SpeechRecognition>=3.10.0,<4.0.0",  # Speech recognition
+    "pyttsx3>=2.90,<3.0.0",  # Text-to-speech
+    "numpy>=1.24.0,<2.0.0",  # Numerical computing for audio processing
+]
+
 all = [
     # Include all optional dependencies
-    "second_brain_database[dev,monitoring,docs,test]",
+    "second_brain_database[dev,monitoring,docs,test,voice]",
 ]
 
 
@@ -140,6 +152,7 @@ known_third_party = [
     "dotenv",
     "email_validator",
     "fastapi",
+    "fastmcp",
     "grafana_api",
     "httpx",
     "jose",
@@ -188,6 +201,7 @@ pretty = true
 module = [
     "aiohttp.*",
     "bcrypt.*",
+    "fastmcp.*",
     "grafana_api.*",
     "jose.*",
     "loki_logger_handler.*",
@@ -235,11 +249,7 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--verbose",
-    "--tb=short",
-    "--cov=src",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml"
+    "--tb=short"
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

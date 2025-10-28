@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
+    ffmpeg \
+    portaudio19-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -23,7 +25,7 @@ WORKDIR /app
 
 # Install Python dependencies using uv
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra voice
 
 # Copy application code
 COPY src/ ./src/

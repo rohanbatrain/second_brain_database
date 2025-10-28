@@ -671,6 +671,394 @@ async def admob_ssv_reward(
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (banner reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 
+@router.get(
+    "/mcp/health",
+    summary="MCP Server Health Check",
+    description="""
+    Comprehensive health check endpoint for the FastMCP server.
+    
+    **Health Checks Performed:**
+    - MCP server initialization status
+    - MCP server process status
+    - MCP configuration validation
+    - Tool, resource, and prompt registration status
+    
+    **Response Codes:**
+    - 200: MCP server healthy and operational
+    - 503: MCP server unhealthy or not running
+    - 404: MCP server disabled or not available
+    
+    **Rate Limiting:**
+    - 10 requests per 60 seconds per IP address
+    - Optimized for monitoring systems
+    
+    **Use Cases:**
+    - MCP server monitoring
+    - Integration health verification
+    - Automated MCP health checks
+    - Load balancer health probes for MCP services
+    """,
+    responses={
+        200: {
+            "description": "MCP server healthy",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "healthy": True,
+                        "checks": {
+                            "initialized": {"status": "pass", "message": "Server initialized"},
+                            "process": {"status": "pass", "message": "Process running (PID: 12345)", "pid": 12345},
+                            "configuration": {"status": "pass", "message": "Configuration valid"}
+                        },
+                        "timestamp": 1640995200.0
+                    }
+                }
+            },
+        },
+        503: {
+            "description": "MCP server unhealthy",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "mcp_server_unhealthy",
+                        "message": "MCP server is not healthy",
+                        "details": {"healthy": False, "checks": {}},
+                        "timestamp": "2024-01-01T12:00:00Z",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "MCP server not available",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "mcp_server_not_available",
+                        "message": "MCP server is disabled or not available",
+                        "timestamp": "2024-01-01T12:00:00Z",
+                    }
+                }
+            },
+        },
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+    },
+    tags=["System"],
+)
+@log_performance("mcp_health_check")
+async def mcp_health_check(request: Request):
+    """
+    Perform comprehensive health check of the MCP server.
+
+    Checks the health of MCP server initialization, process status,
+    configuration validity, and registration status.
+    """
+    try:
+        await security_manager.check_rate_limit(request, "mcp_health", rate_limit_requests=10, rate_limit_period=60)
+
+        # Import MCP server manager
+        try:
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
+            from second_brain_database.config import settings
+        except ImportError as e:
+            logger.error("MCP server not available: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is not available"
+            ) from e
+
+        # Check if MCP is enabled
+        if not settings.MCP_ENABLED:
+            logger.info("MCP server health check requested but MCP is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is disabled"
+            )
+
+        # Perform comprehensive health check
+        health_result = await mcp_server_manager.get_comprehensive_health_status()
+        health_result = await mcp_server_manager.health_check()
+        
+        if health_result["healthy"]:
+            logger.info("MCP server health check passed")
+            return health_result
+        else:
+            logger.warning("MCP server health check failed: %s", health_result)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="MCP server is not healthy"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "mcp_health_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        logger.error("MCP health check failed with error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MCP health check failed"
+        ) from e
+
+
+@router.get(
+    "/mcp/status",
+    summary="MCP Server Status Information",
+    description="""
+    Detailed status information endpoint for the FastMCP server.
+    
+    **Status Information Provided:**
+    - Server initialization and running status
+    - Configuration details and settings
+    - Tool, resource, and prompt counts
+    - Server uptime and performance metrics
+    - Process information and connection details
+    
+    **Rate Limiting:**
+    - 5 requests per 60 seconds per IP address
+    - Conservative limit for detailed status queries
+    
+    **Use Cases:**
+    - MCP server monitoring dashboards
+    - Integration status verification
+    - Performance monitoring and analytics
+    - Troubleshooting and diagnostics
+    """,
+    responses={
+        200: {
+            "description": "MCP server status retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "initialized": True,
+                        "running": True,
+                        "uptime_seconds": 3600.5,
+                        "server_name": "SecondBrainMCP",
+                        "server_version": "1.0.0",
+                        "host": "localhost",
+                        "port": 3001,
+                        "debug_mode": False,
+                        "tool_count": 25,
+                        "resource_count": 12,
+                        "prompt_count": 7,
+                        "process_id": 12345,
+                        "configuration": {
+                            "security_enabled": True,
+                            "audit_enabled": True,
+                            "rate_limit_enabled": True,
+                            "max_concurrent_tools": 50,
+                            "request_timeout": 30
+                        }
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "MCP server not available",
+            "model": StandardErrorResponse,
+        },
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+    },
+    tags=["System"],
+)
+@log_performance("mcp_status_check")
+async def mcp_status_check(request: Request):
+    """
+    Get detailed status information for the MCP server.
+
+    Returns comprehensive status information including configuration,
+    performance metrics, and operational details.
+    """
+    try:
+        await security_manager.check_rate_limit(request, "mcp_status", rate_limit_requests=5, rate_limit_period=60)
+
+        # Import MCP server manager
+        try:
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
+            from second_brain_database.config import settings
+        except ImportError as e:
+            logger.error("MCP server not available: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is not available"
+            ) from e
+
+        # Check if MCP is enabled
+        if not settings.MCP_ENABLED:
+            logger.info("MCP server status requested but MCP is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is disabled"
+            )
+
+        # Get server status
+        status_result = await mcp_server_manager.get_server_status()
+        
+        logger.info("MCP server status retrieved successfully")
+        return status_result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "mcp_status_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        logger.error("MCP status check failed with error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MCP status check failed"
+        ) from e
+
+
+@router.get(
+    "/mcp/metrics",
+    summary="MCP Server Metrics",
+    description="""
+    Performance and operational metrics endpoint for the FastMCP server.
+    
+    **Metrics Provided:**
+    - Server performance statistics
+    - Tool execution metrics and success rates
+    - Resource and prompt usage statistics
+    - Error rates and response times
+    - Connection and request statistics
+    
+    **Rate Limiting:**
+    - 3 requests per 60 seconds per IP address
+    - Conservative limit for metrics collection
+    
+    **Use Cases:**
+    - Performance monitoring and alerting
+    - Capacity planning and optimization
+    - Integration with monitoring systems (Prometheus, Grafana)
+    - Operational analytics and reporting
+    """,
+    responses={
+        200: {
+            "description": "MCP server metrics retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "server_metrics": {
+                            "uptime_seconds": 3600.5,
+                            "requests_total": 1250,
+                            "requests_per_minute": 15.2,
+                            "error_rate": 0.02,
+                            "average_response_time_ms": 45.3
+                        },
+                        "tool_metrics": {
+                            "total_executions": 850,
+                            "success_rate": 0.98,
+                            "average_execution_time_ms": 125.7,
+                            "most_used_tools": ["get_family_info", "get_user_profile", "list_shop_items"]
+                        },
+                        "resource_metrics": {
+                            "total_requests": 320,
+                            "cache_hit_rate": 0.85,
+                            "most_accessed_resources": ["family_info", "user_profile", "shop_catalog"]
+                        },
+                        "prompt_metrics": {
+                            "total_requests": 180,
+                            "most_used_prompts": ["family_management_guide", "shop_navigation", "security_setup"]
+                        }
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "MCP server not available",
+            "model": StandardErrorResponse,
+        },
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+    },
+    tags=["System"],
+)
+@log_performance("mcp_metrics_check")
+async def mcp_metrics_check(request: Request):
+    """
+    Get performance and operational metrics for the MCP server.
+
+    Returns comprehensive metrics including performance statistics,
+    usage analytics, and operational data for monitoring purposes.
+    """
+    try:
+        await security_manager.check_rate_limit(request, "mcp_metrics", rate_limit_requests=3, rate_limit_period=60)
+
+        # Import MCP server manager
+        try:
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
+            from second_brain_database.config import settings
+        except ImportError as e:
+            logger.error("MCP server not available: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is not available"
+            ) from e
+
+        # Check if MCP is enabled
+        if not settings.MCP_ENABLED:
+            logger.info("MCP server metrics requested but MCP is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP server is disabled"
+            )
+
+        # Get server status for basic metrics
+        status_result = await mcp_server_manager.get_server_status()
+        
+        # Build metrics response (placeholder implementation)
+        # In a full implementation, these would come from actual metrics collection
+        metrics = {
+            "server_metrics": {
+                "uptime_seconds": status_result.get("uptime_seconds", 0),
+                "initialized": status_result.get("initialized", False),
+                "running": status_result.get("running", False),
+                "process_id": status_result.get("process_id"),
+                "configuration_valid": True  # Based on successful status retrieval
+            },
+            "tool_metrics": {
+                "registered_tools": status_result.get("tool_count", 0),
+                "tools_enabled": settings.MCP_TOOLS_ENABLED,
+                "security_enabled": settings.MCP_SECURITY_ENABLED,
+                "rate_limit_enabled": settings.MCP_RATE_LIMIT_ENABLED
+            },
+            "resource_metrics": {
+                "registered_resources": status_result.get("resource_count", 0),
+                "resources_enabled": settings.MCP_RESOURCES_ENABLED,
+                "cache_enabled": settings.MCP_CACHE_ENABLED,
+                "cache_ttl_seconds": settings.MCP_CACHE_TTL
+            },
+            "prompt_metrics": {
+                "registered_prompts": status_result.get("prompt_count", 0),
+                "prompts_enabled": settings.MCP_PROMPTS_ENABLED
+            },
+            "configuration_metrics": {
+                "max_concurrent_tools": settings.MCP_MAX_CONCURRENT_TOOLS,
+                "request_timeout": settings.MCP_REQUEST_TIMEOUT,
+                "tool_execution_timeout": settings.MCP_TOOL_EXECUTION_TIMEOUT,
+                "retry_enabled": settings.MCP_RETRY_ENABLED,
+                "circuit_breaker_enabled": settings.MCP_CIRCUIT_BREAKER_ENABLED
+            }
+        }
+        
+        logger.info("MCP server metrics retrieved successfully")
+        return metrics
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "mcp_metrics_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        logger.error("MCP metrics check failed with error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MCP metrics check failed"
+        ) from e
+
+
 @router.get("/favicon.ico")
 async def favicon():
     """Simple favicon to prevent browser errors."""

@@ -41,6 +41,7 @@ from second_brain_database.routes.profile.routes import router as profile_router
 from second_brain_database.routes.family.routes import router as family_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
 from second_brain_database.routes.websockets import router as websockets_router
+from second_brain_database.routes.voice import router as voice_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -656,6 +657,7 @@ routers_config = [
     ("family", family_router, "Family management and relationship endpoints"),
     ("workspaces", workspaces_router, "Team and workspace management endpoints"),
     ("websockets", websockets_router, "WebSocket communication endpoints"),
+    ("voice", voice_router, "Voice integration endpoints"),
 ]
 
 logger.info("Including API routers...")
