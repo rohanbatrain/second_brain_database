@@ -1,0 +1,65 @@
+# Second Brain Database Configuration (.sbd)
+# Production Configuration Template
+
+# Core MCP Settings
+MCP_ENABLED=true
+MCP_SERVER_NAME=SecondBrainMCP
+MCP_SERVER_VERSION=1.0.0
+
+# MCP Transport Configuration (Production)
+MCP_TRANSPORT=http
+MCP_HTTP_HOST=0.0.0.0
+MCP_HTTP_PORT=8001
+MCP_HTTP_CORS_ENABLED=true
+MCP_HTTP_CORS_ORIGINS=https://your-frontend.com,https://api.your-domain.com
+
+# MCP Security Settings (Production - Enabled)
+MCP_SECURITY_ENABLED=true
+MCP_REQUIRE_AUTH=true
+MCP_AUDIT_ENABLED=true
+MCP_RATE_LIMIT_ENABLED=true
+
+# MCP Authentication (Production)
+MCP_AUTH_TOKEN=your-secure-production-token-here-min-32-chars
+
+# Performance Settings (Production)
+MCP_MAX_CONCURRENT_TOOLS=100
+MCP_REQUEST_TIMEOUT=30
+MCP_DEBUG_MODE=false
+MCP_RATE_LIMIT_REQUESTS=1000
+MCP_RATE_LIMIT_PERIOD=60
+
+# Connection Settings
+MCP_CONNECTION_TIMEOUT=10
+MCP_KEEPALIVE_TIMEOUT=5
+
+# Monitoring Settings (Production)
+MCP_MONITORING_ENABLED=true
+MCP_METRICS_ENABLED=true
+MCP_HEALTH_CHECK_ENABLED=true
+
+# AI Integration Settings
+AI_ENABLED=true
+AI_ORCHESTRATION_ENABLED=true
+
+# Database Settings (Production)
+MONGODB_URL=mongodb://your-production-mongodb:27017
+MONGODB_DATABASE=second_brain_prod
+REDIS_URL=redis://your-production-redis:6379
+
+# Security Keys (MUST be changed for production)
+SECRET_KEY=your-production-jwt-secret-key-here
+FERNET_KEY=your-production-fernet-encryption-key-here
+
+# Optional: Cloudflare Turnstile for additional security
+TURNSTILE_SITEKEY=your-turnstile-site-key
+TURNSTILE_SECRET=your-turnstile-secret-key
+
+# FastAPI Server Settings (Production)
+HOST=0.0.0.0
+PORT=8000
+DEBUG=false
+
+# Production Settings
+ENVIRONMENT=production
+LOG_LEVEL=INFO

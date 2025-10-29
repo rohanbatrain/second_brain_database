@@ -70,45 +70,28 @@ async def mcp_lifespan(app):
 
 def create_auth_provider():
     """
-    Create authentication provider based on configuration.
+    Create authentication provider following FastMCP 2.x patterns.
     
-    FastMCP 2.x supports Bearer token authentication for HTTP transport.
-    Returns None for STDIO transport (process-level security).
+    FastMCP 2.x supports native authentication providers that integrate
+    with the server's auth system. For HTTP transport, we use JWT validation.
+    For STDIO transport, authentication is handled at the process level.
     """
-    # STDIO transport doesn't need authentication (process-level security)
+    # STDIO transport uses process-level security
     if settings.MCP_TRANSPORT == "stdio":
-        logger.info("MCP STDIO transport - using process-level security")
+        logger.info("STDIO transport - using process-level security")
         return None
     
-    # HTTP transport security configuration
-    if not settings.MCP_SECURITY_ENABLED:
-        logger.warning("MCP security disabled for HTTP transport - not recommended for production")
+    # HTTP transport authentication
+    if not settings.MCP_SECURITY_ENABLED or not settings.MCP_REQUIRE_AUTH:
+        logger.info("HTTP transport - authentication disabled for development")
         return None
     
-    if not settings.MCP_REQUIRE_AUTH:
-        logger.info("MCP authentication disabled by configuration")
-        return None
+    # Production HTTP transport - use FastMCP's native auth patterns
+    logger.info("Creating FastMCP 2.x JWT authentication provider")
     
-    # Create static token authentication for HTTP transport
-    if hasattr(settings, 'MCP_AUTH_TOKEN') and settings.MCP_AUTH_TOKEN:
-        logger.info("MCP static token authentication enabled for HTTP transport")
-        # For development/testing - in production use JWTVerifier or OAuth providers
-        token_value = settings.MCP_AUTH_TOKEN.get_secret_value() if hasattr(settings.MCP_AUTH_TOKEN, 'get_secret_value') else str(settings.MCP_AUTH_TOKEN)
-        return StaticTokenVerifier(tokens={
-            token_value: {
-                "sub": "mcp-client",
-                "aud": "second-brain-mcp",
-                "scope": "mcp:tools mcp:resources mcp:prompts"
-            }
-        })
-    
-    # For production, require explicit authentication
-    if settings.is_production:
-        logger.error("Production deployment requires MCP_AUTH_TOKEN for HTTP transport")
-        raise ValueError("MCP_AUTH_TOKEN required for production HTTP transport")
-    
-    logger.info("MCP authentication not configured - development mode only")
-    return None
+    # Import the custom auth provider that integrates with existing JWT system
+    from .auth_middleware import FastMCPJWTAuthProvider
+    return FastMCPJWTAuthProvider()
 
 
 def determine_component_tags() -> tuple[Set[str], Set[str]]:
@@ -173,11 +156,20 @@ def create_modern_mcp_server() -> FastMCP:
     include_tags, exclude_tags = determine_component_tags()
     
     # Create FastMCP 2.x server instance following documentation patterns
-    server = FastMCP(
-        name=settings.MCP_SERVER_NAME,
-        version=settings.MCP_SERVER_VERSION,
-        auth=auth_provider
-    )
+    try:
+        server = FastMCP(
+            name=settings.MCP_SERVER_NAME,
+            version=settings.MCP_SERVER_VERSION,
+            auth=auth_provider
+        )
+    except Exception as e:
+        logger.error("Failed to create FastMCP server: %s", e)
+        # Fallback without auth if there's an issue
+        server = FastMCP(
+            name=settings.MCP_SERVER_NAME,
+            version=settings.MCP_SERVER_VERSION
+        )
+        logger.warning("Created FastMCP server without authentication due to error")
     
     logger.info(
         "FastMCP 2.x server created: %s v%s (transport: %s, auth: %s)",

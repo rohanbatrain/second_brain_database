@@ -1,8 +1,9 @@
 """
-FastMCP 2.x Tool Registration
+FastMCP 2.x Tool Registration with Native Authentication
 
 This module demonstrates proper tool registration following FastMCP 2.x patterns.
-Tools are registered using the @mcp.tool decorator directly on the server instance.
+Tools are registered using the @mcp.tool decorator and can access authenticated
+user context via FastMCP's native authentication system.
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,10 +15,12 @@ from .modern_server import mcp
 logger = get_logger(prefix="[MCP_Tools]")
 
 
-# FastMCP 2.x compliant tool registration following documentation patterns
+# FastMCP 2.x compliant tool registration
 @mcp.tool
-def get_server_info() -> dict:
+async def get_server_info() -> dict:
     """Get basic server information and status."""
+    # In FastMCP 2.x, authenticated user context is available via the server
+    # when authentication is enabled
     return {
         "server_name": mcp.name,
         "server_version": mcp.version,
@@ -29,7 +32,7 @@ def get_server_info() -> dict:
 
 
 @mcp.tool
-def echo_message(message: str) -> str:
+async def echo_message(message: str) -> str:
     """Echo a message back to the client.
     
     Args:

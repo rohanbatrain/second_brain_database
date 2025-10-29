@@ -23,6 +23,7 @@ logger = get_logger(prefix="[MCP_FamilyTools]")
 from ....database import db_manager
 from ....managers.security_manager import security_manager
 from ....managers.redis_manager import redis_manager
+from ..database_integration import ensure_mcp_database_connection
 
 # Pydantic models for MCP tool parameters and responses
 class FamilyInfo(BaseModel):
@@ -277,6 +278,10 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
         MCPValidationError: If family creation fails or limits are exceeded
     """
     user_context = get_mcp_user_context()
+    
+    # Ensure database connection is established
+    if not await ensure_mcp_database_connection():
+        raise MCPValidationError("Database connection not available")
     
     family_manager = FamilyManager(
         db_manager=db_manager,

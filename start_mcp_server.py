@@ -20,7 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from second_brain_database.integrations.mcp.modern_server import mcp
-from second_brain_database.integrations.mcp.mcp_instance import ensure_tools_imported, get_mcp_server_info
+from second_brain_database.integrations.mcp.mcp_instance import ensure_tools_imported
+from second_brain_database.integrations.mcp.mcp_instance import get_mcp_server_info
 from second_brain_database.integrations.mcp.mcp_status import print_mcp_status
 from second_brain_database.integrations.mcp.http_server import run_http_server
 from second_brain_database.managers.logging_manager import get_logger
@@ -34,6 +35,22 @@ async def check_server_health():
     print("🔍 Checking MCP server health...")
     
     try:
+        # Initialize database connection first
+        from second_brain_database.integrations.mcp.database_integration import initialize_mcp_database
+        
+        print("🔗 Initializing database connection...")
+        db_initialized = await initialize_mcp_database()
+        
+        if not db_initialized:
+            print("❌ Database initialization failed!")
+            print("💡 Make sure MongoDB is running:")
+            print("   brew services start mongodb-community")
+            print("   # or")
+            print("   sudo systemctl start mongod")
+            return False
+        
+        print("✅ Database connection established")
+        
         # Ensure all tools are imported
         ensure_tools_imported()
         

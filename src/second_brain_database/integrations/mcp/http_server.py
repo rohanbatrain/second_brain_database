@@ -52,6 +52,9 @@ class MCPHTTPServer:
         """Create middleware list for FastMCP app following 2.x patterns."""
         middleware = []
         
+        # Note: Authentication is handled by FastMCP 2.x natively via the auth provider
+        # No custom authentication middleware needed
+        
         # CORS middleware for browser-based MCP clients
         if settings.MCP_HTTP_CORS_ENABLED:
             origins = [origin.strip() for origin in settings.MCP_HTTP_CORS_ORIGINS.split(",")]
@@ -184,7 +187,8 @@ class MCPHTTPServer:
                 "features": {
                     "authentication": mcp.auth is not None,
                     "monitoring": mcp_monitoring_integration is not None,
-                    "cors": settings.MCP_HTTP_CORS_ENABLED
+                    "cors": settings.MCP_HTTP_CORS_ENABLED,
+                    "jwt_auth": settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH
                 }
             })
     

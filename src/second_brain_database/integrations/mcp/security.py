@@ -57,11 +57,30 @@ def secure_mcp_tool(
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Get user context from MCP security context
-            user_context = get_mcp_user_context()
+            # Check if authentication is required based on configuration
+            auth_required = settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH
             
-            # Validate authentication
-            if not user_context or not user_context.user_id:
+            # For STDIO transport or when auth is disabled, create a default context
+            if not auth_required or settings.MCP_TRANSPORT == "stdio":
+                # Create a default user context for development/STDIO mode
+                try:
+                    user_context = get_mcp_user_context()
+                except MCPAuthenticationError:
+                    # Create a default development user context
+                    from .simple_auth import create_development_user_context
+                    user_context = await create_development_user_context()
+                    set_mcp_user_context(user_context)
+            else:
+                # Get user context from MCP security context (HTTP mode with auth)
+                try:
+                    user_context = get_mcp_user_context()
+                except MCPAuthenticationError:
+                    auth_error = MCPAuthenticationError("Authentication required for MCP tool access")
+                    logger.warning("MCP tool access attempted without authentication: %s", func.__name__)
+                    raise auth_error
+            
+            # Validate authentication if required
+            if auth_required and (not user_context or not user_context.user_id):
                 auth_error = MCPAuthenticationError("Authentication required for MCP tool access")
                 logger.warning("MCP tool access attempted without authentication: %s", func.__name__)
                 
@@ -873,6 +892,41 @@ class MCPAuditLogger:
 
 # Global audit logger instance
 mcp_audit_logger = MCPAuditLogger()
+
+
+async def _create_default_user_context() -> MCPUserContext:
+    """
+    Create a default user context for development/STDIO mode.
+    
+    This is used when authentication is disabled or for STDIO transport
+    where process-level security is sufficient.
+    
+    Returns:
+        MCPUserContext with default development permissions
+    """
+    from .context import MCPUserContext
+    from datetime import datetime, timezone
+    
+    logger.info("Creating default MCP user context for development mode")
+    
+    return MCPUserContext(
+        user_id="dev-user",
+        username="development-user",
+        email="dev@localhost",
+        role="admin",  # Full permissions for development
+        permissions=["admin", "user", "family:admin", "shop:admin", "workspace:admin"],
+        workspaces=[],
+        family_memberships=[],
+        ip_address="127.0.0.1",
+        user_agent="MCP-Development-Client",
+        trusted_ip_lockdown=False,
+        trusted_user_agent_lockdown=False,
+        trusted_ips=["127.0.0.1"],
+        trusted_user_agents=["MCP-Development-Client"],
+        token_type="development",
+        token_id="dev-token",
+        authenticated_at=datetime.now(timezone.utc)
+    )
 
 
 async def _validate_user_permissions(user_id: str, required_permissions: List[str]) -> bool:
