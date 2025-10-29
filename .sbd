@@ -1,65 +1,51 @@
-# Server Configuration
+# Second Brain Database Configuration (.sbd)
+# MCP Server Configuration for Production
+
+# Core MCP Settings
+MCP_ENABLED=true
+MCP_SERVER_NAME=SecondBrainMCP
+MCP_SERVER_VERSION=1.0.0
+
+# MCP Transport Configuration (Standard MCP Protocol)
+MCP_TRANSPORT=stdio
+MCP_HTTP_HOST=127.0.0.1
+MCP_HTTP_PORT=8001
+
+# MCP Security Settings
+MCP_SECURITY_ENABLED=true
+MCP_AUDIT_ENABLED=true
+MCP_RATE_LIMIT_ENABLED=true
+
+# Performance Settings
+MCP_REQUEST_TIMEOUT=30
+MCP_DEBUG_MODE=false
+
+# Monitoring Settings
+MCP_MONITORING_ENABLED=true
+MCP_HEALTH_CHECK_ENABLED=true
+
+# AI Integration Settings
+AI_ENABLED=true
+AI_ORCHESTRATION_ENABLED=true
+
+# Database Settings (required for MCP tools)
+MONGODB_URL=mongodb://localhost:27017
+MONGODB_DATABASE=second_brain_database
+REDIS_URL=redis://localhost:6379
+
+# Security Keys (generate secure values for production)
+SECRET_KEY=XmYs9oHfmrMbbvt1dzGqIa5reZudqQ1RefpDCHnOSP4=
+FERNET_KEY=BSPPI22K4-nK7qMAXsBefcpEaTl_AjfIV8vk1bDfpR8=
+
+# Optional: Cloudflare Turnstile for additional security
+TURNSTILE_SITEKEY=your-turnstile-site-key
+TURNSTILE_SECRET=your-turnstile-secret-key
+
+# FastAPI Server Settings
 HOST=0.0.0.0
 PORT=8000
 DEBUG=false
 
-BASE_URL=dev-app-sbd.rohanbatra.in
-
-# MongoDB Configuration
-
-MONGODB_URL=mongodb://localhost:27017
-MONGODB_DATABASE=SecondBrainDatabase
-MONGODB_CONNECTION_TIMEOUT=10000
-MONGODB_SERVER_SELECTION_TIMEOUT=5000
-
-# MongoDB Authentication (optional)
-# MONGODB_USERNAME=your_username
-# MONGODB_PASSWORD=your_password
-
-# JWT Configuration
-SECRET_KEY=iKDkfbdlsjfbdsipFe9uhiwruh3bwy8ig3bd9gwbfihebfoauy89hfuipahfasjhfnioauowep9afiebvo
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# Fernet (symmetric encryption)
-FERNET_KEY=yfjiuawph38gy3hubofygHw*HEUiF8iuHBDSFOUWYEfhoIFJMvdsoUVBSIYVGOBein
-
-# Redis Configuration
-REDIS_URL=redis://localhost:6379/0
-# Local Redis (used in development)
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-REDIS_DB=0
-# If you use a cloud Redis in prod, set REDIS_STORAGE_URI and credentials.
-# REDIS_STORAGE_URI=redis://:REPLACE_WITH_PASSWORD@host:port/0
-# REDIS_USERNAME=default
-# REDIS_PASSWORD=REPLACE_WITH_PASSWORD
-
-
-# Rate Limiting
-RATE_LIMIT_REQUESTS=100
-RATE_LIMIT_PERIOD_SECONDS=60
-
-# Blacklist
-BLACKLIST_THRESHOLD=10
-BLACKLIST_DURATION=3600
-
-# Password reset repeated violator detection
-REPEATED_VIOLATOR_WINDOW_MINUTES=10
-REPEATED_VIOLATOR_MIN_UNIQUE_IPS=3
-
-# Password reset stricter limits (whitelisted pairs)
-STRICTER_WHITELIST_LIMIT=3
-STRICTER_WHITELIST_PERIOD=86400
-ABUSE_ACTION_TOKEN_EXPIRY=1800
-ABUSE_ACTION_BLOCK_EXPIRY=86400
-MAX_RESET_REQUESTS=5
-MAX_RESET_UNIQUE_IPS=3
-
-# 2FA/Backup code cleanup
-BACKUP_CODES_PENDING_TIME=300
-BACKUP_CODES_CLEANUP_INTERVAL=60
-
-# Cloudflare Turnstile
-TURNSTILE_SITEKEY=0x4AAAAAABiCoZ5mZaTYj4aw
-TURNSTILE_SECRET=0x4AAAAAABiCoRbP-nNK1KOWs6ScVw9hffs
+# Production Settings
+ENVIRONMENT=production
+LOG_LEVEL=INFO

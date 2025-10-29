@@ -14,6 +14,7 @@ from ....managers.team_wallet_manager import TeamWalletManager
 from ....managers.logging_manager import get_logger
 from ....config import settings
 from ..security import authenticated_tool, get_mcp_user_context
+from ..modern_server import mcp
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
 

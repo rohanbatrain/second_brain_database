@@ -1059,6 +1059,269 @@ async def mcp_metrics_check(request: Request):
         ) from e
 
 
+@router.get(
+    "/ai/health",
+    summary="AI Orchestration Health Check",
+    description="""
+    Comprehensive health check endpoint for the AI orchestration system.
+    
+    **Health Checks Performed:**
+    - AI orchestrator initialization and status
+    - Model engine connectivity and performance
+    - Memory layer (Redis/MongoDB) health
+    - Resource manager status
+    - Event bus operational status
+    - Individual AI agents health
+    
+    **Response Codes:**
+    - 200: AI system healthy and operational
+    - 503: AI system unhealthy or degraded
+    - 404: AI system disabled or not available
+    
+    **Rate Limiting:**
+    - 10 requests per 60 seconds per IP address
+    - Optimized for monitoring systems
+    
+    **Use Cases:**
+    - AI system monitoring and alerting
+    - Load balancer health probes for AI services
+    - Integration health verification
+    - Automated AI system health checks
+    """,
+    responses={
+        200: {
+            "description": "AI system healthy",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "healthy",
+                        "timestamp": "2024-01-01T12:00:00Z",
+                        "check_duration_ms": 45.2,
+                        "components": {
+                            "orchestrator": {"status": "healthy", "message": "Orchestrator operational with 5 active sessions"},
+                            "model_engine": {"status": "healthy", "message": "Model engine operational"},
+                            "memory_layer": {"status": "healthy", "message": "Memory layer operational"},
+                            "resource_manager": {"status": "healthy", "message": "Resource manager operational"},
+                            "event_bus": {"status": "healthy", "message": "Event bus operational with 3 active sessions"},
+                            "agents": {"status": "healthy", "message": "6/6 agents healthy"}
+                        },
+                        "metrics": {
+                            "uptime_seconds": 3600.5,
+                            "active_sessions": 5,
+                            "agents_count": 6
+                        },
+                        "system_info": {
+                            "ai_enabled": True,
+                            "enabled_agents": ["family", "personal", "workspace", "commerce", "security", "voice"]
+                        }
+                    }
+                }
+            },
+        },
+        503: {
+            "description": "AI system unhealthy",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "ai_system_unhealthy",
+                        "message": "AI orchestration system is not healthy",
+                        "details": {"status": "unhealthy", "components": {}},
+                        "timestamp": "2024-01-01T12:00:00Z",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "AI system not available",
+            "model": StandardErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "ai_system_not_available",
+                        "message": "AI orchestration system is disabled or not available",
+                        "timestamp": "2024-01-01T12:00:00Z",
+                    }
+                }
+            },
+        },
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+    },
+    tags=["System"],
+)
+@log_performance("ai_health_check")
+async def ai_health_check(request: Request):
+    """
+    Perform comprehensive health check of the AI orchestration system.
+
+    Checks the health of AI orchestrator, model engine, memory layer,
+    resource manager, event bus, and individual AI agents.
+    """
+    try:
+        await security_manager.check_rate_limit(request, "ai_health", rate_limit_requests=10, rate_limit_period=60)
+
+        # Check if AI is enabled
+        from second_brain_database.config import settings
+        if not settings.ai_should_be_enabled:
+            logger.info("AI health check requested but AI orchestration is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI orchestration system is disabled"
+            )
+
+        # Import AI monitoring
+        try:
+            from second_brain_database.integrations.ai_orchestration.monitoring import perform_ai_health_check
+        except ImportError as e:
+            logger.error("AI orchestration monitoring not available: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI orchestration system is not available"
+            ) from e
+
+        # Perform comprehensive health check
+        health_result = await perform_ai_health_check()
+        
+        if health_result["status"] == "healthy":
+            logger.info("AI orchestration health check passed")
+            return health_result
+        elif health_result["status"] == "degraded":
+            logger.warning("AI orchestration health check shows degraded status: %s", health_result)
+            return health_result  # Return 200 but with degraded status
+        else:
+            logger.warning("AI orchestration health check failed: %s", health_result)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI orchestration system is not healthy"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "ai_health_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        logger.error("AI health check failed with error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI health check failed"
+        ) from e
+
+
+@router.get(
+    "/ai/metrics",
+    summary="AI Orchestration Metrics",
+    description="""
+    Performance and operational metrics endpoint for the AI orchestration system.
+    
+    **Metrics Provided:**
+    - AI system performance statistics
+    - Model engine metrics and response times
+    - Memory layer usage and cache statistics
+    - Resource manager metrics
+    - Agent execution statistics
+    - Session and conversation metrics
+    
+    **Rate Limiting:**
+    - 5 requests per 60 seconds per IP address
+    - Conservative limit for metrics collection
+    
+    **Use Cases:**
+    - Performance monitoring and alerting
+    - Integration with monitoring systems (Prometheus, Grafana)
+    - Capacity planning and optimization
+    - Operational analytics and reporting
+    """,
+    responses={
+        200: {
+            "description": "AI metrics retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "uptime_seconds": 3600.5,
+                        "active_sessions": 5,
+                        "agents_count": 6,
+                        "model_engine": {
+                            "requests_total": 1250,
+                            "average_response_time_ms": 125.7,
+                            "cache_hit_rate": 0.85
+                        },
+                        "memory_layer": {
+                            "redis_connections": 10,
+                            "mongodb_connections": 5,
+                            "cache_size_mb": 128.5
+                        },
+                        "resource_manager": {
+                            "cpu_usage_percent": 45.2,
+                            "memory_usage_mb": 512.8,
+                            "active_tasks": 12
+                        },
+                        "system": {
+                            "uptime_seconds": 3600.5,
+                            "health_checks_performed": 120,
+                            "last_health_check": "2024-01-01T12:00:00Z"
+                        }
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "AI system not available",
+            "model": StandardErrorResponse,
+        },
+        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
+    },
+    tags=["System"],
+)
+@log_performance("ai_metrics_check")
+async def ai_metrics_check(request: Request):
+    """
+    Get performance and operational metrics for the AI orchestration system.
+
+    Returns comprehensive metrics including performance statistics,
+    usage analytics, and operational data for monitoring purposes.
+    """
+    try:
+        await security_manager.check_rate_limit(request, "ai_metrics", rate_limit_requests=5, rate_limit_period=60)
+
+        # Check if AI is enabled
+        from second_brain_database.config import settings
+        if not settings.ai_should_be_enabled:
+            logger.info("AI metrics requested but AI orchestration is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI orchestration system is disabled"
+            )
+
+        # Import AI monitoring
+        try:
+            from second_brain_database.integrations.ai_orchestration.monitoring import get_ai_metrics
+        except ImportError as e:
+            logger.error("AI orchestration monitoring not available: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI orchestration system is not available"
+            ) from e
+
+        # Get AI metrics
+        metrics_result = await get_ai_metrics()
+        
+        logger.info("AI orchestration metrics retrieved successfully")
+        return metrics_result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "ai_metrics_check", "client_ip": getattr(request.client, "host", "unknown")}
+        )
+        logger.error("AI metrics check failed with error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI metrics check failed"
+        ) from e
+
+
 @router.get("/favicon.ico")
 async def favicon():
     """Simple favicon to prevent browser errors."""

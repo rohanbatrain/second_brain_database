@@ -41,8 +41,22 @@ def mock_settings():
     settings.ENV_PREFIX = "test"
     settings.REDIS_URL = "redis://localhost:6379/0"
     
+    # Add missing settings for rate limiting
+    settings.RATE_LIMIT_ENABLED = True
+    settings.RATE_LIMIT_REQUESTS = 100
+    settings.RATE_LIMIT_PERIOD = 60
+    
+    # Add logging settings to prevent validation errors
+    settings.LOG_LEVEL = "INFO"
+    settings.ENV = "test"
+    settings.LOKI_BUFFER_FILE = "test_loki_buffer.log"
+    settings.LOKI_VERSION = "1"
+    
     # Add documentation settings to prevent validation errors
-    settings.docs_show_enabled = True
+    settings.docs_should_be_enabled = True
+    settings.DEBUG = False
+    settings.DOCS_ENABLED = True
+    settings.is_production = False
     settings.DOCS_URL = "/docs"
     settings.REDOC_URL = "/redoc"
     settings.OPENAPI_URL = "/openapi.json"
@@ -92,11 +106,11 @@ def mock_logger():
 @pytest.fixture(autouse=True)
 def mock_dependencies(mock_settings, mock_db_manager, mock_security_manager, mock_redis_manager, mock_logger):
     """Auto-mock common dependencies for all MCP tests."""
-    with patch('src.second_brain_database.config.settings', mock_settings), \
-         patch('src.second_brain_database.database.db_manager', mock_db_manager), \
-         patch('src.second_brain_database.managers.security_manager.security_manager', mock_security_manager), \
-         patch('src.second_brain_database.managers.redis_manager.redis_manager', mock_redis_manager), \
-         patch('src.second_brain_database.managers.logging_manager.get_logger', return_value=mock_logger):
+    with patch('second_brain_database.config.settings', mock_settings), \
+         patch('second_brain_database.database.db_manager', mock_db_manager), \
+         patch('second_brain_database.managers.security_manager.security_manager', mock_security_manager), \
+         patch('second_brain_database.managers.redis_manager.redis_manager', mock_redis_manager), \
+         patch('second_brain_database.managers.logging_manager.get_logger', return_value=mock_logger):
         yield
 
 @pytest.fixture

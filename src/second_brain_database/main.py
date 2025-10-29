@@ -42,6 +42,7 @@ from second_brain_database.routes.family.routes import router as family_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
 from second_brain_database.routes.websockets import router as websockets_router
 from second_brain_database.routes.voice import router as voice_router
+from second_brain_database.routes.ai.routes import router as ai_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -138,6 +139,115 @@ async def lifespan(_app: FastAPI):
         log_error_with_context(e, {"operation": "application_startup", "phase": "database_connection"})
         raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
 
+    # Initialize AI orchestration system if enabled
+    ai_orchestrator = None
+    if settings.ai_should_be_enabled:
+        try:
+            ai_init_start = time.time()
+            logger.info("Initializing AI orchestration system...")
+            
+            from second_brain_database.integrations.ai_orchestration.orchestrator import AgentOrchestrator, set_global_orchestrator
+            ai_orchestrator = AgentOrchestrator()
+            
+            # Set as global instance for health checks and monitoring
+            set_global_orchestrator(ai_orchestrator)
+            
+            # Start background tasks for AI system
+            await ai_orchestrator.start_background_tasks()
+            
+            ai_init_duration = time.time() - ai_init_start
+            log_application_lifecycle(
+                "ai_orchestration_ready",
+                {
+                    "ai_init_duration": f"{ai_init_duration:.3f}s",
+                    "agents_count": len(ai_orchestrator.agents),
+                    "enabled_agents": getattr(settings, 'ai_enabled_agents', [])
+                }
+            )
+            
+            # Store reference for cleanup
+            _app.state.ai_orchestrator = ai_orchestrator
+            
+        except Exception as ai_error:
+            ai_init_duration = time.time() - ai_init_start if 'ai_init_start' in locals() else 0
+            logger.warning(
+                "Failed to initialize AI orchestration system: %s (duration: %.3fs)",
+                ai_error, ai_init_duration
+            )
+            log_application_lifecycle(
+                "ai_orchestration_failed",
+                {
+                    "error": str(ai_error),
+                    "ai_init_duration": f"{ai_init_duration:.3f}s"
+                }
+            )
+            # Continue startup even if AI system fails
+    else:
+        logger.info("AI orchestration system disabled in configuration")
+
+    # Initialize and start MCP server if enabled
+    mcp_server = None
+    if settings.MCP_ENABLED:
+        try:
+            mcp_init_start = time.time()
+            logger.info("Initializing MCP server...")
+            
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
+            
+            # Initialize MCP server
+            await mcp_server_manager.initialize()
+            
+            # Start MCP server with HTTP transport for remote connections
+            server_started = await mcp_server_manager.start_server(transport="http")
+            
+            mcp_init_duration = time.time() - mcp_init_start
+            
+            if server_started:
+                log_application_lifecycle(
+                    "mcp_server_ready",
+                    {
+                        "mcp_init_duration": f"{mcp_init_duration:.3f}s",
+                        "server_name": settings.MCP_SERVER_NAME,
+                        "server_port": settings.MCP_SERVER_PORT,
+                        "server_host": settings.MCP_SERVER_HOST,
+                        "tools_registered": mcp_server_manager._tool_count,
+                        "resources_registered": mcp_server_manager._resource_count,
+                        "prompts_registered": mcp_server_manager._prompt_count
+                    }
+                )
+                logger.info("MCP server started successfully on %s:%d", 
+                           settings.MCP_SERVER_HOST, settings.MCP_SERVER_PORT)
+            else:
+                logger.warning("MCP server failed to start but initialization completed")
+                log_application_lifecycle(
+                    "mcp_server_start_failed",
+                    {
+                        "mcp_init_duration": f"{mcp_init_duration:.3f}s",
+                        "server_name": settings.MCP_SERVER_NAME,
+                        "server_port": settings.MCP_SERVER_PORT
+                    }
+                )
+            
+            # Store reference for cleanup
+            _app.state.mcp_server_manager = mcp_server_manager
+            
+        except Exception as mcp_error:
+            mcp_init_duration = time.time() - mcp_init_start if 'mcp_init_start' in locals() else 0
+            logger.warning(
+                "Failed to initialize MCP server: %s (duration: %.3fs)",
+                mcp_error, mcp_init_duration
+            )
+            log_application_lifecycle(
+                "mcp_server_failed",
+                {
+                    "error": str(mcp_error),
+                    "mcp_init_duration": f"{mcp_init_duration:.3f}s"
+                }
+            )
+            # Continue startup even if MCP server fails
+    else:
+        logger.info("MCP server disabled in configuration")
+
     # Start periodic cleanup tasks with logging
     background_tasks = {}
     task_start_time = time.time()
@@ -225,6 +335,42 @@ async def lifespan(_app: FastAPI):
             failed_cleanups.append({"task": task_name, "error": str(e)})
 
     cleanup_duration = time.time() - cleanup_start
+
+    # MCP server cleanup
+    if hasattr(_app.state, 'mcp_server_manager') and _app.state.mcp_server_manager:
+        mcp_cleanup_start = time.time()
+        try:
+            logger.info("Shutting down MCP server...")
+            await _app.state.mcp_server_manager.stop_server()
+            mcp_cleanup_duration = time.time() - mcp_cleanup_start
+            
+            log_application_lifecycle(
+                "mcp_server_shutdown",
+                {"mcp_cleanup_duration": f"{mcp_cleanup_duration:.3f}s"}
+            )
+            
+        except Exception as e:
+            mcp_cleanup_duration = time.time() - mcp_cleanup_start
+            logger.error("Error during MCP server cleanup: %s", e)
+            log_error_with_context(e, {"operation": "mcp_server_cleanup"})
+
+    # AI orchestration system cleanup
+    if hasattr(_app.state, 'ai_orchestrator') and _app.state.ai_orchestrator:
+        ai_cleanup_start = time.time()
+        try:
+            logger.info("Shutting down AI orchestration system...")
+            await _app.state.ai_orchestrator.stop_background_tasks()
+            ai_cleanup_duration = time.time() - ai_cleanup_start
+            
+            log_application_lifecycle(
+                "ai_orchestration_shutdown",
+                {"ai_cleanup_duration": f"{ai_cleanup_duration:.3f}s"}
+            )
+            
+        except Exception as e:
+            ai_cleanup_duration = time.time() - ai_cleanup_start
+            logger.error("Error during AI orchestration cleanup: %s", e)
+            log_error_with_context(e, {"operation": "ai_orchestration_cleanup"})
 
     # Database disconnection with logging
     db_disconnect_start = time.time()
@@ -658,6 +804,7 @@ routers_config = [
     ("workspaces", workspaces_router, "Team and workspace management endpoints"),
     ("websockets", websockets_router, "WebSocket communication endpoints"),
     ("voice", voice_router, "Voice integration endpoints"),
+    ("ai", ai_router, "AI agent orchestration and real-time communication endpoints"),
 ]
 
 logger.info("Including API routers...")

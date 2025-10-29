@@ -41,12 +41,16 @@ dependencies = [
     # QR Code Generation
     "qrcode[pil]>=7.4.0,<8.0.0", # QR code generation with PIL support
     # MCP Integration
-    "fastmcp>=0.4.0,<0.5.0", # FastMCP framework for Model Context Protocol
+    "fastmcp>=2.0.0,<3.0.0", # FastMCP framework for Model Context Protocol
     # Monitoring and Metrics
     "prometheus-fastapi-instrumentator>=7.0.0,<8.0.0",
     "python-multipart>=0.0.20",
     "loki-logger-handler>=1.1.2",
     "requests>=2.32.4",
+    "ffmpeg>=1.4",
+    "numpy>=1.26.4",
+    "sounddevice>=0.5.3",
+    "websockets[speedups]>=12.0",
 ]
 
 [project.optional-dependencies]

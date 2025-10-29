@@ -13,10 +13,12 @@ from . import family_tools
 from . import shop_tools
 from . import workspace_tools
 from . import admin_tools
+from . import test_tools
 
 __all__ = [
     "family_tools",
     "shop_tools", 
     "workspace_tools",
-    "admin_tools"
+    "admin_tools",
+    "test_tools"
 ]

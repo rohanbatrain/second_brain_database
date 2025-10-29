@@ -115,13 +115,13 @@ from second_brain_database.routes.auth.services.auth.verification import (
     resend_verification_email_service,
     send_verification_email,
 )
-from second_brain_database.routes.auth.services.webauthn.authentication import (
-    begin_authentication,
-    complete_authentication,
-)
-from second_brain_database.routes.auth.services.webauthn.registration import (
-    begin_registration,
-)
+# from second_brain_database.routes.auth.services.webauthn.authentication import (
+#     begin_authentication,
+#     complete_authentication,
+# )
+# from second_brain_database.routes.auth.services.webauthn.registration import (
+#     begin_registration,
+# )
 from second_brain_database.utils.logging_utils import (
     log_auth_failure,
     log_auth_success,

@@ -2,7 +2,7 @@
 Family Management MCP Tools
 
 MCP tools for comprehensive family lifecycle management, member operations,
-and relationship management using existing FamilyManager patterns.
+and relationship management using FastMCP 2.x modern patterns.
 """
 
 from typing import List, Dict, Any, Optional
@@ -15,6 +15,7 @@ from ....config import settings
 from ..security import authenticated_tool, get_mcp_user_context
 from ..context import require_family_access, create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
 
 logger = get_logger(prefix="[MCP_FamilyTools]")
 

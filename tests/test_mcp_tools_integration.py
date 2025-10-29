@@ -13,7 +13,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any, List
 
 # Test imports
-from src.second_brain_database.integrations.mcp.context import (
+from second_brain_database.integrations.mcp.context import (
     MCPUserContext,
     MCPRequestContext,
     create_mcp_user_context_from_fastapi_user,

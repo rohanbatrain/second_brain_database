@@ -14,7 +14,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any, List
 
 # Test imports
-from src.second_brain_database.integrations.mcp.security import (
+from second_brain_database.integrations.mcp.security import (
     secure_mcp_tool,
     authenticated_tool,
     mcp_context_manager,
@@ -26,7 +26,7 @@ from src.second_brain_database.integrations.mcp.security import (
     log_mcp_authorization_event,
     mcp_audit_logger
 )
-from src.second_brain_database.integrations.mcp.context import (
+from second_brain_database.integrations.mcp.context import (
     MCPUserContext,
     MCPRequestContext,
     create_mcp_user_context_from_fastapi_user,
@@ -37,7 +37,7 @@ from src.second_brain_database.integrations.mcp.context import (
     get_mcp_user_context,
     get_mcp_request_context
 )
-from src.second_brain_database.integrations.mcp.exceptions import (
+from second_brain_database.integrations.mcp.exceptions import (
     MCPAuthenticationError,
     MCPAuthorizationError,
     MCPRateLimitError

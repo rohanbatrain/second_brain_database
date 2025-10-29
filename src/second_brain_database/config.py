@@ -235,7 +235,13 @@ class Settings(BaseSettings):
     # --- Voice agent integrations ---
     # Ollama local LLM host (include scheme), default to local Ollama HTTP server
     OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "ollama-small"  # default model name to use with Ollama
+    OLLAMA_MODEL: str = "gemma3:1b"  # default model name to use with Ollama
+    
+    # Multiple model support - comma-separated list of available models
+    OLLAMA_AVAILABLE_MODELS: str = "gemma3:1b,deepseek-r1:1.5b"  # Available models for selection
+    OLLAMA_REASONING_MODEL: str = "deepseek-r1:1.5b"  # Specialized reasoning model
+    OLLAMA_FAST_MODEL: str = "gemma3:1b"  # Fast response model for simple queries
+    OLLAMA_AUTO_MODEL_SELECTION: bool = True  # Enable automatic model selection based on query type
 
     # LiveKit server configuration (for generating tokens / admin operations)
     LIVEKIT_API_KEY: Optional[str] = None
@@ -253,13 +259,19 @@ class Settings(BaseSettings):
     MCP_ENABLED: bool = True  # Enable/disable MCP server
     MCP_SERVER_NAME: str = "SecondBrainMCP"  # MCP server name
     MCP_SERVER_VERSION: str = "1.0.0"  # MCP server version
-    MCP_SERVER_HOST: str = "localhost"  # Host to bind MCP server to
-    MCP_SERVER_PORT: int = 3001  # Port for MCP server
     MCP_DEBUG_MODE: bool = False  # Enable debug mode for MCP server
+    
+    # Modern FastMCP 2.x transport configuration
+    MCP_TRANSPORT: str = "stdio"  # "stdio" for local clients, "http" for remote/production
+    MCP_HTTP_HOST: str = "127.0.0.1"  # Host for HTTP transport (use 0.0.0.0 for production)
+    MCP_HTTP_PORT: int = 8001  # Port for HTTP transport
+    MCP_HTTP_CORS_ENABLED: bool = False  # Enable CORS for HTTP transport
+    MCP_HTTP_CORS_ORIGINS: str = "*"  # Allowed CORS origins (comma-separated)
     
     # MCP Security configuration
     MCP_SECURITY_ENABLED: bool = True  # Enable security for MCP tools
     MCP_REQUIRE_AUTH: bool = True  # Require authentication for MCP tools
+    MCP_AUTH_TOKEN: Optional[SecretStr] = None  # Bearer token for HTTP transport authentication
     MCP_AUDIT_ENABLED: bool = True  # Enable audit logging for MCP operations
     
     # MCP Rate limiting configuration
@@ -300,6 +312,83 @@ class Settings(BaseSettings):
     MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)
     MCP_CONTEXT_CACHE_TTL: int = 60  # User context cache TTL in seconds
 
+    # --- AI Agent Orchestration Configuration ---
+    # AI System basic configuration
+    AI_ENABLED: bool = True  # Enable/disable AI agent orchestration system
+    AI_DEBUG_MODE: bool = False  # Enable debug mode for AI agents
+    AI_MAX_CONCURRENT_SESSIONS: int = 100  # Maximum concurrent AI sessions
+    AI_SESSION_TIMEOUT: int = 3600  # AI session timeout in seconds (1 hour)
+    AI_SESSION_CLEANUP_INTERVAL: int = 300  # Session cleanup interval in seconds
+    
+    # AI Agent configuration
+    AI_AGENTS_ENABLED: bool = True  # Enable AI agents
+    AI_FAMILY_AGENT_ENABLED: bool = True  # Enable family assistant agent
+    AI_PERSONAL_AGENT_ENABLED: bool = True  # Enable personal assistant agent
+    AI_WORKSPACE_AGENT_ENABLED: bool = True  # Enable workspace collaboration agent
+    AI_COMMERCE_AGENT_ENABLED: bool = True  # Enable commerce agent
+    AI_SECURITY_AGENT_ENABLED: bool = True  # Enable security agent
+    AI_VOICE_AGENT_ENABLED: bool = True  # Enable voice agent
+    
+    # AI Model configuration (Ollama integration)
+    AI_MODEL_POOL_SIZE: int = 3  # Number of Ollama client instances in pool
+    AI_MODEL_WARMUP_ENABLED: bool = True  # Enable model warming for faster responses
+    AI_MODEL_RESPONSE_TIMEOUT: int = 30  # Model response timeout in seconds
+    AI_MODEL_MAX_TOKENS: int = 2048  # Maximum tokens per model response
+    AI_MODEL_TEMPERATURE: float = 0.7  # Default model temperature
+    AI_MODEL_STREAMING_ENABLED: bool = True  # Enable streaming responses
+    
+    # AI Performance configuration
+    AI_RESPONSE_TARGET_LATENCY: int = 300  # Target response latency in milliseconds
+    AI_CACHE_ENABLED: bool = True  # Enable AI response caching
+    AI_CACHE_TTL: int = 1800  # AI cache TTL in seconds (30 minutes)
+    AI_CONVERSATION_CACHE_TTL: int = 86400  # Conversation cache TTL in seconds (24 hours)
+    AI_CONTEXT_PRELOAD_ENABLED: bool = True  # Enable context preloading for performance
+    
+    # AI Rate limiting configuration
+    AI_RATE_LIMIT_ENABLED: bool = True  # Enable rate limiting for AI operations
+    AI_RATE_LIMIT_REQUESTS: int = 60  # Max AI requests per period per user
+    AI_RATE_LIMIT_PERIOD: int = 60  # Rate limit period in seconds
+    AI_RATE_LIMIT_BURST: int = 10  # Burst limit for AI requests
+    
+    # AI Security configuration
+    AI_SECURITY_ENABLED: bool = True  # Enable security for AI operations
+    AI_AUDIT_ENABLED: bool = True  # Enable audit logging for AI operations
+    AI_PRIVACY_MODE_ENABLED: bool = True  # Enable privacy modes for conversations
+    AI_CONVERSATION_ENCRYPTION: bool = False  # Enable conversation encryption
+    AI_USAGE_QUOTAS_ENABLED: bool = True  # Enable AI usage quotas
+    
+    # AI Agent routing configuration
+    AI_AGENT_ROUTING_ENABLED: bool = True  # Enable intelligent agent routing
+    AI_AGENT_HANDOFF_ENABLED: bool = True  # Enable agent-to-agent handoffs
+    AI_AGENT_CONTEXT_SHARING: bool = True  # Enable context sharing between agents
+    AI_DEFAULT_AGENT: str = "personal"  # Default agent type (personal, family, workspace, commerce, security, voice)
+    
+    # AI Workflow configuration
+    AI_WORKFLOWS_ENABLED: bool = True  # Enable pre-built agent workflows
+    AI_WORKFLOW_TIMEOUT: int = 120  # Workflow execution timeout in seconds
+    AI_WORKFLOW_MAX_STEPS: int = 20  # Maximum steps per workflow
+    AI_WORKFLOW_PARALLEL_ENABLED: bool = True  # Enable parallel workflow execution
+    
+    # AI Memory and Context configuration
+    AI_MEMORY_ENABLED: bool = True  # Enable AI memory and context management
+    AI_MEMORY_MAX_CONTEXT_LENGTH: int = 8192  # Maximum context length in tokens
+    AI_MEMORY_CONVERSATION_HISTORY: int = 50  # Number of conversation turns to remember
+    AI_MEMORY_SEMANTIC_SEARCH: bool = False  # Enable semantic search (requires vector DB)
+    AI_MEMORY_KNOWLEDGE_INTEGRATION: bool = True  # Enable knowledge base integration
+    
+    # AI Voice integration configuration
+    AI_VOICE_ENABLED: bool = True  # Enable voice integration
+    AI_VOICE_STT_ENABLED: bool = True  # Enable speech-to-text
+    AI_VOICE_TTS_ENABLED: bool = True  # Enable text-to-speech
+    AI_VOICE_REALTIME_ENABLED: bool = True  # Enable real-time voice processing
+    AI_VOICE_COMMAND_ENABLED: bool = True  # Enable voice commands for system features
+    
+    # AI Monitoring configuration
+    AI_METRICS_ENABLED: bool = True  # Enable AI metrics collection
+    AI_PERFORMANCE_MONITORING: bool = True  # Enable AI performance monitoring
+    AI_HEALTH_CHECK_ENABLED: bool = True  # Enable AI health check endpoints
+    AI_ERROR_TRACKING_ENABLED: bool = True  # Enable AI error tracking and recovery
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"
@@ -320,15 +409,6 @@ class Settings(BaseSettings):
         if not v or not str(v).strip():
             raise ValueError(f"{info.field_name} must be set via environment or .sbd and not empty!")
         return v
-
-    @field_validator("MCP_SERVER_PORT", mode="before")
-    @classmethod
-    def validate_mcp_port(cls, v):
-        """Validate MCP server port is in acceptable range."""
-        port = int(v)
-        if port < 1024 or port > 65535:
-            raise ValueError("MCP_SERVER_PORT must be between 1024 and 65535")
-        return port
 
     @field_validator("MCP_RATE_LIMIT_REQUESTS", "MCP_MAX_CONCURRENT_TOOLS", mode="before")
     @classmethod
@@ -356,6 +436,42 @@ class Settings(BaseSettings):
         if factor < 1.0 or factor > 10.0:
             raise ValueError("MCP_RETRY_BACKOFF_FACTOR must be between 1.0 and 10.0")
         return factor
+
+    @field_validator("AI_MODEL_POOL_SIZE", "AI_MAX_CONCURRENT_SESSIONS", mode="before")
+    @classmethod
+    def validate_ai_positive_integers(cls, v, info):
+        """Validate that AI numeric settings are positive."""
+        value = int(v)
+        if value <= 0:
+            raise ValueError(f"{info.field_name} must be a positive integer")
+        return value
+
+    @field_validator("AI_SESSION_TIMEOUT", "AI_MODEL_RESPONSE_TIMEOUT", "AI_WORKFLOW_TIMEOUT", mode="before")
+    @classmethod
+    def validate_ai_timeout_values(cls, v, info):
+        """Validate AI timeout values are reasonable."""
+        timeout = int(v)
+        if timeout < 1 or timeout > 7200:  # Max 2 hours
+            raise ValueError(f"{info.field_name} must be between 1 and 7200 seconds")
+        return timeout
+
+    @field_validator("AI_MODEL_TEMPERATURE", mode="before")
+    @classmethod
+    def validate_ai_temperature(cls, v):
+        """Validate AI model temperature is in valid range."""
+        temp = float(v)
+        if temp < 0.0 or temp > 2.0:
+            raise ValueError("AI_MODEL_TEMPERATURE must be between 0.0 and 2.0")
+        return temp
+
+    @field_validator("AI_DEFAULT_AGENT", mode="before")
+    @classmethod
+    def validate_ai_default_agent(cls, v):
+        """Validate AI default agent is a valid agent type."""
+        valid_agents = ["personal", "family", "workspace", "commerce", "security", "voice"]
+        if v not in valid_agents:
+            raise ValueError(f"AI_DEFAULT_AGENT must be one of: {', '.join(valid_agents)}")
+        return v
 
     @property
     def is_production(self) -> bool:
@@ -390,6 +506,65 @@ class Settings(BaseSettings):
         if not self.MCP_IP_WHITELIST:
             return []
         return [ip.strip() for ip in self.MCP_IP_WHITELIST.split(",") if ip.strip()]
+
+    @property
+    def ai_should_be_enabled(self) -> bool:
+        """Determine if AI orchestration should be enabled based on configuration."""
+        return self.AI_ENABLED and not (self.is_production and not self.AI_SECURITY_ENABLED)
+
+    @property
+    def ai_enabled_agents(self) -> list:
+        """Get list of enabled AI agents."""
+        agents = []
+        if self.AI_FAMILY_AGENT_ENABLED:
+            agents.append("family")
+        if self.AI_PERSONAL_AGENT_ENABLED:
+            agents.append("personal")
+        if self.AI_WORKSPACE_AGENT_ENABLED:
+            agents.append("workspace")
+        if self.AI_COMMERCE_AGENT_ENABLED:
+            agents.append("commerce")
+        if self.AI_SECURITY_AGENT_ENABLED:
+            agents.append("security")
+        if self.AI_VOICE_AGENT_ENABLED:
+            agents.append("voice")
+        return agents
+
+    @property
+    def ai_model_config(self) -> dict:
+        """Get AI model configuration for Ollama integration."""
+        return {
+            "host": self.OLLAMA_HOST,
+            "model": self.OLLAMA_MODEL,
+            "pool_size": self.AI_MODEL_POOL_SIZE,
+            "timeout": self.AI_MODEL_RESPONSE_TIMEOUT,
+            "max_tokens": self.AI_MODEL_MAX_TOKENS,
+            "temperature": self.AI_MODEL_TEMPERATURE,
+            "streaming": self.AI_MODEL_STREAMING_ENABLED,
+            "available_models": self.ollama_available_models_list,
+            "reasoning_model": self.OLLAMA_REASONING_MODEL,
+            "fast_model": self.OLLAMA_FAST_MODEL,
+            "auto_selection": self.OLLAMA_AUTO_MODEL_SELECTION
+        }
+
+    @property
+    def ollama_available_models_list(self) -> list:
+        """Get list of available Ollama models."""
+        if not self.OLLAMA_AVAILABLE_MODELS:
+            return [self.OLLAMA_MODEL]
+        return [model.strip() for model in self.OLLAMA_AVAILABLE_MODELS.split(",") if model.strip()]
+
+    @property
+    def ai_performance_config(self) -> dict:
+        """Get AI performance configuration."""
+        return {
+            "target_latency": self.AI_RESPONSE_TARGET_LATENCY,
+            "cache_enabled": self.AI_CACHE_ENABLED,
+            "cache_ttl": self.AI_CACHE_TTL,
+            "conversation_cache_ttl": self.AI_CONVERSATION_CACHE_TTL,
+            "context_preload": self.AI_CONTEXT_PRELOAD_ENABLED,
+            "model_warmup": self.AI_MODEL_WARMUP_ENABLED
+        }
 
 
 # Global settings instance

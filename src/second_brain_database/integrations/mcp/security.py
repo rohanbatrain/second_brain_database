@@ -135,13 +135,14 @@ def authenticated_tool(
     description: Optional[str] = None,
     permissions: Optional[List[str]] = None,
     rate_limit_action: Optional[str] = None,
-    audit: bool = True
+    audit: bool = True,
+    tags: Optional[List[str]] = None
 ):
     """
-    Combined FastMCP tool registration with security validation.
+    Combined FastMCP 2.x tool registration with security validation.
     
     This decorator combines FastMCP's @tool decorator with security validation,
-    providing a convenient way to register secure MCP tools.
+    providing a convenient way to register secure MCP tools following FastMCP 2.x patterns.
     
     Args:
         name: Tool name for MCP registration
@@ -149,6 +150,7 @@ def authenticated_tool(
         permissions: Required permissions for tool access
         rate_limit_action: Rate limiting action key
         audit: Whether to enable audit logging
+        tags: Tags for FastMCP 2.x component filtering
     """
     def decorator(func):
         # Apply security wrapper first
@@ -158,15 +160,41 @@ def authenticated_tool(
             audit=audit
         )(func)
         
-        # Add metadata for FastMCP integration
+        # Determine tags for FastMCP 2.x
+        tool_tags = set(tags or [])
+        tool_tags.update({"secure", "production"})
+        
+        # Add function-specific tags
+        func_name = func.__name__
+        if 'create' in func_name or 'add' in func_name:
+            tool_tags.add("write")
+        elif 'get' in func_name or 'list' in func_name:
+            tool_tags.add("read")
+        elif 'update' in func_name or 'modify' in func_name:
+            tool_tags.add("write")
+        elif 'delete' in func_name or 'remove' in func_name:
+            tool_tags.add("write")
+        
+        # Apply FastMCP 2.x @tool decorator (without tags - not supported in 2.x)
+        try:
+            from .modern_server import mcp
+            mcp_tool_decorator = mcp.tool(
+                name=name or func.__name__,
+                description=description or func.__doc__ or ""
+            )
+            secured_func = mcp_tool_decorator(secured_func)
+        except ImportError:
+            # Fallback if modern_server is not available
+            pass
+        
+        # Add metadata for compatibility
         secured_func._mcp_tool_name = name or func.__name__
         secured_func._mcp_tool_description = description or func.__doc__ or ""
         secured_func._mcp_tool_permissions = permissions or []
         secured_func._mcp_rate_limit_action = rate_limit_action
         secured_func._mcp_audit_enabled = audit
+        secured_func._mcp_tool_tags = tool_tags
         
-        # This will be used by FastMCP server to register the tool
-        # The actual @tool decorator will be applied by the server
         return secured_func
         
     return decorator

@@ -11,10 +11,18 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 import asyncio
+import subprocess
 
-import ffmpeg
+try:
+    # Optional dependency: ffmpeg-python provides the `ffmpeg` module.
+    # The project declares this in dependencies, but allow importing the module
+    # to be optional at runtime so missing packages don't crash the app at import time.
+    import ffmpeg  # type: ignore
+    _HAS_FFMPEG = True
+except Exception:  # pragma: no cover - environment dependent
+    ffmpeg = None  # type: ignore
+    _HAS_FFMPEG = False
 import numpy as np
-import pydub
 import sounddevice as sd
 import speech_recognition as sr
 import pyttsx3
@@ -57,14 +65,24 @@ class VoiceProcessor:
                 Path(tmp.name).unlink(missing_ok=True)
 
     async def transcode_audio(self, audio_data: bytes, from_format: str = "wav", to_format: str = "opus", sample_rate: int = 16000) -> bytes:
-        """Transcode audio between formats."""
-        # Use pydub for simple transcoding
-        audio = pydub.AudioSegment.from_file(io.BytesIO(audio_data), format=from_format)
-        audio = audio.set_frame_rate(sample_rate)
-
-        output = io.BytesIO()
-        audio.export(output, format=to_format)
-        return output.getvalue()
+        """Transcode audio between formats using ffmpeg."""
+        # Use ffmpeg for transcoding via subprocess
+        process = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-f", from_format,
+            "-i", "pipe:0",
+            "-f", to_format,
+            "-ar", str(sample_rate),
+            "-y",
+            "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate(audio_data)
+        if process.returncode != 0:
+            raise RuntimeError(f"FFmpeg transcoding error: {stderr.decode()}")
+        return stdout
 
     async def record_audio(self, duration: float = 5.0, sample_rate: int = 16000) -> bytes:
         """Record audio from microphone (for testing)."""

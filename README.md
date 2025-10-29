@@ -41,7 +41,7 @@ Set the following environment variables:
 ```bash
 # Ollama configuration
 OLLAMA_HOST=http://127.0.0.1:11434
-OLLAMA_MODEL=llama2
+OLLAMA_MODEL=gemma3b
 
 # LiveKit configuration
 LIVEKIT_API_KEY=your_api_key

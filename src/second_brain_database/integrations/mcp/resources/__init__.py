@@ -12,11 +12,13 @@ from . import user_resources
 from . import workspace_resources
 from . import system_resources
 from . import shop_resources
+from . import test_resources
 
 __all__ = [
     "family_resources",
     "user_resources", 
     "workspace_resources",
     "system_resources",
-    "shop_resources"
+    "shop_resources",
+    "test_resources"
 ]

@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 
 from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..mcp_instance import get_mcp_instance
+from ..mcp_instance import get_mcp_server
 from ..security import get_mcp_user_context
 from ..context import create_mcp_audit_trail
 
@@ -19,12 +19,12 @@ logger = get_logger(prefix="[MCP_GuidancePrompts]")
 # Import manager instances
 from ....database import db_manager
 
-# Get the shared MCP instance
-mcp = get_mcp_instance()
+# Get the shared MCP server instance
+mcp_server = get_mcp_server()
 
-if mcp is not None:
+if mcp_server is not None:
     
-    @mcp.prompt("family_management_guide")
+    @mcp_server.prompt("family_management_guide")
     async def family_management_guidance_prompt() -> str:
         """
         Provide comprehensive family management guidance with user context.
@@ -155,8 +155,7 @@ Remember: Family management requires careful balance of accessibility and securi
             logger.error("Failed to generate family management guidance prompt: %s", e)
             return f"Error generating family management guidance: {str(e)}"
 
-
-    @mcp.prompt("shop_navigation_guide")
+    @mcp_server.prompt("shop_navigation_guide")
     async def shop_navigation_guidance_prompt() -> str:
         """
         Provide shop navigation and purchase assistance guidance.
@@ -312,8 +311,9 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
             
         except Exception as e:
             logger.error("Failed to generate shop navigation guidance prompt: %s", e)
-            return f"Error generating shop navigation guidance: {str(e)}"    @
-mcp.prompt("workspace_management_guide")
+            return f"Error generating shop navigation guidance: {str(e)}"
+
+    @mcp_server.prompt("workspace_management_guide")
     async def workspace_management_guidance_prompt() -> str:
         """
         Provide workspace management guidance for team operations.
@@ -487,8 +487,7 @@ Remember: Effective workspace management requires balancing team autonomy with a
             logger.error("Failed to generate workspace management guidance prompt: %s", e)
             return f"Error generating workspace management guidance: {str(e)}"
 
-
-    @mcp.prompt("security_setup_guide")
+    @mcp_server.prompt("security_setup_guide")
     async def security_setup_guidance_prompt() -> str:
         """
         Provide security setup guidance for account protection.
@@ -672,8 +671,9 @@ Remember: Security is an ongoing process, not a one-time setup. Regular reviews 
             
         except Exception as e:
             logger.error("Failed to generate security setup guidance prompt: %s", e)
-            return f"Error generating security setup guidance: {str(e)}"    @mcp
-.prompt("troubleshooting_guide")
+            return f"Error generating security setup guidance: {str(e)}"
+
+    @mcp_server.prompt("troubleshooting_guide")
     async def troubleshooting_guidance_prompt() -> str:
         """
         Provide troubleshooting guidance for common issues.
@@ -906,8 +906,7 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
             logger.error("Failed to generate troubleshooting guidance prompt: %s", e)
             return f"Error generating troubleshooting guidance: {str(e)}"
 
-
-    @mcp.prompt("onboarding_guide")
+    @mcp_server.prompt("onboarding_guide")
     async def onboarding_guidance_prompt() -> str:
         """
         Provide onboarding guidance for new users.
@@ -1129,8 +1128,7 @@ Remember: Learning a new system takes time. Be patient with yourself, explore at
             logger.error("Failed to generate onboarding guidance prompt: %s", e)
             return f"Error generating onboarding guidance: {str(e)}"
 
-
-    @mcp.prompt("api_usage_guide")
+    @mcp_server.prompt("api_usage_guide")
     async def api_usage_guidance_prompt() -> str:
         """
         Provide API usage guidance for developers.
@@ -1197,158 +1195,120 @@ Model Context Protocol (MCP) provides a standardized way for AI models and appli
     }}
   }}
 }}
-```
+Authentication Setup
+Getting API Tokens
+Login to Account: Authenticate with your credentials
+Navigate to Tokens: Go to profile settings > API tokens
+Create Token: Generate a new permanent API token
+Secure Storage: Store token securely (never commit to code)
+Set Permissions: Configure appropriate token permissions
+Using Authentication
+Bash
 
-## Authentication Setup
-
-### Getting API Tokens
-1. **Login to Account**: Authenticate with your credentials
-2. **Navigate to Tokens**: Go to profile settings > API tokens
-3. **Create Token**: Generate a new permanent API token
-4. **Secure Storage**: Store token securely (never commit to code)
-5. **Set Permissions**: Configure appropriate token permissions
-
-### Using Authentication
-```bash
 # HTTP Header Authentication
 curl -H "Authorization: Bearer YOUR_TOKEN" \\
-     https://api.secondbraindatabase.com/endpoint
+     [https://api.secondbraindatabase.com/endpoint](https://api.secondbraindatabase.com/endpoint)# MCP Tool Authentication# Authentication is handled automatically by MCP security wrappers
+Available API Endpoints
+Family Management
+GET /family - List user's families
+POST /family - Create new family
+GET /family/{{id}} - Get family details
+PUT /family/{{id}} - Update family settings
+DELETE /family/{{id}} - Delete family
+POST /family/{{id}}/invite - Invite family member
+GET /family/{{id}}/members - List family members
+User Profile
+GET /profile - Get user profile
+PUT /profile - Update profile
+GET /profile/preferences - Get user preferences
+PUT /profile/preferences - Update preferences
+POST /profile/avatar - Upload avatar
+POST /profile/banner - Upload banner
+Digital Shop
+GET /shop/items - Browse shop items
+GET /shop/items/{{id}} - Get item details
+POST /shop/purchase - Purchase item
+POST /shop/rent - Rent item
+GET /shop/transactions - Transaction history
+SBD Tokens
+GET /sbd/balance - Get token balance
+POST /sbd/transfer - Transfer tokens
+GET /sbd/history - Transaction history
+POST /sbd/request - Request tokens
+MCP Tools Reference
+Family Management Tools
+get_family_info(family_id) - Get family information
+get_family_members(family_id) - List family members
+create_family(name?) - Create new family
+add_family_member(family_id, email, role) - Invite member
+update_family_settings(family_id, updates) - Update settings
+Authentication Tools
+get_auth_status() - Current authentication status
+setup_2fa() - Initialize two-factor authentication
+get_security_dashboard() - Security overview
+request_ip_lockdown() - Enable IP restrictions
+Shop Tools
+list_shop_items(category?, limit?) - Browse items
+purchase_item(item_id, quantity?) - Buy item
+get_user_assets() - List owned/rented assets
+get_sbd_balance() - Check token balance
+MCP Resources Reference
+Information Resources
+family://{{family_id}}/info - Family information
+family://{{family_id}}/members - Member list
+user://{{user_id}}/profile - User profile
+user://{{user_id}}/assets - User assets
+shop://catalog - Shop catalog
+system://status - System health
+Usage Examples
+Python
 
-# MCP Tool Authentication
-# Authentication is handled automatically by MCP security wrappers
-```
-
-## Available API Endpoints
-
-### Family Management
-- `GET /family` - List user's families
-- `POST /family` - Create new family
-- `GET /family/{id}` - Get family details
-- `PUT /family/{id}` - Update family settings
-- `DELETE /family/{id}` - Delete family
-- `POST /family/{id}/invite` - Invite family member
-- `GET /family/{id}/members` - List family members
-
-### User Profile
-- `GET /profile` - Get user profile
-- `PUT /profile` - Update profile
-- `GET /profile/preferences` - Get user preferences
-- `PUT /profile/preferences` - Update preferences
-- `POST /profile/avatar` - Upload avatar
-- `POST /profile/banner` - Upload banner
-
-### Digital Shop
-- `GET /shop/items` - Browse shop items
-- `GET /shop/items/{id}` - Get item details
-- `POST /shop/purchase` - Purchase item
-- `POST /shop/rent` - Rent item
-- `GET /shop/transactions` - Transaction history
-
-### SBD Tokens
-- `GET /sbd/balance` - Get token balance
-- `POST /sbd/transfer` - Transfer tokens
-- `GET /sbd/history` - Transaction history
-- `POST /sbd/request` - Request tokens
-
-## MCP Tools Reference
-
-### Family Management Tools
-- `get_family_info(family_id)` - Get family information
-- `get_family_members(family_id)` - List family members
-- `create_family(name?)` - Create new family
-- `add_family_member(family_id, email, role)` - Invite member
-- `update_family_settings(family_id, updates)` - Update settings
-
-### Authentication Tools
-- `get_auth_status()` - Current authentication status
-- `setup_2fa()` - Initialize two-factor authentication
-- `get_security_dashboard()` - Security overview
-- `request_ip_lockdown()` - Enable IP restrictions
-
-### Shop Tools
-- `list_shop_items(category?, limit?)` - Browse items
-- `purchase_item(item_id, quantity?)` - Buy item
-- `get_user_assets()` - List owned/rented assets
-- `get_sbd_balance()` - Check token balance
-
-## MCP Resources Reference
-
-### Information Resources
-- `family://{family_id}/info` - Family information
-- `family://{family_id}/members` - Member list
-- `user://{user_id}/profile` - User profile
-- `user://{user_id}/assets` - User assets
-- `shop://catalog` - Shop catalog
-- `system://status` - System health
-
-### Usage Examples
-```python
 # Access family information resource
-family_info = await mcp_client.read_resource("family://123/info")
-
-# Get user assets
-assets = await mcp_client.read_resource("user://me/assets")
-
-# Check system status
+family_info = await mcp_client.read_resource("family://123/info")# Get user assets
+assets = await mcp_client.read_resource("user://me/assets")# Check system status
 status = await mcp_client.read_resource("system://status")
-```
+Error Handling
+HTTP Status Codes
+200 OK - Request successful
+400 Bad Request - Invalid input data
+401 Unauthorized - Authentication required
+403 Forbidden - Insufficient permissions
+404 Not Found - Resource not found
+429 Too Many Requests - Rate limit exceeded
+500 Internal Server Error - Server error
+Error Response Format
+JSON
 
-## Error Handling
-
-### HTTP Status Codes
-- `200 OK` - Request successful
-- `400 Bad Request` - Invalid input data
-- `401 Unauthorized` - Authentication required
-- `403 Forbidden` - Insufficient permissions
-- `404 Not Found` - Resource not found
-- `429 Too Many Requests` - Rate limit exceeded
-- `500 Internal Server Error` - Server error
-
-### Error Response Format
-```json
 {{
   "error": "error_type",
   "message": "Human readable message",
   "details": "Additional error details",
   "timestamp": "2024-01-01T00:00:00Z"
 }}
-```
+MCP Error Handling
+Python
 
-### MCP Error Handling
-```python
 try:
-    result = await mcp_client.call_tool("get_family_info", {{"family_id": "123"}})
-except MCPAuthenticationError:
+    result = await mcp_client.call_tool("get_family_info", {{"family_id": "123"}})except MCPAuthenticationError:
     # Handle authentication failure
-    pass
-except MCPAuthorizationError:
+    passexcept MCPAuthorizationError:
     # Handle permission denial
-    pass
-except MCPValidationError:
+    passexcept MCPValidationError:
     # Handle invalid input
     pass
-```
-
-## Rate Limiting
-
-### Default Limits
-- **Standard Users**: 100 requests/minute, 1000 requests/hour
-- **Premium Users**: 200 requests/minute, 2000 requests/hour
-- **API Integrations**: Custom limits based on usage
-
-### Rate Limit Headers
-```
+Rate Limiting
+Default Limits
+Standard Users: 100 requests/minute, 1000 requests/hour
+Premium Users: 200 requests/minute, 2000 requests/hour
+API Integrations: Custom limits based on usage
+Rate Limit Headers
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 95
 X-RateLimit-Reset: 1640995200
-```
+Handling Rate Limits
+Python
 
-### Handling Rate Limits
-```python
-import time
-import requests
-
-def api_request_with_backoff(url, headers):
+import timeimport requestsdef api_request_with_backoff(url, headers):
     response = requests.get(url, headers=headers)
     
     if response.status_code == 429:
@@ -1358,39 +1318,30 @@ def api_request_with_backoff(url, headers):
         return api_request_with_backoff(url, headers)
     
     return response
-```
+Best Practices
+Security
+Token Security: Never expose API tokens in client-side code
+HTTPS Only: Always use HTTPS for API requests
+Token Rotation: Regularly rotate API tokens
+Minimal Permissions: Use tokens with minimal required permissions
+Secure Storage: Store tokens in secure credential management systems
+Performance
+Caching: Cache responses when appropriate
+Batch Operations: Use batch endpoints when available
+Pagination: Handle paginated responses properly
+Connection Pooling: Reuse HTTP connections
+Async Operations: Use async/await for better performance
+Error Handling
+Retry Logic: Implement exponential backoff for retries
+Graceful Degradation: Handle API unavailability gracefully
+Logging: Log API errors for debugging
+User Feedback: Provide meaningful error messages to users
+Circuit Breakers: Implement circuit breaker patterns for resilience
+Example Implementations
+Python SDK Example
+Python
 
-## Best Practices
-
-### Security
-1. **Token Security**: Never expose API tokens in client-side code
-2. **HTTPS Only**: Always use HTTPS for API requests
-3. **Token Rotation**: Regularly rotate API tokens
-4. **Minimal Permissions**: Use tokens with minimal required permissions
-5. **Secure Storage**: Store tokens in secure credential management systems
-
-### Performance
-1. **Caching**: Cache responses when appropriate
-2. **Batch Operations**: Use batch endpoints when available
-3. **Pagination**: Handle paginated responses properly
-4. **Connection Pooling**: Reuse HTTP connections
-5. **Async Operations**: Use async/await for better performance
-
-### Error Handling
-1. **Retry Logic**: Implement exponential backoff for retries
-2. **Graceful Degradation**: Handle API unavailability gracefully
-3. **Logging**: Log API errors for debugging
-4. **User Feedback**: Provide meaningful error messages to users
-5. **Circuit Breakers**: Implement circuit breaker patterns for resilience
-
-## Example Implementations
-
-### Python SDK Example
-```python
-import asyncio
-from second_brain_db import SecondBrainClient
-
-async def main():
+import asynciofrom second_brain_db import SecondBrainClientasync def main():
     client = SecondBrainClient(api_token="your-token")
     
     # Get user families
@@ -1405,79 +1356,43 @@ async def main():
     print(f"Created family with {len(members)} members")
 
 asyncio.run(main())
-```
-
-### JavaScript/Node.js Example
-```javascript
-const { SecondBrainClient } = require('second-brain-db-sdk');
-
-const client = new SecondBrainClient({
-  apiToken: process.env.SBD_API_TOKEN
-});
-
-async function manageFamilies() {
-  try {
-    const families = await client.getUserFamilies();
-    console.log(`User has ${families.length} families`);
-    
-    const shopItems = await client.listShopItems({ category: 'avatar' });
-    console.log(`Found ${shopItems.length} avatars`);
-  } catch (error) {
-    console.error('API Error:', error.message);
-  }
-}
-
-manageFamilies();
-```
-
-## Testing & Development
-
-### Development Environment
-- **Base URL**: `http://localhost:8000` (local development)
-- **Test Tokens**: Use development API tokens for testing
-- **Mock Data**: Development environment includes sample data
-- **Debug Mode**: Enable debug logging for detailed information
-
-### Testing Strategies
-1. **Unit Tests**: Test individual API calls and responses
-2. **Integration Tests**: Test complete workflows and user journeys
-3. **Load Tests**: Verify performance under expected load
-4. **Error Tests**: Test error handling and edge cases
-5. **Security Tests**: Verify authentication and authorization
-
-## Support & Resources
-
-### Documentation
-- **API Reference**: Complete endpoint documentation at `/docs`
-- **MCP Specification**: Model Context Protocol documentation
-- **SDK Documentation**: Language-specific SDK guides
-- **Example Code**: Sample implementations and use cases
-
-### Community & Support
-- **Developer Forum**: Community discussions and Q&A
-- **GitHub Issues**: Bug reports and feature requests
-- **Support Email**: Direct technical support contact
-- **Office Hours**: Regular developer Q&A sessions
-
-### Staying Updated
-- **Changelog**: API version changes and updates
-- **Migration Guides**: Upgrading between API versions
-- **Newsletter**: Developer-focused updates and announcements
-- **Beta Programs**: Early access to new features
-
+Testing & Development
+Development Environment
+Base URL: http://localhost:8000 (local development)
+Test Tokens: Use development API tokens for testing
+Mock Data: Development environment includes sample data
+Debug Mode: Enable debug logging for detailed information
+Testing Strategies
+Unit Tests: Test individual API calls and responses
+Integration Tests: Test complete workflows and user journeys
+Load Tests: Verify performance under expected load
+Error Tests: Test error handling and edge cases
+Security Tests: Verify authentication and authorization
+Support & Resources
+Documentation
+API Reference: Complete endpoint documentation at /docs
+MCP Specification: Model Context Protocol documentation
+SDK Documentation: Language-specific SDK guides
+Example Code: Sample implementations and use cases
+Community & Support
+Developer Forum: Community discussions and Q&A
+GitHub Issues: Bug reports and feature requests
+Support Email: Direct technical support contact
+Office Hours: Regular developer Q&A sessions
+Staying Updated
+Changelog: API version changes and updates
+Migration Guides: Upgrading between API versions
+Newsletter: Developer-focused updates and announcements
+Beta Programs: Early access to new features
 Remember: Good API integration requires proper error handling, security practices, and respect for rate limits. Start with small implementations and gradually build more complex integrations.
-
----
-*Generated at {datetime.utcnow().isoformat()} for developer {user_context.username}*
-*API Documentation: /docs | MCP Server: {settings.MCP_SERVER_NAME}*
+Generated at {datetime.utcnow().isoformat()} for developer {user_context.username}
+API Documentation: /docs | MCP Server: {settings.MCP_SERVER_NAME}
 """
-            
             logger.info("Provided API usage guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+        
         except Exception as e:
             logger.error("Failed to generate API usage guidance prompt: %s", e)
             return f"Error generating API usage guidance: {str(e)}"
-
 else:
     logger.warning("FastMCP not available - guidance prompts will not be registered")

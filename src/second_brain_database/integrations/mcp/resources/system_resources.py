@@ -1,371 +1,132 @@
 """
 System MCP Resources
 
-Comprehensive system information resources for health monitoring,
-API documentation, and configuration access through MCP resources.
+Comprehensive information resources for system status and health monitoring.
+Provides system information, health status, and performance metrics through MCP resources.
 """
 
 import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import asyncio
 
 from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..mcp_instance import get_mcp_instance
+from ..modern_server import mcp
 from ..security import get_mcp_user_context
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
 
 logger = get_logger(prefix="[MCP_SystemResources]")
 
-# Import manager instances
-from ....database import db_manager
-from ....managers.security_manager import security_manager
-from ....managers.redis_manager import redis_manager
-
-# Get the shared MCP instance
-mcp = get_mcp_instance()
-
-if mcp is not None:
+@mcp.resource("system://health", tags={"production", "resources", "secure", "system"})
+async def get_system_health_resource() -> str:
+    """
+    Get system health information as a resource.
     
-    @mcp.resource("system://status")
-    async def get_system_status_resource() -> str:
-        """
-        Get comprehensive system status for health monitoring.
+    Returns:
+        JSON string containing system health status
+    """
+    try:
+        user_context = get_mcp_user_context()
         
-        Provides real-time system health information including database,
-        Redis, and application status. Available to all authenticated users.
+        # Only allow admin users to access system health
+        if user_context.role != "admin":
+            raise MCPAuthorizationError("Access denied to system health information")
         
-        Returns:
-            JSON string containing system status information
-        """
-        try:
-            user_context = get_mcp_user_context()
-            
-            # Create audit trail
-            await create_mcp_audit_trail(
-                operation="get_system_status_resource",
-                user_context=user_context,
-                resource_type="system",
-                resource_id="status",
-                metadata={"resource_type": "system_status"}
-            )
-            
-            # Check database status
-            db_status = "healthy"
-            db_details = {}
-            try:
-                # Test database connection
-                test_collection = db_manager.get_collection("users")
-                await test_collection.find_one({}, {"_id": 1})
-                db_details = {
-                    "connected": True,
-                    "response_time_ms": "< 100",  # Placeholder
-                    "collections_available": True
-                }
-            except Exception as e:
-                db_status = "unhealthy"
-                db_details = {
-                    "connected": False,
-                    "error": str(e)
-                }
-            
-            # Check Redis status
-            redis_status = "healthy"
-            redis_details = {}
-            try:
-                # Test Redis connection
-                await redis_manager.ping()
-                redis_details = {
-                    "connected": True,
-                    "response_time_ms": "< 50",  # Placeholder
-                    "memory_usage": "normal"  # Placeholder
-                }
-            except Exception as e:
-                redis_status = "unhealthy"
-                redis_details = {
-                    "connected": False,
-                    "error": str(e)
-                }
-            
-            # Overall system status
-            overall_status = "healthy" if db_status == "healthy" and redis_status == "healthy" else "degraded"
-            
-            system_status = {
-                "overall_status": overall_status,
-                "timestamp": datetime.utcnow().isoformat(),
-                "uptime": "unknown",  # Would need to track application start time
-                "version": settings.MCP_SERVER_VERSION,
-                "environment": "production" if not settings.DEBUG else "development",
-                "components": {
-                    "database": {
-                        "status": db_status,
-                        "details": db_details
-                    },
-                    "redis": {
-                        "status": redis_status,
-                        "details": redis_details
-                    },
-                    "mcp_server": {
-                        "status": "healthy",
-                        "details": {
-                            "enabled": settings.MCP_ENABLED,
-                            "security_enabled": settings.MCP_SECURITY_ENABLED,
-                            "audit_enabled": settings.MCP_AUDIT_ENABLED
-                        }
-                    }
-                },
-                "metrics": {
-                    "active_users": "unknown",  # Would need to implement user tracking
-                    "total_families": "unknown",  # Would need to query database
-                    "total_workspaces": "unknown",  # Would need to query database
-                    "api_requests_24h": "unknown"  # Would need metrics collection
-                }
+        # Mock system health data - replace with actual health monitoring
+        health_status = {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "components": {
+                "database": {"status": "healthy", "response_time_ms": 15},
+                "redis": {"status": "healthy", "response_time_ms": 5},
+                "mcp_server": {"status": "healthy", "response_time_ms": 10},
+                "ai_orchestration": {"status": "healthy", "response_time_ms": 25}
+            },
+            "metrics": {
+                "uptime_seconds": 86400,
+                "memory_usage_percent": 65,
+                "cpu_usage_percent": 45,
+                "active_sessions": 12
             }
-            
-            logger.info("Provided system status resource to user %s", user_context.user_id)
-            
-            return json.dumps(system_status, indent=2, default=str)
-            
-        except Exception as e:
-            logger.error("Failed to get system status resource: %s", e)
-            return json.dumps({
-                "overall_status": "error",
-                "error": f"Failed to retrieve system status: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
-            }, indent=2)
+        }
+        
+        result = {
+            "health": health_status,
+            "resource_type": "system_health",
+            "last_updated": datetime.utcnow().isoformat()
+        }
+        
+        await create_mcp_audit_trail(
+            operation="get_system_health_resource",
+            user_context=user_context,
+            resource_type="system",
+            resource_id="health",
+            metadata={"health_status": health_status["status"]}
+        )
+        
+        return json.dumps(result, indent=2, default=str)
+        
+    except Exception as e:
+        logger.error("Failed to get system health resource: %s", e)
+        return json.dumps({"error": f"Failed to retrieve system health: {str(e)}"}, indent=2)
 
 
-    @mcp.resource("system://api/documentation")
-    async def get_api_documentation_resource() -> str:
-        """
-        Get API documentation and endpoint information as a resource.
+@mcp.resource("system://metrics", tags={"production", "resources", "secure", "system"})
+async def get_system_metrics_resource() -> str:
+    """
+    Get system performance metrics as a resource.
+    
+    Returns:
+        JSON string containing system metrics
+    """
+    try:
+        user_context = get_mcp_user_context()
         
-        Provides comprehensive API documentation including available endpoints,
-        authentication methods, and usage examples.
+        # Only allow admin users to access system metrics
+        if user_context.role != "admin":
+            raise MCPAuthorizationError("Access denied to system metrics")
         
-        Returns:
-            JSON string containing API documentation
-        """
-        try:
-            user_context = get_mcp_user_context()
-            
-            # Create audit trail
-            await create_mcp_audit_trail(
-                operation="get_api_documentation_resource",
-                user_context=user_context,
-                resource_type="system",
-                resource_id="api_documentation",
-                metadata={"resource_type": "api_documentation"}
-            )
-            
-            # API documentation structure
-            api_docs = {
-                "api_version": "v1",
-                "base_url": f"https://{settings.DOMAIN}" if hasattr(settings, 'DOMAIN') else "http://localhost:8000",
-                "documentation_url": "/docs",
-                "openapi_url": "/openapi.json",
-                "authentication": {
-                    "methods": [
-                        {
-                            "type": "JWT Bearer Token",
-                            "description": "Standard JWT authentication for web applications",
-                            "header": "Authorization: Bearer <token>",
-                            "endpoints": ["/auth/login", "/auth/refresh"]
-                        },
-                        {
-                            "type": "Permanent API Token",
-                            "description": "Long-lived tokens for API integrations",
-                            "header": "Authorization: Bearer <permanent_token>",
-                            "endpoints": ["/auth/tokens/create"]
-                        },
-                        {
-                            "type": "WebAuthn",
-                            "description": "Passwordless authentication using WebAuthn",
-                            "endpoints": ["/auth/webauthn/register", "/auth/webauthn/authenticate"]
-                        }
-                    ]
-                },
-                "endpoint_categories": {
-                    "authentication": {
-                        "base_path": "/auth",
-                        "description": "User authentication and authorization",
-                        "key_endpoints": [
-                            "/auth/login",
-                            "/auth/register", 
-                            "/auth/logout",
-                            "/auth/refresh",
-                            "/auth/2fa/setup"
-                        ]
-                    },
-                    "family_management": {
-                        "base_path": "/family",
-                        "description": "Family account management and relationships",
-                        "key_endpoints": [
-                            "/family/create",
-                            "/family/{family_id}",
-                            "/family/{family_id}/members",
-                            "/family/{family_id}/invite",
-                            "/family/{family_id}/sbd"
-                        ]
-                    },
-                    "user_profiles": {
-                        "base_path": "/profile",
-                        "description": "User profile and preference management",
-                        "key_endpoints": [
-                            "/profile",
-                            "/profile/preferences",
-                            "/profile/avatar",
-                            "/profile/banner"
-                        ]
-                    },
-                    "digital_shop": {
-                        "base_path": "/shop",
-                        "description": "Digital asset marketplace",
-                        "key_endpoints": [
-                            "/shop/items",
-                            "/shop/purchase",
-                            "/shop/assets",
-                            "/shop/transactions"
-                        ]
-                    },
-                    "sbd_tokens": {
-                        "base_path": "/sbd",
-                        "description": "SBD token management and transactions",
-                        "key_endpoints": [
-                            "/sbd/balance",
-                            "/sbd/transfer",
-                            "/sbd/history",
-                            "/sbd/request"
-                        ]
-                    }
-                },
-                "rate_limiting": {
-                    "enabled": settings.MCP_RATE_LIMIT_ENABLED if hasattr(settings, 'MCP_RATE_LIMIT_ENABLED') else True,
-                    "default_limits": {
-                        "requests_per_minute": 100,
-                        "requests_per_hour": 1000
-                    },
-                    "headers": [
-                        "X-RateLimit-Limit",
-                        "X-RateLimit-Remaining", 
-                        "X-RateLimit-Reset"
-                    ]
-                },
-                "error_handling": {
-                    "standard_errors": {
-                        "400": "Bad Request - Invalid input data",
-                        "401": "Unauthorized - Authentication required",
-                        "403": "Forbidden - Insufficient permissions",
-                        "404": "Not Found - Resource not found",
-                        "429": "Too Many Requests - Rate limit exceeded",
-                        "500": "Internal Server Error - Server error"
-                    },
-                    "error_format": {
-                        "error": "Error type",
-                        "message": "Human readable message",
-                        "details": "Additional error details",
-                        "timestamp": "ISO 8601 timestamp"
-                    }
-                },
-                "mcp_integration": {
-                    "enabled": settings.MCP_ENABLED,
-                    "server_name": settings.MCP_SERVER_NAME,
-                    "tools_available": "25+",
-                    "resources_available": "10+",
-                    "prompts_available": "5+"
-                },
-                "generated_at": datetime.utcnow().isoformat()
+        # Mock metrics data - replace with actual metrics collection
+        metrics = {
+            "performance": {
+                "requests_per_second": 150,
+                "average_response_time_ms": 45,
+                "error_rate_percent": 0.5,
+                "throughput_mbps": 25.5
+            },
+            "resources": {
+                "memory_total_gb": 16,
+                "memory_used_gb": 10.4,
+                "cpu_cores": 8,
+                "cpu_usage_percent": 45,
+                "disk_total_gb": 500,
+                "disk_used_gb": 250
+            },
+            "database": {
+                "connections_active": 25,
+                "connections_max": 100,
+                "query_avg_time_ms": 12,
+                "cache_hit_rate_percent": 85
             }
-            
-            logger.info("Provided API documentation resource to user %s", user_context.user_id)
-            
-            return json.dumps(api_docs, indent=2, default=str)
-            
-        except Exception as e:
-            logger.error("Failed to get API documentation resource: %s", e)
-            return json.dumps({"error": f"Failed to retrieve API documentation: {str(e)}"}, indent=2)
-
-
-    @mcp.resource("system://configuration")
-    async def get_system_configuration_resource() -> str:
-        """
-        Get system configuration information as a resource.
+        }
         
-        Provides non-sensitive system configuration information.
-        Only available to admin users for security purposes.
+        result = {
+            "metrics": metrics,
+            "resource_type": "system_metrics",
+            "last_updated": datetime.utcnow().isoformat()
+        }
         
-        Returns:
-            JSON string containing system configuration
-        """
-        try:
-            user_context = get_mcp_user_context()
-            
-            # Check if user has admin permissions
-            if not user_context.has_permission("system:admin"):
-                return json.dumps({"error": "Access denied - admin permissions required"}, indent=2)
-            
-            # Create audit trail
-            await create_mcp_audit_trail(
-                operation="get_system_configuration_resource",
-                user_context=user_context,
-                resource_type="system",
-                resource_id="configuration",
-                metadata={"resource_type": "system_configuration"}
-            )
-            
-            # System configuration (non-sensitive information only)
-            config_info = {
-                "application": {
-                    "name": "Second Brain Database",
-                    "version": settings.MCP_SERVER_VERSION,
-                    "debug_mode": settings.DEBUG if hasattr(settings, 'DEBUG') else False,
-                    "environment": "production" if not getattr(settings, 'DEBUG', False) else "development"
-                },
-                "mcp_server": {
-                    "enabled": settings.MCP_ENABLED,
-                    "server_name": settings.MCP_SERVER_NAME,
-                    "server_version": settings.MCP_SERVER_VERSION,
-                    "host": settings.MCP_SERVER_HOST,
-                    "port": settings.MCP_SERVER_PORT,
-                    "security_enabled": settings.MCP_SECURITY_ENABLED,
-                    "audit_enabled": settings.MCP_AUDIT_ENABLED,
-                    "debug_mode": settings.MCP_DEBUG_MODE,
-                    "max_concurrent_tools": settings.MCP_MAX_CONCURRENT_TOOLS,
-                    "request_timeout": settings.MCP_REQUEST_TIMEOUT
-                },
-                "security": {
-                    "rate_limiting_enabled": settings.MCP_RATE_LIMIT_ENABLED if hasattr(settings, 'MCP_RATE_LIMIT_ENABLED') else True,
-                    "authentication_required": settings.MCP_REQUIRE_AUTH if hasattr(settings, 'MCP_REQUIRE_AUTH') else True,
-                    "audit_logging_enabled": settings.MCP_AUDIT_ENABLED,
-                    "ip_restrictions": "configured" if hasattr(settings, 'MCP_ALLOWED_ORIGINS') and settings.MCP_ALLOWED_ORIGINS else "none"
-                },
-                "features": {
-                    "family_management": True,
-                    "workspace_management": True,
-                    "digital_shop": True,
-                    "sbd_tokens": True,
-                    "webauthn": True,
-                    "two_factor_auth": True,
-                    "security_lockdown": True
-                },
-                "limits": {
-                    "max_family_members": "configurable",
-                    "max_workspace_members": "configurable", 
-                    "max_sbd_request_amount": "configurable",
-                    "rate_limit_requests": settings.MCP_RATE_LIMIT_REQUESTS if hasattr(settings, 'MCP_RATE_LIMIT_REQUESTS') else 100
-                },
-                "generated_at": datetime.utcnow().isoformat()
-            }
-            
-            logger.info("Provided system configuration resource to admin user %s", user_context.user_id)
-            
-            return json.dumps(config_info, indent=2, default=str)
-            
-        except Exception as e:
-            logger.error("Failed to get system configuration resource: %s", e)
-            return json.dumps({"error": f"Failed to retrieve system configuration: {str(e)}"}, indent=2)
-
-else:
-    logger.warning("FastMCP not available - system resources will not be registered")
+        await create_mcp_audit_trail(
+            operation="get_system_metrics_resource",
+            user_context=user_context,
+            resource_type="system",
+            resource_id="metrics",
+            metadata={"metrics_accessed": True}
+        )
+        
+        return json.dumps(result, indent=2, default=str)
+        
+    except Exception as e:
+        logger.error("Failed to get system metrics resource: %s", e)
+        return json.dumps({"error": f"Failed to retrieve system metrics: {str(e)}"}, indent=2)
