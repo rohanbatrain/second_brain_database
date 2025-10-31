@@ -290,6 +290,15 @@ class Settings(BaseSettings):
     MCP_RESOURCES_ENABLED: bool = True  # Enable MCP resources
     MCP_PROMPTS_ENABLED: bool = True  # Enable MCP prompts
     
+    # MCP Tool Access Control (Individual tool categories)
+    MCP_FAMILY_TOOLS_ENABLED: bool = True  # Enable family management tools
+    MCP_AUTH_TOOLS_ENABLED: bool = True  # Enable authentication tools
+    MCP_PROFILE_TOOLS_ENABLED: bool = True  # Enable profile management tools
+    MCP_SHOP_TOOLS_ENABLED: bool = True  # Enable shop and asset tools
+    MCP_WORKSPACE_TOOLS_ENABLED: bool = True  # Enable workspace tools
+    MCP_ADMIN_TOOLS_ENABLED: bool = False  # Enable admin tools (default: false for security)
+    MCP_SYSTEM_TOOLS_ENABLED: bool = False  # Enable system management tools (default: false for security)
+    
     # MCP Access control configuration
     MCP_ALLOWED_ORIGINS: Optional[str] = None  # Comma-separated allowed origins for MCP
     MCP_IP_WHITELIST: Optional[str] = None  # Comma-separated IP whitelist for MCP access

@@ -34,7 +34,7 @@ if __name__ == "__main__":
     
     if settings.MCP_TRANSPORT == "http":
         # Use HTTP transport if configured
-        mcp.run(transport="http", host="127.0.0.1", port=8001)
+        mcp.run(transport="http", host=settings.MCP_HTTP_HOST, port=settings.MCP_HTTP_PORT)
     else:
         # Use STDIO transport (default)
         mcp.run(transport="stdio")

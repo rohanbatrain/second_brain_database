@@ -144,8 +144,16 @@ def print_available_tools_summary():
     print("\n💡 Use 'python -c \"from src.second_brain_database.integrations.mcp.mcp_status import print_mcp_status; print_mcp_status()\"' for detailed status")
 
 
-async def start_mcp_server(transport: str = "stdio", port: int = 8001, host: str = "127.0.0.1"):
+async def start_mcp_server(transport: str = None, port: int = None, host: str = None):
     """Start the MCP server with specified transport."""
+    # Use settings values if not provided
+    if transport is None:
+        transport = settings.MCP_TRANSPORT
+    if port is None:
+        port = settings.MCP_HTTP_PORT
+    if host is None:
+        host = settings.MCP_HTTP_HOST
+        
     print_startup_banner()
     
     # Health check

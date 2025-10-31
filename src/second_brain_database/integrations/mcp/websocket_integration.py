@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from ...config import settings
 from ...managers.logging_manager import get_logger
 from ...managers.security_manager import SecurityManager
+from ...managers.ai_session_manager import ai_session_manager, AgentType, MessageType, MessageRole
+from ...utils.ai_metrics import ai_metrics_collector, track_ai_operation
 from ..ai_orchestration.event_bus import AIEventBus
 from ..ai_orchestration.models.events import EventType, create_event
 from ..ai_orchestration.models.session import SessionContext
@@ -62,6 +64,7 @@ class MCPWebSocketManager:
         self.security_manager = security_manager
         self.active_sessions: Dict[str, MCPWebSocketSession] = {}
         self.websocket_to_session: Dict[WebSocket, str] = {}
+        self.ai_sessions: Dict[str, str] = {}  # websocket session -> ai session mapping
         
     async def connect(self, websocket: WebSocket, session_id: str) -> bool:
         """
@@ -113,12 +116,21 @@ class MCPWebSocketManager:
             return
         
         try:
+            # End AI session if connected
+            ai_session_id = self.ai_sessions.get(session_id)
+            if ai_session_id:
+                try:
+                    await ai_session_manager.end_session(ai_session_id)
+                except Exception as e:
+                    logger.warning("Failed to end AI session %s: %s", ai_session_id, e)
+            
             # Unregister from AI event bus
             await self.ai_event_bus.unregister_session(session_id)
             
-            # Cleanup session
+            # Cleanup session mappings
             self.active_sessions.pop(session_id, None)
             self.websocket_to_session.pop(websocket, None)
+            self.ai_sessions.pop(session_id, None)
             
             logger.info("MCP WebSocket disconnected: session=%s", session_id)
             
@@ -167,6 +179,17 @@ class MCPWebSocketManager:
                 await self._handle_prompts_list(session, message)
             elif method == "prompts/get":
                 await self._handle_prompt_get(session, message)
+            # AI-specific message types
+            elif method == "ai/create_session":
+                await self._handle_ai_create_session(session, message)
+            elif method == "ai/send_message":
+                await self._handle_ai_send_message(session, message)
+            elif method == "ai/switch_agent":
+                await self._handle_ai_switch_agent(session, message)
+            elif method == "ai/voice_input":
+                await self._handle_ai_voice_input(session, message)
+            elif method == "ai/token_stream":
+                await self._handle_ai_token_stream(session, message)
             else:
                 # Unknown method
                 await self._send_error(session, message_id, -32601, f"Method not found: {method}")
@@ -405,6 +428,218 @@ class MCPWebSocketManager:
         
         await session.websocket.send_json(response)
     
+    async def _handle_ai_create_session(self, session: MCPWebSocketSession, message: Dict[str, Any]):
+        """Handle AI session creation request."""
+        params = message.get("params", {})
+        agent_type = params.get("agent_type", "personal")
+        session_name = params.get("session_name")
+        voice_enabled = params.get("voice_enabled", False)
+        context = params.get("context", {})
+        
+        try:
+            # Create AI session using the AI session manager
+            ai_session = await ai_session_manager.create_session(
+                user_id=session.user_id or "anonymous",
+                agent_type=AgentType(agent_type),
+                session_name=session_name,
+                voice_enabled=voice_enabled,
+                context=context
+            )
+            
+            # Map WebSocket session to AI session
+            self.ai_sessions[session.session_id] = ai_session["session_id"]
+            
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "ai_session_id": ai_session["session_id"],
+                    "agent_type": ai_session["agent_type"],
+                    "session_name": ai_session["session_name"],
+                    "voice_enabled": ai_session["voice_enabled"],
+                    "created_at": ai_session["created_at"].isoformat(),
+                    "expires_at": ai_session["expires_at"].isoformat()
+                }
+            }
+            
+            await session.websocket.send_json(response)
+            
+        except Exception as e:
+            logger.error("Failed to create AI session: %s", e)
+            await self._send_error(session, message.get("id"), -32603, f"Failed to create AI session: {str(e)}")
+    
+    async def _handle_ai_send_message(self, session: MCPWebSocketSession, message: Dict[str, Any]):
+        """Handle AI message sending."""
+        params = message.get("params", {})
+        content = params.get("content", "")
+        message_type = params.get("message_type", "text")
+        metadata = params.get("metadata", {})
+        
+        try:
+            ai_session_id = self.ai_sessions.get(session.session_id)
+            if not ai_session_id:
+                await self._send_error(session, message.get("id"), -32602, "No AI session active")
+                return
+            
+            # Send message to AI session
+            message_doc = await ai_session_manager.send_message(
+                session_id=ai_session_id,
+                content=content,
+                message_type=MessageType(message_type),
+                role=MessageRole.USER,
+                metadata=metadata,
+                user_id=session.user_id
+            )
+            
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "message_id": message_doc["message_id"],
+                    "timestamp": message_doc["timestamp"].isoformat(),
+                    "status": "sent"
+                }
+            }
+            
+            await session.websocket.send_json(response)
+            
+            # Simulate AI response (in real implementation, this would trigger agent processing)
+            await self._simulate_ai_response(session, ai_session_id, content)
+            
+        except Exception as e:
+            logger.error("Failed to send AI message: %s", e)
+            await self._send_error(session, message.get("id"), -32603, f"Failed to send message: {str(e)}")
+    
+    async def _handle_ai_switch_agent(self, session: MCPWebSocketSession, message: Dict[str, Any]):
+        """Handle agent switching request."""
+        params = message.get("params", {})
+        new_agent_type = params.get("agent_type")
+        
+        try:
+            ai_session_id = self.ai_sessions.get(session.session_id)
+            if not ai_session_id:
+                await self._send_error(session, message.get("id"), -32602, "No AI session active")
+                return
+            
+            # In a real implementation, this would update the AI session's agent type
+            # For now, we'll just acknowledge the switch
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "agent_type": new_agent_type,
+                    "switched_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "switched"
+                }
+            }
+            
+            await session.websocket.send_json(response)
+            
+            # Notify about agent switch
+            await self._send_ai_event(session, {
+                "type": "agent_switched",
+                "agent_type": new_agent_type,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            
+        except Exception as e:
+            logger.error("Failed to switch agent: %s", e)
+            await self._send_error(session, message.get("id"), -32603, f"Failed to switch agent: {str(e)}")
+    
+    async def _handle_ai_voice_input(self, session: MCPWebSocketSession, message: Dict[str, Any]):
+        """Handle voice input processing."""
+        params = message.get("params", {})
+        audio_data = params.get("audio_data")
+        audio_format = params.get("format", "wav")
+        
+        try:
+            ai_session_id = self.ai_sessions.get(session.session_id)
+            if not ai_session_id:
+                await self._send_error(session, message.get("id"), -32602, "No AI session active")
+                return
+            
+            # In a real implementation, this would process the audio data
+            # For now, we'll simulate voice processing
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "transcription": "Voice input processed",
+                    "confidence": 0.95,
+                    "processing_time_ms": 150,
+                    "status": "processed"
+                }
+            }
+            
+            await session.websocket.send_json(response)
+            
+        except Exception as e:
+            logger.error("Failed to process voice input: %s", e)
+            await self._send_error(session, message.get("id"), -32603, f"Failed to process voice input: {str(e)}")
+    
+    async def _handle_ai_token_stream(self, session: MCPWebSocketSession, message: Dict[str, Any]):
+        """Handle token streaming request."""
+        params = message.get("params", {})
+        enable_streaming = params.get("enable", True)
+        
+        try:
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "streaming_enabled": enable_streaming,
+                    "status": "configured"
+                }
+            }
+            
+            await session.websocket.send_json(response)
+            
+        except Exception as e:
+            logger.error("Failed to configure token streaming: %s", e)
+            await self._send_error(session, message.get("id"), -32603, f"Failed to configure streaming: {str(e)}")
+    
+    async def _simulate_ai_response(self, session: MCPWebSocketSession, ai_session_id: str, user_message: str):
+        """Simulate AI response for demonstration purposes."""
+        try:
+            # Simulate thinking
+            await self._send_ai_event(session, {
+                "type": "thinking",
+                "message": "Processing your request...",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            
+            # Simulate token streaming
+            response_tokens = ["I", " understand", " your", " request.", " Let", " me", " help", " you", " with", " that."]
+            for token in response_tokens:
+                await self._send_ai_event(session, {
+                    "type": "token",
+                    "token": token,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+                await asyncio.sleep(0.1)  # Simulate streaming delay
+            
+            # Send complete response
+            await self._send_ai_event(session, {
+                "type": "response_complete",
+                "message": "I understand your request. Let me help you with that.",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            
+        except Exception as e:
+            logger.error("Failed to simulate AI response: %s", e)
+    
+    async def _send_ai_event(self, session: MCPWebSocketSession, event_data: Dict[str, Any]):
+        """Send AI event to client."""
+        try:
+            ai_event = {
+                "jsonrpc": "2.0",
+                "method": "ai/event",
+                "params": event_data
+            }
+            await session.websocket.send_json(ai_event)
+        except Exception as e:
+            logger.error("Failed to send AI event: %s", e)
+    
     async def _send_error(self, session: MCPWebSocketSession, message_id: Optional[str], code: int, message: str):
         """Send error response to client."""
         error_response = {
@@ -471,12 +706,12 @@ def get_mcp_websocket_manager() -> Optional[MCPWebSocketManager]:
     return mcp_websocket_manager
 
 
-async def initialize_mcp_websocket_manager(ai_event_bus: AIEventBus, security_manager: SecurityManager):
+async def initialize_mcp_websocket_manager(security_manager: SecurityManager):
     """Initialize the global MCP WebSocket manager."""
     global mcp_websocket_manager
     
     if mcp_websocket_manager is None:
-        mcp_websocket_manager = MCPWebSocketManager(ai_event_bus, security_manager)
-        logger.info("MCP WebSocket manager initialized")
+        mcp_websocket_manager = MCPWebSocketManager(security_manager)
+        logger.info("MCP WebSocket manager initialized with AI support")
     
     return mcp_websocket_manager

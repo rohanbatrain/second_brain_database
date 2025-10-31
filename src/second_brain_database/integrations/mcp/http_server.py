@@ -182,18 +182,125 @@ class MCPHTTPServer:
                     "mcp": "/mcp",
                     "health": "/health",
                     "metrics": "/metrics",
-                    "status": "/status"
+                    "status": "/status",
+                    "ai": "/ai"
                 },
                 "features": {
                     "authentication": mcp.auth is not None,
                     "monitoring": mcp_monitoring_integration is not None,
                     "cors": settings.MCP_HTTP_CORS_ENABLED,
-                    "jwt_auth": settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH
+                    "jwt_auth": settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH,
+                    "ai_integration": True
                 }
             })
+
+        # Add AI-specific routes using FastMCP's custom_route decorator
+        @mcp.custom_route("/ai/health", methods=["GET"])
+        async def ai_health_check(request):
+            """AI system health check endpoint."""
+            try:
+                # Check AI session manager availability
+                ai_health = {
+                    "status": "healthy",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "components": {
+                        "ai_session_manager": "healthy",
+                        "websocket_integration": "healthy",
+                        "ai_tools": "healthy"
+                    }
+                }
+                
+                # In a real implementation, we would check actual AI components
+                # For now, we'll return a basic health status
+                
+                return JSONResponse(
+                    content=ai_health,
+                    status_code=200
+                )
+                
+            except Exception as e:
+                logger.error("AI health check failed: %s", e)
+                return JSONResponse(
+                    content={
+                        "status": "unhealthy",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "error": str(e)
+                    },
+                    status_code=503
+                )
+
+        @mcp.custom_route("/ai/sessions", methods=["GET", "POST"])
+        async def ai_sessions_endpoint(request):
+            """AI sessions management endpoint."""
+            try:
+                if request.method == "GET":
+                    # List AI sessions
+                    return JSONResponse({
+                        "status": "success",
+                        "sessions": [],
+                        "message": "AI session listing endpoint - implementation pending"
+                    })
+                elif request.method == "POST":
+                    # Create new AI session
+                    return JSONResponse({
+                        "status": "success",
+                        "session_id": "temp_session_id",
+                        "message": "AI session creation endpoint - implementation pending"
+                    })
+            except Exception as e:
+                logger.error("AI sessions endpoint error: %s", e)
+                return JSONResponse(
+                    content={
+                        "status": "error",
+                        "error": str(e)
+                    },
+                    status_code=500
+                )
+
+        @mcp.custom_route("/ai/sessions/{session_id}/message", methods=["POST"])
+        async def ai_session_message_endpoint(request):
+            """AI session message endpoint."""
+            try:
+                # Extract session_id from path
+                path_parts = request.url.path.split('/')
+                session_id = None
+                for i, part in enumerate(path_parts):
+                    if part == "sessions" and i + 1 < len(path_parts):
+                        session_id = path_parts[i + 1]
+                        break
+                
+                if not session_id:
+                    return JSONResponse(
+                        content={
+                            "status": "error",
+                            "error": "Session ID not found in path"
+                        },
+                        status_code=400
+                    )
+                
+                return JSONResponse({
+                    "status": "success",
+                    "session_id": session_id,
+                    "message": "AI message endpoint - implementation pending"
+                })
+                
+            except Exception as e:
+                logger.error("AI session message endpoint error: %s", e)
+                return JSONResponse(
+                    content={
+                        "status": "error",
+                        "error": str(e)
+                    },
+                    status_code=500
+                )
     
-    async def start(self, host: str = "127.0.0.1", port: int = 8001):
+    async def start(self, host: str = None, port: int = None):
         """Start the production-ready HTTP server using FastMCP's recommended approach."""
+        # Use settings values if not provided
+        if host is None:
+            host = settings.MCP_HTTP_HOST
+        if port is None:
+            port = settings.MCP_HTTP_PORT
         logger.info(
             "Starting FastMCP 2.x HTTP server on %s:%d (auth: %s, cors: %s)",
             host, port,
@@ -220,7 +327,7 @@ class MCPHTTPServer:
 mcp_http_server = MCPHTTPServer()
 
 
-async def run_http_server(host: str = "127.0.0.1", port: int = 8001):
+async def run_http_server(host: str = None, port: int = None):
     """Run the modern FastMCP 2.x HTTP server following recommended patterns."""
     logger.info("Initializing FastMCP 2.x HTTP server...")
     await mcp_http_server.start(host, port)

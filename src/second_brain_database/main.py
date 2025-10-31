@@ -139,6 +139,35 @@ async def lifespan(_app: FastAPI):
         log_error_with_context(e, {"operation": "application_startup", "phase": "database_connection"})
         raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
 
+    # Initialize AI analytics manager
+    try:
+        analytics_init_start = time.time()
+        logger.info("Initializing AI analytics manager...")
+        
+        from second_brain_database.managers.ai_analytics_manager import ai_analytics_manager
+        await ai_analytics_manager.initialize()
+        
+        analytics_init_duration = time.time() - analytics_init_start
+        log_application_lifecycle(
+            "ai_analytics_ready",
+            {"analytics_init_duration": f"{analytics_init_duration:.3f}s"}
+        )
+        
+    except Exception as analytics_error:
+        analytics_init_duration = time.time() - analytics_init_start if 'analytics_init_start' in locals() else 0
+        logger.warning(
+            "Failed to initialize AI analytics manager: %s (duration: %.3fs)",
+            analytics_error, analytics_init_duration
+        )
+        log_application_lifecycle(
+            "ai_analytics_failed",
+            {
+                "error": str(analytics_error),
+                "analytics_init_duration": f"{analytics_init_duration:.3f}s"
+            }
+        )
+        # Continue startup even if analytics fails
+
     # Initialize AI orchestration system if enabled
     ai_orchestrator = None
     if settings.ai_should_be_enabled:

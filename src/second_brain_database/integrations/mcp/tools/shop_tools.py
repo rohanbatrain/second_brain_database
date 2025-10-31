@@ -243,17 +243,17 @@ async def list_shop_items(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="list_shop_items",
+            operation="list_shop_items",
+            user_context=user_context,
             resource_type="shop",
             resource_id="catalog",
-            details={
+            metadata={
                 "item_type": item_type,
                 "category": category,
                 "limit": limit,
                 "offset": offset,
                 "total_found": total_items
-            },
-            user_context=user_context
+            }
         )
         
         logger.info(
@@ -350,10 +350,10 @@ async def get_item_details_tool(item_id: str, item_type: str) -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_item_details",
+            operation="get_item_details",
             resource_type="shop_item",
             resource_id=item_id,
-            details={
+            metadata={
                 "item_type": item_type,
                 "already_owned": already_owned
             },
@@ -452,10 +452,10 @@ async def search_shop_items(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="search_shop_items",
+            operation="search_shop_items",
             resource_type="shop",
             resource_id="search",
-            details={
+            metadata={
                 "query": query,
                 "filters": {
                     "item_type": item_type,
@@ -541,11 +541,11 @@ async def get_shop_categories() -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_shop_categories",
+            operation="get_shop_categories",
+            user_context=user_context,
             resource_type="shop",
             resource_id="categories",
-            details={"categories_count": sum(len(cats) for cats in categories.values())},
-            user_context=user_context
+            metadata={"categories_count": sum(len(cats) for cats in categories.values())}
         )
         
         logger.info("User %s retrieved shop categories", user_context.username)
@@ -595,11 +595,11 @@ async def get_featured_items(limit: int = 10) -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_featured_items",
+            operation="get_featured_items",
+            user_context=user_context,
             resource_type="shop",
             resource_id="featured",
-            details={"featured_count": len(featured_items)},
-            user_context=user_context
+            metadata={"featured_count": len(featured_items)}
         )
         
         logger.info("User %s retrieved %d featured items", user_context.username, len(featured_items))
@@ -649,11 +649,11 @@ async def get_new_arrivals(limit: int = 10) -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_new_arrivals",
+            operation="get_new_arrivals",
+            user_context=user_context,
             resource_type="shop",
             resource_id="new_arrivals",
-            details={"new_arrivals_count": len(new_items)},
-            user_context=user_context
+            metadata={"new_arrivals_count": len(new_items)}
         )
         
         logger.info("User %s retrieved %d new arrival items", user_context.username, len(new_items))
@@ -813,10 +813,10 @@ async def purchase_item(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="purchase_item",
+            operation="purchase_item",
             resource_type="shop_item",
             resource_id=item_id,
-            details={
+            metadata={
                 "item_type": item_type,
                 "price": price,
                 "payment_method": payment_method,
@@ -941,16 +941,16 @@ async def get_purchase_history(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_purchase_history",
+            operation="get_purchase_history",
+            user_context=user_context,
             resource_type="shop",
             resource_id="purchase_history",
-            details={
+            metadata={
                 "limit": limit,
                 "offset": offset,
                 "item_type": item_type,
                 "total_found": total_transactions
-            },
-            user_context=user_context
+            }
         )
         
         logger.info(
@@ -1042,10 +1042,10 @@ async def get_transaction_details(transaction_id: str) -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_transaction_details",
+            operation="get_transaction_details",
             resource_type="transaction",
             resource_id=transaction_id,
-            details={"transaction_type": transaction.get("type")},
+            metadata={"transaction_type": transaction.get("type")},
             user_context=user_context
         )
         
@@ -1175,10 +1175,10 @@ async def validate_purchase(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="validate_purchase",
+            operation="validate_purchase",
             resource_type="shop_item",
             resource_id=item_id,
-            details={
+            metadata={
                 "item_type": item_type,
                 "payment_method": payment_method,
                 "can_purchase": validation_results["can_purchase"],
@@ -1349,16 +1349,16 @@ async def get_spending_summary(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_spending_summary",
+            operation="get_spending_summary",
+            user_context=user_context,
             resource_type="shop",
             resource_id="spending_summary",
-            details={
+            metadata={
                 "days": days,
                 "include_family": include_family,
                 "total_spent": shop_spending["total_spent"],
                 "transaction_count": shop_spending["transaction_count"]
-            },
-            user_context=user_context
+            }
         )
         
         logger.info(
@@ -1545,10 +1545,10 @@ async def get_user_assets(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_user_assets",
+            operation="get_user_assets",
             resource_type="user_assets",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "asset_type": asset_type,
                 "include_rented": include_rented,
                 "include_owned": include_owned,
@@ -1940,10 +1940,10 @@ async def get_asset_usage_history(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_asset_usage_history",
+            operation="get_asset_usage_history",
             resource_type="user_assets",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "asset_type": asset_type,
                 "days": days,
                 "total_assets": usage_history["summary"]["total_assets"],
@@ -2063,10 +2063,10 @@ async def get_sbd_balance(include_family: bool = True) -> Dict[str, Any]:
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_sbd_balance",
+            operation="get_sbd_balance",
             resource_type="sbd_tokens",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "include_family": include_family,
                 "personal_balance": personal_balance,
                 "family_accounts_count": len(balance_info["family_accounts"]),
@@ -2210,10 +2210,10 @@ async def get_sbd_transaction_history(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_sbd_transaction_history",
+            operation="get_sbd_transaction_history",
             resource_type="sbd_transactions",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "limit": limit,
                 "offset": offset,
                 "transaction_type": transaction_type,
@@ -2397,10 +2397,10 @@ async def transfer_sbd_tokens(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="transfer_sbd_tokens",
+            operation="transfer_sbd_tokens",
             resource_type="sbd_transfer",
             resource_id=transaction_info.get("transaction_id", "unknown"),
-            details={
+            metadata={
                 "from_account": from_account,
                 "to_username": to_username,
                 "amount": amount,
@@ -2549,10 +2549,10 @@ async def get_sbd_earning_history(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_sbd_earning_history",
+            operation="get_sbd_earning_history",
             resource_type="sbd_earnings",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "limit": limit,
                 "offset": offset,
                 "days": days,
@@ -2843,10 +2843,10 @@ async def get_sbd_spending_analytics(
         
         # Create audit trail
         await create_mcp_audit_trail(
-            action="get_sbd_spending_analytics",
+            operation="get_sbd_spending_analytics",
             resource_type="sbd_analytics",
             resource_id=user_context.username,
-            details={
+            metadata={
                 "days": days,
                 "include_family": include_family,
                 "total_spent": spending_analytics["spending_summary"]["total_spent"],

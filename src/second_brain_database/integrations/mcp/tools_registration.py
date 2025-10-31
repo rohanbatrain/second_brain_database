@@ -14,6 +14,26 @@ from .modern_server import mcp
 
 logger = get_logger(prefix="[MCP_Tools]")
 
+# Import shop tools to register them with the MCP server
+# This ensures all shop-related tools are available
+try:
+    from .tools import shop_tools
+    logger.info("Shop tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import shop tools: %s", e)
+except Exception as e:
+    logger.error("Error importing shop tools: %s", e)
+
+# Import AI tools to register them with the MCP server
+# This ensures all AI-related tools are available
+try:
+    from .tools import ai_tools
+    logger.info("AI tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import AI tools: %s", e)
+except Exception as e:
+    logger.error("Error importing AI tools: %s", e)
+
 
 # FastMCP 2.x compliant tool registration
 @mcp.tool
@@ -149,7 +169,8 @@ def register_example_tools():
     is provided for explicit registration if needed.
     """
     logger.info("Example tools registered with FastMCP 2.x server")
-    logger.info("Tools available: get_server_info, echo_message, get_available_tools, health_check_tool, process_data, divide_numbers")
+    logger.info("Tools available: get_server_info, echo_message, health_check_tool, process_data, divide_numbers")
+    logger.info("Shop tools and AI tools are automatically registered via module imports")
 
 
 # Auto-register tools when module is imported
