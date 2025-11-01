@@ -7,7 +7,7 @@ and data transfer objects for the family management functionality.
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
 
 # Constants for validation
@@ -39,7 +39,8 @@ class CreateFamilyRequest(BaseModel):
     """Request model for creating a new family."""
     name: Optional[str] = Field(None, max_length=100, description="Optional custom family name")
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if v is not None:
             v = v.strip()
@@ -59,14 +60,16 @@ class InviteMemberRequest(BaseModel):
     identifier_type: Literal["email", "username"] = Field("email", description="Type of identifier provided")
     relationship_type: str = Field(..., description="Relationship type from inviter's perspective")
     
-    @validator('identifier')
+    @field_validator('identifier')
+    @classmethod
     def validate_identifier(cls, v):
         v = v.strip().lower()
         if not v:
             raise ValueError("Identifier cannot be empty")
         return v
     
-    @validator('relationship_type')
+    @field_validator('relationship_type')
+    @classmethod
     def validate_relationship_type(cls, v):
         v = v.lower().strip()
         if v not in RELATIONSHIP_TYPES:
@@ -85,7 +88,8 @@ class UpdateRelationshipRequest(BaseModel):
     relationship_type_a_to_b: str = Field(..., description="Relationship type from user A to user B")
     relationship_type_b_to_a: str = Field(..., description="Relationship type from user B to user A")
     
-    @validator('relationship_type_a_to_b', 'relationship_type_b_to_a')
+    @field_validator('relationship_type_a_to_b', 'relationship_type_b_to_a')
+    @classmethod
     def validate_relationship_types(cls, v):
         v = v.lower().strip()
         if v not in RELATIONSHIP_TYPES:
@@ -100,7 +104,8 @@ class UpdateSpendingPermissionsRequest(BaseModel):
     spending_limit: int = Field(..., ge=-1, description="Spending limit (-1 for unlimited)")
     can_spend: bool = Field(..., description="Whether the user can spend from family account")
     
-    @validator('spending_limit')
+    @field_validator('spending_limit')
+    @classmethod
     def validate_spending_limit(cls, v):
         if v < -1:
             raise ValueError("Spending limit must be -1 (unlimited) or a positive number")
@@ -112,9 +117,10 @@ class FreezeAccountRequest(BaseModel):
     action: Literal["freeze", "unfreeze"] = Field(..., description="Action to take on the account")
     reason: Optional[str] = Field(None, max_length=500, description="Reason for freezing the account")
     
-    @validator('reason')
-    def validate_reason(cls, v, values):
-        if values.get('action') == 'freeze' and not v:
+    @field_validator('reason')
+    @classmethod
+    def validate_reason(cls, v, info):
+        if info.data.get('action') == 'freeze' and not v:
             raise ValueError("Reason is required when freezing an account")
         return v.strip() if v else None
 
@@ -124,7 +130,8 @@ class CreateTokenRequestRequest(BaseModel):
     amount: int = Field(..., gt=0, description="Amount of tokens requested")
     reason: str = Field(..., max_length=500, description="Reason for the token request")
     
-    @validator('reason')
+    @field_validator('reason')
+    @classmethod
     def validate_reason(cls, v):
         v = v.strip()
         if not v:
@@ -139,7 +146,8 @@ class ReviewTokenRequestRequest(BaseModel):
     action: Literal["approve", "deny"] = Field(..., description="Action to take on the request")
     comments: Optional[str] = Field(None, max_length=1000, description="Admin comments on the decision")
     
-    @validator('comments')
+    @field_validator('comments')
+    @classmethod
     def validate_comments(cls, v):
         return v.strip() if v else None
 
@@ -174,7 +182,8 @@ class MarkNotificationsReadRequest(BaseModel):
     """Request model for marking notifications as read."""
     notification_ids: List[str] = Field(..., description="List of notification IDs to mark as read")
     
-    @validator('notification_ids')
+    @field_validator('notification_ids')
+    @classmethod
     def validate_notification_ids(cls, v):
         if not v:
             raise ValueError("At least one notification ID must be provided")
@@ -462,8 +471,10 @@ class FamilyDocument(BaseModel):
     settings: Dict[str, Any]
     succession_plan: Dict[str, Any]
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "family_id": "fam_abc123def456",
                 "name": "Smith Family",
@@ -497,6 +508,7 @@ class FamilyDocument(BaseModel):
                 }
             }
         }
+    )
 
 
 class FamilyRelationshipDocument(BaseModel):
@@ -513,21 +525,25 @@ class FamilyRelationshipDocument(BaseModel):
     activated_at: Optional[datetime] = None
     updated_at: datetime
     
-    @validator('relationship_type_a_to_b', 'relationship_type_b_to_a')
+    @field_validator('relationship_type_a_to_b', 'relationship_type_b_to_a')
+    @classmethod
     def validate_relationship_types(cls, v):
         if v not in RELATIONSHIP_TYPES:
             raise ValueError(f"Invalid relationship type: {v}")
         return v
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         valid_statuses = ["active", "pending", "declined"]
         if v not in valid_statuses:
             raise ValueError(f"Invalid status: {v}")
         return v
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "relationship_id": "rel_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -542,6 +558,7 @@ class FamilyRelationshipDocument(BaseModel):
                 "updated_at": "2024-01-01T00:00:00Z"
             }
         }
+    )
 
 
 class FamilyInvitationDocument(BaseModel):
@@ -560,21 +577,25 @@ class FamilyInvitationDocument(BaseModel):
     email_sent: bool
     email_sent_at: Optional[datetime] = None
     
-    @validator('relationship_type')
+    @field_validator('relationship_type')
+    @classmethod
     def validate_relationship_type(cls, v):
         if v not in RELATIONSHIP_TYPES:
             raise ValueError(f"Invalid relationship type: {v}")
         return v
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         valid_statuses = ["pending", "accepted", "declined", "expired"]
         if v not in valid_statuses:
             raise ValueError(f"Invalid status: {v}")
         return v
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "invitation_id": "inv_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -591,6 +612,7 @@ class FamilyInvitationDocument(BaseModel):
                 "email_sent_at": "2024-01-01T00:00:00Z"
             }
         }
+    )
 
 
 class FamilyNotificationDocument(BaseModel):
@@ -607,27 +629,32 @@ class FamilyNotificationDocument(BaseModel):
     sent_at: Optional[datetime] = None
     read_by: Dict[str, datetime] = {}
     
-    @validator('type')
+    @field_validator('type')
+    @classmethod
     def validate_type(cls, v):
         if v not in NOTIFICATION_TYPES:
             raise ValueError(f"Invalid notification type: {v}")
         return v
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         valid_statuses = ["pending", "sent", "read", "archived"]
         if v not in valid_statuses:
             raise ValueError(f"Invalid status: {v}")
         return v
     
-    @validator('recipient_user_ids')
+    @field_validator('recipient_user_ids')
+    @classmethod
     def validate_recipients(cls, v):
         if not v:
             raise ValueError("At least one recipient is required")
         return v
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "notification_id": "notif_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -647,6 +674,7 @@ class FamilyNotificationDocument(BaseModel):
                 "read_by": {}
             }
         }
+    )
 
 
 class FamilyTokenRequestDocument(BaseModel):
@@ -665,27 +693,32 @@ class FamilyTokenRequestDocument(BaseModel):
     reviewed_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None
     
-    @validator('amount')
+    @field_validator('amount')
+    @classmethod
     def validate_amount(cls, v):
         if v <= 0:
             raise ValueError("Amount must be positive")
         return v
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         valid_statuses = ["pending", "approved", "denied", "expired", "auto_approved"]
         if v not in valid_statuses:
             raise ValueError(f"Invalid status: {v}")
         return v
     
-    @validator('reason')
+    @field_validator('reason')
+    @classmethod
     def validate_reason(cls, v):
         if not v or len(v.strip()) < 5:
             raise ValueError("Reason must be at least 5 characters long")
         return v.strip()
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "request_id": "req_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -702,6 +735,7 @@ class FamilyTokenRequestDocument(BaseModel):
                 "processed_at": None
             }
         }
+    )
 
 
 class PurchaseRequestDocument(BaseModel):
@@ -718,15 +752,18 @@ class PurchaseRequestDocument(BaseModel):
     denial_reason: Optional[str] = None
     transaction_id: Optional[str] = None
 
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         valid_statuses = ["PENDING", "APPROVED", "DENIED"]
         if v not in valid_statuses:
             raise ValueError(f"Invalid status: {v}")
         return v
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+
+        json_schema_extra={
             "example": {
                 "request_id": "pr_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -749,6 +786,7 @@ class PurchaseRequestDocument(BaseModel):
                 "transaction_id": None
             }
         }
+    )
 
 
 # Error Response Models
@@ -756,8 +794,10 @@ class FamilyErrorResponse(BaseModel):
     """Error response model for family operations."""
     error: Dict[str, Any]
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "error": {
                     "code": "FAMILY_LIMIT_EXCEEDED",
@@ -777,14 +817,17 @@ class FamilyErrorResponse(BaseModel):
                 }
             }
         }
+    )
 
 
 class ValidationErrorResponse(BaseModel):
     """Validation error response model."""
     detail: List[Dict[str, Any]]
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+
+    
+        json_schema_extra={
             "example": {
                 "detail": [
                     {
@@ -795,3 +838,4 @@ class ValidationErrorResponse(BaseModel):
                 ]
             }
         }
+    )

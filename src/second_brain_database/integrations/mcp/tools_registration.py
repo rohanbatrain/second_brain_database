@@ -34,6 +34,66 @@ except ImportError as e:
 except Exception as e:
     logger.error("Error importing AI tools: %s", e)
 
+# Import family tools to register them with the MCP server
+# This ensures all family-related tools are available
+try:
+    from .tools import family_tools
+    logger.info("Family tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import family tools: %s", e)
+except Exception as e:
+    logger.error("Error importing family tools: %s", e)
+
+# Import auth tools to register them with the MCP server
+# This ensures all authentication-related tools are available
+try:
+    from .tools import auth_tools
+    logger.info("Auth tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import auth tools: %s", e)
+except Exception as e:
+    logger.error("Error importing auth tools: %s", e)
+
+# Import workspace tools to register them with the MCP server
+# This ensures all workspace-related tools are available
+try:
+    from .tools import workspace_tools
+    logger.info("Workspace tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import workspace tools: %s", e)
+except Exception as e:
+    logger.error("Error importing workspace tools: %s", e)
+
+# Import admin tools to register them with the MCP server
+# This ensures all admin-related tools are available
+try:
+    from .tools import admin_tools
+    logger.info("Admin tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import admin tools: %s", e)
+except Exception as e:
+    logger.error("Error importing admin tools: %s", e)
+
+# Import auth tools to register them with the MCP server
+# This ensures all authentication-related tools are available
+try:
+    from .tools import auth_tools
+    logger.info("Auth tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import auth tools: %s", e)
+except Exception as e:
+    logger.error("Error importing auth tools: %s", e)
+
+# Import workspace tools to register them with the MCP server
+# This ensures all workspace-related tools are available
+try:
+    from .tools import workspace_tools
+    logger.info("Workspace tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import workspace tools: %s", e)
+except Exception as e:
+    logger.error("Error importing workspace tools: %s", e)
+
 
 # FastMCP 2.x compliant tool registration
 @mcp.tool
@@ -160,6 +220,31 @@ def divide_numbers(a: float, b: float) -> dict:
         }
 
 
+
+# Import test tools to verify registration works
+try:
+    from .tools import test_simple_tools
+    logger.info("Test simple tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import test simple tools: %s", e)
+except Exception as e:
+    logger.error("Error importing test simple tools: %s", e)
+
+
+
+# Import working test tools (FastMCP 2.x native)
+try:
+    from .tools import working_test_tools
+    logger.info("Working test tools imported and registered successfully")
+except ImportError as e:
+    logger.warning("Failed to import working test tools: %s", e)
+except Exception as e:
+    logger.error("Error importing working test tools: %s", e)
+
+
+# Registration guard to prevent duplicate registrations
+_tools_registered = False
+
 def register_example_tools():
     """
     Register example tools with the MCP server.
@@ -168,6 +253,11 @@ def register_example_tools():
     is imported and the @mcp.tool decorators are executed. This function
     is provided for explicit registration if needed.
     """
+    global _tools_registered
+    if _tools_registered:
+        return
+    
+    _tools_registered = True
     logger.info("Example tools registered with FastMCP 2.x server")
     logger.info("Tools available: get_server_info, echo_message, health_check_tool, process_data, divide_numbers")
     logger.info("Shop tools and AI tools are automatically registered via module imports")

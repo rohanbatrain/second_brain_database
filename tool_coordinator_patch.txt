@@ -1,0 +1,38 @@
+
+# PATCH: Add FastMCP tool wrappers to tool coordinator
+# This should be added to the _initialize_tool_registry method
+
+# Add FastMCP tool wrappers
+async def get_family_token_balance_wrapper(user_id=None):
+    from ....integrations.mcp.tools import family_tools
+    return await family_tools.get_family_token_balance(user_id)
+
+async def create_family_wrapper(name=None):
+    from ....integrations.mcp.tools import family_tools
+    return await family_tools.create_family(name)
+
+async def get_family_info_wrapper(family_id):
+    from ....integrations.mcp.tools import family_tools
+    return await family_tools.get_family_info(family_id)
+
+async def browse_shop_items_wrapper(item_type=None, category=None, limit=50, offset=0):
+    from ....integrations.mcp.tools import shop_tools
+    return await shop_tools.list_shop_items(item_type, category, limit, offset)
+
+# Register wrapper tools
+wrapper_tools = [
+    ("get_family_token_balance", get_family_token_balance_wrapper, "family", "Get family SBD token balance"),
+    ("create_family", create_family_wrapper, "family", "Create a new family"),
+    ("get_family_info", get_family_info_wrapper, "family", "Get family information"),
+    ("browse_shop_items", browse_shop_items_wrapper, "shop", "Browse shop items")
+]
+
+for name, func, category, desc in wrapper_tools:
+    self.tool_registry.register_tool(
+        name=name,
+        function=func,
+        category=category,
+        description=desc,
+        permissions=[f"{category}:read"],
+        rate_limit_action=f"{category}_default"
+    )

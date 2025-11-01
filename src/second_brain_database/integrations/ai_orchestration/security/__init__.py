@@ -41,10 +41,8 @@ from .config import (
 )
 
 from .monitoring import (
-    AISecurityMonitoring,
-    SecurityAlert,
-    AlertSeverity,
-    ai_security_monitoring
+    AISecurityMonitor,
+    ai_security_monitor
 )
 
 __all__ = [
@@ -76,8 +74,6 @@ __all__ = [
     "ai_security_config",
     
     # Security Monitoring
-    "AISecurityMonitoring",
-    "SecurityAlert",
-    "AlertSeverity",
-    "ai_security_monitoring"
+    "AISecurityMonitor",
+    "ai_security_monitor"
 ]

@@ -590,32 +590,42 @@ class PersonalAssistantAgent(BaseAgent):
         user_context: MCPUserContext
     ) -> AsyncGenerator[AIEvent, None]:
         """Handle general personal assistance requests."""
-        # Load user context for personalized response
-        context = await self.load_user_context(user_context)
-        
-        # Create a helpful prompt for the AI model
-        prompt = f"""You are a Personal Assistant AI helping with individual user tasks and profile management.
+        try:
+            # Load user context for personalized response
+            context = await self.load_user_context(user_context)
+            
+            # Emit thinking status
+            yield await self.emit_status(session_id, EventType.THINKING, "Processing your request...")
+            
+            # Create a helpful response directly
+            response = f"""Hello {context.get('username', 'there')}! I'm your Personal Assistant AI.
 
-User context:
-- User: {context.get('username', 'Unknown')}
-- Role: {context.get('role', 'user')}
-- Families: {len(context.get('families', []))}
-- Workspaces: {len(context.get('workspaces', []))}
+I can help you with:
 
-User request: {request}
+🔧 **Profile Management**
+- Update your username, avatar, banner, and theme
+- Manage your personal preferences and settings
 
-Provide helpful information about personal management features including:
-- Profile management (username, avatar, banner, theme)
-- Security settings (2FA, API tokens, password management)
-- Asset tracking (avatars, banners, themes, SBD tokens)
-- User preferences and personalization
-- Notification management
+🔒 **Security Settings** 
+- Set up 2FA and manage API tokens
+- Review and update password security
 
-Be friendly, personal, and specific about what you can help with."""
+💎 **Asset Management**
+- Track your avatars, banners, themes, and SBD tokens
+- View your digital asset collection
 
-        # Generate AI response
-        async for token in self.generate_ai_response(session_id, prompt, context):
-            pass  # Tokens are already emitted by generate_ai_response
+🔔 **Notifications**
+- Manage notification preferences
+- Stay updated on important account activities
+
+What would you like help with today? Just ask me about any of these features or anything else related to your personal account management!"""
+
+            # Emit the response
+            yield await self.emit_response(session_id, response)
+            
+        except Exception as e:
+            self.logger.error("General personal assistance failed: %s", e)
+            yield await self.emit_error(session_id, f"I encountered an issue: {str(e)}")
     
     # Helper methods for extracting information from requests
     

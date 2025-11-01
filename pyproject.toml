@@ -51,6 +51,7 @@ dependencies = [
     "numpy>=1.26.4",
     "sounddevice>=0.5.3",
     "websockets[speedups]>=12.0",
+    "streamlit>=1.51.0",
 ]
 
 [project.optional-dependencies]

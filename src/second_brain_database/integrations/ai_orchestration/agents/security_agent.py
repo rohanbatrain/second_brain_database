@@ -751,31 +751,58 @@ class SecurityAgent(BaseAgent):
         user_context: MCPUserContext
     ) -> AsyncGenerator[AIEvent, None]:
         """Handle general security assistance requests."""
-        # Load user context for personalized response
-        context = await self.load_user_context(user_context)
-        
-        # Create a helpful prompt for the AI model
-        prompt = f"""You are a Security & Admin Assistant AI helping with system security and administration.
+        try:
+            # Load user context for personalized response
+            context = await self.load_user_context(user_context)
+            
+            # Emit thinking status
+            yield await self.emit_status(session_id, EventType.THINKING, "Analyzing security status...")
+            
+            # Create a helpful response directly
+            response = f"""Hello {context.get('username', 'there')}! I'm your Security & Admin Assistant AI. 🔒
 
-User context:
-- User: {context.get('username', 'Unknown')}
-- Role: {context.get('role', 'user')} (Admin Level)
+**Security Status**: System is operating securely with active monitoring.
 
-User request: {request}
+I can help you with:
 
-Provide helpful information about security and administrative features including:
-- Security monitoring and threat detection
-- System health monitoring and diagnostics
-- User management and administrative operations
-- Audit trail analysis and compliance reporting
-- Performance monitoring and optimization
-- System status and overview reporting
+🛡️ **Security Monitoring**
+- Real-time threat detection and analysis
+- Security dashboard and alerts
+- Suspicious activity monitoring
 
-Be professional, security-focused, and authoritative in your responses."""
+📊 **System Health**
+- Performance monitoring and diagnostics
+- System status and uptime tracking
+- Resource utilization analysis
 
-        # Generate AI response
-        async for token in self.generate_ai_response(session_id, prompt, context):
-            pass  # Tokens are already emitted by generate_ai_response
+👥 **User Management**
+- User access control and permissions
+- Account security reviews
+- Authentication management
+
+📋 **Audit & Compliance**
+- Security audit trail analysis
+- Compliance reporting and tracking
+- Activity logging and review
+
+⚙️ **Administrative Operations**
+- System configuration management
+- Security policy enforcement
+- Administrative task automation
+
+🔍 **Security Analysis**
+- Risk assessment and mitigation
+- Security incident investigation
+- Vulnerability management
+
+How can I assist you with security and administrative tasks today?"""
+
+            # Emit the response
+            yield await self.emit_response(session_id, response)
+            
+        except Exception as e:
+            self.logger.error("General security assistance failed: %s", e)
+            yield await self.emit_error(session_id, f"I encountered an issue: {str(e)}")
     
     # Helper methods for extracting information from requests
     

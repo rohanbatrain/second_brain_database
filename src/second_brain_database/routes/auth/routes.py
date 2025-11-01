@@ -222,7 +222,6 @@ async def require_admin(current_user: dict = Depends(get_current_user_dep)):
     return current_user
 
 
-@router.on_event("startup")
 async def create_log_indexes():
     """Create indexes for the logs collection on startup."""
     logs = db_manager.get_collection("logs")
@@ -231,7 +230,6 @@ async def create_log_indexes():
     await logs.create_index([("outcome", ASCENDING)])
 
 
-@router.on_event("startup")
 async def reconcile_blocklist_whitelist_on_startup():
     await reconcile_blocklist_whitelist()
 

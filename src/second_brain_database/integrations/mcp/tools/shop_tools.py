@@ -614,6 +614,24 @@ async def get_featured_items(limit: int = 10) -> Dict[str, Any]:
         logger.error("Failed to get featured items for user %s: %s", user_context.username, e)
         raise MCPToolError(f"Failed to get featured items: {str(e)}")
 
+# Alias for backward compatibility with agents
+@authenticated_tool(
+    name="browse_shop_items",
+    description="Browse available shop items (alias for list_shop_items)",
+    permissions=["shop:read"],
+    rate_limit_action="shop_browse"
+)
+async def browse_shop_items(
+    item_type: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+) -> Dict[str, Any]:
+    """
+    Browse available shop items - alias for list_shop_items for backward compatibility.
+    """
+    return await list_shop_items(item_type, category, limit, offset)
+
 @authenticated_tool(
     name="get_new_arrivals",
     description="Get recently added shop items",
@@ -2874,3 +2892,194 @@ async def get_sbd_spending_analytics(
     except Exception as e:
         logger.error("Failed to get SBD spending analytics for user %s: %s", user_context.username, e)
         raise MCPToolError(f"Failed to get SBD spending analytics: {str(e)}")
+
+@authenticated_tool(
+    name="get_user_financial_summary",
+    description="Get comprehensive financial summary for user including balances and spending analytics",
+    permissions=["shop:read"],
+    rate_limit_action="shop_read"
+)
+async def get_user_financial_summary(
+    user_id: Optional[str] = None,
+    include_family: bool = True
+) -> Dict[str, Any]:
+    """
+    Get comprehensive financial summary for a user including personal and family balances,
+    recent spending patterns, and financial insights.
+    
+    Args:
+        user_id: Optional user ID (defaults to current user)
+        include_family: Whether to include family financial information
+        
+    Returns:
+        Dictionary containing comprehensive financial summary
+    """
+    user_context = get_mcp_user_context()
+    
+    # Use current user if no user_id provided
+    if not user_id:
+        user_id = user_context.user_id
+    
+    # Ensure user can only access their own summary unless they have admin permissions
+    if user_id != user_context.user_id and not user_context.has_permission("admin:financial"):
+        raise MCPAuthorizationError("Cannot access other user's financial summary")
+    
+    try:
+        # Get user's personal SBD balance
+        users_collection = db_manager.get_collection("users")
+        user = await users_collection.find_one(
+            {"_id": user_id},
+            {"sbd_tokens": 1, "username": 1, "sbd_tokens_transactions": 1}
+        )
+        
+        if not user:
+            raise MCPValidationError("User not found")
+        
+        personal_balance = user.get("sbd_tokens", 0)
+        username = user.get("username", "Unknown")
+        
+        # Get recent spending analytics (last 30 days)
+        spending_result = await get_sbd_spending_analytics(
+            days=30,
+            include_family=include_family
+        )
+        
+        spending_analytics = spending_result["analytics"]["personal"]
+        family_analytics = spending_result["analytics"].get("family", {})
+        
+        # Calculate financial health metrics
+        total_spent_30d = spending_analytics["spending_summary"]["total_spent"]
+        total_earned_30d = spending_analytics["earning_summary"]["total_earned"]
+        net_change_30d = spending_analytics["net_change"]
+        
+        # Calculate spending velocity (tokens per day)
+        daily_spending_avg = total_spent_30d / 30 if total_spent_30d > 0 else 0
+        
+        # Estimate days until balance depleted (if spending continues at current rate)
+        days_until_depleted = None
+        if daily_spending_avg > 0 and personal_balance > 0:
+            days_until_depleted = int(personal_balance / daily_spending_avg)
+        
+        # Get family balances summary
+        family_summary = {}
+        total_family_accessible = 0
+        
+        if include_family and family_analytics:
+            for family_id, family_data in family_analytics.items():
+                family_summary[family_id] = {
+                    "name": family_data["family_name"],
+                    "balance": family_data["balance"],
+                    "can_access": family_data["can_spend"] and not family_data["is_frozen"],
+                    "spending_limit": family_data.get("user_spending_limit", 0)
+                }
+                
+                if family_data["can_spend"] and not family_data["is_frozen"]:
+                    accessible_amount = min(
+                        family_data["balance"],
+                        family_data.get("user_spending_limit", family_data["balance"])
+                    )
+                    total_family_accessible += accessible_amount
+        
+        # Generate financial insights
+        insights = []
+        
+        # Balance insights
+        if personal_balance < 100:
+            insights.append({
+                "type": "warning",
+                "category": "balance",
+                "message": f"Your personal balance is low ({personal_balance} tokens). Consider earning more tokens or requesting from family."
+            })
+        elif personal_balance > 1000:
+            insights.append({
+                "type": "positive",
+                "category": "balance",
+                "message": f"You have a healthy token balance ({personal_balance} tokens)."
+            })
+        
+        # Spending pattern insights
+        if net_change_30d < -200:
+            insights.append({
+                "type": "warning",
+                "category": "spending",
+                "message": f"You've spent {abs(net_change_30d)} more tokens than earned in the last 30 days."
+            })
+        elif net_change_30d > 100:
+            insights.append({
+                "type": "positive",
+                "category": "earning",
+                "message": f"Great job! You've earned {net_change_30d} more tokens than spent in the last 30 days."
+            })
+        
+        # Depletion warning
+        if days_until_depleted and days_until_depleted < 30:
+            insights.append({
+                "type": "warning",
+                "category": "projection",
+                "message": f"At your current spending rate, your balance may be depleted in {days_until_depleted} days."
+            })
+        
+        # Family access insights
+        if total_family_accessible > personal_balance:
+            insights.append({
+                "type": "info",
+                "category": "family",
+                "message": f"You have access to {total_family_accessible} additional tokens through family accounts."
+            })
+        
+        # Create comprehensive summary
+        financial_summary = {
+            "user_info": {
+                "user_id": user_id,
+                "username": username
+            },
+            "balances": {
+                "personal": personal_balance,
+                "family_accessible": total_family_accessible,
+                "total_accessible": personal_balance + total_family_accessible
+            },
+            "spending_analytics": {
+                "last_30_days": {
+                    "total_spent": total_spent_30d,
+                    "total_earned": total_earned_30d,
+                    "net_change": net_change_30d,
+                    "daily_avg_spending": round(daily_spending_avg, 2),
+                    "days_until_depletion": days_until_depleted
+                }
+            },
+            "family_accounts": family_summary,
+            "insights": insights,
+            "financial_health": {
+                "score": min(100, max(0, 50 + (net_change_30d / 10))),  # Simple health score
+                "status": "healthy" if net_change_30d >= 0 else "needs_attention" if net_change_30d > -200 else "concerning"
+            }
+        }
+        
+        # Create audit trail
+        await create_mcp_audit_trail(
+            operation="get_user_financial_summary",
+            resource_type="financial_summary",
+            resource_id=username,
+            metadata={
+                "include_family": include_family,
+                "personal_balance": personal_balance,
+                "family_accessible": total_family_accessible,
+                "insights_count": len(insights)
+            },
+            user_context=user_context
+        )
+        
+        logger.info(
+            "Generated financial summary for user %s: personal=%d, family_accessible=%d, health=%s",
+            username, personal_balance, total_family_accessible, 
+            financial_summary["financial_health"]["status"]
+        )
+        
+        return {
+            "status": "success",
+            "summary": financial_summary
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get financial summary for user %s: %s", user_id, e)
+        raise MCPToolError(f"Failed to get financial summary: {str(e)}")

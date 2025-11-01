@@ -1,0 +1,21 @@
+# Streamlit AI Agents Testing Requirements
+streamlit>=1.28.0
+asyncio-compat>=0.1.2
+plotly>=5.15.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Core dependencies (should already be installed)
+fastapi>=0.104.0
+pydantic>=2.4.0
+uvicorn>=0.24.0
+motor>=3.3.0
+redis>=5.0.0
+python-jose>=3.3.0
+bcrypt>=4.0.0
+cryptography>=41.0.0
+pyotp>=2.9.0
+
+# Optional for enhanced features
+matplotlib>=3.7.0
+seaborn>=0.12.0

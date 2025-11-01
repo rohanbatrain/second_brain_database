@@ -8,7 +8,7 @@ and integration with existing Second Brain Database systems.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, AsyncGenerator, Protocol
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 
 from ..models.events import AIEvent, EventType
@@ -105,7 +105,7 @@ class BaseAgent(ABC):
         user_context: MCPUserContext
     ) -> Dict[str, Any]:
         """
-        Initialize a new session for this agent.
+        Initialize a new session with enhanced security validation.
         
         Args:
             session_id: AI session identifier
@@ -114,38 +114,148 @@ class BaseAgent(ABC):
         Returns:
             Session initialization data
         """
+        # Enhanced session security validation
+        await self._validate_session_security(session_id, user_context)
+        
+        # Generate session security token
+        import secrets
+        session_token = secrets.token_urlsafe(32)
+        
         session_data = {
             "session_id": session_id,
             "agent_type": self.agent_type,
             "user_id": user_context.user_id,
             "created_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+            "security_token": session_token,
+            "ip_address": getattr(user_context, 'ip_address', 'unknown'),
+            "user_agent": getattr(user_context, 'user_agent', 'unknown'),
             "context": {},
             "conversation_history": [],
-            "metadata": {}
+            "metadata": {
+                "security_level": "standard",
+                "max_conversation_length": 10000,
+                "max_tool_calls": 100,
+                "rate_limit_remaining": 1000
+            }
         }
         
         self.active_sessions[session_id] = session_data
         
+        # Log session creation
+        await self._log_session_event(session_id, user_context, "session_created")
+        
         self.logger.info(
-            "Initialized %s session %s for user %s",
+            "Initialized secure %s session %s for user %s",
             self.agent_type, session_id, user_context.user_id
         )
         
         return session_data
     
+    async def _validate_session_security(self, session_id: str, user_context: MCPUserContext) -> None:
+        """Validate session security requirements."""
+        # Check for session ID format
+        if not session_id or len(session_id) < 16:
+            raise ValueError("Invalid session ID format")
+        
+        # Check for concurrent session limits
+        user_sessions = [
+            s for s in self.active_sessions.values() 
+            if s.get("user_id") == user_context.user_id
+        ]
+        
+        if len(user_sessions) >= 5:  # Max 5 concurrent sessions per user
+            raise ValueError("Maximum concurrent sessions exceeded")
+        
+        # Validate user context integrity
+        if not user_context.user_id or not user_context.username:
+            raise ValueError("Invalid user context")
+    
+    async def _log_session_event(
+        self, 
+        session_id: str, 
+        user_context: MCPUserContext, 
+        event_type: str
+    ) -> None:
+        """Log session-related security events."""
+        try:
+            from ..security.ai_security_manager import ai_security_manager, ConversationPrivacyMode
+            
+            await ai_security_manager.log_ai_audit_event(
+                user_context=user_context,
+                session_id=session_id,
+                event_type="session_management",
+                agent_type=self.agent_type,
+                action=event_type,
+                details={
+                    "session_id": session_id,
+                    "agent_type": self.agent_type,
+                    "active_sessions_count": len(self.active_sessions)
+                },
+                privacy_mode=ConversationPrivacyMode.PRIVATE,
+                success=True
+            )
+        except Exception as e:
+            self.logger.error("Failed to log session event: %s", e)
+    
     async def cleanup_session(self, session_id: str) -> None:
         """
-        Clean up resources for a session.
+        Clean up resources for a session with security validation.
         
         Args:
             session_id: AI session identifier
         """
         if session_id in self.active_sessions:
             session_data = self.active_sessions.pop(session_id)
+            
+            # Secure cleanup - clear sensitive data
+            if "security_token" in session_data:
+                session_data["security_token"] = "[CLEARED]"
+            
+            # Log session cleanup for audit
+            try:
+                from ..security.ai_security_manager import ai_security_manager, ConversationPrivacyMode
+                from ....integrations.mcp.context import MCPUserContext
+                
+                # Create minimal user context for logging
+                user_context = MCPUserContext(
+                    user_id=session_data.get("user_id", "unknown"),
+                    username="",
+                    permissions=[]
+                )
+                
+                await ai_security_manager.log_ai_audit_event(
+                    user_context=user_context,
+                    session_id=session_id,
+                    event_type="session_management",
+                    agent_type=self.agent_type,
+                    action="session_cleanup",
+                    details={
+                        "session_duration_minutes": self._calculate_session_duration(session_data),
+                        "conversation_messages": len(session_data.get("conversation_history", [])),
+                        "cleanup_reason": "normal_cleanup"
+                    },
+                    privacy_mode=ConversationPrivacyMode.PRIVATE,
+                    success=True
+                )
+            except Exception as e:
+                self.logger.error("Failed to log session cleanup: %s", e)
+            
             self.logger.info(
-                "Cleaned up %s session %s for user %s",
+                "Cleaned up secure %s session %s for user %s",
                 self.agent_type, session_id, session_data.get("user_id")
             )
+    
+    def _calculate_session_duration(self, session_data: Dict[str, Any]) -> float:
+        """Calculate session duration in minutes."""
+        try:
+            created_at = session_data.get("created_at")
+            if isinstance(created_at, datetime):
+                duration = datetime.now(timezone.utc) - created_at
+                return duration.total_seconds() / 60
+        except Exception:
+            pass
+        return 0.0
     
     async def emit_event(
         self, 
@@ -258,7 +368,7 @@ class BaseAgent(ABC):
         user_context: MCPUserContext
     ) -> Any:
         """
-        Execute an MCP tool with proper context and error handling.
+        Execute an MCP tool with enhanced security validation and monitoring.
         
         Args:
             session_id: AI session identifier
@@ -269,7 +379,12 @@ class BaseAgent(ABC):
         Returns:
             Tool execution result
         """
+        start_time = datetime.now(timezone.utc)
+        
         try:
+            # Enhanced security validation
+            await self._validate_tool_execution_security(tool_name, parameters, user_context)
+            
             # Emit tool call event
             await self.emit_tool_call(session_id, tool_name, parameters)
             
@@ -285,15 +400,104 @@ class BaseAgent(ABC):
                 )
                 result = {"error": "Tool execution not available"}
             
+            # Log successful tool execution
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            await self._log_tool_execution(
+                session_id, tool_name, parameters, user_context, 
+                result, True, execution_time
+            )
+            
             # Emit tool result event
             await self.emit_tool_result(session_id, tool_name, result)
             
             return result
             
         except Exception as e:
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            
+            # Log failed tool execution
+            await self._log_tool_execution(
+                session_id, tool_name, parameters, user_context, 
+                None, False, execution_time, str(e)
+            )
+            
             self.logger.error("Tool execution failed: %s - %s", tool_name, e)
             await self.emit_error(session_id, f"Tool execution failed: {str(e)}")
             raise
+    
+    async def _validate_tool_execution_security(
+        self, 
+        tool_name: str, 
+        parameters: Dict[str, Any], 
+        user_context: MCPUserContext
+    ) -> None:
+        """Validate tool execution security requirements."""
+        # Check for dangerous tool patterns
+        dangerous_tools = ["delete", "remove", "destroy", "admin", "system"]
+        if any(danger in tool_name.lower() for danger in dangerous_tools):
+            # Require elevated permissions for dangerous operations
+            if not user_context.has_permission("admin:tools"):
+                raise PermissionError(f"Elevated permissions required for tool: {tool_name}")
+        
+        # Validate parameter safety
+        if parameters:
+            await self._validate_tool_parameters(parameters)
+    
+    async def _validate_tool_parameters(self, parameters: Dict[str, Any]) -> None:
+        """Validate tool parameters for security issues."""
+        # Check for injection patterns in string parameters
+        dangerous_patterns = [
+            r"<script", r"javascript:", r"eval\(", r"exec\(", 
+            r"system\(", r"shell_exec", r"passthru", r"file_get_contents"
+        ]
+        
+        import re
+        for key, value in parameters.items():
+            if isinstance(value, str):
+                for pattern in dangerous_patterns:
+                    if re.search(pattern, value, re.IGNORECASE):
+                        raise ValueError(f"Potentially dangerous content in parameter {key}")
+    
+    async def _log_tool_execution(
+        self,
+        session_id: str,
+        tool_name: str,
+        parameters: Dict[str, Any],
+        user_context: MCPUserContext,
+        result: Any,
+        success: bool,
+        execution_time_ms: float,
+        error_message: str = None
+    ) -> None:
+        """Log tool execution for security monitoring."""
+        try:
+            from ..security.ai_security_manager import ai_security_manager, ConversationPrivacyMode
+            
+            # Sanitize parameters for logging (remove sensitive data)
+            safe_parameters = {
+                k: v if k.lower() not in ['password', 'token', 'secret', 'key'] else '[REDACTED]'
+                for k, v in parameters.items()
+            }
+            
+            await ai_security_manager.log_ai_audit_event(
+                user_context=user_context,
+                session_id=session_id,
+                event_type="tool_execution",
+                agent_type=self.agent_type,
+                action=f"execute_{tool_name}",
+                details={
+                    "tool_name": tool_name,
+                    "parameters": safe_parameters,
+                    "execution_time_ms": execution_time_ms,
+                    "result_type": type(result).__name__ if result else None,
+                    "parameter_count": len(parameters)
+                },
+                privacy_mode=ConversationPrivacyMode.PRIVATE,
+                success=success,
+                error_message=error_message
+            )
+        except Exception as e:
+            self.logger.error("Failed to log tool execution: %s", e)
     
     async def generate_ai_response(
         self, 
@@ -390,7 +594,7 @@ class BaseAgent(ABC):
         required_permissions: List[str]
     ) -> bool:
         """
-        Validate that the user has required permissions.
+        Validate that the user has required permissions with enhanced security checks.
         
         Args:
             user_context: MCP user context
@@ -401,8 +605,39 @@ class BaseAgent(ABC):
         """
         if not required_permissions:
             return True
+        
+        # Enhanced validation with security logging
+        has_permissions = user_context.has_all_permissions(required_permissions)
+        
+        if not has_permissions:
+            self.logger.warning(
+                "Permission denied for user %s: required %s, has %s",
+                user_context.user_id, required_permissions, user_context.permissions
+            )
             
-        return user_context.has_all_permissions(required_permissions)
+            # Log security event for audit trail
+            if hasattr(self, 'orchestrator') and self.orchestrator:
+                try:
+                    from ..security.ai_security_manager import ai_security_manager, ConversationPrivacyMode
+                    await ai_security_manager.log_ai_audit_event(
+                        user_context=user_context,
+                        session_id="",
+                        event_type="permission_check",
+                        agent_type=self.agent_type,
+                        action="permission_denied",
+                        details={
+                            "required_permissions": required_permissions,
+                            "user_permissions": user_context.permissions,
+                            "agent_type": self.agent_type
+                        },
+                        privacy_mode=ConversationPrivacyMode.PRIVATE,
+                        success=False,
+                        error_message=f"Missing permissions: {set(required_permissions) - set(user_context.permissions)}"
+                    )
+                except Exception as e:
+                    self.logger.error("Failed to log permission denial: %s", e)
+        
+        return has_permissions
     
     def get_session_data(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get session data for a session ID."""
@@ -434,27 +669,103 @@ class BaseAgent(ABC):
     
     async def classify_request_intent(self, request: str) -> Dict[str, Any]:
         """
-        Classify the intent of a user request.
+        Classify the intent of a user request with security analysis.
         
         Args:
             request: User's request text
             
         Returns:
-            Dictionary with intent classification
+            Dictionary with intent classification and security assessment
         """
+        # Security validation first
+        security_analysis = await self._analyze_request_security(request)
+        
         # Basic intent classification - can be enhanced with ML models
         request_lower = request.lower()
         
         # Common intent patterns
+        intent_data = {"confidence": 0.5, "intent": "general"}
+        
         if any(word in request_lower for word in ["create", "make", "new", "add"]):
-            return {"intent": "create", "confidence": 0.8}
+            intent_data = {"intent": "create", "confidence": 0.8}
         elif any(word in request_lower for word in ["show", "list", "get", "find", "search"]):
-            return {"intent": "retrieve", "confidence": 0.8}
+            intent_data = {"intent": "retrieve", "confidence": 0.8}
         elif any(word in request_lower for word in ["update", "change", "modify", "edit"]):
-            return {"intent": "update", "confidence": 0.8}
+            intent_data = {"intent": "update", "confidence": 0.8}
         elif any(word in request_lower for word in ["delete", "remove", "cancel"]):
-            return {"intent": "delete", "confidence": 0.8}
+            intent_data = {"intent": "delete", "confidence": 0.8}
         elif any(word in request_lower for word in ["help", "how", "what", "explain"]):
-            return {"intent": "help", "confidence": 0.9}
-        else:
-            return {"intent": "general", "confidence": 0.5}
+            intent_data = {"intent": "help", "confidence": 0.9}
+        
+        # Add security analysis to response
+        intent_data.update({
+            "security_analysis": security_analysis,
+            "request_length": len(request),
+            "word_count": len(request.split()),
+            "requires_elevated_permissions": security_analysis.get("risk_level") == "high"
+        })
+        
+        return intent_data
+    
+    async def _analyze_request_security(self, request: str) -> Dict[str, Any]:
+        """Analyze request for security risks."""
+        import re
+        
+        security_issues = []
+        risk_level = "low"
+        
+        # Check for injection patterns
+        injection_patterns = [
+            r"<script", r"javascript:", r"eval\(", r"exec\(", 
+            r"system\(", r"shell_exec", r"\.\.\/", r"file://",
+            r"ignore\s+(?:previous|all)\s+instructions",
+            r"system\s*:\s*you\s+are\s+now",
+            r"forget\s+everything\s+above",
+            r"reveal\s+secrets?",
+            r"bypass\s+security",
+            r"admin\s+access"
+        ]
+        
+        for pattern in injection_patterns:
+            if re.search(pattern, request, re.IGNORECASE):
+                security_issues.append(f"potential_injection_{pattern[:10]}")
+                risk_level = "high"
+        
+        # Check for excessive length
+        if len(request) > 5000:
+            security_issues.append("excessive_length")
+            risk_level = "medium" if risk_level == "low" else risk_level
+        
+        # Check for repetitive patterns (potential DoS)
+        words = request.split()
+        if len(words) > 10:
+            word_counts = {}
+            for word in words:
+                word_counts[word] = word_counts.get(word, 0) + 1
+            
+            max_repetition = max(word_counts.values()) if word_counts else 0
+            if max_repetition > len(words) * 0.3:
+                security_issues.append("excessive_repetition")
+                risk_level = "medium" if risk_level == "low" else risk_level
+        
+        # Check for sensitive data patterns
+        sensitive_patterns = [
+            r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b",  # Credit card
+            r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
+            r"password\s*(?:is|:|\=)\s*\w+",  # Password
+            r"token\s*(?:is|:|\=)\s*\w+",  # Token
+            r"secret\s*(?:is|:|\=)\s*\w+",  # Secret
+            r"key\s*(?:is|:|\=)\s*\w+"  # Key
+        ]
+        
+        for pattern in sensitive_patterns:
+            if re.search(pattern, request, re.IGNORECASE):
+                security_issues.append("sensitive_data_detected")
+                risk_level = "high"
+        
+        return {
+            "risk_level": risk_level,
+            "security_issues": security_issues,
+            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+            "safe_for_processing": len(security_issues) == 0
+        }

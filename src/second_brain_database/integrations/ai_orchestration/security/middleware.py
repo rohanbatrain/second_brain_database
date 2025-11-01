@@ -217,20 +217,37 @@ class AISecurityMiddleware:
                 "method": request.method,
                 "path": request.url.path,
                 "query_params": dict(request.query_params),
-                "headers": dict(request.headers),
+                "headers": {k: v for k, v in request.headers.items() if k.lower() not in ['authorization', 'cookie']},  # Exclude sensitive headers
                 "client_ip": request.client.host if request.client else "",
-                "user_agent": request.headers.get("user-agent", "")
+                "user_agent": request.headers.get("user-agent", ""),
+                "content_type": request.headers.get("content-type", ""),
+                "content_length": request.headers.get("content-length", "0")
             }
             
             # Try to get request body for POST/PUT requests
             if request.method in ["POST", "PUT", "PATCH"]:
                 try:
-                    # Note: This is a simplified approach
-                    # In practice, you'd need to handle different content types
+                    # Handle different content types safely
+                    content_type = request.headers.get("content-type", "").lower()
+                    
                     if hasattr(request.state, 'body_data'):
-                        request_data["body"] = request.state.body_data
-                except Exception:
-                    pass
+                        body_data = request.state.body_data
+                        
+                        # Sanitize sensitive data from body
+                        if isinstance(body_data, dict):
+                            sanitized_body = {
+                                k: v for k, v in body_data.items() 
+                                if k.lower() not in ['password', 'token', 'secret', 'key', 'auth']
+                            }
+                            request_data["body"] = sanitized_body
+                        else:
+                            # For non-dict bodies, just store metadata
+                            request_data["body_type"] = type(body_data).__name__
+                            request_data["body_size"] = len(str(body_data)) if body_data else 0
+                            
+                except Exception as e:
+                    self.logger.debug("Could not extract body data: %s", str(e))
+                    request_data["body_extraction_error"] = "Could not parse body"
             
             return request_data
             

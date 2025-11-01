@@ -534,31 +534,56 @@ class FamilyAssistantAgent(BaseAgent):
         user_context: MCPUserContext
     ) -> AsyncGenerator[AIEvent, None]:
         """Handle general family assistance requests."""
-        # Load user context for personalized response
-        context = await self.load_user_context(user_context)
-        
-        # Create a helpful prompt for the AI model
-        prompt = f"""You are a Family Assistant AI helping with family management. 
-        
-User context:
-- User: {context.get('username', 'Unknown')}
-- Families: {len(context.get('families', []))}
-- Role: {context.get('role', 'user')}
+        try:
+            # Load user context for personalized response
+            context = await self.load_user_context(user_context)
+            
+            # Emit thinking status
+            yield await self.emit_status(session_id, EventType.THINKING, "Getting your family information...")
+            
+            # Create a helpful response directly
+            families = context.get('families', [])
+            family_count = len(families)
+            
+            response = f"""Hello {context.get('username', 'there')}! I'm your Family Assistant AI.
 
-User request: {request}
+**Your Family Status**: You're currently part of {family_count} family/families.
 
-Provide helpful information about family management features including:
-- Creating and managing families
-- Inviting family members
-- Managing SBD tokens and family finances
-- Family shopping and shared assets
-- Family notifications and coordination
+I can help you with:
 
-Be friendly, helpful, and specific about what you can do."""
+👨‍👩‍👧‍👦 **Family Management**
+- Create new families or join existing ones
+- Manage family members and roles
+- View family information and member lists
 
-        # Generate AI response
-        async for token in self.generate_ai_response(session_id, prompt, context):
-            pass  # Tokens are already emitted by generate_ai_response
+💰 **SBD Token Coordination**
+- Check family token balances
+- Request tokens from family members
+- Manage family financial coordination
+
+🛒 **Family Shopping**
+- Shop for shared family assets
+- Coordinate family purchases
+- Manage shared digital collections
+
+📧 **Member Invitations**
+- Invite new members via email
+- Manage pending invitations
+- Handle family join requests
+
+🔔 **Family Notifications**
+- Stay updated on family activities
+- Manage notification preferences
+- Coordinate family communications
+
+What would you like help with regarding your family management?"""
+
+            # Emit the response
+            yield await self.emit_response(session_id, response)
+            
+        except Exception as e:
+            self.logger.error("General family assistance failed: %s", e)
+            yield await self.emit_error(session_id, f"I encountered an issue: {str(e)}")
     
     # Helper methods for extracting information from requests
     

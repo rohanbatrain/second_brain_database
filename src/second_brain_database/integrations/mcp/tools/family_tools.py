@@ -60,12 +60,7 @@ class FamilyUpdateRequest(BaseModel):
 
 # Core Family Management Tools (Task 4.1)
 
-@authenticated_tool(
-    name="get_family_info",
-    description="Get detailed information about a specific family",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_info", description="Get detailed information about a specific family")
 async def get_family_info(family_id: str) -> Dict[str, Any]:
     """
     Get comprehensive family information including members, settings, and SBD account details.
@@ -130,12 +125,7 @@ async def get_family_info(family_id: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to retrieve family information: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_members",
-    description="Get all members of a family with their roles and relationships",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_members", description="Get all members of a family with their roles and relationships")
 async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
     """
     Get all members of a family including their roles, relationships, and permissions.
@@ -202,12 +192,7 @@ async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
         raise MCPValidationError(f"Failed to retrieve family members: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_user_families",
-    description="Get all families that the current user is a member of",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_user_families", description="Get all families that the current user is a member of")
 async def get_user_families() -> List[Dict[str, Any]]:
     """
     Get all families that the current user is a member of with their roles.
@@ -258,12 +243,7 @@ async def get_user_families() -> List[Dict[str, Any]]:
         raise MCPValidationError(f"Failed to retrieve user families: {str(e)}")
 
 
-@authenticated_tool(
-    name="create_family",
-    description="Create a new family with the current user as owner",
-    permissions=["family:create"],
-    rate_limit_action="family_create"
-)
+@mcp.tool(name="create_family", description="Create a new family with the current user as owner")
 async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a new family with the current user as the owner/administrator.
@@ -325,12 +305,7 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to create family: {str(e)}")
 
 
-@authenticated_tool(
-    name="update_family_settings",
-    description="Update family settings and configuration",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="update_family_settings", description="Update family settings and configuration")
 async def update_family_settings(
     family_id: str,
     name: Optional[str] = None,
@@ -411,12 +386,7 @@ async def update_family_settings(
         raise MCPValidationError(f"Failed to update family settings: {str(e)}")
 
 
-@authenticated_tool(
-    name="delete_family",
-    description="Delete a family and all associated resources",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="delete_family", description="Delete a family and all associated resources")
 async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]:
     """
     Delete a family and clean up all associated resources. Requires owner role.
@@ -503,12 +473,7 @@ class FamilyRelationshipUpdate(BaseModel):
     relationship: str = Field(..., description="New relationship type")
     bidirectional: bool = Field(True, description="Whether to create bidirectional relationship")
 
-@authenticated_tool(
-    name="add_family_member",
-    description="Add a new member to the family through invitation workflow",
-    permissions=["family:admin"],
-    rate_limit_action="family_invite"
-)
+@mcp.tool(name="add_family_member", description="Add a new member to the family through invitation workflow")
 async def add_family_member(
     family_id: str,
     email: str,
@@ -591,12 +556,7 @@ async def add_family_member(
         raise MCPValidationError(f"Failed to add family member: {str(e)}")
 
 
-@authenticated_tool(
-    name="remove_family_member",
-    description="Remove a member from the family",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="remove_family_member", description="Remove a member from the family")
 async def remove_family_member(
     family_id: str,
     member_id: str,
@@ -680,12 +640,7 @@ async def remove_family_member(
         raise MCPValidationError(f"Failed to remove family member: {str(e)}")
 
 
-@authenticated_tool(
-    name="update_family_member_role",
-    description="Update a family member's role",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="update_family_member_role", description="Update a family member's role")
 async def update_family_member_role(
     family_id: str,
     member_id: str,
@@ -768,12 +723,7 @@ async def update_family_member_role(
         raise MCPValidationError(f"Failed to update member role: {str(e)}")
 
 
-@authenticated_tool(
-    name="update_relationship",
-    description="Update bidirectional relationships between family members",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="update_relationship", description="Update bidirectional relationships between family members")
 async def update_relationship(
     family_id: str,
     user_id: str,
@@ -839,12 +789,7 @@ async def update_relationship(
         raise MCPValidationError(f"Failed to update relationship: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_relationships",
-    description="Get relationship mapping for all family members",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_relationships", description="Get relationship mapping for all family members")
 async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
     """
     Get comprehensive relationship mapping for all family members.
@@ -891,12 +836,7 @@ async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
         raise MCPValidationError(f"Failed to retrieve family relationships: {str(e)}")
 
 
-@authenticated_tool(
-    name="promote_to_admin",
-    description="Promote a family member to admin role",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="promote_to_admin", description="Promote a family member to admin role")
 async def promote_to_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     """
     Promote a family member to admin role.
@@ -911,12 +851,7 @@ async def promote_to_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     return await update_family_member_role(family_id, member_id, "admin")
 
 
-@authenticated_tool(
-    name="demote_from_admin",
-    description="Demote a family admin to member role",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="demote_from_admin", description="Demote a family admin to member role")
 async def demote_from_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     """
     Demote a family admin to member role.
@@ -956,12 +891,7 @@ class NotificationPreferencesUpdate(BaseModel):
     token_requests: Optional[bool] = Field(None, description="Notify on token requests")
     member_changes: Optional[bool] = Field(None, description="Notify on member changes")
 
-@authenticated_tool(
-    name="send_family_invitation",
-    description="Send a family invitation to a user via email",
-    permissions=["family:admin"],
-    rate_limit_action="family_invite"
-)
+@mcp.tool(name="send_family_invitation", description="Send a family invitation to a user via email")
 async def send_family_invitation(
     family_id: str,
     email: str,
@@ -1028,12 +958,7 @@ async def send_family_invitation(
         raise MCPValidationError(f"Failed to send family invitation: {str(e)}")
 
 
-@authenticated_tool(
-    name="accept_family_invitation",
-    description="Accept a family invitation using invitation token",
-    permissions=["family:join"],
-    rate_limit_action="family_join"
-)
+@mcp.tool(name="accept_family_invitation", description="Accept a family invitation using invitation token")
 async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
     """
     Accept a family invitation using the invitation token.
@@ -1085,12 +1010,7 @@ async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to accept family invitation: {str(e)}")
 
 
-@authenticated_tool(
-    name="decline_family_invitation",
-    description="Decline a family invitation using invitation token",
-    permissions=["family:join"],
-    rate_limit_action="family_join"
-)
+@mcp.tool(name="decline_family_invitation", description="Decline a family invitation using invitation token")
 async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
     """
     Decline a family invitation using the invitation token.
@@ -1142,12 +1062,7 @@ async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to decline family invitation: {str(e)}")
 
 
-@authenticated_tool(
-    name="list_pending_invitations",
-    description="List pending family invitations for invitation management",
-    permissions=["family:admin"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="list_pending_invitations", description="List pending family invitations for invitation management")
 async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
     """
     List all pending family invitations for invitation management.
@@ -1198,12 +1113,7 @@ async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
         raise MCPValidationError(f"Failed to list pending invitations: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_notifications",
-    description="Get family notifications for notification retrieval",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_notifications", description="Get family notifications for notification retrieval")
 async def get_family_notifications(
     family_id: str,
     limit: int = 50,
@@ -1277,12 +1187,7 @@ async def get_family_notifications(
         raise MCPValidationError(f"Failed to get family notifications: {str(e)}")
 
 
-@authenticated_tool(
-    name="mark_notifications_read",
-    description="Mark specific notifications as read for notification management",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="mark_notifications_read", description="Mark specific notifications as read for notification management")
 async def mark_notifications_read(
     family_id: str,
     notification_ids: List[str]
@@ -1345,12 +1250,7 @@ async def mark_notifications_read(
         raise MCPValidationError(f"Failed to mark notifications as read: {str(e)}")
 
 
-@authenticated_tool(
-    name="mark_all_notifications_read",
-    description="Mark all notifications as read for a family",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="mark_all_notifications_read", description="Mark all notifications as read for a family")
 async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
     """
     Mark all notifications as read for a family.
@@ -1400,12 +1300,7 @@ async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to mark all notifications as read: {str(e)}")
 
 
-@authenticated_tool(
-    name="update_notification_preferences",
-    description="Update user notification preferences",
-    permissions=["profile:write"],
-    rate_limit_action="profile_update"
-)
+@mcp.tool(name="update_notification_preferences", description="Update user notification preferences")
 async def update_notification_preferences(
     email_notifications: Optional[bool] = None,
     push_notifications: Optional[bool] = None,
@@ -1476,12 +1371,7 @@ async def update_notification_preferences(
         raise MCPValidationError(f"Failed to update notification preferences: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_notification_preferences",
-    description="Get current user notification preferences",
-    permissions=["profile:read"],
-    rate_limit_action="profile_read"
-)
+@mcp.tool(name="get_notification_preferences", description="Get current user notification preferences")
 async def get_notification_preferences() -> Dict[str, Any]:
     """
     Get current user notification preferences.
@@ -1519,12 +1409,7 @@ async def get_notification_preferences() -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to get notification preferences: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_received_invitations",
-    description="Get invitations received by the current user",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_received_invitations", description="Get invitations received by the current user")
 async def get_received_invitations(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Get invitations received by the current user across all families.
@@ -1595,12 +1480,7 @@ class AccountFreezeRequest(BaseModel):
     action: str = Field(..., pattern="^(freeze|unfreeze)$", description="Action to take")
     reason: Optional[str] = Field(None, description="Reason for freezing (required for freeze)")
 
-@authenticated_tool(
-    name="get_family_sbd_account",
-    description="Get family SBD account information including balance and permissions",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_sbd_account", description="Get family SBD account information including balance and permissions")
 async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
     """
     Get comprehensive family SBD account information including balance, permissions, and status.
@@ -1647,12 +1527,110 @@ async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to retrieve SBD account information: {str(e)}")
 
 
-@authenticated_tool(
-    name="create_token_request",
-    description="Create a token request from the family SBD account",
-    permissions=["family:member"],
-    rate_limit_action="token_request_create"
-)
+@mcp.tool(name="get_family_token_balance", description="Get family SBD token balance for the user's families")
+async def get_family_token_balance(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get SBD token balance for all families the user is a member of.
+    
+    Args:
+        user_id: Optional user ID (defaults to current user)
+        
+    Returns:
+        Dictionary containing family token balances and account information
+    """
+    user_context = get_mcp_user_context()
+    
+    # Use current user if no user_id provided
+    if not user_id:
+        user_id = user_context.user_id
+    
+    # Ensure user can only access their own balance unless they have admin permissions
+    if user_id != user_context.user_id and not user_context.has_permission("admin:family"):
+        raise MCPAuthorizationError("Cannot access other user's family token balance")
+    
+    family_manager = FamilyManager(
+        db_manager=db_manager,
+        security_manager=security_manager,
+        redis_manager=redis_manager
+    )
+    
+    try:
+        # Get user's families first
+        user_families = await family_manager.get_user_families(user_id)
+        
+        family_balances = []
+        total_accessible_tokens = 0
+        
+        for family in user_families:
+            try:
+                # Get SBD account information for each family
+                account_data = await family_manager.get_family_sbd_account(
+                    family["family_id"], user_id
+                )
+                
+                family_balance = {
+                    "family_id": family["family_id"],
+                    "family_name": family["name"],
+                    "user_role": family["role"],
+                    "account_username": account_data.get("account_username"),
+                    "balance": account_data.get("balance", 0),
+                    "account_frozen": account_data.get("account_frozen", False),
+                    "spending_permissions": account_data.get("spending_permissions", {}),
+                    "can_request_tokens": account_data.get("can_request_tokens", False)
+                }
+                
+                family_balances.append(family_balance)
+                
+                # Add to total if user can access tokens
+                if family_balance["can_request_tokens"] and not family_balance["account_frozen"]:
+                    total_accessible_tokens += family_balance["balance"]
+                    
+            except Exception as e:
+                logger.warning("Failed to get balance for family %s: %s", family["family_id"], e)
+                # Add family with error status
+                family_balances.append({
+                    "family_id": family["family_id"],
+                    "family_name": family["name"],
+                    "user_role": family["role"],
+                    "error": "Unable to retrieve balance",
+                    "balance": 0,
+                    "can_request_tokens": False
+                })
+        
+        # Create audit trail
+        await create_mcp_audit_trail(
+            operation="get_family_token_balance",
+            user_context=user_context,
+            resource_type="family",
+            resource_id="token_balance",
+            metadata={
+                "families_count": len(family_balances),
+                "total_accessible_tokens": total_accessible_tokens
+            }
+        )
+        
+        logger.info(
+            "Retrieved family token balances for user %s: %d families, %d accessible tokens",
+            user_id, len(family_balances), total_accessible_tokens
+        )
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "families": family_balances,
+            "summary": {
+                "total_families": len(family_balances),
+                "total_accessible_tokens": total_accessible_tokens,
+                "families_with_access": len([f for f in family_balances if f.get("can_request_tokens", False)])
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get family token balance for user %s: %s", user_id, e)
+        raise MCPValidationError(f"Failed to retrieve family token balance: {str(e)}")
+
+
+@mcp.tool(name="create_token_request", description="Create a token request from the family SBD account")
 async def create_token_request(
     family_id: str,
     amount: int,
@@ -1735,12 +1713,7 @@ async def create_token_request(
         raise MCPValidationError(f"Failed to create token request: {str(e)}")
 
 
-@authenticated_tool(
-    name="review_token_request",
-    description="Review a token request (approve or deny) - admin only",
-    permissions=["family:admin"],
-    rate_limit_action="token_request_review"
-)
+@mcp.tool(name="review_token_request", description="Review a token request (approve or deny) - admin only")
 async def review_token_request(
     family_id: str,
     request_id: str,
@@ -1823,12 +1796,7 @@ async def review_token_request(
         raise MCPValidationError(f"Failed to review token request: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_token_requests",
-    description="Get token requests for a family with optional filtering",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_token_requests", description="Get token requests for a family with optional filtering")
 async def get_token_requests(
     family_id: str,
     status_filter: Optional[str] = None,
@@ -1941,12 +1909,7 @@ async def get_token_requests(
         raise MCPValidationError(f"Failed to retrieve token requests: {str(e)}")
 
 
-@authenticated_tool(
-    name="update_spending_permissions",
-    description="Update spending permissions for a family member - admin only",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="update_spending_permissions", description="Update spending permissions for a family member - admin only")
 async def update_spending_permissions(
     family_id: str,
     target_user_id: str,
@@ -2023,12 +1986,7 @@ async def update_spending_permissions(
         raise MCPValidationError(f"Failed to update spending permissions: {str(e)}")
 
 
-@authenticated_tool(
-    name="freeze_family_account",
-    description="Freeze the family SBD account to prevent spending - admin only",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="freeze_family_account", description="Freeze the family SBD account to prevent spending - admin only")
 async def freeze_family_account(
     family_id: str,
     reason: str
@@ -2093,12 +2051,7 @@ async def freeze_family_account(
         raise MCPValidationError(f"Failed to freeze family account: {str(e)}")
 
 
-@authenticated_tool(
-    name="unfreeze_family_account",
-    description="Unfreeze the family SBD account to restore spending - admin only",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="unfreeze_family_account", description="Unfreeze the family SBD account to restore spending - admin only")
 async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
     """
     Unfreeze the family SBD account to restore normal spending (admin only).
@@ -2153,12 +2106,7 @@ async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to unfreeze family account: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_transaction_history",
-    description="Get comprehensive family SBD transaction history with filtering",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_transaction_history", description="Get comprehensive family SBD transaction history with filtering")
 async def get_family_transaction_history(
     family_id: str,
     start_date: Optional[str] = None,
@@ -2337,12 +2285,7 @@ class FamilyLimits(BaseModel):
     max_pending_invitations: int
     current_pending_invitations: int
 
-@authenticated_tool(
-    name="get_admin_actions_log",
-    description="Get comprehensive audit trail of admin actions for a family",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="get_admin_actions_log", description="Get comprehensive audit trail of admin actions for a family")
 async def get_admin_actions_log(
     family_id: str,
     start_date: Optional[str] = None,
@@ -2447,12 +2390,7 @@ async def get_admin_actions_log(
         raise MCPValidationError(f"Failed to retrieve admin actions log: {str(e)}")
 
 
-@authenticated_tool(
-    name="designate_backup_admin",
-    description="Designate a family member as backup admin for emergency access",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="designate_backup_admin", description="Designate a family member as backup admin for emergency access")
 async def designate_backup_admin(
     family_id: str,
     member_id: str,
@@ -2530,12 +2468,7 @@ async def designate_backup_admin(
         raise MCPValidationError(f"Failed to designate backup admin: {str(e)}")
 
 
-@authenticated_tool(
-    name="remove_backup_admin",
-    description="Remove backup admin designation from a family member",
-    permissions=["family:admin"],
-    rate_limit_action="family_admin"
-)
+@mcp.tool(name="remove_backup_admin", description="Remove backup admin designation from a family member")
 async def remove_backup_admin(
     family_id: str,
     backup_admin_id: str,
@@ -2609,12 +2542,7 @@ async def remove_backup_admin(
         raise MCPValidationError(f"Failed to remove backup admin: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_stats",
-    description="Get comprehensive family usage statistics and analytics",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_stats", description="Get comprehensive family usage statistics and analytics")
 async def get_family_stats(
     family_id: str,
     include_detailed_breakdown: bool = False
@@ -2717,12 +2645,7 @@ async def get_family_stats(
         raise MCPValidationError(f"Failed to retrieve family statistics: {str(e)}")
 
 
-@authenticated_tool(
-    name="get_family_limits",
-    description="Get current family limits and usage information",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="get_family_limits", description="Get current family limits and usage information")
 async def get_family_limits(family_id: str) -> Dict[str, Any]:
     """
     Get comprehensive family limits and current usage information for capacity planning.
@@ -2818,12 +2741,7 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
         raise MCPValidationError(f"Failed to retrieve family limits: {str(e)}")
 
 
-@authenticated_tool(
-    name="emergency_admin_access",
-    description="Request emergency admin access for critical family operations",
-    permissions=["family:emergency"],
-    rate_limit_action="emergency_access"
-)
+@mcp.tool(name="emergency_admin_access", description="Request emergency admin access for critical family operations")
 async def emergency_admin_access(
     family_id: str,
     emergency_reason: str,
@@ -2926,12 +2844,7 @@ async def emergency_admin_access(
         raise MCPValidationError(f"Failed to process emergency access request: {str(e)}")
 
 
-@authenticated_tool(
-    name="validate_family_access",
-    description="Validate and check user permissions for specific family operations",
-    permissions=["family:read"],
-    rate_limit_action="family_read"
-)
+@mcp.tool(name="validate_family_access", description="Validate and check user permissions for specific family operations")
 async def validate_family_access(
     family_id: str,
     operation: str,
@@ -3075,4 +2988,16 @@ async def validate_family_access(
     except Exception as e:
         logger.error("Failed to validate family access for user %s in family %s: %s", 
                     user_context.user_id, family_id, e)
-        raise MCPValidationError(f"Failed to validate family access: {str(e)}")
+        raise MCPValidationError(f"Failed to validate family access: {str(e)}")        
+
+        # Return error result on exception
+        return {
+            "access_granted": False,
+            "permissions": [],
+            "restrictions": ["validation_error"],
+            "validation_details": {
+                "error": str(e),
+                "operation": operation,
+                "family_id": family_id
+            }
+        }

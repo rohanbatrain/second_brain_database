@@ -70,7 +70,7 @@ class ToolCoordinator:
             self._register_module_tools(family_tools, "family")
             registered_modules.append("family")
         except Exception as e:
-            logger.warning("Failed to register family tools: %s", e)
+            logger.error("Failed to register family tools: %s", e, exc_info=True)
         
         # Try to register auth tools
         try:
@@ -86,7 +86,7 @@ class ToolCoordinator:
             self._register_module_tools(shop_tools, "shop")
             registered_modules.append("shop")
         except Exception as e:
-            logger.warning("Failed to register shop tools: %s", e)
+            logger.error("Failed to register shop tools: %s", e, exc_info=True)
         
         # Try to register workspace tools
         try:
@@ -110,15 +110,48 @@ class ToolCoordinator:
             logger.warning("No MCP tool modules were successfully registered")
     
     def _register_module_tools(self, module: Any, category: str) -> None:
-        """Register all tools from a module with the tool registry."""
+        """Register all tools from a module with the tool registry (FastMCP 2.x compatible)."""
         try:
+            tools_registered = 0
+            
             # Get all functions that are decorated as MCP tools
             for name in dir(module):
                 try:
                     obj = getattr(module, name)
-                    # Check for authenticated_tool decorated functions
-                    if callable(obj) and hasattr(obj, '_mcp_tool_name'):
-                        # This is an MCP tool function decorated with @authenticated_tool
+                    
+                    # Check for FastMCP 2.x tools (async functions that start with common prefixes)
+                    if callable(obj) and asyncio.iscoroutinefunction(obj):
+                        # Check if it's likely a tool function based on naming patterns
+                        if any(name.startswith(prefix) for prefix in [
+                            'get_', 'create_', 'update_', 'delete_', 'list_', 'send_', 'accept_', 
+                            'decline_', 'add_', 'remove_', 'promote_', 'demote_', 'freeze_', 
+                            'unfreeze_', 'mark_', 'review_', 'validate_', 'test_'
+                        ]):
+                            # Register as a tool with default settings
+                            tool_name = name
+                            description = obj.__doc__ or f"Tool: {name}"
+                            
+                            # Extract first line of docstring as description
+                            if obj.__doc__:
+                                description = obj.__doc__.split('\n')[0].strip()
+                            
+                            # Determine permissions based on function name and category
+                            permissions = self._determine_permissions(name, category)
+                            
+                            self.tool_registry.register_tool(
+                                name=tool_name,
+                                function=obj,
+                                category=category,
+                                description=description,
+                                permissions=permissions,
+                                rate_limit_action=f"{category}_default"
+                            )
+                            tools_registered += 1
+                            logger.debug("Registered FastMCP tool: %s (category: %s)", tool_name, category)
+                    
+                    # Also check for legacy authenticated_tool decorated functions
+                    elif callable(obj) and hasattr(obj, '_mcp_tool_name'):
+                        # This is a legacy MCP tool function decorated with @authenticated_tool
                         tool_name = getattr(obj, '_mcp_tool_name', name)
                         description = getattr(obj, '_mcp_tool_description', '')
                         permissions = getattr(obj, '_mcp_tool_permissions', [])
@@ -132,16 +165,40 @@ class ToolCoordinator:
                             permissions=permissions,
                             rate_limit_action=rate_limit_action
                         )
-                        logger.debug("Registered MCP tool: %s", tool_name)
+                        tools_registered += 1
+                        logger.debug("Registered legacy MCP tool: %s", tool_name)
+                        
                 except Exception as attr_error:
                     # Skip objects that can't be accessed (like imports that failed)
                     logger.debug("Skipped object %s in %s module: %s", name, category, attr_error)
                     continue
                     
-            logger.debug("Registered tools from %s module", category)
+            logger.info("Registered %d tools from %s module", tools_registered, category)
             
         except Exception as e:
             logger.warning("Failed to register tools from %s module: %s", category, e)
+    
+    def _determine_permissions(self, function_name: str, category: str) -> List[str]:
+        """Determine permissions for a function based on its name and category."""
+        permissions = []
+        
+        # Base permission for the category
+        permissions.append(f"{category}:read")
+        
+        # Add write permissions for modifying operations
+        if any(function_name.startswith(prefix) for prefix in [
+            'create_', 'update_', 'delete_', 'add_', 'remove_', 'promote_', 
+            'demote_', 'freeze_', 'unfreeze_', 'send_', 'accept_', 'decline_'
+        ]):
+            permissions.append(f"{category}:write")
+        
+        # Add admin permissions for administrative operations
+        if any(function_name.startswith(prefix) for prefix in [
+            'promote_', 'demote_', 'freeze_', 'unfreeze_', 'delete_'
+        ]) or 'admin' in function_name:
+            permissions.append(f"{category}:admin")
+        
+        return permissions
     
     async def execute_tool(
         self,
@@ -267,6 +324,7 @@ class ToolCoordinator:
             
             return ToolExecutionResult(
                 success=False,
+                result=None,
                 error=error_msg,
                 tool_name=tool_name,
                 parameters=parameters
@@ -287,6 +345,7 @@ class ToolCoordinator:
             
             return ToolExecutionResult(
                 success=False,
+                result=None,
                 error=str(e),
                 tool_name=tool_name,
                 parameters=parameters
@@ -308,6 +367,7 @@ class ToolCoordinator:
             
             return ToolExecutionResult(
                 success=False,
+                result=None,
                 error=error_msg,
                 tool_name=tool_name,
                 parameters=parameters
@@ -447,6 +507,7 @@ class ToolCoordinator:
             
             return ToolExecutionResult(
                 success=False,
+                result=None,
                 error=error_msg,
                 tool_name=f"resource:{resource_uri}",
                 metadata={"resource_uri": resource_uri}

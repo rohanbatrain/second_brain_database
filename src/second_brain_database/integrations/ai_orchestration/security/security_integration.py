@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timezone
 import json
 import asyncio
+import uuid
 
 from fastapi import HTTPException, Request, status
 
@@ -309,9 +310,38 @@ class AISecurityIntegration:
             
             # Check for suspicious patterns
             for content in content_to_check:
+                # Check basic suspicious patterns
                 for pattern in self.threat_detection_config["suspicious_patterns"]:
                     if pattern in content:
                         threats.append(f"suspicious_pattern_{pattern}")
+                
+                # Check for potential prompt injection patterns
+                injection_patterns = [
+                    r"ignore\s+(?:previous|all)\s+instructions",
+                    r"system\s*:\s*you\s+are\s+now",
+                    r"forget\s+everything\s+above",
+                    r"new\s+instructions\s*:",
+                    r"override\s+security",
+                    r"jailbreak\s+mode",
+                    r"developer\s+mode\s+enabled"
+                ]
+                
+                import re
+                for pattern in injection_patterns:
+                    if re.search(pattern, content, re.IGNORECASE):
+                        threats.append("prompt_injection_attempt")
+                        break
+                
+                # Check for excessive repetition (potential DoS)
+                words = content.split()
+                if len(words) > 10:
+                    word_counts = {}
+                    for word in words:
+                        word_counts[word] = word_counts.get(word, 0) + 1
+                    
+                    max_repetition = max(word_counts.values())
+                    if max_repetition > len(words) * 0.3:  # More than 30% repetition
+                        threats.append("excessive_repetition")
             
             return threats
             

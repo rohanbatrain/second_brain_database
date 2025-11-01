@@ -677,31 +677,56 @@ class CommerceAgent(BaseAgent):
         user_context: MCPUserContext
     ) -> AsyncGenerator[AIEvent, None]:
         """Handle general commerce assistance requests."""
-        # Load user context for personalized response
-        context = await self.load_user_context(user_context)
-        
-        # Create a helpful prompt for the AI model
-        prompt = f"""You are a Shopping & Commerce Assistant AI helping with digital asset purchases and management.
+        try:
+            # Load user context for personalized response
+            context = await self.load_user_context(user_context)
+            
+            # Emit thinking status
+            yield await self.emit_status(session_id, EventType.THINKING, "Loading shopping information...")
+            
+            # Create a helpful response directly
+            response = f"""Hello {context.get('username', 'there')}! I'm your Shopping & Commerce Assistant AI! 🛒
 
-User context:
-- User: {context.get('username', 'Unknown')}
-- Role: {context.get('role', 'user')}
+I'm here to make your digital asset shopping experience amazing:
 
-User request: {request}
+🎨 **Digital Asset Shop**
+- Browse avatars, banners, themes, and more
+- Search by category, price, or style
+- Discover trending and popular items
 
-Provide helpful information about shopping and commerce features including:
-- Browsing and searching the digital asset shop
-- Personalized shopping recommendations
-- Purchase assistance and budget planning
-- Asset management and collection organization
-- Deal notifications and special offers
-- SBD token management and spending insights
+💡 **Personalized Recommendations**
+- Get suggestions based on your preferences
+- Find items that match your style
+- Discover new collections and artists
 
-Be enthusiastic about shopping, helpful with purchases, and knowledgeable about deals and assets."""
+💰 **Budget & Planning**
+- Check your SBD token balance
+- Plan your purchases and spending
+- Get budget-friendly recommendations
 
-        # Generate AI response
-        async for token in self.generate_ai_response(session_id, prompt, context):
-            pass  # Tokens are already emitted by generate_ai_response
+🎯 **Purchase Assistance**
+- Help with buying decisions
+- Compare similar items
+- Guide you through the purchase process
+
+🔥 **Deals & Offers**
+- Find current sales and discounts
+- Get notified about special offers
+- Discover limited-time deals
+
+📊 **Asset Management**
+- Track your digital collection
+- Organize your purchased items
+- Manage rentals and subscriptions
+
+What kind of shopping help are you looking for today? I can help you find the perfect digital assets!"""
+
+            # Emit the response
+            yield await self.emit_response(session_id, response)
+            
+        except Exception as e:
+            self.logger.error("General commerce assistance failed: %s", e)
+            yield await self.emit_error(session_id, f"I encountered an issue: {str(e)}")
     
     # Helper methods for extracting information from requests
     

@@ -486,7 +486,7 @@ async def get_my_invitations(
     status: Optional[str] = Query(
         None,
         description="Filter by invitation status",
-        example="pending",
+        json_schema_extra={"example": "pending"},
         pattern="^(pending|accepted|declined|expired|cancelled)$"
     ),
 ) -> List[ReceivedInvitationResponse]:
