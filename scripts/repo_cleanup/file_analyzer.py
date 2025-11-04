@@ -60,6 +60,7 @@ class FileAnalyzer:
             r'.*\.yaml$',
             r'.*\.toml$',
             r'.*\.env$',
+            r'.*\.sbd$',
         ],
     }
 
@@ -124,7 +125,7 @@ class FileAnalyzer:
             self.file_stats['python_files'] += 1
         elif file_path.suffix == '.md':
             self.file_stats['markdown_files'] += 1
-        elif file_path.suffix in {'.json', '.yml', '.yaml', '.toml', '.env'}:
+        elif file_path.suffix in {'.json', '.yml', '.yaml', '.toml', '.env', '.sbd'}:
             self.file_stats['config_files'] += 1
 
         # Check if it's a test file

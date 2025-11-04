@@ -107,8 +107,8 @@ uv pip install -r requirements.txt
 docker run -d -p 27017:27017 --name mongodb mongo
 
 # Configure environment
-cp .env.example .env
-# Edit .env with your settings
+cp .sbd-example .sbd
+# Edit .sbd with your settings
 
 # Start all services (AUTOMATIC)
 ./start.sh
@@ -478,8 +478,8 @@ lsof -i :8000
 # Kill the process
 kill -9 <PID>
 
-# Or use different port in .env
-echo "PORT=8001" >> .env
+# Or use different port in .sbd
+echo "PORT=8001" >> .sbd
 ```
 
 ### Services Keep Failing
@@ -768,7 +768,7 @@ docker-compose up -d --scale celery-worker=4
 
 ### Production Checklist
 
-- [ ] Set `DEBUG=False` in `.env`
+- [ ] Set `DEBUG=False` in `.sbd`
 - [ ] Use strong `JWT_SECRET_KEY`
 - [ ] Configure production database URLs
 - [ ] Set up SSL/TLS certificates
