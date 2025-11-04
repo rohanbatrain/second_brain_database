@@ -13,6 +13,7 @@ __pycache__/
 *.sqlite3
 venv/
 .env
+.sbd
 
 
 # Distribution / packaging
@@ -214,6 +215,8 @@ logs/
 # Environment
 .env.local
 .env.*.local
+.sbd.local
+.sbd.*.local
 
 # Python
 *.pyc
