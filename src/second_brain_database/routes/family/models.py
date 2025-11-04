@@ -21,7 +21,7 @@ NOTIFICATION_MESSAGE_MAX_LENGTH: int = 1000
 # Relationship types mapping
 RELATIONSHIP_TYPES = {
     "parent": "child",
-    "child": "parent", 
+    "child": "parent",
     "sibling": "sibling",
     "spouse": "spouse",
     "grandparent": "grandchild",
@@ -93,11 +93,11 @@ class NotificationStatus(str, Enum):
 class CreateFamilyRequest(BaseDocumentedModel):
     """
     Request model for creating a new family.
-    
+
     The family name is optional and will be auto-generated if not provided.
     The requesting user automatically becomes the family administrator.
     """
-    
+
     name: Optional[str] = Field(
         None,
         min_length=FAMILY_NAME_MIN_LENGTH,
@@ -105,7 +105,7 @@ class CreateFamilyRequest(BaseDocumentedModel):
         description="Optional custom family name. If not provided, will be auto-generated.",
         example="Smith Family"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -117,10 +117,10 @@ class CreateFamilyRequest(BaseDocumentedModel):
 class InviteMemberRequest(BaseDocumentedModel):
     """
     Request model for inviting a family member.
-    
+
     Requires the invitee's email and the relationship type from the inviter's perspective.
     """
-    
+
     email: EmailStr = Field(
         ...,
         description="Email address of the user to invite to the family",
@@ -131,7 +131,7 @@ class InviteMemberRequest(BaseDocumentedModel):
         description="Relationship type from inviter's perspective (e.g., 'child', 'parent', 'sibling')",
         example="child"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -140,7 +140,7 @@ class InviteMemberRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("relationship_type")
     @classmethod
     def validate_relationship_type(cls, v: str) -> str:
@@ -154,13 +154,13 @@ class RespondToInvitationRequest(BaseDocumentedModel):
     """
     Request model for responding to a family invitation.
     """
-    
+
     action: str = Field(
         ...,
         description="Action to take on the invitation: 'accept' or 'decline'",
         example="accept"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -168,7 +168,7 @@ class RespondToInvitationRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
@@ -182,7 +182,7 @@ class UpdateRelationshipRequest(BaseDocumentedModel):
     """
     Request model for updating a family relationship.
     """
-    
+
     relationship_type_a_to_b: str = Field(
         ...,
         description="Relationship type from user A to user B",
@@ -193,7 +193,7 @@ class UpdateRelationshipRequest(BaseDocumentedModel):
         description="Relationship type from user B to user A",
         example="child"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -207,7 +207,7 @@ class UpdateSpendingPermissionsRequest(BaseDocumentedModel):
     """
     Request model for updating family member spending permissions.
     """
-    
+
     user_id: str = Field(
         ...,
         description="User ID of the family member to update permissions for",
@@ -223,7 +223,7 @@ class UpdateSpendingPermissionsRequest(BaseDocumentedModel):
         description="Whether the user can spend from the family account",
         example=True
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -238,7 +238,7 @@ class FreezeAccountRequest(BaseDocumentedModel):
     """
     Request model for freezing or unfreezing the family SBD account.
     """
-    
+
     action: str = Field(
         ...,
         description="Action to take: 'freeze' or 'unfreeze'",
@@ -250,7 +250,7 @@ class FreezeAccountRequest(BaseDocumentedModel):
         description="Optional reason for the freeze action",
         example="Suspicious activity detected"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -259,7 +259,7 @@ class FreezeAccountRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
@@ -273,7 +273,7 @@ class CreateTokenRequestRequest(BaseDocumentedModel):
     """
     Request model for creating a token request from the family account.
     """
-    
+
     amount: int = Field(
         ...,
         gt=0,
@@ -286,7 +286,7 @@ class CreateTokenRequestRequest(BaseDocumentedModel):
         description="Reason for the token request",
         example="Need tokens for school supplies"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -300,7 +300,7 @@ class ReviewTokenRequestRequest(BaseDocumentedModel):
     """
     Request model for reviewing a token request (admin only).
     """
-    
+
     action: str = Field(
         ...,
         description="Action to take: 'approve' or 'deny'",
@@ -312,7 +312,7 @@ class ReviewTokenRequestRequest(BaseDocumentedModel):
         description="Optional comments from the admin",
         example="Approved for educational expenses"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -321,7 +321,7 @@ class ReviewTokenRequestRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
@@ -335,13 +335,13 @@ class AdminActionRequest(BaseDocumentedModel):
     """
     Request model for admin actions (promote/demote).
     """
-    
+
     action: str = Field(
         ...,
         description="Action to take: 'promote' or 'demote'",
         example="promote"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -349,7 +349,7 @@ class AdminActionRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
@@ -364,13 +364,13 @@ class BackupAdminRequest(BaseDocumentedModel):
     """
     Request model for backup admin designation/removal.
     """
-    
+
     action: str = Field(
         ...,
         description="Action to take: 'designate' or 'remove'",
         example="designate"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -378,7 +378,7 @@ class BackupAdminRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
@@ -393,7 +393,7 @@ class AdminActionsLogRequest(BaseDocumentedModel):
     """
     Request model for getting admin actions log.
     """
-    
+
     limit: int = Field(
         50,
         ge=1,
@@ -407,7 +407,7 @@ class AdminActionsLogRequest(BaseDocumentedModel):
         description="Number of records to skip",
         example=0
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -422,14 +422,14 @@ class InitiateRecoveryRequest(BaseDocumentedModel):
     """
     Request model for initiating account recovery.
     """
-    
+
     recovery_reason: str = Field(
         ...,
         max_length=500,
         description="Reason for initiating account recovery",
         example="All admin accounts have been compromised"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -443,7 +443,7 @@ class VerifyRecoveryRequest(BaseDocumentedModel):
     """
     Request model for verifying account recovery.
     """
-    
+
     verification_code: str = Field(
         ...,
         min_length=6,
@@ -451,7 +451,7 @@ class VerifyRecoveryRequest(BaseDocumentedModel):
         description="Verification code received via email or other method",
         example="ABC123"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -464,11 +464,11 @@ class VerifyRecoveryRequest(BaseDocumentedModel):
 class FamilyResponse(BaseDocumentedModel):
     """
     Response model for family information.
-    
+
     Contains comprehensive family details including member count,
     SBD account information, and user's role in the family.
     """
-    
+
     family_id: str = Field(
         ...,
         description="Unique family identifier",
@@ -518,7 +518,7 @@ class FamilyResponse(BaseDocumentedModel):
             "can_add_members": True
         }
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -546,10 +546,10 @@ class FamilyResponse(BaseDocumentedModel):
 class MemberPermissionsResponse(BaseDocumentedModel):
     """
     Response model for family member permissions.
-    
+
     Contains spending permissions and limits for a family member.
     """
-    
+
     can_spend: bool = Field(
         ...,
         description="Whether the member can spend from the family account",
@@ -570,7 +570,7 @@ class MemberPermissionsResponse(BaseDocumentedModel):
         description="Username of the admin who last updated permissions",
         example="jane_smith"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -586,7 +586,7 @@ class InvitationResponse(BaseDocumentedModel):
     """
     Response model for family invitation information.
     """
-    
+
     invitation_id: str = Field(
         ...,
         description="Unique invitation identifier",
@@ -632,7 +632,7 @@ class InvitationResponse(BaseDocumentedModel):
         description="UTC timestamp when the invitation was created",
         example="2024-01-01T12:00:00Z"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -653,11 +653,11 @@ class InvitationResponse(BaseDocumentedModel):
 class ReceivedInvitationResponse(BaseDocumentedModel):
     """
     Response model for invitations received by a user.
-    
+
     Used by GET /family/my-invitations endpoint to show invitations
     sent TO the current authenticated user.
     """
-    
+
     invitation_id: str = Field(
         ...,
         description="Unique invitation identifier",
@@ -708,7 +708,7 @@ class ReceivedInvitationResponse(BaseDocumentedModel):
         description="Optional token for email-based invitation acceptance",
         example="tok_xyz789abc123"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -730,7 +730,7 @@ class SBDAccountResponse(BaseDocumentedModel):
     """
     Response model for family SBD account information.
     """
-    
+
     account_username: str = Field(
         ...,
         description="Virtual account username for the family",
@@ -777,7 +777,7 @@ class SBDAccountResponse(BaseDocumentedModel):
             }
         ]
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -811,7 +811,7 @@ class TokenRequestResponse(BaseDocumentedModel):
     """
     Response model for token request information.
     """
-    
+
     request_id: str = Field(
         ...,
         description="Unique token request identifier",
@@ -867,7 +867,7 @@ class TokenRequestResponse(BaseDocumentedModel):
         description="Comments from the admin who reviewed the request",
         example="Approved for educational expenses"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -888,7 +888,7 @@ class NotificationResponse(BaseDocumentedModel):
     """
     Response model for family notification information.
     """
-    
+
     notification_id: str = Field(
         ...,
         description="Unique notification identifier",
@@ -934,7 +934,7 @@ class NotificationResponse(BaseDocumentedModel):
         description="Whether the current user has read this notification",
         example=False
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -959,7 +959,7 @@ class AdminActionResponse(BaseDocumentedModel):
     """
     Response model for admin promotion/demotion actions.
     """
-    
+
     family_id: str = Field(
         ...,
         description="Family identifier",
@@ -1010,7 +1010,7 @@ class AdminActionResponse(BaseDocumentedModel):
         description="Whether the operation was performed with transaction safety",
         example=True
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1033,7 +1033,7 @@ class BackupAdminResponse(BaseDocumentedModel):
     """
     Response model for backup admin designation/removal.
     """
-    
+
     family_id: str = Field(
         ...,
         description="Family identifier",
@@ -1084,7 +1084,7 @@ class BackupAdminResponse(BaseDocumentedModel):
         description="Whether the operation was performed with transaction safety",
         example=True
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1107,7 +1107,7 @@ class AdminActionLogEntry(BaseDocumentedModel):
     """
     Model for individual admin action log entry.
     """
-    
+
     action_id: str = Field(
         ...,
         description="Unique action identifier",
@@ -1163,7 +1163,7 @@ class AdminActionLogEntry(BaseDocumentedModel):
         description="User agent string from the request",
         example="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1187,7 +1187,7 @@ class AdminActionsLogResponse(BaseDocumentedModel):
     """
     Response model for admin actions log.
     """
-    
+
     family_id: str = Field(
         ...,
         description="Family identifier",
@@ -1208,7 +1208,7 @@ class AdminActionsLogResponse(BaseDocumentedModel):
             "has_more": False
         }
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1241,7 +1241,7 @@ class AdminActionsLogResponse(BaseDocumentedModel):
 
 class FamilyUsageStats(BaseModel):
     """Model for detailed family usage statistics."""
-    
+
     family_id: str = Field(..., description="Family identifier")
     name: str = Field(..., description="Family name")
     member_count: int = Field(..., description="Current member count")
@@ -1255,7 +1255,7 @@ class FamilyUsageStats(BaseModel):
 
 class FamilyLimitStatus(BaseModel):
     """Model for family limit status and enforcement."""
-    
+
     limit_type: str = Field(..., description="Type of limit (families, members)")
     current_usage: int = Field(..., description="Current usage count")
     max_allowed: int = Field(..., description="Maximum allowed count")
@@ -1268,7 +1268,7 @@ class FamilyLimitStatus(BaseModel):
 
 class BillingUsageMetrics(BaseModel):
     """Model for billing-related usage metrics."""
-    
+
     period_start: datetime = Field(..., description="Start of tracking period")
     period_end: datetime = Field(..., description="End of tracking period")
     peak_families: int = Field(..., description="Peak number of families in period")
@@ -1284,7 +1284,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
     """
     Enhanced response model for family limits and usage information with billing integration.
     """
-    
+
     max_families_allowed: int = Field(
         ...,
         description="Maximum number of families the user can create or join",
@@ -1357,7 +1357,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
             "upgrade_url": "/billing/upgrade"
         }
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1416,10 +1416,10 @@ class FamilyLimitsResponse(BaseDocumentedModel):
 class FamilyDocument(BaseModel):
     """
     Database document model for families collection.
-    
+
     Represents the complete family document structure stored in MongoDB.
     """
-    
+
     family_id: str = Field(..., description="Unique family identifier")
     name: str = Field(..., description="Family name")
     admin_user_ids: List[str] = Field(..., description="List of admin user IDs")
@@ -1427,7 +1427,7 @@ class FamilyDocument(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     member_count: int = Field(default=1, description="Cached member count")
     is_active: bool = Field(default=True, description="Soft delete flag")
-    
+
     # SBD account information
     sbd_account: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -1445,7 +1445,7 @@ class FamilyDocument(BaseModel):
         },
         description="SBD account configuration"
     )
-    
+
     # Family settings
     settings: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -1456,7 +1456,7 @@ class FamilyDocument(BaseModel):
         },
         description="Family configuration settings"
     )
-    
+
     # Succession planning
     succession_plan: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -1470,7 +1470,7 @@ class FamilyRelationshipDocument(BaseModel):
     """
     Database document model for family_relationships collection.
     """
-    
+
     relationship_id: str = Field(..., description="Unique relationship identifier")
     family_id: str = Field(..., description="Reference to family")
     user_a_id: str = Field(..., description="First user in relationship")
@@ -1487,7 +1487,7 @@ class FamilyInvitationDocument(BaseModel):
     """
     Database document model for family_invitations collection.
     """
-    
+
     invitation_id: str = Field(..., description="Unique invitation identifier")
     family_id: str = Field(..., description="Target family")
     inviter_user_id: str = Field(..., description="User sending invitation")
@@ -1506,7 +1506,7 @@ class FamilyNotificationDocument(BaseModel):
     """
     Database document model for family_notifications collection.
     """
-    
+
     notification_id: str = Field(..., description="Unique notification identifier")
     family_id: str = Field(..., description="Target family")
     recipient_user_ids: List[str] = Field(..., description="Users to notify")
@@ -1523,7 +1523,7 @@ class FamilyTokenRequestDocument(BaseModel):
     """
     Database document model for family_token_requests collection.
     """
-    
+
     request_id: str = Field(..., description="Unique request identifier")
     family_id: str = Field(..., description="Target family")
     requester_user_id: str = Field(..., description="User requesting tokens")
@@ -1541,7 +1541,7 @@ class FamilyTokenRequestDocument(BaseModel):
 # User collection updates for family support
 class FamilyLimits(BaseModel):
     """Model for family limits in user documents."""
-    
+
     max_families_allowed: int = Field(default=1, description="Maximum families user can join")
     max_members_per_family: int = Field(default=5, description="Maximum members per family for admin")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
@@ -1549,7 +1549,7 @@ class FamilyLimits(BaseModel):
 
 class FamilyMembership(BaseModel):
     """Model for family membership in user documents."""
-    
+
     family_id: str = Field(..., description="Family identifier")
     role: str = Field(..., description="Role in family: admin or member")
     joined_at: datetime = Field(default_factory=datetime.utcnow, description="Join timestamp")
@@ -1564,7 +1564,7 @@ class FamilyMembership(BaseModel):
 
 class FamilyNotificationPreferences(BaseModel):
     """Model for family notification preferences in user documents."""
-    
+
     unread_count: int = Field(default=0, description="Unread notification count")
     last_checked: Optional[datetime] = Field(None, description="Last check timestamp")
     preferences: Dict[str, bool] = Field(
@@ -1580,7 +1580,7 @@ class FamilyNotificationPreferences(BaseModel):
 # Notification request models
 class MarkNotificationsReadRequest(BaseModel):
     """Request model for marking notifications as read."""
-    
+
     notification_ids: List[str] = Field(
         ...,
         description="List of notification IDs to mark as read",
@@ -1590,7 +1590,7 @@ class MarkNotificationsReadRequest(BaseModel):
 
 class UpdateNotificationPreferencesRequest(BaseModel):
     """Request model for updating notification preferences."""
-    
+
     preferences: Dict[str, bool] = Field(
         ...,
         description="Notification preference settings",
@@ -1604,7 +1604,7 @@ class UpdateNotificationPreferencesRequest(BaseModel):
 
 class NotificationListResponse(BaseDocumentedModel):
     """Response model for notification list with pagination."""
-    
+
     notifications: List[NotificationResponse] = Field(
         ...,
         description="List of notifications"
@@ -1637,7 +1637,7 @@ class NotificationListResponse(BaseDocumentedModel):
 
 class NotificationPreferencesResponse(BaseDocumentedModel):
     """Response model for notification preferences."""
-    
+
     preferences: Dict[str, bool] = Field(
         ...,
         description="Current notification preferences",
@@ -1664,10 +1664,10 @@ class NotificationPreferencesResponse(BaseDocumentedModel):
 class InviteMemberRequest(BaseDocumentedModel):
     """
     Enhanced request model for inviting a family member.
-    
+
     Supports both email and username identification with proper validation.
     """
-    
+
     identifier: str = Field(
         ...,
         description="Email address or username of the user to invite",
@@ -1683,7 +1683,7 @@ class InviteMemberRequest(BaseDocumentedModel):
         description="Type of identifier: 'email' or 'username'",
         example="email"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1693,7 +1693,7 @@ class InviteMemberRequest(BaseDocumentedModel):
             }
         }
     }
-    
+
     @field_validator("relationship_type")
     @classmethod
     def validate_relationship_type(cls, v: str) -> str:
@@ -1702,7 +1702,7 @@ class InviteMemberRequest(BaseDocumentedModel):
             logger.error("Invalid relationship type: %s", v)
             raise ValueError(f"Relationship type must be one of: {list(RELATIONSHIP_TYPES.keys())}")
         return v.lower()
-    
+
     @field_validator("identifier_type")
     @classmethod
     def validate_identifier_type(cls, v: str) -> str:
@@ -1717,13 +1717,13 @@ class MarkNotificationsReadRequest(BaseDocumentedModel):
     """
     Request model for marking notifications as read.
     """
-    
+
     notification_ids: List[str] = Field(
         ...,
         description="List of notification IDs to mark as read",
         example=["not_1234567890abcdef", "not_abcdef1234567890"]
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1737,7 +1737,7 @@ class UpdateNotificationPreferencesRequest(BaseDocumentedModel):
     """
     Request model for updating notification preferences.
     """
-    
+
     email_notifications: Optional[bool] = Field(
         None,
         description="Enable/disable email notifications",
@@ -1753,7 +1753,7 @@ class UpdateNotificationPreferencesRequest(BaseDocumentedModel):
         description="Enable/disable SMS notifications",
         example=False
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1771,7 +1771,7 @@ class NotificationListResponse(BaseDocumentedModel):
     """
     Response model for paginated notification list.
     """
-    
+
     notifications: List[NotificationResponse] = Field(
         ...,
         description="List of notifications",
@@ -1792,7 +1792,7 @@ class NotificationListResponse(BaseDocumentedModel):
         description="Total unread notification count",
         example=5
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1813,7 +1813,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
     """
     Response model for family limits and usage information.
     """
-    
+
     max_families_allowed: int = Field(
         ...,
         description="Maximum number of families user can create/join",
@@ -1851,7 +1851,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
         description="Whether upgrade is needed for more families",
         example=False
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1876,7 +1876,7 @@ class RecoveryInitiationResponse(BaseDocumentedModel):
     """
     Response model for account recovery initiation.
     """
-    
+
     recovery_id: str = Field(
         ...,
         description="Unique recovery request identifier",
@@ -1912,7 +1912,7 @@ class RecoveryInitiationResponse(BaseDocumentedModel):
         description="Whether the operation was performed with transaction safety",
         example=True
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1932,7 +1932,7 @@ class RecoveryVerificationResponse(BaseDocumentedModel):
     """
     Response model for account recovery verification.
     """
-    
+
     recovery_id: str = Field(
         ...,
         description="Recovery request identifier",
@@ -1978,7 +1978,7 @@ class RecoveryVerificationResponse(BaseDocumentedModel):
         description="Whether the operation was performed with transaction safety",
         example=True
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1999,32 +1999,32 @@ class RecoveryVerificationResponse(BaseDocumentedModel):
 class ModifyRelationshipRequest(BaseDocumentedModel):
     """
     Request model for modifying family relationship types.
-    
+
     This model validates the request to change the relationship type between
     two family members. Only family administrators can modify relationships.
     """
-    
+
     user_a_id: str = Field(
         ...,
         description="ID of the first user in the relationship",
         min_length=1,
         max_length=100
     )
-    
+
     user_b_id: str = Field(
         ...,
-        description="ID of the second user in the relationship", 
+        description="ID of the second user in the relationship",
         min_length=1,
         max_length=100
     )
-    
+
     new_relationship_type: str = Field(
         ...,
         description="New relationship type from user_a's perspective",
         min_length=1,
         max_length=50
     )
-    
+
     @field_validator('new_relationship_type')
     @classmethod
     def validate_relationship_type(cls, v: str) -> str:
@@ -2032,7 +2032,7 @@ class ModifyRelationshipRequest(BaseDocumentedModel):
         if v not in RELATIONSHIP_TYPES:
             raise ValueError(f"Invalid relationship type. Must be one of: {list(RELATIONSHIP_TYPES.keys())}")
         return v
-    
+
     @field_validator('user_a_id', 'user_b_id')
     @classmethod
     def validate_user_ids_different(cls, v: str, info) -> str:
@@ -2048,7 +2048,7 @@ class ModifyRelationshipRequest(BaseDocumentedModel):
         json_schema_extra = {
             "example": {
                 "user_a_id": "user_1234567890abcdef",
-                "user_b_id": "user_fedcba0987654321", 
+                "user_b_id": "user_fedcba0987654321",
                 "new_relationship_type": "sibling"
             }
         }
@@ -2058,56 +2058,56 @@ class ModifyRelationshipRequest(BaseDocumentedModel):
 class ModifyRelationshipResponse(BaseDocumentedModel):
     """
     Response model for relationship modification results.
-    
+
     This model provides comprehensive information about the relationship
     modification including the old and new relationship types.
     """
-    
+
     relationship_id: str = Field(
         ...,
         description="Unique identifier for the relationship"
     )
-    
+
     family_id: str = Field(
         ...,
         description="ID of the family containing the relationship"
     )
-    
+
     user_a_id: str = Field(
         ...,
         description="ID of the first user in the relationship"
     )
-    
+
     user_b_id: str = Field(
         ...,
         description="ID of the second user in the relationship"
     )
-    
+
     old_relationship_type: str = Field(
         ...,
         description="Previous relationship type from user_a's perspective"
     )
-    
+
     new_relationship_type: str = Field(
         ...,
         description="New relationship type from user_a's perspective"
     )
-    
+
     new_reciprocal_type: str = Field(
         ...,
         description="New reciprocal relationship type from user_b's perspective"
     )
-    
+
     modified_by: str = Field(
         ...,
         description="ID of the admin who modified the relationship"
     )
-    
+
     modified_at: datetime = Field(
         ...,
         description="Timestamp when the relationship was modified"
     )
-    
+
     transaction_safe: bool = Field(
         ...,
         description="Whether the operation was completed with transaction safety"
@@ -2134,46 +2134,46 @@ class ModifyRelationshipResponse(BaseDocumentedModel):
 class RelationshipDetailsResponse(BaseDocumentedModel):
     """
     Response model for detailed relationship information.
-    
+
     This model provides comprehensive information about a family relationship
     including both users' perspectives and metadata.
     """
-    
+
     relationship_id: str = Field(
         ...,
         description="Unique identifier for the relationship"
     )
-    
+
     family_id: str = Field(
         ...,
         description="ID of the family containing the relationship"
     )
-    
+
     user_a: Dict[str, Any] = Field(
         ...,
         description="Information about the first user including username and relationship type"
     )
-    
+
     user_b: Dict[str, Any] = Field(
         ...,
         description="Information about the second user including username and relationship type"
     )
-    
+
     status: str = Field(
         ...,
         description="Status of the relationship (active, pending, etc.)"
     )
-    
+
     created_by: str = Field(
         ...,
         description="ID of the user who created the relationship"
     )
-    
+
     created_at: datetime = Field(
         ...,
         description="Timestamp when the relationship was created"
     )
-    
+
     updated_at: datetime = Field(
         ...,
         description="Timestamp when the relationship was last updated"
@@ -2191,7 +2191,7 @@ class RelationshipDetailsResponse(BaseDocumentedModel):
                     "relationship_type": "parent"
                 },
                 "user_b": {
-                    "user_id": "user_fedcba0987654321", 
+                    "user_id": "user_fedcba0987654321",
                     "username": "jane_doe",
                     "relationship_type": "child"
                 },
@@ -2208,7 +2208,7 @@ class UpdateFamilyLimitsRequest(BaseDocumentedModel):
     """
     Request model for updating user family limits (admin/billing system use).
     """
-    
+
     max_families_allowed: Optional[int] = Field(
         None,
         ge=0,
@@ -2232,7 +2232,7 @@ class UpdateFamilyLimitsRequest(BaseDocumentedModel):
         ge=0,
         description="Grace period in days for limit downgrades"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -2250,7 +2250,7 @@ class FamilyUsageTrackingRequest(BaseDocumentedModel):
     """
     Request model for querying family usage tracking data.
     """
-    
+
     start_date: Optional[datetime] = Field(
         None,
         description="Start date for usage tracking query"
@@ -2267,7 +2267,7 @@ class FamilyUsageTrackingRequest(BaseDocumentedModel):
         "daily",
         description="Granularity of usage data (daily, weekly, monthly)"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -2284,7 +2284,7 @@ class UpdateFamilyLimitsResponse(BaseDocumentedModel):
     """
     Response model for family limits update operations.
     """
-    
+
     user_id: str = Field(..., description="User ID whose limits were updated")
     previous_limits: Dict[str, Any] = Field(..., description="Previous limit values")
     new_limits: Dict[str, Any] = Field(..., description="New limit values")
@@ -2293,7 +2293,7 @@ class UpdateFamilyLimitsResponse(BaseDocumentedModel):
     updated_by: str = Field(..., description="Who updated the limits")
     updated_at: datetime = Field(..., description="When the update was performed")
     audit_log_id: str = Field(..., description="Audit log entry ID")
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -2320,14 +2320,14 @@ class FamilyUsageTrackingResponse(BaseDocumentedModel):
     """
     Response model for family usage tracking data.
     """
-    
+
     user_id: str = Field(..., description="User ID for the usage data")
     period_start: datetime = Field(..., description="Start of tracking period")
     period_end: datetime = Field(..., description="End of tracking period")
     usage_data: List[Dict[str, Any]] = Field(..., description="Usage data points")
     billing_metrics: Optional[BillingUsageMetrics] = Field(None, description="Billing metrics")
     summary: Dict[str, Any] = Field(..., description="Usage summary")
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -2366,7 +2366,7 @@ class FamilyUsageTrackingResponse(BaseDocumentedModel):
 
 class UsageDataPoint(BaseModel):
     """Model for individual usage data points."""
-    
+
     date: datetime = Field(..., description="Date of the usage data point")
     families_count: int = Field(..., description="Number of families on this date")
     total_members: int = Field(..., description="Total members across all families")
@@ -2376,7 +2376,7 @@ class UsageDataPoint(BaseModel):
 
 class UsageTrackingSummary(BaseModel):
     """Model for usage tracking summary statistics."""
-    
+
     total_families_created: int = Field(..., description="Total families created in period")
     total_members_added: int = Field(..., description="Total members added in period")
     peak_usage_day: Optional[str] = Field(None, description="Date with highest usage")
@@ -2389,40 +2389,40 @@ class UsageTrackingSummary(BaseModel):
 class UsageTrackingResponse(BaseDocumentedModel):
     """
     Response model for family usage tracking data.
-    
+
     Provides comprehensive usage metrics for billing integration and analytics.
     """
-    
+
     user_id: str = Field(..., description="User ID for the tracking data")
     period_start: datetime = Field(..., description="Start of tracking period")
     period_end: datetime = Field(..., description="End of tracking period")
     granularity: str = Field(..., description="Data granularity (daily, weekly, monthly)")
-    
+
     usage_data: List[UsageDataPoint] = Field(
         ...,
         description="Usage data points for the specified period"
     )
-    
+
     billing_metrics: BillingUsageMetrics = Field(
         ...,
         description="Billing-related usage metrics"
     )
-    
+
     summary: UsageTrackingSummary = Field(
         ...,
         description="Summary statistics for the tracking period"
     )
-    
+
     current_limits: Dict[str, Any] = Field(
         ...,
         description="Current user limits for context"
     )
-    
+
     recommendations: List[str] = Field(
         default_factory=list,
         description="Usage-based recommendations"
     )
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -2475,7 +2475,7 @@ class UsageTrackingResponse(BaseDocumentedModel):
 
 class LimitEnforcementStatus(BaseModel):
     """Model for individual limit enforcement status."""
-    
+
     limit_type: str = Field(..., description="Type of limit being enforced")
     is_enforced: bool = Field(..., description="Whether limit is currently enforced")
     current_value: int = Field(..., description="Current usage value")
@@ -2488,7 +2488,7 @@ class LimitEnforcementStatus(BaseModel):
 
 class FamilyValidationResult(BaseModel):
     """Model for family validation against limits."""
-    
+
     family_id: str = Field(..., description="Family identifier")
     family_name: str = Field(..., description="Family name")
     is_compliant: bool = Field(..., description="Whether family is compliant with limits")
@@ -2501,41 +2501,41 @@ class FamilyValidationResult(BaseModel):
 class LimitEnforcementResponse(BaseDocumentedModel):
     """
     Response model for limit enforcement status.
-    
+
     Provides detailed information about current limit enforcement and compliance.
     """
-    
+
     user_id: str = Field(..., description="User ID")
     overall_compliance: bool = Field(..., description="Overall compliance status")
     enforcement_active: bool = Field(..., description="Whether enforcement is active")
-    
+
     limit_statuses: List[LimitEnforcementStatus] = Field(
         ...,
         description="Status for each type of limit"
     )
-    
+
     family_validations: List[FamilyValidationResult] = Field(
         ...,
         description="Validation results for each family"
     )
-    
+
     grace_periods: Dict[str, Any] = Field(
         ...,
         description="Active grace periods information"
     )
-    
+
     compliance_summary: Dict[str, Any] = Field(
         ...,
         description="Summary of compliance status"
     )
-    
+
     recommendations: List[str] = Field(
         default_factory=list,
         description="Compliance recommendations"
     )
-    
+
     last_updated: datetime = Field(..., description="When status was last updated")
-    
+
     model_config = {
         "json_schema_extra": {
             "example": {

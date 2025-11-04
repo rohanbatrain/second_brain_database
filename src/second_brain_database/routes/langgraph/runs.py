@@ -68,7 +68,7 @@ async def stream_graph_events(
     checkpointer
 ) -> AsyncIterator[str]:
     """Stream events from graph execution.
-    
+
     Note: LangGraph functionality disabled.
     """
     # This function is disabled
@@ -84,7 +84,7 @@ async def create_run(
     orchestrator: Any = Depends(get_orchestrator)
 ):
     """Create and execute a run with streaming support.
-    
+
     Note: LangGraph functionality is currently disabled.
     """
     raise HTTPException(
@@ -101,7 +101,7 @@ async def get_run_status(
     redis: RedisManager = Depends(get_redis_manager)
 ):
     """Get the status of a specific run.
-    
+
     Returns information about run execution including status,
     timing, and any errors.
     """
@@ -109,33 +109,33 @@ async def get_run_status(
         # Verify thread access
         thread_key = f"thread:{thread_id}"
         thread_data = redis.client.get(thread_key)
-        
+
         if not thread_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Thread {thread_id} not found"
             )
-        
+
         thread_dict = json.loads(thread_data)
         if thread_dict.get("metadata", {}).get("user_id") != str(current_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied to this thread"
             )
-        
+
         # Get run status
         run_key = f"run:{run_id}"
         run_data = redis.client.get(run_key)
-        
+
         if not run_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Run {run_id} not found"
             )
-        
+
         run_dict = json.loads(run_data)
         return RunStatus(**run_dict)
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -154,7 +154,7 @@ async def cancel_run(
     redis: RedisManager = Depends(get_redis_manager)
 ):
     """Cancel a running execution.
-    
+
     Note: This is a placeholder. Actual cancellation requires
     implementing graph interruption logic.
     """
@@ -162,52 +162,52 @@ async def cancel_run(
         # Verify access
         thread_key = f"thread:{thread_id}"
         thread_data = redis.client.get(thread_key)
-        
+
         if not thread_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Thread {thread_id} not found"
             )
-        
+
         thread_dict = json.loads(thread_data)
         if thread_dict.get("metadata", {}).get("user_id") != str(current_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied to this thread"
             )
-        
+
         # Update run status
         run_key = f"run:{run_id}"
         run_data = redis.client.get(run_key)
-        
+
         if not run_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Run {run_id} not found"
             )
-        
+
         run_dict = json.loads(run_data)
         run_status = RunStatus(**run_dict)
-        
+
         if run_status.status != "running":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel run with status: {run_status.status}"
             )
-        
+
         # Mark as cancelled
         run_status.status = "cancelled"
         run_status.completed_at = datetime.utcnow()
-        
+
         redis.client.setex(
             run_key,
             3600,
             json.dumps(run_status.dict(), default=str)
         )
-        
+
         logger.info(f"Cancelled run {run_id}")
         return {"status": "cancelled"}
-        
+
     except HTTPException:
         raise
     except Exception as e:

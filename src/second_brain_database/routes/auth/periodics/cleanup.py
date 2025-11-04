@@ -763,23 +763,23 @@ async def set_last_temporary_access_tokens_cleanup_time(dt: datetime) -> None:
 async def periodic_temporary_access_tokens_cleanup() -> None:
     """
     Periodically remove expired temporary access tokens from user documents.
-    
+
     This cleanup process removes expired "allow once" tokens for both IP and User Agent lockdown
     from user documents to prevent accumulation of stale data.
     """
     interval = 3600  # Run every hour (temporary tokens have short expiration)
     logger.info("Starting periodic temporary access tokens cleanup task (interval: %ds)", interval)
-    
+
     while True:
         try:
             users = db_manager.get_collection("users")
             now_dt = datetime.utcnow()
             now = now_dt.isoformat()
             last_cleanup = await get_last_temporary_access_tokens_cleanup_time()
-            
+
             if not last_cleanup or (now_dt - last_cleanup).total_seconds() >= interval:
                 cleanup_count = 0
-                
+
                 # Find users with temporary access tokens or bypasses
                 query = {
                     "$or": [
@@ -788,11 +788,11 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                         {"temporary_ip_bypasses": {"$exists": True, "$ne": []}}
                     ]
                 }
-                
+
                 async for user in users.find(query):
                     user_updated = False
                     update_fields = {}
-                    
+
                     # Clean up expired IP access tokens
                     ip_tokens = user.get("temporary_ip_access_tokens", [])
                     if ip_tokens:
@@ -800,7 +800,7 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                         if len(filtered_ip_tokens) != len(ip_tokens):
                             update_fields["temporary_ip_access_tokens"] = filtered_ip_tokens
                             user_updated = True
-                    
+
                     # Clean up expired User Agent access tokens
                     ua_tokens = user.get("temporary_user_agent_access_tokens", [])
                     if ua_tokens:
@@ -808,7 +808,7 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                         if len(filtered_ua_tokens) != len(ua_tokens):
                             update_fields["temporary_user_agent_access_tokens"] = filtered_ua_tokens
                             user_updated = True
-                    
+
                     # Clean up expired IP bypasses
                     ip_bypasses = user.get("temporary_ip_bypasses", [])
                     if ip_bypasses:
@@ -816,7 +816,7 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                         if len(filtered_ip_bypasses) != len(ip_bypasses):
                             update_fields["temporary_ip_bypasses"] = filtered_ip_bypasses
                             user_updated = True
-                    
+
                     # Update user document if any tokens were expired
                     if user_updated:
                         await users.update_one({"_id": user["_id"]}, {"$set": update_fields})
@@ -826,12 +826,12 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                             user.get("username", "unknown"),
                             user.get("_id"),
                         )
-                
+
                 if cleanup_count > 0:
                     logger.info("Temporary access tokens cleanup completed: cleaned up %d users", cleanup_count)
                 else:
                     logger.debug("No temporary access tokens cleanup actions needed this cycle.")
-                    
+
                 await set_last_temporary_access_tokens_cleanup_time(now_dt)
             else:
                 logger.debug(

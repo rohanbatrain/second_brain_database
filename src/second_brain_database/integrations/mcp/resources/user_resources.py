@@ -22,20 +22,20 @@ logger = get_logger(prefix="[MCP_UserResources]")
 async def get_user_profile_resource(user_id: str) -> str:
     """
     Get user profile information as a resource.
-    
+
     Args:
         user_id: The ID of the user to get profile for
-        
+
     Returns:
         JSON string containing user profile information
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Validate user access (users can only access their own profile unless admin)
         if user_context.user_id != user_id and user_context.role != "admin":
             raise MCPAuthorizationError(f"Access denied to user profile {user_id}")
-        
+
         # Mock user profile data - replace with actual user manager integration
         profile = {
             "user_id": user_id,
@@ -54,13 +54,13 @@ async def get_user_profile_resource(user_id: str) -> str:
                 "total_sbd_tokens": 100
             }
         }
-        
+
         result = {
             "profile": profile,
             "resource_type": "user_profile",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_user_profile_resource",
             user_context=user_context,
@@ -68,9 +68,9 @@ async def get_user_profile_resource(user_id: str) -> str:
             resource_id=user_id,
             metadata={"profile_accessed": True}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get user profile resource for %s: %s", user_id, e)
         return json.dumps({"error": f"Failed to retrieve user profile: {str(e)}"}, indent=2)
@@ -80,13 +80,13 @@ async def get_user_profile_resource(user_id: str) -> str:
 async def get_current_user_preferences_resource() -> str:
     """
     Get current user preferences as a resource.
-    
+
     Returns:
         JSON string containing user preferences
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Mock preferences data - replace with actual user manager integration
         preferences = {
             "user_id": user_context.user_id,
@@ -103,13 +103,13 @@ async def get_current_user_preferences_resource() -> str:
                 "activity_tracking": True
             }
         }
-        
+
         result = {
             "preferences": preferences,
             "resource_type": "user_preferences",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_current_user_preferences_resource",
             user_context=user_context,
@@ -117,9 +117,9 @@ async def get_current_user_preferences_resource() -> str:
             resource_id=user_context.user_id,
             metadata={"preferences_accessed": True}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get user preferences resource: %s", e)
         return json.dumps({"error": f"Failed to retrieve user preferences: {str(e)}"}, indent=2)

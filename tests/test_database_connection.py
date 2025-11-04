@@ -15,13 +15,13 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 async def test_database_connection():
     """Test database connection and provide diagnostics."""
     print("🔍 Testing database connection...")
-    
+
     try:
         # Test 1: Import database manager
         print("1. Importing database manager...")
         from second_brain_database.database import db_manager
         print("   ✅ Database manager imported successfully")
-        
+
         # Test 2: Connect to database
         print("2. Connecting to database...")
         try:
@@ -34,7 +34,7 @@ async def test_database_connection():
         except Exception as e:
             print(f"   ❌ Database connection error: {e}")
             return False
-        
+
         # Test 3: Check if database is healthy
         print("3. Checking database health...")
         try:
@@ -47,7 +47,7 @@ async def test_database_connection():
         except Exception as e:
             print(f"   ❌ Database health check error: {e}")
             return False
-        
+
         # Test 4: Try to get a collection
         print("4. Testing collection access...")
         try:
@@ -56,7 +56,7 @@ async def test_database_connection():
         except Exception as e:
             print(f"   ❌ Collection access error: {e}")
             return False
-        
+
         # Test 5: Try a simple query
         print("5. Testing database query...")
         try:
@@ -66,7 +66,7 @@ async def test_database_connection():
         except Exception as e:
             print(f"   ❌ Query error: {e}")
             return False
-        
+
         # Test 6: Test MCP database integration
         print("6. Testing MCP database integration...")
         try:
@@ -80,10 +80,10 @@ async def test_database_connection():
         except Exception as e:
             print(f"   ❌ MCP database integration error: {e}")
             return False
-        
+
         print("\n🎉 All database tests passed!")
         return True
-        
+
     except Exception as e:
         print(f"❌ Database test failed: {e}")
         return False
@@ -92,14 +92,14 @@ async def test_database_connection():
 async def test_family_manager():
     """Test family manager initialization."""
     print("\n🔍 Testing family manager...")
-    
+
     try:
         # Import family manager
         from second_brain_database.managers.family_manager import FamilyManager
         from second_brain_database.database import db_manager
         from second_brain_database.managers.security_manager import security_manager
         from second_brain_database.managers.redis_manager import redis_manager
-        
+
         print("1. Creating family manager instance...")
         family_manager = FamilyManager(
             db_manager=db_manager,
@@ -107,7 +107,7 @@ async def test_family_manager():
             redis_manager=redis_manager
         )
         print("   ✅ Family manager created successfully")
-        
+
         # Test family limits check (this is where the error occurs)
         print("2. Testing family limits check...")
         try:
@@ -117,10 +117,10 @@ async def test_family_manager():
         except Exception as e:
             print(f"   ❌ Family limits check failed: {e}")
             return False
-        
+
         print("✅ Family manager tests passed!")
         return True
-        
+
     except Exception as e:
         print(f"❌ Family manager test failed: {e}")
         return False
@@ -130,14 +130,14 @@ async def main():
     """Main test function."""
     print("🚀 Database Connection Test Suite")
     print("=" * 50)
-    
+
     # Test database connection
     db_success = await test_database_connection()
-    
+
     if db_success:
         # Test family manager
         fm_success = await test_family_manager()
-        
+
         if fm_success:
             print("\n🎉 All tests passed! Database and family manager are working correctly.")
             print("\n💡 If MCP tools are still failing, the issue might be:")

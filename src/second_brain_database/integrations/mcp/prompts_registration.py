@@ -79,10 +79,10 @@ logger = get_logger(prefix="[MCP_Prompts_DEPRECATED]")
 def register_example_prompts():
     """
     DEPRECATED: Prompts are no longer registered from this module.
-    
+
     All production prompts are now registered from prompts/guidance_prompts.py
     which includes user context, database integration, and comprehensive guidance.
-    
+
     This function is kept for backwards compatibility but does nothing.
     """
     logger.warning("prompts_registration.py is DEPRECATED - use prompts/guidance_prompts.py instead")

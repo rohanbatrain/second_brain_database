@@ -104,41 +104,41 @@ class SecurityManager:
         request_ip = self.get_client_ip(request)
         request_user_agent = self.get_client_user_agent(request)
         endpoint = f"{request.method} {request.url.path}"
-        
+
         if not request_ip:
             self.logger.warning(
-                "IP lockdown: could not determine request IP for user %s, endpoint: %s, user_agent: %s", 
+                "IP lockdown: could not determine request IP for user %s, endpoint: %s, user_agent: %s",
                 user.get("_id"), endpoint, request_user_agent
             )
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail="Access denied: IP address not in trusted list (IP Lockdown enabled)"
             )
 
         trusted_ips = user.get("trusted_ips", [])
-        
+
         # Check if IP is in permanent trusted list
         if request_ip in trusted_ips:
             self.logger.debug(
-                "IP lockdown: IP %s is in trusted list for user %s, endpoint: %s, user_agent: %s", 
+                "IP lockdown: IP %s is in trusted list for user %s, endpoint: %s, user_agent: %s",
                 request_ip, user.get("_id"), endpoint, request_user_agent
             )
             return
-        
+
         # Check for temporary IP bypasses (allow once functionality)
         from datetime import datetime
         temporary_bypasses = user.get("temporary_ip_bypasses", [])
         current_time = datetime.utcnow().isoformat()
-        
+
         for bypass in temporary_bypasses:
-            if (bypass.get("ip_address") == request_ip and 
+            if (bypass.get("ip_address") == request_ip and
                 bypass.get("expires_at", "") > current_time):
                 self.logger.info(
-                    "IP lockdown: IP %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s", 
+                    "IP lockdown: IP %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s",
                     request_ip, user.get("_id"), endpoint, bypass.get("expires_at")
                 )
                 return
-        
+
         # IP is not trusted and has no valid bypass
         request_headers = dict(request.headers)
         self.logger.warning(
@@ -172,10 +172,10 @@ class SecurityManager:
         request_user_agent = self.get_client_user_agent(request)
         request_ip = self.get_client_ip(request)
         endpoint = f"{request.method} {request.url.path}"
-        
+
         if not request_user_agent:
             self.logger.warning(
-                "User Agent lockdown: could not determine request User Agent for user %s, endpoint: %s, ip: %s", 
+                "User Agent lockdown: could not determine request User Agent for user %s, endpoint: %s, ip: %s",
                 user.get("_id"), endpoint, request_ip
             )
             raise HTTPException(
@@ -184,29 +184,29 @@ class SecurityManager:
             )
 
         trusted_user_agents = user.get("trusted_user_agents", [])
-        
+
         # Check if User Agent is in permanent trusted list
         if request_user_agent in trusted_user_agents:
             self.logger.debug(
-                "User Agent lockdown: User Agent %s is in trusted list for user %s, endpoint: %s, ip: %s", 
+                "User Agent lockdown: User Agent %s is in trusted list for user %s, endpoint: %s, ip: %s",
                 request_user_agent, user.get("_id"), endpoint, request_ip
             )
             return
-        
+
         # Check for temporary User Agent bypasses (allow once functionality)
         from datetime import datetime
         temporary_bypasses = user.get("temporary_user_agent_bypasses", [])
         current_time = datetime.utcnow().isoformat()
-        
+
         for bypass in temporary_bypasses:
-            if (bypass.get("user_agent") == request_user_agent and 
+            if (bypass.get("user_agent") == request_user_agent and
                 bypass.get("expires_at", "") > current_time):
                 self.logger.info(
-                    "User Agent lockdown: User Agent %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s", 
+                    "User Agent lockdown: User Agent %s allowed via temporary bypass for user %s, endpoint: %s, expires: %s",
                     request_user_agent, user.get("_id"), endpoint, bypass.get("expires_at")
                 )
                 return
-        
+
         # User Agent is not trusted and has no valid bypass
         request_headers = dict(request.headers)
         self.logger.warning(
@@ -246,13 +246,13 @@ class SecurityManager:
         """
         redis_conn = await self.get_redis()
         await redis_conn.set(f"{self.env_prefix}:blacklist:{ip}", 1, ex=self.blacklist_duration)
-        
+
         if request:
             user_agent = self.get_client_user_agent(request)
             endpoint = f"{request.method} {request.url.path}"
             request_headers = dict(request.headers)
             self.logger.warning(
-                "IP %s has been blacklisted for %d seconds, endpoint: %s, user_agent: %s, headers: %s", 
+                "IP %s has been blacklisted for %d seconds, endpoint: %s, user_agent: %s, headers: %s",
                 ip, self.blacklist_duration, endpoint, user_agent, request_headers
             )
         else:
@@ -312,7 +312,7 @@ class SecurityManager:
             user_agent = self.get_client_user_agent(request)
             endpoint = f"{request.method} {request.url.path}"
             self.logger.warning(
-                "Blocked request from blacklisted IP: %s, endpoint: %s, user_agent: %s", 
+                "Blocked request from blacklisted IP: %s, endpoint: %s, user_agent: %s",
                 ip, endpoint, user_agent
             )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=BLACKLISTED_MSG)
@@ -360,7 +360,7 @@ class SecurityManager:
             endpoint = f"{request.method} {request.url.path}"
             request_headers = dict(request.headers)
             self.logger.error(
-                "IP %s has been blacklisted after %d abuses, endpoint: %s, user_agent: %s, headers: %s", 
+                "IP %s has been blacklisted after %d abuses, endpoint: %s, user_agent: %s, headers: %s",
                 ip, abuse_count, endpoint, user_agent, request_headers
             )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=BLACKLISTED_MSG)
@@ -369,7 +369,7 @@ class SecurityManager:
             endpoint = f"{request.method} {request.url.path}"
             request_headers = dict(request.headers)
             self.logger.warning(
-                "Rate limit exceeded for IP %s (action: %s). Abuse count: %d, endpoint: %s, user_agent: %s, headers: %s", 
+                "Rate limit exceeded for IP %s (action: %s). Abuse count: %d, endpoint: %s, user_agent: %s, headers: %s",
                 ip, action, abuse_count, endpoint, user_agent, request_headers
             )
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=RATE_LIMITED_MSG)

@@ -72,21 +72,21 @@ class MonitoringConfig:
 class ErrorHandlingConfig:
     """
     Centralized configuration for error handling and resilience systems.
-    
+
     This class provides configuration for all error handling components
     including circuit breakers, bulkheads, retry mechanisms, and monitoring.
     """
-    
+
     def __init__(self):
         self.monitoring = MonitoringConfig()
         self._load_from_settings()
-    
+
     def _load_from_settings(self):
         """Load configuration from application settings."""
         # Override defaults with settings if available
         if hasattr(settings, 'ERROR_HANDLING_CONFIG'):
             config = settings.ERROR_HANDLING_CONFIG
-            
+
             # Update monitoring config
             if 'monitoring' in config:
                 mon_config = config['monitoring']
@@ -97,7 +97,7 @@ class ErrorHandlingConfig:
                 self.monitoring.anomaly_detection_threshold = mon_config.get('anomaly_detection_threshold', self.monitoring.anomaly_detection_threshold)
                 self.monitoring.alert_cooldown_minutes = mon_config.get('alert_cooldown_minutes', self.monitoring.alert_cooldown_minutes)
                 self.monitoring.escalation_delay_minutes = mon_config.get('escalation_delay_minutes', self.monitoring.escalation_delay_minutes)
-    
+
     def get_circuit_breaker_config(self, service_name: str) -> CircuitBreakerConfig:
         """Get circuit breaker configuration for a specific service."""
         # Predefined configurations for different services
@@ -139,14 +139,14 @@ class ErrorHandlingConfig:
                 profile=CircuitBreakerProfile.AGGRESSIVE
             )
         }
-        
+
         # Return specific config or default
         return service_configs.get(service_name, CircuitBreakerConfig(
             failure_threshold=5,
             recovery_timeout=60,
             profile=CircuitBreakerProfile.BALANCED
         ))
-    
+
     def get_bulkhead_config(self, resource_name: str) -> BulkheadConfig:
         """Get bulkhead configuration for a specific resource."""
         # Predefined configurations for different resources
@@ -160,13 +160,13 @@ class ErrorHandlingConfig:
             "file_uploads": BulkheadConfig(capacity=3, timeout=60.0),
             "external_api_calls": BulkheadConfig(capacity=12, timeout=30.0)
         }
-        
+
         # Return specific config or default
         return resource_configs.get(resource_name, BulkheadConfig(
             capacity=10,
             timeout=5.0
         ))
-    
+
     def get_retry_config(self, operation_type: str) -> RetryConfig:
         """Get retry configuration for a specific operation type."""
         # Predefined configurations for different operation types
@@ -242,7 +242,7 @@ class ErrorHandlingConfig:
                 profile=RetryProfile.CRITICAL
             )
         }
-        
+
         # Return specific config or default
         return operation_configs.get(operation_type, RetryConfig(
             max_attempts=3,
@@ -252,7 +252,7 @@ class ErrorHandlingConfig:
             strategy="exponential_backoff",
             profile=RetryProfile.STANDARD
         ))
-    
+
     def get_timeout_config(self, operation_type: str) -> float:
         """Get timeout configuration for a specific operation type."""
         # Predefined timeouts for different operation types (in seconds)
@@ -272,10 +272,10 @@ class ErrorHandlingConfig:
             "backup_operation": 600.0,  # 10 minutes
             "maintenance_task": 1800.0  # 30 minutes
         }
-        
+
         # Return specific timeout or default
         return timeout_configs.get(operation_type, 30.0)
-    
+
     def get_fallback_config(self, operation_type: str) -> Dict[str, Any]:
         """Get fallback configuration for graceful degradation."""
         # Predefined fallback configurations
@@ -311,7 +311,7 @@ class ErrorHandlingConfig:
                 "available_features": []
             }
         }
-        
+
         # Return specific config or default
         return fallback_configs.get(operation_type, {
             "enabled": True,
@@ -319,7 +319,7 @@ class ErrorHandlingConfig:
             "degraded_features": ["advanced_features"],
             "available_features": ["basic_operations"]
         })
-    
+
     def get_alerting_config(self) -> Dict[str, Any]:
         """Get alerting and escalation configuration."""
         return {

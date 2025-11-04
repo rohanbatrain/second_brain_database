@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""
+Example usage of LangGraph integration with Second Brain Database
+
+This example shows how to use the LangGraph family agent to perform
+family management tasks using existing MCP tools.
+"""
+
+import asyncio
+import sys
+from pathlib import Path
+
+# Add the src directory to the path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from second_brain_database.integrations.langgraph.agents.family_agent import create_family_agent
+
+async def main():
+    """Example usage of LangGraph family agent."""
+    
+    print("🤖 LangGraph Family Agent Example")
+    print("=" * 50)
+    
+    # Mock user context (in real usage, this comes from authentication)
+    user_context = {
+        "user_id": "example_user_123",
+        "username": "john_doe",
+        "email": "john@example.com",
+        "role": "user",
+        "permissions": ["family:read", "family:create", "family:manage"],
+        "family_memberships": [],
+        "workspaces": [],
+        "ip_address": "127.0.0.1",
+        "user_agent": "LangGraph-Example"
+    }
+    
+    # Create family agent
+    print("Creating family agent...")
+    try:
+        agent = create_family_agent(user_context)
+        print("✅ Family agent created successfully")
+    except Exception as e:
+        print(f"❌ Failed to create agent: {e}")
+        print("💡 Make sure you have OpenAI API key set or configure Ollama")
+        return
+    
+    # Example conversations
+    examples = [
+        "I want to create a new family",
+        "Can you check my family's token balance?",
+        "I need to invite my brother John to my family as a sibling",
+        "Show me information about my family"
+    ]
+    
+    session_id = "example_session_123"
+    
+    for i, message in enumerate(examples, 1):
+        print(f"\n🗣️  Example {i}: {message}")
+        print("-" * 30)
+        
+        try:
+            response = await agent.chat(message, session_id)
+            print(f"🤖 Agent: {response}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+    
+    print("\n" + "=" * 50)
+    print("✅ Example completed!")
+    print("\n💡 To use this in production:")
+    print("1. Set OPENAI_API_KEY environment variable")
+    print("2. Or configure Ollama with local models")
+    print("3. Use the /langgraph/chat API endpoint")
+    print("4. Authenticate users through existing auth system")
+
+if __name__ == "__main__":
+    asyncio.run(main())

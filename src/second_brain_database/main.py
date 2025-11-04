@@ -109,9 +109,9 @@ async def lifespan(_app: FastAPI):
             from second_brain_database.database.family_audit_indexes import create_family_audit_indexes
             await create_family_audit_indexes()
             audit_indexes_duration = time.time() - audit_indexes_start
-            
+
             log_application_lifecycle(
-                "family_audit_indexes_ready", 
+                "family_audit_indexes_ready",
                 {"audit_indexes_duration": f"{audit_indexes_duration:.3f}s"}
             )
         except Exception as audit_error:
@@ -149,17 +149,17 @@ async def lifespan(_app: FastAPI):
         try:
             mcp_init_start = time.time()
             logger.info("Initializing MCP server...")
-            
+
             from second_brain_database.integrations.mcp.server import mcp_server_manager
-            
+
             # Initialize MCP server
             await mcp_server_manager.initialize()
-            
+
             # Start MCP server with HTTP transport for remote connections
             server_started = await mcp_server_manager.start_server(transport="http")
-            
+
             mcp_init_duration = time.time() - mcp_init_start
-            
+
             if server_started:
                 log_application_lifecycle(
                     "mcp_server_ready",
@@ -173,7 +173,7 @@ async def lifespan(_app: FastAPI):
                         "prompts_registered": mcp_server_manager._prompt_count
                     }
                 )
-                logger.info("MCP server started successfully on %s:%d", 
+                logger.info("MCP server started successfully on %s:%d",
                            settings.MCP_SERVER_HOST, settings.MCP_SERVER_PORT)
             else:
                 logger.warning("MCP server failed to start but initialization completed")
@@ -185,10 +185,10 @@ async def lifespan(_app: FastAPI):
                         "server_port": settings.MCP_SERVER_PORT
                     }
                 )
-            
+
             # Store reference for cleanup
             _app.state.mcp_server_manager = mcp_server_manager
-            
+
         except Exception as mcp_error:
             mcp_init_duration = time.time() - mcp_init_start if 'mcp_init_start' in locals() else 0
             logger.warning(
@@ -301,12 +301,12 @@ async def lifespan(_app: FastAPI):
             logger.info("Shutting down MCP server...")
             await _app.state.mcp_server_manager.stop_server()
             mcp_cleanup_duration = time.time() - mcp_cleanup_start
-            
+
             log_application_lifecycle(
                 "mcp_server_shutdown",
                 {"mcp_cleanup_duration": f"{mcp_cleanup_duration:.3f}s"}
             )
-            
+
         except Exception as e:
             mcp_cleanup_duration = time.time() - mcp_cleanup_start
             logger.error("Error during MCP server cleanup: %s", e)
@@ -350,7 +350,7 @@ app = FastAPI(
     description="""
     ## Second Brain Database API
 
-    A comprehensive FastAPI application for managing your second brain database - 
+    A comprehensive FastAPI application for managing your second brain database -
     a knowledge management system designed to store, organize, and retrieve information efficiently.
 
     ### Features
@@ -443,23 +443,23 @@ def custom_openapi():
                 "bearerFormat": "JWT",
                 "description": """
                 JWT Bearer token authentication for secure API access.
-                
+
                 **How to obtain a token:**
                 1. Register a new account via `POST /auth/register`
                 2. Login with your credentials via `POST /auth/login`
                 3. Use the returned `access_token` in the Authorization header
-                
+
                 **Usage:**
                 ```
                 Authorization: Bearer <your_jwt_token>
                 ```
-                
+
                 **Token Details:**
                 - **Expiration:** 30 minutes by default
                 - **Algorithm:** HS256
                 - **Refresh:** Use `POST /auth/refresh` to get a new token
                 - **Logout:** Use `POST /auth/logout` to invalidate the token
-                
+
                 **Example Response:**
                 ```json
                 {
@@ -476,24 +476,24 @@ def custom_openapi():
                 "bearerFormat": "Token",
                 "description": """
                 Permanent API token authentication for long-lived integrations and automation.
-                
+
                 **How to obtain a permanent token:**
                 1. Authenticate with JWT token first
                 2. Create a permanent token via `POST /auth/permanent-tokens`
                 3. Use the returned token in the Authorization header
-                
+
                 **Usage:**
                 ```
                 Authorization: Bearer <your_permanent_token>
                 ```
-                
+
                 **Benefits:**
                 - **Long-lived:** No expiration (until manually revoked)
                 - **Perfect for integrations:** Ideal for CI/CD, scripts, and third-party apps
                 - **Individual control:** Can be revoked individually without affecting other tokens
                 - **Usage analytics:** Detailed tracking of token usage and access patterns
                 - **Security features:** IP restrictions, usage monitoring, and abuse detection
-                
+
                 **Management:**
                 - List tokens: `GET /auth/permanent-tokens`
                 - Revoke token: `DELETE /auth/permanent-tokens/{token_id}`
@@ -506,17 +506,17 @@ def custom_openapi():
                 "name": "X-Admin-API-Key",
                 "description": """
                 Admin API key for administrative operations and system management.
-                
+
                 **Usage:**
                 ```
                 X-Admin-API-Key: <your_admin_api_key>
                 ```
-                
+
                 **Access Level:**
                 - Only available to users with admin role
                 - Provides access to administrative endpoints
                 - Used for system monitoring and management operations
-                
+
                 **Security:**
                 - Separate from user authentication tokens
                 - Additional layer of security for sensitive operations
@@ -557,14 +557,14 @@ def custom_openapi():
                 "name": "Authentication",
                 "description": """
                 **User Authentication & Session Management**
-                
+
                 Complete authentication system including:
                 - User registration and email verification
                 - Secure login with optional 2FA support
                 - JWT token management and refresh
                 - Password reset and change functionality
                 - Session management and logout
-                
+
                 **Security Features:**
                 - Rate limiting on all auth endpoints
                 - Abuse detection for password resets
@@ -580,13 +580,13 @@ def custom_openapi():
                 "name": "Permanent Tokens",
                 "description": """
                 **Long-lived API Tokens for Integrations**
-                
+
                 Permanent tokens provide secure, long-term API access for:
                 - CI/CD pipelines and automation scripts
                 - Third-party application integrations
                 - Server-to-server communication
                 - Background job processing
-                
+
                 **Features:**
                 - No expiration (until manually revoked)
                 - Individual token management and revocation
@@ -603,13 +603,13 @@ def custom_openapi():
                 "name": "Knowledge Base",
                 "description": """
                 **Core Knowledge Management System**
-                
+
                 Central functionality for managing your second brain:
                 - Document storage and organization
                 - Search and retrieval capabilities
                 - Tagging and categorization
                 - Version control and history
-                
+
                 **Coming Soon:** Enhanced knowledge management features
                 """,
             },
@@ -617,13 +617,13 @@ def custom_openapi():
                 "name": "User Profile",
                 "description": """
                 **User Profile & Customization Management**
-                
+
                 Comprehensive user profile system including:
                 - Avatar management and customization
                 - Banner selection and rental system
                 - Profile settings and preferences
                 - Account information management
-                
+
                 **Features:**
                 - Asset ownership and rental tracking
                 - Multi-application avatar/banner support
@@ -634,7 +634,7 @@ def custom_openapi():
                 "name": "Themes",
                 "description": """
                 **Theme & Visual Customization System**
-                
+
                 Personalization features for user experience:
                 - Theme selection and management
                 - Custom color schemes
@@ -646,7 +646,7 @@ def custom_openapi():
                 "name": "Shop",
                 "description": """
                 **Digital Asset & Purchase Management**
-                
+
                 E-commerce functionality for digital assets:
                 - Avatar and banner purchases
                 - Theme and customization purchases
@@ -659,7 +659,7 @@ def custom_openapi():
                 "name": "Family",
                 "description": """
                 **Family Relationship Management & Shared Resources**
-                
+
                 Comprehensive family management system including:
                 - Family creation and administration
                 - Member invitations and relationship management
@@ -667,7 +667,7 @@ def custom_openapi():
                 - Shared SBD token accounts for family finances
                 - Family limits and usage tracking
                 - Email-based invitation system
-                
+
                 **Features:**
                 - Multi-admin support for family management
                 - Configurable family and member limits
@@ -683,7 +683,7 @@ def custom_openapi():
                 "name": "System",
                 "description": """
                 **System Health & Monitoring**
-                
+
                 System status and monitoring endpoints:
                 - Health checks and status monitoring
                 - Performance metrics and analytics

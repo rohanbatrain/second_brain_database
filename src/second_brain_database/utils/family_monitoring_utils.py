@@ -16,8 +16,8 @@ from second_brain_database.managers.logging_manager import get_logger
 # Import monitoring system with graceful fallback
 try:
     from second_brain_database.managers.family_monitoring import (
-        family_monitor, 
-        FamilyOperationType, 
+        family_monitor,
+        FamilyOperationType,
         FamilyOperationContext
     )
     MONITORING_ENABLED = True
@@ -34,18 +34,18 @@ def monitor_family_operation(
 ):
     """
     Decorator for monitoring family operations with comprehensive logging and metrics.
-    
+
     Args:
         operation_type: Type of family operation being monitored
         extract_context: Function to extract context from function arguments
         log_args: Whether to log function arguments (be careful with sensitive data)
-    
+
     Usage:
         @monitor_family_operation(FamilyOperationType.FAMILY_CREATE)
         async def create_family(self, user_id: str, name: str):
             # Implementation here
             pass
-            
+
         @monitor_family_operation(
             FamilyOperationType.MEMBER_INVITE,
             extract_context=lambda args, kwargs: {
@@ -62,7 +62,7 @@ def monitor_family_operation(
         async def async_wrapper(*args, **kwargs):
             start_time = time.time()
             operation_id = f"{operation_type.value}_{int(time.time() * 1000)}"
-            
+
             # Extract context if function provided
             context_data = {}
             if extract_context:
@@ -70,12 +70,12 @@ def monitor_family_operation(
                     context_data = extract_context(args, kwargs) or {}
                 except Exception as e:
                     logger.warning("Failed to extract context for %s: %s", operation_type.value, e)
-            
+
             # Log operation start
             if log_args and (args or kwargs):
                 safe_args = _sanitize_args(args, kwargs)
                 logger.info(
-                    "[%s] Starting %s with args: %s", 
+                    "[%s] Starting %s with args: %s",
                     operation_id, operation_type.value, safe_args
                 )
             else:
@@ -84,14 +84,14 @@ def monitor_family_operation(
             success = False
             error_message = None
             result = None
-            
+
             try:
                 result = await func(*args, **kwargs)
                 success = True
                 duration = time.time() - start_time
 
                 logger.info(
-                    "[%s] Completed %s successfully in %.3fs", 
+                    "[%s] Completed %s successfully in %.3fs",
                     operation_id, operation_type.value, duration
                 )
 
@@ -124,9 +124,9 @@ def monitor_family_operation(
                 success = False
                 error_message = str(e)
                 duration = time.time() - start_time
-                
+
                 logger.error(
-                    "[%s] Failed %s after %.3fs: %s", 
+                    "[%s] Failed %s after %.3fs: %s",
                     operation_id, operation_type.value, duration, error_message
                 )
 
@@ -168,14 +168,14 @@ def monitor_family_operation(
             # but we can still do basic logging
             start_time = time.time()
             operation_id = f"{operation_type.value}_{int(time.time() * 1000)}"
-            
+
             logger.info("[%s] Starting %s (sync)", operation_id, operation_type.value)
 
             try:
                 result = func(*args, **kwargs)
                 duration = time.time() - start_time
                 logger.info(
-                    "[%s] Completed %s (sync) successfully in %.3fs", 
+                    "[%s] Completed %s (sync) successfully in %.3fs",
                     operation_id, operation_type.value, duration
                 )
                 return result
@@ -183,7 +183,7 @@ def monitor_family_operation(
             except Exception as e:
                 duration = time.time() - start_time
                 logger.error(
-                    "[%s] Failed %s (sync) after %.3fs: %s", 
+                    "[%s] Failed %s (sync) after %.3fs: %s",
                     operation_id, operation_type.value, duration, str(e)
                 )
                 raise
@@ -208,7 +208,7 @@ def log_family_security_event(
 ):
     """
     Log family-related security events with structured data.
-    
+
     Args:
         event_type: Type of security event
         family_id: Family ID if applicable
@@ -219,7 +219,7 @@ def log_family_security_event(
         ip_address: Client IP address
     """
     security_logger = get_logger(name="Family_Security", prefix="[FAMILY_SECURITY]")
-    
+
     event_data = {
         "event": "family_security_event",
         "event_type": event_type,
@@ -235,7 +235,7 @@ def log_family_security_event(
         "app": __import__("os").getenv("APP_NAME", "Second_Brain_Database-app"),
         "env": __import__("os").getenv("ENV", "dev"),
     }
-    
+
     if success:
         security_logger.info(event_data)
     else:
@@ -252,7 +252,7 @@ def log_family_audit_event(
 ):
     """
     Log family audit events for compliance and tracking.
-    
+
     Args:
         action: Action performed (promote, demote, remove, etc.)
         family_id: Family ID
@@ -262,7 +262,7 @@ def log_family_audit_event(
         ip_address: Client IP address
     """
     audit_logger = get_logger(name="Family_Audit", prefix="[FAMILY_AUDIT]")
-    
+
     audit_data = {
         "event": "family_audit_event",
         "action": action,
@@ -277,7 +277,7 @@ def log_family_audit_event(
         "app": __import__("os").getenv("APP_NAME", "Second_Brain_Database-app"),
         "env": __import__("os").getenv("ENV", "dev"),
     }
-    
+
     audit_logger.info(audit_data)
 
 
@@ -292,7 +292,7 @@ def log_sbd_transaction(
 ):
     """
     Log SBD token transactions for family accounts.
-    
+
     Args:
         transaction_type: Type of transaction (deposit, spend, freeze, etc.)
         family_id: Family ID
@@ -303,7 +303,7 @@ def log_sbd_transaction(
         transaction_id: Unique transaction ID
     """
     sbd_logger = get_logger(name="Family_SBD", prefix="[FAMILY_SBD]")
-    
+
     transaction_data = {
         "event": "family_sbd_transaction",
         "transaction_type": transaction_type,
@@ -319,7 +319,7 @@ def log_sbd_transaction(
         "app": __import__("os").getenv("APP_NAME", "Second_Brain_Database-app"),
         "env": __import__("os").getenv("ENV", "dev"),
     }
-    
+
     if success:
         sbd_logger.info(transaction_data)
     else:
@@ -384,7 +384,7 @@ def _sanitize_security_details(details: Dict[str, Any]) -> Dict[str, Any]:
 class FamilyOperationTracker:
     """
     Context manager for tracking family operations with automatic logging.
-    
+
     Usage:
         async with FamilyOperationTracker(
             FamilyOperationType.FAMILY_CREATE,
@@ -396,7 +396,7 @@ class FamilyOperationTracker:
             tracker.set_success(True)
             tracker.add_metadata({"result_count": len(result)})
     """
-    
+
     def __init__(
         self,
         operation_type: FamilyOperationType,
@@ -418,7 +418,7 @@ class FamilyOperationTracker:
         self.success = False
         self.error_message = None
         self.metadata = {}
-        
+
     async def __aenter__(self):
         self.start_time = time.time()
         logger.info(
@@ -426,14 +426,14 @@ class FamilyOperationTracker:
             self.operation_type.value, self.family_id, self.user_id
         )
         return self
-        
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         duration = time.time() - self.start_time if self.start_time else 0
-        
+
         if exc_type is not None:
             self.success = False
             self.error_message = str(exc_val)
-            
+
         # Log to monitoring system
         if MONITORING_ENABLED:
             await family_monitor.log_family_operation(
@@ -457,7 +457,7 @@ class FamilyOperationTracker:
                 success=self.success,
                 metadata=self.metadata
             )
-            
+
         if self.success:
             logger.info(
                 "Completed family operation: %s in %.3fs",
@@ -468,15 +468,15 @@ class FamilyOperationTracker:
                 "Failed family operation: %s after %.3fs - %s",
                 self.operation_type.value, duration, self.error_message
             )
-            
+
     def set_success(self, success: bool):
         """Mark the operation as successful or failed."""
         self.success = success
-        
+
     def add_metadata(self, metadata: Dict[str, Any]):
         """Add metadata to the operation context."""
         self.metadata.update(metadata)
-        
+
     def set_error(self, error_message: str):
         """Set error message for failed operations."""
         self.success = False

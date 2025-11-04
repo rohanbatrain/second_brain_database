@@ -16,7 +16,7 @@ print("=" * 50)
 
 def demonstrate_old_vs_new_approach():
     """Demonstrate the difference between old and new authentication approaches."""
-    
+
     print("\n❌ OLD APPROACH (Static Users - WRONG):")
     print("=" * 40)
     print("1. Client sends JWT token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'")
@@ -28,7 +28,7 @@ def demonstrate_old_vs_new_approach():
     print("   - permissions: ['admin', 'user', 'family:admin']")
     print("4. Tools operate with FAKE user context")
     print("5. ❌ No access to real user's data, families, or permissions")
-    
+
     print("\n✅ NEW APPROACH (Real JWT Authentication - CORRECT):")
     print("=" * 50)
     print("1. Client sends JWT token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'")
@@ -45,23 +45,23 @@ def demonstrate_old_vs_new_approach():
 
 def demonstrate_authentication_flow():
     """Demonstrate the corrected authentication flow."""
-    
+
     print("\n🔐 CORRECTED AUTHENTICATION FLOW:")
     print("=" * 40)
-    
+
     # Simulate JWT token
     jwt_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsImV4cCI6MTYzNjU2NzIwMH0.abc123"
-    
+
     print(f"📥 1. Client Request:")
     print(f"   Authorization: Bearer {jwt_token[:30]}...")
     print(f"   Content-Type: application/json")
-    
+
     print(f"\n🔍 2. MCP Server Authentication:")
     print(f"   ✓ Extract token from Authorization header")
     print(f"   ✓ Call get_current_user(token) - SAME as main app")
     print(f"   ✓ Validate JWT signature and expiration")
     print(f"   ✓ Query database for user by 'sub' claim")
-    
+
     # Simulate real user data from database
     real_user = {
         "_id": "507f1f77bcf86cd799439011",
@@ -76,7 +76,7 @@ def demonstrate_authentication_flow():
             {"_id": "507f1f77bcf86cd799439013", "name": "Personal", "role": "owner"}
         ]
     }
-    
+
     print(f"\n👤 3. Real User Data Retrieved:")
     print(f"   User ID: {real_user['_id']}")
     print(f"   Username: {real_user['username']}")
@@ -85,13 +85,13 @@ def demonstrate_authentication_flow():
     print(f"   Permissions: {real_user['permissions']}")
     print(f"   Family Memberships: {len(real_user['family_memberships'])} families")
     print(f"   Workspaces: {len(real_user['workspaces'])} workspaces")
-    
+
     print(f"\n🏗️  4. MCP User Context Creation:")
     print(f"   ✓ Convert database user to MCPUserContext")
     print(f"   ✓ Include all real permissions and memberships")
     print(f"   ✓ Set proper security context (IP, user agent)")
     print(f"   ✓ Store in context variables for tool access")
-    
+
     print(f"\n🛠️  5. Tool Execution:")
     print(f"   ✓ Tools can access real user context")
     print(f"   ✓ Tools can check actual permissions")
@@ -100,7 +100,7 @@ def demonstrate_authentication_flow():
 
 def demonstrate_fastmcp_compliance():
     """Demonstrate FastMCP 2.x compliance."""
-    
+
     print("\n📚 FASTMCP 2.x COMPLIANCE:")
     print("=" * 30)
     print("✅ Uses FastMCP's native authentication patterns")
@@ -112,24 +112,24 @@ def demonstrate_fastmcp_compliance():
 
 def demonstrate_benefits():
     """Demonstrate the benefits of the corrected approach."""
-    
+
     print("\n🎯 BENEFITS OF CORRECTED APPROACH:")
     print("=" * 35)
     print("🔒 Security:")
     print("   • Real JWT validation prevents token forgery")
     print("   • Proper user permissions enforced")
     print("   • Consistent with main application security")
-    
+
     print("\n👥 User Experience:")
     print("   • Tools work with user's actual data")
     print("   • Family operations use real family memberships")
     print("   • Workspace access based on actual permissions")
-    
+
     print("\n🏗️  Architecture:")
     print("   • Single source of truth for authentication")
     print("   • No duplicate user management logic")
     print("   • Easier to maintain and debug")
-    
+
     print("\n📊 Compliance:")
     print("   • Follows FastMCP 2.x best practices")
     print("   • Matches documentation recommendations")
@@ -137,12 +137,12 @@ def demonstrate_benefits():
 
 def main():
     """Run the concept demonstration."""
-    
+
     demonstrate_old_vs_new_approach()
     demonstrate_authentication_flow()
     demonstrate_fastmcp_compliance()
     demonstrate_benefits()
-    
+
     print("\n" + "=" * 50)
     print("📋 SUMMARY:")
     print("✅ Fixed: No more static/fake users")
@@ -150,7 +150,7 @@ def main():
     print("✅ Fixed: Proper user context with actual data")
     print("✅ Fixed: Consistent with main application")
     print("✅ Fixed: FastMCP 2.x compliant")
-    
+
     print("\n🎉 The MCP authentication now works correctly!")
     print("   Users get their real data, permissions, and family access.")
 

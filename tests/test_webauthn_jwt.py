@@ -38,7 +38,7 @@ async def test_tokens():
         regular_token_data = {'sub': 'testuser'}
         regular_token = await create_access_token(regular_token_data)
         print('✓ Regular token created successfully')
-        
+
         # Test WebAuthn token
         webauthn_token_data = {
             'sub': 'testuser',
@@ -49,7 +49,7 @@ async def test_tokens():
         }
         webauthn_token = await create_access_token(webauthn_token_data)
         print('✓ WebAuthn token created successfully')
-        
+
         print('✓ Both token types work correctly')
         return True
     except Exception as e:

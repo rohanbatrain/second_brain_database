@@ -79,12 +79,12 @@ def update_config_file(config_path: Path, updates: Dict[str, Any]) -> None:
     if not config_path.exists():
         logger.error("Configuration file not found: %s", config_path)
         return
-    
+
     # Read existing config
-    lines = []you have created so many startup 
+    lines = []you have created so many startup
     with open(config_path, 'r') as f:
         lines = f.readlines()
-    
+
     # Update or add configuration values
     updated_keys = set()
     for i, line in enumerate(lines):
@@ -94,35 +94,35 @@ def update_config_file(config_path: Path, updates: Dict[str, Any]) -> None:
             if key in updates:
                 lines[i] = f"{key}={updates[key]}\n"
                 updated_keys.add(key)
-    
+
     # Add new keys that weren't found
     for key, value in updates.items():
         if key not in updated_keys:
             lines.append(f"{key}={value}\n")
-    
+
     # Write updated config
     with open(config_path, 'w') as f:
         f.writelines(lines)
-    
+
     logger.info("Updated configuration file: %s", config_path)
 
 
 def setup_development_auth():
     """Set up development authentication."""
     print("🔧 Setting up MCP authentication for development...")
-    
+
     config_path = Path(".sbd")
     if not config_path.exists():
         config_path = Path(".env")
-    
+
     if not config_path.exists():
         print("❌ No configuration file found (.sbd or .env)")
         print("Creating .sbd file...")
         config_path = Path(".sbd")
-    
+
     config = create_development_config()
     update_config_file(config_path, config)
-    
+
     print("✅ Development authentication configured!")
     print("\n📋 Development Configuration:")
     print("  - Authentication: Disabled")
@@ -137,19 +137,19 @@ def setup_development_auth():
 def setup_production_auth():
     """Set up production authentication."""
     print("🔒 Setting up MCP authentication for production...")
-    
+
     config_path = Path(".sbd")
     if not config_path.exists():
         config_path = Path(".env")
-    
+
     if not config_path.exists():
         print("❌ No configuration file found (.sbd or .env)")
         print("Creating .sbd file...")
         config_path = Path(".sbd")
-    
+
     config = create_production_config()
     update_config_file(config_path, config)
-    
+
     print("✅ Production authentication configured!")
     print("\n📋 Production Configuration:")
     print("  - Authentication: Enabled")
@@ -168,12 +168,12 @@ def setup_production_auth():
 def test_authentication():
     """Test current authentication configuration."""
     print("🧪 Testing MCP authentication configuration...")
-    
+
     try:
         from second_brain_database.integrations.mcp.auth_middleware import create_mcp_auth_provider
-        
+
         auth_provider = create_mcp_auth_provider()
-        
+
         if auth_provider is None:
             print("✅ Authentication provider: None (development mode)")
             print("  - Transport: STDIO or HTTP with auth disabled")
@@ -182,13 +182,13 @@ def test_authentication():
             print("✅ Authentication provider: Enabled")
             print(f"  - Provider: {auth_provider.name}")
             print("  - Security: Enabled")
-        
+
         print(f"\n📊 Current Configuration:")
         print(f"  - MCP_TRANSPORT: {settings.MCP_TRANSPORT}")
         print(f"  - MCP_SECURITY_ENABLED: {settings.MCP_SECURITY_ENABLED}")
         print(f"  - MCP_REQUIRE_AUTH: {settings.MCP_REQUIRE_AUTH}")
         print(f"  - Environment: {settings.ENVIRONMENT}")
-        
+
     except Exception as e:
         print(f"❌ Authentication test failed: {e}")
         logger.error("Authentication test failed: %s", e)
@@ -206,27 +206,27 @@ Examples:
   python scripts/setup_mcp_auth.py --test           # Test current configuration
         """
     )
-    
+
     parser.add_argument(
         "--development",
         action="store_true",
         help="Set up development authentication (disabled)"
     )
-    
+
     parser.add_argument(
         "--production",
         action="store_true",
         help="Set up production authentication (enabled with secure tokens)"
     )
-    
+
     parser.add_argument(
         "--test",
         action="store_true",
         help="Test current authentication configuration"
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.development:
         setup_development_auth()
     elif args.production:

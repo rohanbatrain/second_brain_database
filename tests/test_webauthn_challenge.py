@@ -180,7 +180,7 @@ async def main():
         # Cleanup connections
         try:
             await db_manager.disconnect()
-        except:
+        except Exception:  # TODO: Use specific exception type
             pass
 
     return 0

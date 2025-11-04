@@ -50,9 +50,9 @@ async def create_and_verify_user(client, user_data):
     )
     assert login_response.status_code == 200, f"Failed to log in user {user_data['username']}"
     token = login_response.json()["access_token"]
-    
+
     user_id = jwt.decode(token, options={"verify_signature": False})["sub"]
-    
+
     return {"headers": {"Authorization": f"Bearer {token}"}, "user_id": user_id}
 
 @pytest.fixture
@@ -88,7 +88,7 @@ async def test_workspace(client, owner_auth, member_auth):
         json={"user_id_to_add": member_auth["user_id"], "role": "editor"}
     )
     assert add_member_response.status_code == 200
-    
+
     return {
         "workspace_id": workspace_id,
         "owner_id": owner_auth["user_id"],
@@ -176,11 +176,11 @@ class TestWorkspaceDeletion:
         )
         assert create_response.status_code == 201
         workspace_id = create_response.json()["workspace_id"]
-        
+
         # Delete the workspace
         delete_response = client.delete(f"/workspaces/{workspace_id}", headers=owner_auth["headers"])
         assert delete_response.status_code == 204
-        
+
         # Verify it's gone
         get_response = client.get(f"/workspaces/{workspace_id}", headers=owner_auth["headers"])
         assert get_response.status_code == 404

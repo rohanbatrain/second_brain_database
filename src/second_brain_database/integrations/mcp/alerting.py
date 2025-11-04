@@ -59,7 +59,7 @@ class Alert:
     resolved: bool = False
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert alert to dictionary for serialization."""
         return {
@@ -90,7 +90,7 @@ class AlertRule:
     cooldown_minutes: int = 15
     enabled: bool = True
     description: str = ""
-    
+
     def __post_init__(self):
         if not self.description:
             self.description = f"Alert rule for {self.name}"
@@ -98,23 +98,23 @@ class AlertRule:
 
 class AlertChannel:
     """Base class for alert notification channels."""
-    
+
     def __init__(self, name: str, enabled: bool = True):
         self.name = name
         self.enabled = enabled
-    
+
     async def send_alert(self, alert: Alert) -> bool:
         """
         Send alert through this channel.
-        
+
         Args:
             alert: Alert to send
-            
+
         Returns:
             True if sent successfully, False otherwise
         """
         raise NotImplementedError
-    
+
     async def test_connection(self) -> bool:
         """Test if the alert channel is working."""
         raise NotImplementedError
@@ -122,15 +122,15 @@ class AlertChannel:
 
 class LogAlertChannel(AlertChannel):
     """Alert channel that logs alerts to the application logger."""
-    
+
     def __init__(self, name: str = "log", enabled: bool = True):
         super().__init__(name, enabled)
-    
+
     async def send_alert(self, alert: Alert) -> bool:
         """Send alert to application logs."""
         if not self.enabled:
             return False
-        
+
         try:
             log_level = {
                 AlertSeverity.INFO: logger.info,
@@ -138,7 +138,7 @@ class LogAlertChannel(AlertChannel):
                 AlertSeverity.ERROR: logger.error,
                 AlertSeverity.CRITICAL: logger.critical
             }.get(alert.severity, logger.info)
-            
+
             log_level(
                 "MCP ALERT [%s] %s: %s",
                 alert.severity.value.upper(),
@@ -151,13 +151,13 @@ class LogAlertChannel(AlertChannel):
                     "alert_metadata": alert.metadata
                 }
             )
-            
+
             return True
-            
+
         except Exception as e:
             logger.error("Failed to send alert to log channel: %s", e)
             return False
-    
+
     async def test_connection(self) -> bool:
         """Test log channel (always available)."""
         return True
@@ -165,7 +165,7 @@ class LogAlertChannel(AlertChannel):
 
 class EmailAlertChannel(AlertChannel):
     """Alert channel that sends alerts via email."""
-    
+
     def __init__(
         self,
         name: str = "email",
@@ -174,29 +174,29 @@ class EmailAlertChannel(AlertChannel):
     ):
         super().__init__(name, enabled)
         self.recipients = recipients or []
-    
+
     async def send_alert(self, alert: Alert) -> bool:
         """Send alert via email."""
         if not self.enabled or not self.recipients:
             return False
-        
+
         try:
             # Import email utilities (would need to be implemented)
             # from ...utils.email_utils import send_alert_email
-            
+
             subject = f"MCP Alert [{alert.severity.value.upper()}]: {alert.title}"
             body = self._format_email_body(alert)
-            
+
             # This would need to be implemented based on existing email infrastructure
             # success = await send_alert_email(self.recipients, subject, body)
-            
+
             logger.info("Email alert would be sent to %s recipients", len(self.recipients))
             return True  # Placeholder
-            
+
         except Exception as e:
             logger.error("Failed to send email alert: %s", e)
             return False
-    
+
     def _format_email_body(self, alert: Alert) -> str:
         """Format alert as email body."""
         return f"""
@@ -217,7 +217,7 @@ Metadata:
 
 Alert ID: {alert.id}
         """.strip()
-    
+
     async def test_connection(self) -> bool:
         """Test email channel connectivity."""
         # This would test actual email configuration
@@ -226,7 +226,7 @@ Alert ID: {alert.id}
 
 class WebhookAlertChannel(AlertChannel):
     """Alert channel that sends alerts to webhook endpoints."""
-    
+
     def __init__(
         self,
         name: str = "webhook",
@@ -237,21 +237,21 @@ class WebhookAlertChannel(AlertChannel):
         super().__init__(name, enabled)
         self.webhook_url = webhook_url
         self.headers = headers or {"Content-Type": "application/json"}
-    
+
     async def send_alert(self, alert: Alert) -> bool:
         """Send alert to webhook endpoint."""
         if not self.enabled or not self.webhook_url:
             return False
-        
+
         try:
             import aiohttp
-            
+
             payload = {
                 "alert": alert.to_dict(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "mcp_server"
             }
-            
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.webhook_url,
@@ -265,24 +265,24 @@ class WebhookAlertChannel(AlertChannel):
                     else:
                         logger.error("Webhook alert failed with status %d", response.status)
                         return False
-                        
+
         except Exception as e:
             logger.error("Failed to send webhook alert: %s", e)
             return False
-    
+
     async def test_connection(self) -> bool:
         """Test webhook endpoint connectivity."""
         if not self.webhook_url:
             return False
-        
+
         try:
             import aiohttp
-            
+
             test_payload = {
                 "test": True,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
-            
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.webhook_url,
@@ -291,7 +291,7 @@ class WebhookAlertChannel(AlertChannel):
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as response:
                     return response.status < 400
-                    
+
         except Exception:
             return False
 
@@ -299,11 +299,11 @@ class WebhookAlertChannel(AlertChannel):
 class MCPAlertManager:
     """
     Centralized alert management for MCP operations.
-    
+
     Manages alert rules, channels, and provides intelligent alerting
     with deduplication, rate limiting, and escalation capabilities.
     """
-    
+
     def __init__(self):
         self._alert_rules: Dict[str, AlertRule] = {}
         self._alert_channels: Dict[str, AlertChannel] = {}
@@ -313,30 +313,30 @@ class MCPAlertManager:
         self._last_alert_times: Dict[str, datetime] = {}
         self._monitoring_enabled = True
         self._monitoring_task: Optional[asyncio.Task] = None
-        
+
         # Initialize default alert channels
         self._initialize_default_channels()
-        
+
         # Initialize default alert rules
         self._initialize_default_rules()
-        
+
         logger.info("MCP Alert Manager initialized")
-    
+
     def _initialize_default_channels(self) -> None:
         """Initialize default alert channels."""
         # Log channel (always available)
         self.add_channel(LogAlertChannel())
-        
+
         # Email channel (if configured)
         email_recipients = getattr(settings, 'MCP_ALERT_EMAIL_RECIPIENTS', [])
         if email_recipients:
             self.add_channel(EmailAlertChannel(recipients=email_recipients))
-        
+
         # Webhook channel (if configured)
         webhook_url = getattr(settings, 'MCP_ALERT_WEBHOOK_URL', '')
         if webhook_url:
             self.add_channel(WebhookAlertChannel(webhook_url=webhook_url))
-    
+
     def _initialize_default_rules(self) -> None:
         """Initialize default alert rules."""
         # Server health alerts
@@ -347,7 +347,7 @@ class MCPAlertManager:
             condition=lambda data: not data.get("server_running", True),
             description="MCP server is not running"
         ))
-        
+
         # Performance alerts
         self.add_rule(AlertRule(
             name="high_error_rate",
@@ -358,7 +358,7 @@ class MCPAlertManager:
             time_window_minutes=5,
             description="Error rate exceeds 10%"
         ))
-        
+
         self.add_rule(AlertRule(
             name="slow_response_time",
             category=AlertCategory.PERFORMANCE,
@@ -368,7 +368,7 @@ class MCPAlertManager:
             time_window_minutes=10,
             description="Average response time exceeds 5 seconds"
         ))
-        
+
         # Resource usage alerts
         self.add_rule(AlertRule(
             name="high_cpu_usage",
@@ -379,7 +379,7 @@ class MCPAlertManager:
             time_window_minutes=5,
             description="CPU usage exceeds 80%"
         ))
-        
+
         self.add_rule(AlertRule(
             name="high_memory_usage",
             category=AlertCategory.RESOURCE_USAGE,
@@ -389,7 +389,7 @@ class MCPAlertManager:
             time_window_minutes=5,
             description="Memory usage exceeds 1GB"
         ))
-        
+
         # Circuit breaker alerts
         self.add_rule(AlertRule(
             name="circuit_breaker_open",
@@ -399,7 +399,7 @@ class MCPAlertManager:
             cooldown_minutes=30,
             description="Circuit breaker is open"
         ))
-        
+
         # Suspicious activity alerts
         self.add_rule(AlertRule(
             name="rapid_failed_requests",
@@ -410,7 +410,7 @@ class MCPAlertManager:
             time_window_minutes=1,
             description="Rapid failed requests detected"
         ))
-        
+
         self.add_rule(AlertRule(
             name="unusual_tool_usage",
             category=AlertCategory.SUSPICIOUS_ACTIVITY,
@@ -419,12 +419,12 @@ class MCPAlertManager:
             time_window_minutes=15,
             description="Unusual tool usage pattern detected"
         ))
-    
+
     def add_channel(self, channel: AlertChannel) -> None:
         """Add an alert channel."""
         self._alert_channels[channel.name] = channel
         logger.info("Added alert channel: %s (enabled: %s)", channel.name, channel.enabled)
-    
+
     def remove_channel(self, channel_name: str) -> bool:
         """Remove an alert channel."""
         if channel_name in self._alert_channels:
@@ -432,12 +432,12 @@ class MCPAlertManager:
             logger.info("Removed alert channel: %s", channel_name)
             return True
         return False
-    
+
     def add_rule(self, rule: AlertRule) -> None:
         """Add an alert rule."""
         self._alert_rules[rule.name] = rule
         logger.info("Added alert rule: %s (severity: %s)", rule.name, rule.severity.value)
-    
+
     def remove_rule(self, rule_name: str) -> bool:
         """Remove an alert rule."""
         if rule_name in self._alert_rules:
@@ -445,7 +445,7 @@ class MCPAlertManager:
             logger.info("Removed alert rule: %s", rule_name)
             return True
         return False
-    
+
     async def trigger_alert(
         self,
         severity: AlertSeverity,
@@ -457,7 +457,7 @@ class MCPAlertManager:
     ) -> Optional[Alert]:
         """
         Trigger an alert manually.
-        
+
         Args:
             severity: Alert severity level
             category: Alert category
@@ -465,18 +465,18 @@ class MCPAlertManager:
             message: Alert message
             source: Source of the alert
             metadata: Additional metadata
-            
+
         Returns:
             Created alert if successful, None if suppressed
         """
         # Generate alert ID
         alert_id = self._generate_alert_id(title, message, source)
-        
+
         # Check for duplicate/cooldown
         if self._should_suppress_alert(alert_id, severity):
             logger.debug("Alert suppressed due to cooldown: %s", alert_id)
             return None
-        
+
         # Create alert
         alert = Alert(
             id=alert_id,
@@ -488,39 +488,39 @@ class MCPAlertManager:
             source=source,
             metadata=metadata or {}
         )
-        
+
         # Store alert
         self._active_alerts[alert_id] = alert
         self._alert_history.append(alert)
         self._last_alert_times[alert_id] = alert.timestamp
-        
+
         # Send through all enabled channels
         await self._send_alert_to_channels(alert)
-        
+
         logger.info(
             "Alert triggered: [%s] %s - %s",
             severity.value.upper(), title, message
         )
-        
+
         return alert
-    
+
     async def _send_alert_to_channels(self, alert: Alert) -> None:
         """Send alert through all enabled channels."""
         send_tasks = []
-        
+
         for channel in self._alert_channels.values():
             if channel.enabled:
                 send_tasks.append(self._send_to_channel(channel, alert))
-        
+
         if send_tasks:
             results = await asyncio.gather(*send_tasks, return_exceptions=True)
-            
+
             success_count = sum(1 for result in results if result is True)
             logger.debug(
                 "Alert sent to %d/%d channels successfully",
                 success_count, len(send_tasks)
             )
-    
+
     async def _send_to_channel(self, channel: AlertChannel, alert: Alert) -> bool:
         """Send alert to a specific channel with error handling."""
         try:
@@ -528,48 +528,48 @@ class MCPAlertManager:
         except Exception as e:
             logger.error("Failed to send alert through channel %s: %s", channel.name, e)
             return False
-    
+
     def _generate_alert_id(self, title: str, message: str, source: str) -> str:
         """Generate unique alert ID based on content."""
         content = f"{title}:{message}:{source}"
         return hashlib.md5(content.encode()).hexdigest()[:12]
-    
+
     def _should_suppress_alert(self, alert_id: str, severity: AlertSeverity) -> bool:
         """Check if alert should be suppressed due to cooldown or rate limiting."""
         now = datetime.now(timezone.utc)
-        
+
         # Check cooldown period
         last_alert_time = self._last_alert_times.get(alert_id)
         if last_alert_time:
             cooldown_minutes = 15  # Default cooldown
             if now - last_alert_time < timedelta(minutes=cooldown_minutes):
                 return True
-        
+
         # Check rate limiting (max 5 alerts per minute for same ID)
         alert_times = self._alert_counts[alert_id]
         cutoff_time = now - timedelta(minutes=1)
-        
+
         # Remove old entries
         while alert_times and alert_times[0] < cutoff_time:
             alert_times.popleft()
-        
+
         # Check if rate limit exceeded
         if len(alert_times) >= 5:
             return True
-        
+
         # Record this alert time
         alert_times.append(now)
-        
+
         return False
-    
+
     async def resolve_alert(self, alert_id: str, resolved_by: Optional[str] = None) -> bool:
         """
         Resolve an active alert.
-        
+
         Args:
             alert_id: ID of the alert to resolve
             resolved_by: Who resolved the alert
-            
+
         Returns:
             True if alert was resolved, False if not found
         """
@@ -578,73 +578,73 @@ class MCPAlertManager:
             alert.resolved = True
             alert.resolved_at = datetime.now(timezone.utc)
             alert.resolved_by = resolved_by
-            
+
             # Remove from active alerts
             del self._active_alerts[alert_id]
-            
+
             logger.info("Alert resolved: %s by %s", alert_id, resolved_by or "system")
             return True
-        
+
         return False
-    
+
     async def start_monitoring(self) -> None:
         """Start background alert monitoring."""
         if self._monitoring_task and not self._monitoring_task.done():
             logger.warning("Alert monitoring already running")
             return
-        
+
         self._monitoring_enabled = True
         self._monitoring_task = asyncio.create_task(self._monitoring_loop())
-        
+
         logger.info("Started MCP alert monitoring")
-    
+
     async def stop_monitoring(self) -> None:
         """Stop background alert monitoring."""
         self._monitoring_enabled = False
-        
+
         if self._monitoring_task and not self._monitoring_task.done():
             self._monitoring_task.cancel()
             try:
                 await self._monitoring_task
             except asyncio.CancelledError:
                 pass
-        
+
         logger.info("Stopped MCP alert monitoring")
-    
+
     async def _monitoring_loop(self) -> None:
         """Background monitoring loop for checking alert conditions."""
         while self._monitoring_enabled:
             try:
                 # Collect current metrics
                 metrics = await self._collect_monitoring_metrics()
-                
+
                 # Check all alert rules
                 for rule in self._alert_rules.values():
                     if rule.enabled and rule.condition(metrics):
                         await self._handle_rule_trigger(rule, metrics)
-                
+
                 # Auto-resolve alerts that are no longer triggered
                 await self._auto_resolve_alerts(metrics)
-                
+
                 await asyncio.sleep(30)  # Check every 30 seconds
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("Error in alert monitoring loop: %s", e)
                 await asyncio.sleep(30)
-    
+
     async def _collect_monitoring_metrics(self) -> Dict[str, Any]:
         """Collect current metrics for alert rule evaluation."""
         metrics = {}
-        
+
         try:
             # Get performance metrics
             perf_health = await mcp_performance_monitor.get_health_status()
             if perf_health:
                 summary = perf_health.get("performance_summary", {}).get("summary", {})
                 system_metrics = perf_health.get("system_metrics", {}).get("metrics", {})
-                
+
                 metrics.update({
                     "error_rate": summary.get("overall_error_rate", 0),
                     "avg_response_time": 0,  # Would need to be calculated
@@ -652,25 +652,25 @@ class MCPAlertManager:
                     "memory_usage_mb": system_metrics.get("memory_usage", {}).get("current", 0),
                     "concurrent_tools": system_metrics.get("concurrent_tools", {}).get("current", 0)
                 })
-            
+
             # Get recovery manager health
             recovery_health = await mcp_recovery_manager.get_recovery_health_status()
             if recovery_health:
                 cb_health = recovery_health.get("circuit_breakers", {})
                 metrics["circuit_breaker_open"] = not cb_health.get("healthy", True)
-            
+
             # Check server status
             metrics["server_running"] = True  # Would check actual server status
-            
+
             # Add timestamp
             metrics["timestamp"] = datetime.now(timezone.utc).isoformat()
-            
+
         except Exception as e:
             logger.error("Failed to collect monitoring metrics: %s", e)
             metrics = {"error": str(e)}
-        
+
         return metrics
-    
+
     async def _handle_rule_trigger(self, rule: AlertRule, metrics: Dict[str, Any]) -> None:
         """Handle when an alert rule is triggered."""
         # Create alert message with context
@@ -678,7 +678,7 @@ class MCPAlertManager:
         if rule.threshold_value is not None:
             current_value = metrics.get(rule.name.replace("high_", "").replace("_", "_"), 0)
             message += f" (current: {current_value}, threshold: {rule.threshold_value})"
-        
+
         await self.trigger_alert(
             severity=rule.severity,
             category=rule.category,
@@ -691,11 +691,11 @@ class MCPAlertManager:
                 "metrics": metrics
             }
         )
-    
+
     async def _auto_resolve_alerts(self, metrics: Dict[str, Any]) -> None:
         """Auto-resolve alerts that are no longer triggered."""
         to_resolve = []
-        
+
         for alert_id, alert in self._active_alerts.items():
             # Check if the condition that triggered this alert is still true
             rule_name = alert.metadata.get("rule_name")
@@ -703,11 +703,11 @@ class MCPAlertManager:
                 rule = self._alert_rules[rule_name]
                 if not rule.condition(metrics):
                     to_resolve.append(alert_id)
-        
+
         # Resolve alerts
         for alert_id in to_resolve:
             await self.resolve_alert(alert_id, "auto_resolved")
-    
+
     async def get_alert_status(self) -> Dict[str, Any]:
         """Get current alert system status."""
         # Test channel connectivity
@@ -724,7 +724,7 @@ class MCPAlertManager:
                     "connected": False,
                     "error": str(e)
                 }
-        
+
         return {
             "monitoring_enabled": self._monitoring_enabled,
             "active_alerts": len(self._active_alerts),
@@ -737,15 +737,15 @@ class MCPAlertManager:
             ]),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     def get_active_alerts(self) -> List[Dict[str, Any]]:
         """Get list of active alerts."""
         return [alert.to_dict() for alert in self._active_alerts.values()]
-    
+
     def get_alert_history(self, hours: int = 24) -> List[Dict[str, Any]]:
         """Get alert history for specified time period."""
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+
         return [
             alert.to_dict() for alert in self._alert_history
             if alert.timestamp >= cutoff_time
@@ -809,7 +809,7 @@ def alert_on_failure(
 ):
     """
     Decorator to automatically trigger alerts when functions fail.
-    
+
     Args:
         severity: Alert severity level
         category: Alert category
@@ -821,16 +821,16 @@ def alert_on_failure(
                 return await func(*args, **kwargs)
             except Exception as e:
                 message = custom_message or f"Function {func.__name__} failed: {str(e)}"
-                
+
                 # Get user context for metadata
                 metadata = {"function": func.__name__, "error": str(e)}
                 try:
                     user_context = get_mcp_user_context()
                     metadata["user_id"] = user_context.user_id
                     metadata["user_role"] = user_context.role
-                except:
+                except Exception:  # TODO: Use specific exception type
                     pass
-                
+
                 await mcp_alert_manager.trigger_alert(
                     severity=severity,
                     category=category,
@@ -839,15 +839,15 @@ def alert_on_failure(
                     source="function_decorator",
                     metadata=metadata
                 )
-                
+
                 raise
-        
+
         def sync_wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
                 message = custom_message or f"Function {func.__name__} failed: {str(e)}"
-                
+
                 # Create alert task
                 asyncio.create_task(mcp_alert_manager.trigger_alert(
                     severity=severity,
@@ -857,13 +857,13 @@ def alert_on_failure(
                     source="function_decorator",
                     metadata={"function": func.__name__, "error": str(e)}
                 ))
-                
+
                 raise
-        
+
         # Return appropriate wrapper
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         else:
             return sync_wrapper
-    
+
     return decorator

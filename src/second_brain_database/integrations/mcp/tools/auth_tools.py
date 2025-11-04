@@ -103,36 +103,36 @@ class SecurityDashboard(BaseModel):
 async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Get comprehensive user profile information for the current user or specified user.
-    
+
     Args:
         user_id: Optional user ID (defaults to current user, admin can view others)
-        
+
     Returns:
         Dictionary containing user profile information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have permission to view the profile
         MCPValidationError: If user_id is invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Determine target user
     target_user_id = user_id or user_context.user_id
-    
+
     # Check permissions for viewing other users' profiles
     if target_user_id != user_context.user_id:
         if not user_context.has_permission("admin") and user_context.role != "admin":
             raise MCPAuthorizationError("Only admins can view other users' profiles")
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": target_user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_profile",
@@ -141,7 +141,7 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
             resource_id=target_user_id,
             metadata={"target_username": user_doc.get("username")}
         )
-        
+
         # Format profile response
         profile = {
             "user_id": str(user_doc["_id"]),
@@ -159,10 +159,10 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
             "workspaces": user_doc.get("workspaces", []),
             "family_memberships": user_doc.get("family_memberships", [])
         }
-        
+
         logger.info("Retrieved profile for user %s by user %s", target_user_id, user_context.user_id)
         return profile
-        
+
     except Exception as e:
         logger.error("Failed to get user profile for %s: %s", target_user_id, e)
         raise MCPValidationError(f"Failed to retrieve user profile: {str(e)}")
@@ -181,99 +181,99 @@ async def update_user_profile(
 ) -> Dict[str, Any]:
     """
     Update user profile information with proper validation.
-    
+
     Args:
         username: New username (optional)
         email: New email address (optional)
         profile_settings: Profile settings to update (optional)
-        
+
     Returns:
         Dictionary containing updated profile information
-        
+
     Raises:
         MCPValidationError: If update fails or validation errors occur
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Prepare updates
         updates = {}
         changes = {}
-        
+
         if username is not None:
             # Validate username format and availability
             if len(username) < 3 or len(username) > 50:
                 raise MCPValidationError("Username must be between 3 and 50 characters")
-            
+
             # Check username availability
             from ....database import db_manager
             users_collection = db_manager.get_collection("users")
-            
+
             existing_user = await users_collection.find_one({
                 "username": username,
                 "_id": {"$ne": user_context.user_id}
             })
-            
+
             if existing_user:
                 raise MCPValidationError("Username is already taken")
-            
+
             updates["username"] = username
             changes["username"] = username
-        
+
         if email is not None:
             # Validate email format
             import re
             email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
             if not re.match(email_pattern, email):
                 raise MCPValidationError("Invalid email format")
-            
+
             # Check email availability
             from ....database import db_manager
             users_collection = db_manager.get_collection("users")
-            
+
             existing_user = await users_collection.find_one({
                 "email": email,
                 "_id": {"$ne": user_context.user_id}
             })
-            
+
             if existing_user:
                 raise MCPValidationError("Email is already registered")
-            
+
             updates["email"] = email
             updates["email_verified"] = False  # Reset verification status
             changes["email"] = email
             changes["email_verified"] = False
-        
+
         if profile_settings is not None:
             # Merge with existing profile settings
             from ....database import db_manager
             users_collection = db_manager.get_collection("users")
-            
+
             current_user = await users_collection.find_one({"_id": user_context.user_id})
             current_settings = current_user.get("profile_settings", {})
             current_settings.update(profile_settings)
-            
+
             updates["profile_settings"] = current_settings
             changes["profile_settings"] = profile_settings
-        
+
         if not updates:
             raise MCPValidationError("No updates provided")
-        
+
         # Add update timestamp
         updates["updated_at"] = datetime.utcnow()
-        
+
         # Update user in database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
             {"$set": updates}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update profile")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="update_user_profile",
@@ -283,10 +283,10 @@ async def update_user_profile(
             changes=changes,
             metadata={"updated_fields": list(changes.keys())}
         )
-        
+
         # Get updated profile
         updated_user = await users_collection.find_one({"_id": user_context.user_id})
-        
+
         result_data = {
             "user_id": str(updated_user["_id"]),
             "username": updated_user.get("username"),
@@ -295,10 +295,10 @@ async def update_user_profile(
             "updated_at": updated_user.get("updated_at"),
             "updated_fields": list(changes.keys())
         }
-        
+
         logger.info("Updated profile for user %s, fields: %s", user_context.user_id, list(changes.keys()))
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to update profile for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to update profile: {str(e)}")
@@ -313,21 +313,21 @@ async def update_user_profile(
 async def get_user_preferences() -> Dict[str, Any]:
     """
     Get user preferences and settings for the current user.
-    
+
     Returns:
         Dictionary containing user preferences and settings
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user preferences from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_preferences",
@@ -335,7 +335,7 @@ async def get_user_preferences() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format preferences response
         preferences = {
             "user_id": str(user_doc["_id"]),
@@ -345,10 +345,10 @@ async def get_user_preferences() -> Dict[str, Any]:
             "profile_settings": user_doc.get("profile_settings", {}),
             "updated_at": user_doc.get("preferences_updated_at") or user_doc.get("updated_at")
         }
-        
+
         logger.info("Retrieved preferences for user %s", user_context.user_id)
         return preferences
-        
+
     except Exception as e:
         logger.error("Failed to get preferences for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve preferences: {str(e)}")
@@ -367,66 +367,66 @@ async def update_user_preferences(
 ) -> Dict[str, Any]:
     """
     Update user preferences and settings.
-    
+
     Args:
         preferences: General user preferences (optional)
         notification_settings: Notification preferences (optional)
         privacy_settings: Privacy settings (optional)
-        
+
     Returns:
         Dictionary containing updated preferences
-        
+
     Raises:
         MCPValidationError: If update fails
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Prepare updates
         updates = {}
         changes = {}
-        
+
         # Get current user data
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         current_user = await users_collection.find_one({"_id": user_context.user_id})
         if not current_user:
             raise MCPValidationError("User not found")
-        
+
         if preferences is not None:
             current_prefs = current_user.get("preferences", {})
             current_prefs.update(preferences)
             updates["preferences"] = current_prefs
             changes["preferences"] = preferences
-        
+
         if notification_settings is not None:
             current_notif = current_user.get("notification_settings", {})
             current_notif.update(notification_settings)
             updates["notification_settings"] = current_notif
             changes["notification_settings"] = notification_settings
-        
+
         if privacy_settings is not None:
             current_privacy = current_user.get("privacy_settings", {})
             current_privacy.update(privacy_settings)
             updates["privacy_settings"] = current_privacy
             changes["privacy_settings"] = privacy_settings
-        
+
         if not updates:
             raise MCPValidationError("No preference updates provided")
-        
+
         # Add update timestamp
         updates["preferences_updated_at"] = datetime.utcnow()
-        
+
         # Update preferences in database
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
             {"$set": updates}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update preferences")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="update_user_preferences",
@@ -436,10 +436,10 @@ async def update_user_preferences(
             changes=changes,
             metadata={"updated_categories": list(changes.keys())}
         )
-        
+
         # Get updated preferences
         updated_user = await users_collection.find_one({"_id": user_context.user_id})
-        
+
         result_data = {
             "user_id": str(updated_user["_id"]),
             "preferences": updated_user.get("preferences", {}),
@@ -448,11 +448,11 @@ async def update_user_preferences(
             "updated_at": updated_user.get("preferences_updated_at"),
             "updated_categories": list(changes.keys())
         }
-        
-        logger.info("Updated preferences for user %s, categories: %s", 
+
+        logger.info("Updated preferences for user %s, categories: %s",
                    user_context.user_id, list(changes.keys()))
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to update preferences for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to update preferences: {str(e)}")
@@ -467,37 +467,37 @@ async def update_user_preferences(
 async def get_user_avatar() -> Dict[str, Any]:
     """
     Get current user avatar information and available avatars.
-    
+
     Returns:
         Dictionary containing avatar information
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user avatar information from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get avatar collections for owned/rented avatars
         avatars_collection = db_manager.get_collection("avatars")
         user_avatars_collection = db_manager.get_collection("user_avatars")
-        
+
         # Get current avatar
         current_avatar_id = user_doc.get("current_avatar")
         current_avatar = None
-        
+
         if current_avatar_id:
             current_avatar = await avatars_collection.find_one({"_id": current_avatar_id})
-        
+
         # Get owned and rented avatars
         user_avatars = await user_avatars_collection.find({
             "user_id": user_context.user_id
         }).to_list(length=None)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_avatar",
@@ -505,7 +505,7 @@ async def get_user_avatar() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format response
         result = {
             "user_id": str(user_doc["_id"]),
@@ -526,10 +526,10 @@ async def get_user_avatar() -> Dict[str, Any]:
             ],
             "avatar_count": len(user_avatars)
         }
-        
+
         logger.info("Retrieved avatar info for user %s", user_context.user_id)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get avatar info for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve avatar information: {str(e)}")
@@ -544,37 +544,37 @@ async def get_user_avatar() -> Dict[str, Any]:
 async def get_user_banner() -> Dict[str, Any]:
     """
     Get current user banner information and available banners.
-    
+
     Returns:
         Dictionary containing banner information
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user banner information from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get banner collections for owned/rented banners
         banners_collection = db_manager.get_collection("banners")
         user_banners_collection = db_manager.get_collection("user_banners")
-        
+
         # Get current banner
         current_banner_id = user_doc.get("current_banner")
         current_banner = None
-        
+
         if current_banner_id:
             current_banner = await banners_collection.find_one({"_id": current_banner_id})
-        
+
         # Get owned and rented banners
         user_banners = await user_banners_collection.find({
             "user_id": user_context.user_id
         }).to_list(length=None)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_banner",
@@ -582,7 +582,7 @@ async def get_user_banner() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format response
         result = {
             "user_id": str(user_doc["_id"]),
@@ -603,10 +603,10 @@ async def get_user_banner() -> Dict[str, Any]:
             ],
             "banner_count": len(user_banners)
         }
-        
+
         logger.info("Retrieved banner info for user %s", user_context.user_id)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get banner info for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve banner information: {str(e)}")
@@ -621,46 +621,46 @@ async def get_user_banner() -> Dict[str, Any]:
 async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
     """
     Set the current avatar for the user from their owned/rented avatars.
-    
+
     Args:
         avatar_id: ID of the avatar to set as current
-        
+
     Returns:
         Dictionary containing avatar update confirmation
-        
+
     Raises:
         MCPValidationError: If avatar is not owned or update fails
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Verify user owns or has rented this avatar
         from ....database import db_manager
         user_avatars_collection = db_manager.get_collection("user_avatars")
         avatars_collection = db_manager.get_collection("avatars")
-        
+
         user_avatar = await user_avatars_collection.find_one({
             "user_id": user_context.user_id,
             "avatar_id": avatar_id
         })
-        
+
         if not user_avatar:
             raise MCPValidationError("Avatar not owned by user")
-        
+
         # Check if rental is still valid
         if user_avatar.get("ownership_type") == "rental":
             expires_at = user_avatar.get("expires_at")
             if expires_at and expires_at < datetime.utcnow():
                 raise MCPValidationError("Avatar rental has expired")
-        
+
         # Get avatar details
         avatar = await avatars_collection.find_one({"_id": avatar_id})
         if not avatar:
             raise MCPValidationError("Avatar not found")
-        
+
         # Update user's current avatar
         users_collection = db_manager.get_collection("users")
-        
+
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
             {"$set": {
@@ -668,10 +668,10 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
                 "avatar_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update current avatar")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="set_current_avatar",
@@ -684,7 +684,7 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
                 "ownership_type": user_avatar.get("ownership_type")
             }
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "avatar_id": avatar_id,
@@ -693,10 +693,10 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
             "ownership_type": user_avatar.get("ownership_type"),
             "updated_at": datetime.utcnow()
         }
-        
+
         logger.info("Set current avatar %s for user %s", avatar_id, user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to set avatar %s for user %s: %s", avatar_id, user_context.user_id, e)
         raise MCPValidationError(f"Failed to set current avatar: {str(e)}")
@@ -711,46 +711,46 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
 async def set_current_banner(banner_id: str) -> Dict[str, Any]:
     """
     Set the current banner for the user from their owned/rented banners.
-    
+
     Args:
         banner_id: ID of the banner to set as current
-        
+
     Returns:
         Dictionary containing banner update confirmation
-        
+
     Raises:
         MCPValidationError: If banner is not owned or update fails
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Verify user owns or has rented this banner
         from ....database import db_manager
         user_banners_collection = db_manager.get_collection("user_banners")
         banners_collection = db_manager.get_collection("banners")
-        
+
         user_banner = await user_banners_collection.find_one({
             "user_id": user_context.user_id,
             "banner_id": banner_id
         })
-        
+
         if not user_banner:
             raise MCPValidationError("Banner not owned by user")
-        
+
         # Check if rental is still valid
         if user_banner.get("ownership_type") == "rental":
             expires_at = user_banner.get("expires_at")
             if expires_at and expires_at < datetime.utcnow():
                 raise MCPValidationError("Banner rental has expired")
-        
+
         # Get banner details
         banner = await banners_collection.find_one({"_id": banner_id})
         if not banner:
             raise MCPValidationError("Banner not found")
-        
+
         # Update user's current banner
         users_collection = db_manager.get_collection("users")
-        
+
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
             {"$set": {
@@ -758,10 +758,10 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
                 "banner_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update current banner")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="set_current_banner",
@@ -774,7 +774,7 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
                 "ownership_type": user_banner.get("ownership_type")
             }
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "banner_id": banner_id,
@@ -783,10 +783,10 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
             "ownership_type": user_banner.get("ownership_type"),
             "updated_at": datetime.utcnow()
         }
-        
+
         logger.info("Set current banner %s for user %s", banner_id, user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to set banner %s for user %s: %s", banner_id, user_context.user_id, e)
         raise MCPValidationError(f"Failed to set current banner: {str(e)}")
@@ -803,25 +803,25 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
 async def get_auth_status() -> Dict[str, Any]:
     """
     Get comprehensive authentication status for the current user.
-    
+
     Returns:
         Dictionary containing authentication status and user information
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database for complete information
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get session information from Redis if available
         from ....managers.redis_manager import redis_manager
         session_info = {}
-        
+
         try:
             # Try to get session data from Redis
             session_key = f"user_session:{user_context.user_id}"
@@ -831,7 +831,7 @@ async def get_auth_status() -> Dict[str, Any]:
                 session_info = json.loads(session_data)
         except Exception as e:
             logger.debug("Could not retrieve session info: %s", e)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_auth_status",
@@ -839,7 +839,7 @@ async def get_auth_status() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format authentication status
         auth_status = {
             "user_id": str(user_doc["_id"]),
@@ -869,10 +869,10 @@ async def get_auth_status() -> Dict[str, Any]:
                 "user_agent_lockdown_available": True
             }
         }
-        
+
         logger.info("Retrieved auth status for user %s", user_context.user_id)
         return auth_status
-        
+
     except Exception as e:
         logger.error("Failed to get auth status for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve authentication status: {str(e)}")
@@ -887,35 +887,35 @@ async def get_auth_status() -> Dict[str, Any]:
 async def get_auth_methods() -> Dict[str, Any]:
     """
     Get available authentication methods and their status for the current user.
-    
+
     Returns:
         Dictionary containing authentication methods and their availability
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get WebAuthn credentials count
         webauthn_collection = db_manager.get_collection("webauthn_credentials")
         webauthn_count = await webauthn_collection.count_documents({
             "user_id": user_context.user_id,
             "active": True
         })
-        
+
         # Get permanent tokens count
         tokens_collection = db_manager.get_collection("permanent_tokens")
         tokens_count = await tokens_collection.count_documents({
             "user_id": user_context.user_id,
             "active": True
         })
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_auth_methods",
@@ -923,7 +923,7 @@ async def get_auth_methods() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format authentication methods
         auth_methods = {
             "user_id": str(user_doc["_id"]),
@@ -954,10 +954,10 @@ async def get_auth_methods() -> Dict[str, Any]:
             "preferred_method": user_doc.get("preferred_auth_method", "password"),
             "security_level": "high" if user_doc.get("two_fa_enabled") else "medium"
         }
-        
+
         logger.info("Retrieved auth methods for user %s", user_context.user_id)
         return auth_methods
-        
+
     except Exception as e:
         logger.error("Failed to get auth methods for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve authentication methods: {str(e)}")
@@ -972,27 +972,27 @@ async def get_auth_methods() -> Dict[str, Any]:
 async def validate_token() -> Dict[str, Any]:
     """
     Validate the current authentication token and return validation details.
-    
+
     Returns:
         Dictionary containing token validation information
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # The fact that we got here means the token is valid (security wrapper validated it)
         # Get additional token information
         from ....database import db_manager
-        
+
         # Check if token is blacklisted (additional validation)
         from ....routes.auth.services.auth.login import is_token_blacklisted
-        
+
         # We can't access the raw token from user_context, but we can validate the user exists
         users_collection = db_manager.get_collection("users")
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        
+
         if not user_doc:
             raise MCPValidationError("User associated with token not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="validate_token",
@@ -1000,7 +1000,7 @@ async def validate_token() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format validation response
         validation_result = {
             "valid": True,
@@ -1018,10 +1018,10 @@ async def validate_token() -> Dict[str, Any]:
                 "token_not_blacklisted": True  # We assume this since we got here
             }
         }
-        
+
         logger.info("Validated token for user %s", user_context.user_id)
         return validation_result
-        
+
     except Exception as e:
         logger.error("Failed to validate token for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Token validation failed: {str(e)}")
@@ -1036,78 +1036,78 @@ async def validate_token() -> Dict[str, Any]:
 async def get_security_dashboard() -> Dict[str, Any]:
     """
     Get comprehensive security dashboard information for the current user.
-    
+
     Returns:
         Dictionary containing security dashboard data
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get security-related collections
         webauthn_collection = db_manager.get_collection("webauthn_credentials")
         tokens_collection = db_manager.get_collection("permanent_tokens")
         audit_collection = db_manager.get_collection("audit_logs")
-        
+
         # Count WebAuthn credentials
         webauthn_count = await webauthn_collection.count_documents({
             "user_id": user_context.user_id,
             "active": True
         })
-        
+
         # Count permanent tokens
         tokens_count = await tokens_collection.count_documents({
             "user_id": user_context.user_id,
             "active": True
         })
-        
+
         # Get recent login attempts (last 10)
         recent_logins = await audit_collection.find({
             "user_id": user_context.user_id,
             "operation": {"$in": ["login", "login_success", "login_failure"]},
         }).sort("timestamp", -1).limit(10).to_list(length=10)
-        
+
         # Calculate security score
         security_score = 0
         security_factors = []
-        
+
         # Password protection (20 points)
         if user_doc.get("password_hash"):
             security_score += 20
             security_factors.append("Password protected")
-        
+
         # Two-factor authentication (30 points)
         if user_doc.get("two_fa_enabled"):
             security_score += 30
             security_factors.append("Two-factor authentication enabled")
-        
+
         # Email verification (10 points)
         if user_doc.get("email_verified"):
             security_score += 10
             security_factors.append("Email verified")
-        
+
         # WebAuthn credentials (20 points)
         if webauthn_count > 0:
             security_score += 20
             security_factors.append(f"{webauthn_count} WebAuthn credential(s)")
-        
+
         # IP lockdown (10 points)
         if user_doc.get("trusted_ip_lockdown"):
             security_score += 10
             security_factors.append("IP lockdown enabled")
-        
+
         # User Agent lockdown (10 points)
         if user_doc.get("trusted_user_agent_lockdown"):
             security_score += 10
             security_factors.append("User Agent lockdown enabled")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_security_dashboard",
@@ -1115,7 +1115,7 @@ async def get_security_dashboard() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format security dashboard
         dashboard = {
             "user_id": str(user_doc["_id"]),
@@ -1157,11 +1157,11 @@ async def get_security_dashboard() -> Dict[str, Any]:
                 "last_login": user_doc.get("last_login")
             }
         }
-        
-        logger.info("Retrieved security dashboard for user %s (score: %d)", 
+
+        logger.info("Retrieved security dashboard for user %s (score: %d)",
                    user_context.user_id, security_score)
         return dashboard
-        
+
     except Exception as e:
         logger.error("Failed to get security dashboard for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve security dashboard: {str(e)}")
@@ -1176,33 +1176,33 @@ async def get_security_dashboard() -> Dict[str, Any]:
 async def check_username_availability(username: str) -> Dict[str, Any]:
     """
     Check if a username is available for registration or profile update.
-    
+
     Args:
         username: Username to check availability for
-        
+
     Returns:
         Dictionary containing availability information
-        
+
     Raises:
         MCPValidationError: If username format is invalid
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate username format
         if not username or len(username) < 3 or len(username) > 50:
             raise MCPValidationError("Username must be between 3 and 50 characters")
-        
+
         # Check for invalid characters
         import re
         if not re.match(r'^[a-zA-Z0-9_-]+$', username):
             raise MCPValidationError("Username can only contain letters, numbers, underscores, and hyphens")
-        
+
         # Use existing Redis-cached username check
         from ....routes.auth.services.utils.redis_utils import redis_check_username
-        
+
         username_exists = await redis_check_username(username)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="check_username_availability",
@@ -1211,7 +1211,7 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
             resource_id=username,
             metadata={"checked_username": username, "available": not username_exists}
         )
-        
+
         # Format availability response
         availability = {
             "username": username,
@@ -1221,7 +1221,7 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
             "checked_by": user_context.user_id,
             "suggestions": []
         }
-        
+
         # If username is taken, provide suggestions
         if username_exists:
             suggestions = []
@@ -1230,12 +1230,12 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
                 suggestion_exists = await redis_check_username(suggestion)
                 if not suggestion_exists:
                     suggestions.append(suggestion)
-            
+
             availability["suggestions"] = suggestions[:3]  # Limit to 3 suggestions
-        
+
         logger.info("Checked username availability: %s (available: %s)", username, not username_exists)
         return availability
-        
+
     except Exception as e:
         logger.error("Failed to check username availability for %s: %s", username, e)
         raise MCPValidationError(f"Failed to check username availability: {str(e)}")
@@ -1250,36 +1250,36 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
 async def check_email_availability(email: str) -> Dict[str, Any]:
     """
     Check if an email address is available for registration or profile update.
-    
+
     Args:
         email: Email address to check availability for
-        
+
     Returns:
         Dictionary containing availability information
-        
+
     Raises:
         MCPValidationError: If email format is invalid
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate email format
         import re
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, email):
             raise MCPValidationError("Invalid email format")
-        
+
         # Check if email exists in database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         existing_user = await users_collection.find_one({
             "email": email,
             "_id": {"$ne": user_context.user_id}  # Exclude current user
         })
-        
+
         email_exists = existing_user is not None
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="check_email_availability",
@@ -1288,7 +1288,7 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
             resource_id=email,
             metadata={"checked_email": email, "available": not email_exists}
         )
-        
+
         # Format availability response
         availability = {
             "email": email,
@@ -1298,10 +1298,10 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
             "checked_by": user_context.user_id,
             "domain": email.split('@')[1] if '@' in email else None
         }
-        
+
         logger.info("Checked email availability: %s (available: %s)", email, not email_exists)
         return availability
-        
+
     except Exception as e:
         logger.error("Failed to check email availability for %s: %s", email, e)
         raise MCPValidationError(f"Failed to check email availability: {str(e)}")
@@ -1320,51 +1320,51 @@ async def change_password(
 ) -> Dict[str, Any]:
     """
     Change user password with proper validation and security checks.
-    
+
     Args:
         current_password: Current password for verification
         new_password: New password to set
         confirm_password: Confirmation of new password
-        
+
     Returns:
         Dictionary containing password change confirmation
-        
+
     Raises:
         MCPValidationError: If password validation fails
         MCPAuthorizationError: If current password is incorrect
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate password confirmation
         if new_password != confirm_password:
             raise MCPValidationError("New password and confirmation do not match")
-        
+
         # Validate new password strength
         if len(new_password) < 8:
             raise MCPValidationError("New password must be at least 8 characters long")
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Verify current password
         import bcrypt
         current_password_hash = user_doc.get("password_hash")
-        
+
         if not current_password_hash:
             raise MCPValidationError("No password set for this account")
-        
+
         if not bcrypt.checkpw(current_password.encode('utf-8'), current_password_hash.encode('utf-8')):
             raise MCPAuthorizationError("Current password is incorrect")
-        
+
         # Hash new password
         new_password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
+
         # Update password in database
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -1374,10 +1374,10 @@ async def change_password(
                 "updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update password")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="change_password",
@@ -1386,7 +1386,7 @@ async def change_password(
             resource_id=user_context.user_id,
             metadata={"password_changed": True}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1396,20 +1396,20 @@ async def change_password(
             success=True,
             details={"changed_via": "mcp_tool"}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "password_changed": True,
             "changed_at": datetime.utcnow(),
             "security_recommendation": "Consider enabling two-factor authentication for additional security"
         }
-        
+
         logger.info("Password changed successfully for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to change password for user %s: %s", user_context.user_id, e)
-        
+
         # Log failed password change attempt
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1419,7 +1419,7 @@ async def change_password(
             success=False,
             details={"error": str(e), "changed_via": "mcp_tool"}
         )
-        
+
         if isinstance(e, (MCPValidationError, MCPAuthorizationError)):
             raise
         else:
@@ -1461,21 +1461,21 @@ class BackupCodesStatus(BaseModel):
 async def get_2fa_status() -> Dict[str, Any]:
     """
     Get comprehensive 2FA status information for the current user.
-    
+
     Returns:
         Dictionary containing 2FA status and configuration
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_2fa_status",
@@ -1483,11 +1483,11 @@ async def get_2fa_status() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Calculate backup codes status
         backup_codes = user_doc.get("backup_codes", [])
         backup_codes_used = user_doc.get("backup_codes_used", [])
-        
+
         # Format 2FA status
         status = {
             "user_id": str(user_doc["_id"]),
@@ -1506,11 +1506,11 @@ async def get_2fa_status() -> Dict[str, Any]:
             },
             "security_level": "high" if user_doc.get("two_fa_enabled") else "medium"
         }
-        
-        logger.info("Retrieved 2FA status for user %s (enabled: %s)", 
+
+        logger.info("Retrieved 2FA status for user %s (enabled: %s)",
                    user_context.user_id, user_doc.get("two_fa_enabled", False))
         return status
-        
+
     except Exception as e:
         logger.error("Failed to get 2FA status for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve 2FA status: {str(e)}")
@@ -1525,45 +1525,45 @@ async def get_2fa_status() -> Dict[str, Any]:
 async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
     """
     Initialize 2FA setup for the current user.
-    
+
     Args:
         method: 2FA method to set up (currently only "totp" supported)
-        
+
     Returns:
         Dictionary containing setup information including QR code
-        
+
     Raises:
         MCPValidationError: If 2FA is already enabled or method is unsupported
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate method
         if method != "totp":
             raise MCPValidationError("Only TOTP method is currently supported")
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if 2FA is already enabled
         if user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is already enabled. Use reset_2fa to generate new codes.")
-        
+
         # Use existing 2FA setup service
         from ....routes.auth.services.auth.twofa import setup_2fa as setup_2fa_service
         from ....routes.auth.models import TwoFASetupRequest
-        
+
         # Create request object
         setup_request = TwoFASetupRequest(method=method)
-        
+
         # Call existing setup service
         setup_response = await setup_2fa_service(user_doc, setup_request)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="setup_2fa",
@@ -1572,7 +1572,7 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"method": method, "pending": True}
         )
-        
+
         # Format response
         result = {
             "user_id": user_context.user_id,
@@ -1583,10 +1583,10 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             "pending": True,
             "next_step": "Use verify_2fa_code to complete setup with a code from your authenticator app"
         }
-        
+
         logger.info("Initiated 2FA setup for user %s with method %s", user_context.user_id, method)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to setup 2FA for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -1604,46 +1604,46 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
 async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
     """
     Verify a 2FA code to complete setup or authenticate.
-    
+
     Args:
         code: 2FA code from authenticator app or backup code
         method: 2FA method being verified (currently only "totp" supported)
-        
+
     Returns:
         Dictionary containing verification result and backup codes if setup completed
-        
+
     Raises:
         MCPValidationError: If code is invalid or method is unsupported
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate method
         if method != "totp":
             raise MCPValidationError("Only TOTP method is currently supported")
-        
+
         # Validate code format
         if not code or len(code) != 6 or not code.isdigit():
             raise MCPValidationError("Invalid code format. Code must be 6 digits.")
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Use existing 2FA verification service
         from ....routes.auth.services.auth.twofa import verify_2fa as verify_2fa_service
         from ....routes.auth.models import TwoFAVerifyRequest
-        
+
         # Create request object
         verify_request = TwoFAVerifyRequest(method=method, code=code)
-        
+
         # Call existing verification service
         verification_result = await verify_2fa_service(user_doc, verify_request)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="verify_2fa_code",
@@ -1656,7 +1656,7 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
                 "was_pending": user_doc.get("two_fa_pending", False)
             }
         )
-        
+
         # Format response
         result = {
             "user_id": user_context.user_id,
@@ -1666,16 +1666,16 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             "was_setup_completion": user_doc.get("two_fa_pending", False),
             "backup_codes": verification_result.backup_codes if hasattr(verification_result, 'backup_codes') else None
         }
-        
+
         if verification_result.backup_codes:
             result["backup_codes_message"] = "Save these backup codes in a secure location. They can be used if you lose access to your authenticator app."
-        
+
         logger.info("Successfully verified 2FA code for user %s (method: %s)", user_context.user_id, method)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to verify 2FA code for user %s: %s", user_context.user_id, e)
-        
+
         # Log failed verification attempt
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1685,7 +1685,7 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             success=False,
             details={"method": method, "error": str(e)}
         )
-        
+
         if "Invalid TOTP code" in str(e):
             raise MCPValidationError("Invalid 2FA code. Please check your authenticator app and try again.")
         elif isinstance(e, MCPValidationError):
@@ -1703,34 +1703,34 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
 async def disable_2fa() -> Dict[str, Any]:
     """
     Disable 2FA for the current user and clear all related secrets.
-    
+
     Returns:
         Dictionary containing disable confirmation
-        
+
     Raises:
         MCPValidationError: If 2FA is not enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if 2FA is enabled
         if not user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is not currently enabled")
-        
+
         # Use existing 2FA disable service
         from ....routes.auth.services.auth.twofa import disable_2fa as disable_2fa_service
-        
+
         # Call existing disable service
         disable_result = await disable_2fa_service(user_doc)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="disable_2fa",
@@ -1739,7 +1739,7 @@ async def disable_2fa() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"two_fa_disabled": True}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1749,17 +1749,17 @@ async def disable_2fa() -> Dict[str, Any]:
             success=True,
             details={"disabled_via": "mcp_tool"}
         )
-        
+
         result = {
             "user_id": user_context.user_id,
             "two_fa_disabled": True,
             "disabled_at": datetime.utcnow(),
             "security_warning": "2FA has been disabled. Your account security level is now reduced. Consider re-enabling 2FA for better security."
         }
-        
+
         logger.info("Successfully disabled 2FA for user %s", user_context.user_id)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to disable 2FA for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -1777,32 +1777,32 @@ async def disable_2fa() -> Dict[str, Any]:
 async def get_backup_codes_status() -> Dict[str, Any]:
     """
     Get backup codes status and usage information for the current user.
-    
+
     Returns:
         Dictionary containing backup codes status
-        
+
     Raises:
         MCPValidationError: If 2FA is not enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if 2FA is enabled
         if not user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is not enabled. Backup codes are only available when 2FA is enabled.")
-        
+
         # Get backup codes information
         backup_codes = user_doc.get("backup_codes", [])
         backup_codes_used = user_doc.get("backup_codes_used", [])
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_backup_codes_status",
@@ -1810,7 +1810,7 @@ async def get_backup_codes_status() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Format backup codes status
         status = {
             "user_id": user_context.user_id,
@@ -1822,11 +1822,11 @@ async def get_backup_codes_status() -> Dict[str, Any]:
             "codes_low_warning": (len(backup_codes) - len(backup_codes_used)) <= 2,
             "recommendation": "Generate new backup codes if you have 2 or fewer remaining" if (len(backup_codes) - len(backup_codes_used)) <= 2 else None
         }
-        
-        logger.info("Retrieved backup codes status for user %s (remaining: %d)", 
+
+        logger.info("Retrieved backup codes status for user %s (remaining: %d)",
                    user_context.user_id, status["remaining_codes"])
         return status
-        
+
     except Exception as e:
         logger.error("Failed to get backup codes status for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -1844,38 +1844,38 @@ async def get_backup_codes_status() -> Dict[str, Any]:
 async def regenerate_backup_codes() -> Dict[str, Any]:
     """
     Generate new backup codes for the current user, replacing existing ones.
-    
+
     Returns:
         Dictionary containing new backup codes
-        
+
     Raises:
         MCPValidationError: If 2FA is not enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if 2FA is enabled
         if not user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is not enabled. Backup codes are only available when 2FA is enabled.")
-        
+
         # Generate new backup codes
         import secrets
         import bcrypt
-        
+
         backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
         hashed_backup_codes = [
-            bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8") 
+            bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             for code in backup_codes
         ]
-        
+
         # Update user with new backup codes
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -1885,10 +1885,10 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
                 "backup_codes_generated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update backup codes")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="regenerate_backup_codes",
@@ -1897,7 +1897,7 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"backup_codes_count": len(backup_codes)}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1907,7 +1907,7 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
             success=True,
             details={"codes_count": len(backup_codes), "regenerated_via": "mcp_tool"}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "backup_codes": backup_codes,
@@ -1916,11 +1916,11 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
             "security_warning": "Save these backup codes in a secure location. They replace your previous backup codes and can be used if you lose access to your authenticator app.",
             "usage_note": "Each backup code can only be used once. Generate new codes when you have 2 or fewer remaining."
         }
-        
-        logger.info("Successfully regenerated %d backup codes for user %s", 
+
+        logger.info("Successfully regenerated %d backup codes for user %s",
                    len(backup_codes), user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to regenerate backup codes for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -1938,45 +1938,45 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
 async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
     """
     Reset 2FA for the current user, generating new secret and backup codes.
-    
+
     Args:
         method: 2FA method to reset (currently only "totp" supported)
-        
+
     Returns:
         Dictionary containing new setup information including QR code
-        
+
     Raises:
         MCPValidationError: If 2FA is not enabled or method is unsupported
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate method
         if method != "totp":
             raise MCPValidationError("Only TOTP method is currently supported")
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if 2FA is enabled
         if not user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is not enabled. Use setup_2fa to enable 2FA first.")
-        
+
         # Use existing 2FA reset service
         from ....routes.auth.services.auth.twofa import reset_2fa as reset_2fa_service
         from ....routes.auth.models import TwoFASetupRequest
-        
+
         # Create request object
         reset_request = TwoFASetupRequest(method=method)
-        
+
         # Call existing reset service
         reset_response = await reset_2fa_service(user_doc, reset_request)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="reset_2fa",
@@ -1985,7 +1985,7 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"method": method, "reset_completed": True}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -1995,7 +1995,7 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             success=True,
             details={"method": method, "reset_via": "mcp_tool"}
         )
-        
+
         # Format response
         result = {
             "user_id": user_context.user_id,
@@ -2008,10 +2008,10 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             "security_warning": "Your 2FA has been reset with a new secret. Update your authenticator app with the new QR code or secret.",
             "next_step": "Scan the QR code or manually enter the secret in your authenticator app"
         }
-        
+
         logger.info("Successfully reset 2FA for user %s with method %s", user_context.user_id, method)
         return result
-        
+
     except Exception as e:
         logger.error("Failed to reset 2FA for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2044,21 +2044,21 @@ class TrustedUserAgentsStatus(BaseModel):
 async def get_trusted_ips_status() -> Dict[str, Any]:
     """
     Get trusted IPs lockdown status and configuration for the current user.
-    
+
     Returns:
         Dictionary containing trusted IPs status and configuration
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_trusted_ips_status",
@@ -2066,11 +2066,11 @@ async def get_trusted_ips_status() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Get trusted IPs information
         trusted_ips = user_doc.get("trusted_ips", [])
         lockdown_enabled = user_doc.get("trusted_ip_lockdown", False)
-        
+
         # Format status
         status = {
             "user_id": user_context.user_id,
@@ -2083,11 +2083,11 @@ async def get_trusted_ips_status() -> Dict[str, Any]:
             "current_ip_trusted": getattr(user_context, 'ip_address', '') in trusted_ips if trusted_ips else False,
             "security_level": "high" if lockdown_enabled and len(trusted_ips) > 0 else "medium"
         }
-        
-        logger.info("Retrieved trusted IPs status for user %s (enabled: %s, count: %d)", 
+
+        logger.info("Retrieved trusted IPs status for user %s (enabled: %s, count: %d)",
                    user_context.user_id, lockdown_enabled, len(trusted_ips))
         return status
-        
+
     except Exception as e:
         logger.error("Failed to get trusted IPs status for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve trusted IPs status: {str(e)}")
@@ -2103,38 +2103,38 @@ async def request_ip_lockdown() -> Dict[str, Any]:
     """
     Request to enable IP lockdown for the current user.
     This will add the current IP to trusted list and enable lockdown.
-    
+
     Returns:
         Dictionary containing lockdown request confirmation
-        
+
     Raises:
         MCPValidationError: If lockdown is already enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if lockdown is already enabled
         if user_doc.get("trusted_ip_lockdown", False):
             raise MCPValidationError("IP lockdown is already enabled")
-        
+
         # Get current IP address
         current_ip = getattr(user_context, 'ip_address', '')
         if not current_ip:
             raise MCPValidationError("Cannot determine current IP address")
-        
+
         # Add current IP to trusted list and enable lockdown
         trusted_ips = user_doc.get("trusted_ips", [])
         if current_ip not in trusted_ips:
             trusted_ips.append(current_ip)
-        
+
         # Update user with IP lockdown enabled
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2145,10 +2145,10 @@ async def request_ip_lockdown() -> Dict[str, Any]:
                 "trusted_ips_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to enable IP lockdown")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="request_ip_lockdown",
@@ -2158,7 +2158,7 @@ async def request_ip_lockdown() -> Dict[str, Any]:
             changes={"trusted_ip_lockdown": True, "trusted_ips": trusted_ips},
             metadata={"current_ip": current_ip, "trusted_ip_count": len(trusted_ips)}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2168,7 +2168,7 @@ async def request_ip_lockdown() -> Dict[str, Any]:
             success=True,
             details={"enabled_via": "mcp_tool", "trusted_ips_count": len(trusted_ips)}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "ip_lockdown_enabled": True,
@@ -2179,11 +2179,11 @@ async def request_ip_lockdown() -> Dict[str, Any]:
             "security_warning": "IP lockdown is now enabled. You will only be able to access your account from trusted IP addresses.",
             "recommendation": "Make sure to add other IP addresses you use regularly to avoid being locked out."
         }
-        
-        logger.info("Successfully enabled IP lockdown for user %s with IP %s", 
+
+        logger.info("Successfully enabled IP lockdown for user %s with IP %s",
                    user_context.user_id, current_ip)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to enable IP lockdown for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2201,28 +2201,28 @@ async def request_ip_lockdown() -> Dict[str, Any]:
 async def confirm_ip_lockdown() -> Dict[str, Any]:
     """
     Confirm and finalize IP lockdown setup for the current user.
-    
+
     Returns:
         Dictionary containing lockdown confirmation
-        
+
     Raises:
         MCPValidationError: If lockdown is not enabled or already confirmed
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if lockdown is enabled
         if not user_doc.get("trusted_ip_lockdown", False):
             raise MCPValidationError("IP lockdown is not enabled")
-        
+
         # Update confirmation status
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2231,10 +2231,10 @@ async def confirm_ip_lockdown() -> Dict[str, Any]:
                 "trusted_ip_lockdown_confirmed_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to confirm IP lockdown")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="confirm_ip_lockdown",
@@ -2243,7 +2243,7 @@ async def confirm_ip_lockdown() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             changes={"trusted_ip_lockdown_confirmed": True}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "ip_lockdown_confirmed": True,
@@ -2251,10 +2251,10 @@ async def confirm_ip_lockdown() -> Dict[str, Any]:
             "trusted_ips": user_doc.get("trusted_ips", []),
             "status": "IP lockdown is now fully active and confirmed"
         }
-        
+
         logger.info("Successfully confirmed IP lockdown for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to confirm IP lockdown for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2272,21 +2272,21 @@ async def confirm_ip_lockdown() -> Dict[str, Any]:
 async def get_trusted_user_agents_status() -> Dict[str, Any]:
     """
     Get trusted User Agents lockdown status and configuration for the current user.
-    
+
     Returns:
         Dictionary containing trusted User Agents status and configuration
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_trusted_user_agents_status",
@@ -2294,11 +2294,11 @@ async def get_trusted_user_agents_status() -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id
         )
-        
+
         # Get trusted User Agents information
         trusted_user_agents = user_doc.get("trusted_user_agents", [])
         lockdown_enabled = user_doc.get("trusted_user_agent_lockdown", False)
-        
+
         # Format status
         status = {
             "user_id": user_context.user_id,
@@ -2311,11 +2311,11 @@ async def get_trusted_user_agents_status() -> Dict[str, Any]:
             "current_user_agent_trusted": getattr(user_context, 'user_agent', '') in trusted_user_agents if trusted_user_agents else False,
             "security_level": "high" if lockdown_enabled and len(trusted_user_agents) > 0 else "medium"
         }
-        
-        logger.info("Retrieved trusted User Agents status for user %s (enabled: %s, count: %d)", 
+
+        logger.info("Retrieved trusted User Agents status for user %s (enabled: %s, count: %d)",
                    user_context.user_id, lockdown_enabled, len(trusted_user_agents))
         return status
-        
+
     except Exception as e:
         logger.error("Failed to get trusted User Agents status for user %s: %s", user_context.user_id, e)
         raise MCPValidationError(f"Failed to retrieve trusted User Agents status: {str(e)}")
@@ -2331,38 +2331,38 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
     """
     Request to enable User Agent lockdown for the current user.
     This will add the current User Agent to trusted list and enable lockdown.
-    
+
     Returns:
         Dictionary containing lockdown request confirmation
-        
+
     Raises:
         MCPValidationError: If lockdown is already enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if lockdown is already enabled
         if user_doc.get("trusted_user_agent_lockdown", False):
             raise MCPValidationError("User Agent lockdown is already enabled")
-        
+
         # Get current User Agent
         current_user_agent = getattr(user_context, 'user_agent', '')
         if not current_user_agent:
             raise MCPValidationError("Cannot determine current User Agent")
-        
+
         # Add current User Agent to trusted list and enable lockdown
         trusted_user_agents = user_doc.get("trusted_user_agents", [])
         if current_user_agent not in trusted_user_agents:
             trusted_user_agents.append(current_user_agent)
-        
+
         # Update user with User Agent lockdown enabled
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2373,10 +2373,10 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
                 "trusted_user_agents_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to enable User Agent lockdown")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="request_user_agent_lockdown",
@@ -2386,7 +2386,7 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
             changes={"trusted_user_agent_lockdown": True, "trusted_user_agents": trusted_user_agents},
             metadata={"current_user_agent": current_user_agent, "trusted_user_agent_count": len(trusted_user_agents)}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2396,7 +2396,7 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
             success=True,
             details={"enabled_via": "mcp_tool", "trusted_user_agents_count": len(trusted_user_agents)}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "user_agent_lockdown_enabled": True,
@@ -2407,10 +2407,10 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
             "security_warning": "User Agent lockdown is now enabled. You will only be able to access your account from trusted browsers/applications.",
             "recommendation": "Make sure to add other browsers or applications you use regularly to avoid being locked out."
         }
-        
+
         logger.info("Successfully enabled User Agent lockdown for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to enable User Agent lockdown for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2428,28 +2428,28 @@ async def request_user_agent_lockdown() -> Dict[str, Any]:
 async def confirm_user_agent_lockdown() -> Dict[str, Any]:
     """
     Confirm and finalize User Agent lockdown setup for the current user.
-    
+
     Returns:
         Dictionary containing lockdown confirmation
-        
+
     Raises:
         MCPValidationError: If lockdown is not enabled or already confirmed
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if lockdown is enabled
         if not user_doc.get("trusted_user_agent_lockdown", False):
             raise MCPValidationError("User Agent lockdown is not enabled")
-        
+
         # Update confirmation status
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2458,10 +2458,10 @@ async def confirm_user_agent_lockdown() -> Dict[str, Any]:
                 "trusted_user_agent_lockdown_confirmed_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to confirm User Agent lockdown")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="confirm_user_agent_lockdown",
@@ -2470,7 +2470,7 @@ async def confirm_user_agent_lockdown() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             changes={"trusted_user_agent_lockdown_confirmed": True}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "user_agent_lockdown_confirmed": True,
@@ -2478,10 +2478,10 @@ async def confirm_user_agent_lockdown() -> Dict[str, Any]:
             "trusted_user_agents": user_doc.get("trusted_user_agents", []),
             "status": "User Agent lockdown is now fully active and confirmed"
         }
-        
+
         logger.info("Successfully confirmed User Agent lockdown for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to confirm User Agent lockdown for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2499,36 +2499,36 @@ async def confirm_user_agent_lockdown() -> Dict[str, Any]:
 async def allow_once_ip_access() -> Dict[str, Any]:
     """
     Allow one-time access from current IP address (15-minute temporary bypass).
-    
+
     Returns:
         Dictionary containing temporary access confirmation
-        
+
     Raises:
         MCPValidationError: If IP lockdown is not enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if IP lockdown is enabled
         if not user_doc.get("trusted_ip_lockdown", False):
             raise MCPValidationError("IP lockdown is not enabled")
-        
+
         # Get current IP address
         current_ip = getattr(user_context, 'ip_address', '')
         if not current_ip:
             raise MCPValidationError("Cannot determine current IP address")
-        
+
         # Generate temporary access token
         from ....routes.auth.services.temporary_access import generate_temporary_ip_access_token
-        
+
         try:
             token = await generate_temporary_ip_access_token(
                 user_email=user_doc.get("email", ""),
@@ -2540,7 +2540,7 @@ async def allow_once_ip_access() -> Dict[str, Any]:
             logger.error("Failed to generate temporary IP token: %s", token_error)
             # Continue without token - just log the access
             token = None
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="allow_once_ip_access",
@@ -2549,7 +2549,7 @@ async def allow_once_ip_access() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"ip_address": current_ip, "token_generated": token is not None}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2559,7 +2559,7 @@ async def allow_once_ip_access() -> Dict[str, Any]:
             success=True,
             details={"granted_via": "mcp_tool", "duration_minutes": 15}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "ip_address": current_ip,
@@ -2570,10 +2570,10 @@ async def allow_once_ip_access() -> Dict[str, Any]:
             "token": token,
             "note": "This grants temporary access for 15 minutes. Consider adding this IP to your trusted list for permanent access."
         }
-        
+
         logger.info("Granted temporary IP access for user %s from IP %s", user_context.user_id, current_ip)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to grant temporary IP access for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2591,36 +2591,36 @@ async def allow_once_ip_access() -> Dict[str, Any]:
 async def allow_once_user_agent_access() -> Dict[str, Any]:
     """
     Allow one-time access from current User Agent (15-minute temporary bypass).
-    
+
     Returns:
         Dictionary containing temporary access confirmation
-        
+
     Raises:
         MCPValidationError: If User Agent lockdown is not enabled
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Check if User Agent lockdown is enabled
         if not user_doc.get("trusted_user_agent_lockdown", False):
             raise MCPValidationError("User Agent lockdown is not enabled")
-        
+
         # Get current User Agent
         current_user_agent = getattr(user_context, 'user_agent', '')
         if not current_user_agent:
             raise MCPValidationError("Cannot determine current User Agent")
-        
+
         # Generate temporary access token
         from ....routes.auth.services.temporary_access import generate_temporary_user_agent_access_token
-        
+
         try:
             token = await generate_temporary_user_agent_access_token(
                 user_email=user_doc.get("email", ""),
@@ -2632,7 +2632,7 @@ async def allow_once_user_agent_access() -> Dict[str, Any]:
             logger.error("Failed to generate temporary User Agent token: %s", token_error)
             # Continue without token - just log the access
             token = None
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="allow_once_user_agent_access",
@@ -2641,7 +2641,7 @@ async def allow_once_user_agent_access() -> Dict[str, Any]:
             resource_id=user_context.user_id,
             metadata={"user_agent": current_user_agent, "token_generated": token is not None}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2651,7 +2651,7 @@ async def allow_once_user_agent_access() -> Dict[str, Any]:
             success=True,
             details={"granted_via": "mcp_tool", "duration_minutes": 15}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "user_agent": current_user_agent,
@@ -2662,10 +2662,10 @@ async def allow_once_user_agent_access() -> Dict[str, Any]:
             "token": token,
             "note": "This grants temporary access for 15 minutes. Consider adding this User Agent to your trusted list for permanent access."
         }
-        
+
         logger.info("Granted temporary User Agent access for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to grant temporary User Agent access for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2683,18 +2683,18 @@ async def allow_once_user_agent_access() -> Dict[str, Any]:
 async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
     """
     Add an IP address to the user's trusted IP list.
-    
+
     Args:
         ip_address: IP address to add to trusted list
-        
+
     Returns:
         Dictionary containing add confirmation
-        
+
     Raises:
         MCPValidationError: If IP is invalid or already trusted
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate IP address format
         import ipaddress
@@ -2702,25 +2702,25 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
             ipaddress.ip_address(ip_address)
         except ValueError:
             raise MCPValidationError("Invalid IP address format")
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get current trusted IPs
         trusted_ips = user_doc.get("trusted_ips", [])
-        
+
         # Check if IP is already trusted
         if ip_address in trusted_ips:
             raise MCPValidationError("IP address is already in trusted list")
-        
+
         # Add IP to trusted list
         trusted_ips.append(ip_address)
-        
+
         # Update user with new trusted IP
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2729,10 +2729,10 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
                 "trusted_ips_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to add trusted IP")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="add_trusted_ip",
@@ -2742,7 +2742,7 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
             changes={"trusted_ips": trusted_ips},
             metadata={"added_ip": ip_address, "trusted_ip_count": len(trusted_ips)}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2752,7 +2752,7 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
             success=True,
             details={"added_ip": ip_address, "added_via": "mcp_tool"}
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "ip_address": ip_address,
@@ -2761,10 +2761,10 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
             "trusted_ip_count": len(trusted_ips),
             "added_at": datetime.utcnow()
         }
-        
+
         logger.info("Successfully added IP %s to trusted list for user %s", ip_address, user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to add trusted IP %s for user %s: %s", ip_address, user_context.user_id, e)
         if isinstance(e, MCPValidationError):
@@ -2782,46 +2782,46 @@ async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
 async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
     """
     Add a User Agent to the user's trusted User Agent list.
-    
+
     Args:
         user_agent: User Agent string to add to trusted list
-        
+
     Returns:
         Dictionary containing add confirmation
-        
+
     Raises:
         MCPValidationError: If User Agent is invalid or already trusted
     """
     user_context = get_mcp_user_context()
-    
+
     try:
         # Validate User Agent
         if not user_agent or len(user_agent.strip()) == 0:
             raise MCPValidationError("User Agent cannot be empty")
-        
+
         if len(user_agent) > 500:  # Reasonable limit
             raise MCPValidationError("User Agent string is too long")
-        
+
         user_agent = user_agent.strip()
-        
+
         # Get user from database
         from ....database import db_manager
         users_collection = db_manager.get_collection("users")
-        
+
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
-        
+
         # Get current trusted User Agents
         trusted_user_agents = user_doc.get("trusted_user_agents", [])
-        
+
         # Check if User Agent is already trusted
         if user_agent in trusted_user_agents:
             raise MCPValidationError("User Agent is already in trusted list")
-        
+
         # Add User Agent to trusted list
         trusted_user_agents.append(user_agent)
-        
+
         # Update user with new trusted User Agent
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
@@ -2830,10 +2830,10 @@ async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
                 "trusted_user_agents_updated_at": datetime.utcnow()
             }}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to add trusted User Agent")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="add_trusted_user_agent",
@@ -2843,7 +2843,7 @@ async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
             changes={"trusted_user_agents": trusted_user_agents},
             metadata={"added_user_agent": user_agent, "trusted_user_agent_count": len(trusted_user_agents)}
         )
-        
+
         # Log security event
         from ....utils.logging_utils import log_security_event
         log_security_event(
@@ -2853,7 +2853,7 @@ async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
             success=True,
             details={"added_user_agent": user_agent[:100], "added_via": "mcp_tool"}  # Truncate for logging
         )
-        
+
         result_data = {
             "user_id": user_context.user_id,
             "user_agent": user_agent,
@@ -2862,10 +2862,10 @@ async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
             "trusted_user_agent_count": len(trusted_user_agents),
             "added_at": datetime.utcnow()
         }
-        
+
         logger.info("Successfully added User Agent to trusted list for user %s", user_context.user_id)
         return result_data
-        
+
     except Exception as e:
         logger.error("Failed to add trusted User Agent for user %s: %s", user_context.user_id, e)
         if isinstance(e, MCPValidationError):

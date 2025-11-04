@@ -34,7 +34,7 @@ logger = get_logger(prefix="[MCP_Resources_DEPRECATED]")
 
 # @mcp.resource(
 #     uri="server://config",
-#     name="ServerConfiguration", 
+#     name="ServerConfiguration",
 #     description="Provides server configuration details",
 #     mime_type="application/json"
 # )
@@ -56,7 +56,7 @@ logger = get_logger(prefix="[MCP_Resources_DEPRECATED]")
 #     ...
 
 
-# DEPRECATED: Replaced by resources/system_resources.py system://metrics with production tags  
+# DEPRECATED: Replaced by resources/system_resources.py system://metrics with production tags
 # @mcp.resource("system://metrics")
 # async def system_metrics_resource() -> str:
 #     """Get system metrics as a resource."""
@@ -73,13 +73,13 @@ logger = get_logger(prefix="[MCP_Resources_DEPRECATED]")
 def register_example_resources():
     """
     DEPRECATED: Resources are no longer registered from this module.
-    
+
     All production resources are now registered from:
     - resources/user_resources.py (user-specific resources)
     - resources/system_resources.py (system-wide resources)
-    
+
     These include production tags, database integration, and proper security.
-    
+
     This function is kept for backwards compatibility but does nothing.
     """
     logger.warning("resources_registration.py is DEPRECATED - use resources/ directory instead")

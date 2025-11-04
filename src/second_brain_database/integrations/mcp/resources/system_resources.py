@@ -22,17 +22,17 @@ logger = get_logger(prefix="[MCP_SystemResources]")
 async def get_system_health_resource() -> str:
     """
     Get system health information as a resource.
-    
+
     Returns:
         JSON string containing system health status
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Only allow admin users to access system health
         if user_context.role != "admin":
             raise MCPAuthorizationError("Access denied to system health information")
-        
+
         # Mock system health data - replace with actual health monitoring
         health_status = {
             "status": "healthy",
@@ -50,13 +50,13 @@ async def get_system_health_resource() -> str:
                 "active_sessions": 12
             }
         }
-        
+
         result = {
             "health": health_status,
             "resource_type": "system_health",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_system_health_resource",
             user_context=user_context,
@@ -64,9 +64,9 @@ async def get_system_health_resource() -> str:
             resource_id="health",
             metadata={"health_status": health_status["status"]}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get system health resource: %s", e)
         return json.dumps({"error": f"Failed to retrieve system health: {str(e)}"}, indent=2)
@@ -76,17 +76,17 @@ async def get_system_health_resource() -> str:
 async def get_system_metrics_resource() -> str:
     """
     Get system performance metrics as a resource.
-    
+
     Returns:
         JSON string containing system metrics
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Only allow admin users to access system metrics
         if user_context.role != "admin":
             raise MCPAuthorizationError("Access denied to system metrics")
-        
+
         # Mock metrics data - replace with actual metrics collection
         metrics = {
             "performance": {
@@ -110,13 +110,13 @@ async def get_system_metrics_resource() -> str:
                 "cache_hit_rate_percent": 85
             }
         }
-        
+
         result = {
             "metrics": metrics,
             "resource_type": "system_metrics",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_system_metrics_resource",
             user_context=user_context,
@@ -124,9 +124,9 @@ async def get_system_metrics_resource() -> str:
             resource_id="metrics",
             metadata={"metrics_accessed": True}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get system metrics resource: %s", e)
         return json.dumps({"error": f"Failed to retrieve system metrics: {str(e)}"}, indent=2)

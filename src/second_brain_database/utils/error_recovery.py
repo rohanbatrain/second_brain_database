@@ -93,7 +93,7 @@ class RecoveryContext:
     last_attempt_at: Optional[datetime] = None
     status: RecoveryStatus = RecoveryStatus.NOT_STARTED
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging."""
         return {
@@ -113,12 +113,12 @@ class RecoveryContext:
 class ErrorRecoveryManager:
     """
     Comprehensive error recovery manager for system resilience.
-    
+
     This manager handles automatic recovery from various types of failures
     including database disconnections, service outages, circuit breaker
     openings, and other system failures.
     """
-    
+
     def __init__(self):
         self.logger = logger
         self.active_recoveries: Dict[str, RecoveryContext] = {}
@@ -126,9 +126,9 @@ class ErrorRecoveryManager:
         self.health_check_tasks: Dict[str, asyncio.Task] = {}
         self.recovery_callbacks: Dict[str, List[Callable]] = {}
         self._health_monitoring_started = False
-        
+
         # Don't start health monitoring during import - will be started lazily
-    
+
     def _ensure_health_monitoring_started(self):
         """Ensure health monitoring is started (lazy initialization)"""
         if not self._health_monitoring_started:
@@ -140,7 +140,7 @@ class ErrorRecoveryManager:
             except RuntimeError:
                 # No running event loop, will start later when needed
                 pass
-    
+
     async def recover_from_error(
         self,
         error: Exception,
@@ -151,22 +151,22 @@ class ErrorRecoveryManager:
     ) -> Tuple[bool, Any]:
         """
         Attempt to recover from an error using the specified strategy.
-        
+
         Args:
             error: The original error that occurred
             context: Error context information
             recovery_strategy: Strategy to use for recovery
             recovery_func: Custom recovery function
             max_attempts: Maximum recovery attempts
-            
+
         Returns:
             Tuple of (success, result) where success indicates if recovery worked
         """
         # Ensure health monitoring is started
         self._ensure_health_monitoring_started()
-        
+
         recovery_id = f"{context.operation}_{int(time.time() * 1000)}"
-        
+
         recovery_context = RecoveryContext(
             operation=context.operation,
             error_type=type(error).__name__,
@@ -178,18 +178,18 @@ class ErrorRecoveryManager:
                 "recovery_id": recovery_id
             }
         )
-        
+
         self.active_recoveries[recovery_id] = recovery_context
-        
+
         try:
             self.logger.info(
                 "Starting error recovery for %s using %s strategy",
                 context.operation, recovery_strategy.value,
                 extra=recovery_context.to_dict()
             )
-            
+
             recovery_context.status = RecoveryStatus.IN_PROGRESS
-            
+
             # Select recovery method based on strategy
             if recovery_strategy == RecoveryStrategy.IMMEDIATE_RETRY:
                 success, result = await self._immediate_retry_recovery(
@@ -218,7 +218,7 @@ class ErrorRecoveryManager:
             else:
                 success, result = False, None
                 recovery_context.status = RecoveryStatus.MANUAL_REQUIRED
-            
+
             # Update recovery status
             if success:
                 recovery_context.status = RecoveryStatus.SUCCESSFUL
@@ -226,17 +226,17 @@ class ErrorRecoveryManager:
                     "Error recovery successful for %s after %d attempts",
                     context.operation, recovery_context.current_attempt
                 )
-                
+
                 # Trigger recovery callbacks
                 await self._trigger_recovery_callbacks(context.operation, True, result)
-                
+
             else:
                 recovery_context.status = RecoveryStatus.FAILED
                 self.logger.error(
                     "Error recovery failed for %s after %d attempts",
                     context.operation, recovery_context.current_attempt
                 )
-                
+
                 # Send alert for failed recovery
                 if SYSTEM_COMPONENTS_AVAILABLE:
                     await family_monitor.send_alert(
@@ -245,22 +245,22 @@ class ErrorRecoveryManager:
                         f"Failed to recover from error in {context.operation} after {recovery_context.current_attempt} attempts",
                         recovery_context.to_dict()
                     )
-                
+
                 # Trigger recovery callbacks
                 await self._trigger_recovery_callbacks(context.operation, False, None)
-            
+
             return success, result
-            
+
         finally:
             # Move to history and clean up
             self.recovery_history.append(recovery_context)
             if recovery_id in self.active_recoveries:
                 del self.active_recoveries[recovery_id]
-            
+
             # Keep only recent history (last 100 recoveries)
             if len(self.recovery_history) > 100:
                 self.recovery_history = self.recovery_history[-100:]
-    
+
     async def _immediate_retry_recovery(
         self,
         recovery_func: Optional[Callable],
@@ -269,30 +269,30 @@ class ErrorRecoveryManager:
         """Immediate retry recovery strategy."""
         if not recovery_func:
             return False, None
-        
+
         for attempt in range(context.max_attempts):
             context.current_attempt = attempt + 1
             context.last_attempt_at = datetime.now(timezone.utc)
-            
+
             try:
                 if asyncio.iscoroutinefunction(recovery_func):
                     result = await recovery_func()
                 else:
                     result = recovery_func()
-                
+
                 return True, result
-                
+
             except Exception as e:
                 self.logger.warning(
                     "Immediate retry attempt %d/%d failed for %s: %s",
                     attempt + 1, context.max_attempts, context.operation, str(e)
                 )
-                
+
                 if attempt < context.max_attempts - 1:
                     await asyncio.sleep(0.1)  # Brief pause between immediate retries
-        
+
         return False, None
-    
+
     async def _exponential_backoff_recovery(
         self,
         recovery_func: Optional[Callable],
@@ -301,42 +301,42 @@ class ErrorRecoveryManager:
         """Exponential backoff recovery strategy with jitter."""
         if not recovery_func:
             return False, None
-        
+
         delay = DEFAULT_RECOVERY_DELAY
-        
+
         for attempt in range(context.max_attempts):
             context.current_attempt = attempt + 1
             context.last_attempt_at = datetime.now(timezone.utc)
-            
+
             try:
                 if asyncio.iscoroutinefunction(recovery_func):
                     result = await recovery_func()
                 else:
                     result = recovery_func()
-                
+
                 return True, result
-                
+
             except Exception as e:
                 self.logger.warning(
                     "Exponential backoff attempt %d/%d failed for %s: %s",
                     attempt + 1, context.max_attempts, context.operation, str(e)
                 )
-                
+
                 if attempt < context.max_attempts - 1:
                     # Add jitter to prevent thundering herd
                     jitter = random.uniform(-DEFAULT_RECOVERY_JITTER, DEFAULT_RECOVERY_JITTER)
                     actual_delay = delay * (1 + jitter)
-                    
+
                     self.logger.debug(
                         "Waiting %.2fs before next recovery attempt for %s",
                         actual_delay, context.operation
                     )
-                    
+
                     await asyncio.sleep(actual_delay)
                     delay *= DEFAULT_RECOVERY_BACKOFF
-        
+
         return False, None
-    
+
     async def _linear_backoff_recovery(
         self,
         recovery_func: Optional[Callable],
@@ -345,31 +345,31 @@ class ErrorRecoveryManager:
         """Linear backoff recovery strategy."""
         if not recovery_func:
             return False, None
-        
+
         for attempt in range(context.max_attempts):
             context.current_attempt = attempt + 1
             context.last_attempt_at = datetime.now(timezone.utc)
-            
+
             try:
                 if asyncio.iscoroutinefunction(recovery_func):
                     result = await recovery_func()
                 else:
                     result = recovery_func()
-                
+
                 return True, result
-                
+
             except Exception as e:
                 self.logger.warning(
                     "Linear backoff attempt %d/%d failed for %s: %s",
                     attempt + 1, context.max_attempts, context.operation, str(e)
                 )
-                
+
                 if attempt < context.max_attempts - 1:
                     delay = DEFAULT_RECOVERY_DELAY * attempt
                     await asyncio.sleep(delay)
-        
+
         return False, None
-    
+
     async def _circuit_breaker_recovery(
         self,
         recovery_func: Optional[Callable],
@@ -380,19 +380,19 @@ class ErrorRecoveryManager:
         circuit_breaker_name = context.metadata.get('circuit_breaker_name')
         if not circuit_breaker_name:
             return False, None
-        
+
         try:
             cb = get_circuit_breaker(circuit_breaker_name)
-            
+
             # Wait for circuit breaker recovery timeout
             recovery_delay = DEFAULT_CIRCUIT_BREAKER_RECOVERY_INTERVAL
             self.logger.info(
                 "Waiting %ds for circuit breaker %s recovery",
                 recovery_delay, circuit_breaker_name
             )
-            
+
             await asyncio.sleep(recovery_delay)
-            
+
             # Test if circuit breaker can be closed
             if recovery_func:
                 try:
@@ -400,38 +400,38 @@ class ErrorRecoveryManager:
                         result = await cb.call(recovery_func)
                     else:
                         result = cb.call(recovery_func)
-                    
+
                     self.logger.info(
                         "Circuit breaker %s recovered successfully",
                         circuit_breaker_name
                     )
                     return True, result
-                    
+
                 except Exception as e:
                     self.logger.warning(
                         "Circuit breaker %s recovery test failed: %s",
                         circuit_breaker_name, str(e)
                     )
                     return False, None
-            
+
             return True, None
-            
+
         except Exception as e:
             self.logger.error(
                 "Circuit breaker recovery failed for %s: %s",
                 circuit_breaker_name, str(e)
             )
             return False, None
-    
+
     async def _service_restart_recovery(
         self,
         context: RecoveryContext
     ) -> Tuple[bool, Any]:
         """Service restart recovery strategy."""
         service_name = context.metadata.get('service_name', context.operation)
-        
+
         self.logger.info("Attempting service restart recovery for %s", service_name)
-        
+
         try:
             # Attempt to restart/reconnect various services
             if 'database' in service_name.lower():
@@ -443,16 +443,16 @@ class ErrorRecoveryManager:
             else:
                 # Generic service recovery
                 success = await self._generic_service_recovery(service_name)
-            
+
             return success, None
-            
+
         except Exception as e:
             self.logger.error(
                 "Service restart recovery failed for %s: %s",
                 service_name, str(e)
             )
             return False, None
-    
+
     async def _graceful_degradation_recovery(
         self,
         recovery_func: Optional[Callable],
@@ -463,7 +463,7 @@ class ErrorRecoveryManager:
             "Attempting graceful degradation recovery for %s",
             context.operation
         )
-        
+
         try:
             # Implement graceful degradation based on operation type
             if 'family' in context.operation.lower():
@@ -474,32 +474,32 @@ class ErrorRecoveryManager:
                 result = await self._email_graceful_degradation()
             else:
                 result = await self._generic_graceful_degradation()
-            
+
             return True, result
-            
+
         except Exception as e:
             self.logger.error(
                 "Graceful degradation recovery failed for %s: %s",
                 context.operation, str(e)
             )
             return False, None
-    
+
     async def _recover_database_connection(self) -> bool:
         """Recover database connection."""
         if not SYSTEM_COMPONENTS_AVAILABLE:
             return False
-        
+
         try:
             self.logger.info("Attempting database connection recovery")
-            
+
             # Test current connection
             await db_manager.client.admin.command("ping")
             self.logger.info("Database connection is healthy")
             return True
-            
+
         except Exception as e:
             self.logger.warning("Database connection test failed: %s", str(e))
-            
+
             try:
                 # Attempt to reconnect
                 # Note: In a real implementation, you might need to recreate the client
@@ -507,31 +507,31 @@ class ErrorRecoveryManager:
                 await db_manager.client.admin.command("ping")
                 self.logger.info("Database connection recovered")
                 return True
-                
+
             except Exception as reconnect_error:
                 self.logger.error(
                     "Database connection recovery failed: %s",
                     str(reconnect_error)
                 )
                 return False
-    
+
     async def _recover_redis_connection(self) -> bool:
         """Recover Redis connection."""
         if not SYSTEM_COMPONENTS_AVAILABLE:
             return False
-        
+
         try:
             self.logger.info("Attempting Redis connection recovery")
-            
+
             # Test current connection
             redis_conn = await redis_manager.get_redis()
             await redis_conn.ping()
             self.logger.info("Redis connection is healthy")
             return True
-            
+
         except Exception as e:
             self.logger.warning("Redis connection test failed: %s", str(e))
-            
+
             try:
                 # Attempt to reconnect
                 await asyncio.sleep(2)  # Brief pause
@@ -539,54 +539,54 @@ class ErrorRecoveryManager:
                 await redis_conn.ping()
                 self.logger.info("Redis connection recovered")
                 return True
-                
+
             except Exception as reconnect_error:
                 self.logger.error(
                     "Redis connection recovery failed: %s",
                     str(reconnect_error)
                 )
                 return False
-    
+
     async def _recover_email_service(self) -> bool:
         """Recover email service."""
         if not SYSTEM_COMPONENTS_AVAILABLE:
             return False
-        
+
         try:
             self.logger.info("Attempting email service recovery")
-            
+
             # Test email service (this would depend on your email implementation)
             # For now, we'll just assume it's available
             await asyncio.sleep(1)  # Simulate recovery time
-            
+
             self.logger.info("Email service recovered")
             return True
-            
+
         except Exception as e:
             self.logger.error("Email service recovery failed: %s", str(e))
             return False
-    
+
     async def _generic_service_recovery(self, service_name: str) -> bool:
         """Generic service recovery."""
         try:
             self.logger.info("Attempting generic recovery for %s", service_name)
-            
+
             # Generic recovery steps
             await asyncio.sleep(2)  # Wait for service to potentially recover
-            
+
             # In a real implementation, you might:
             # - Restart service processes
             # - Clear caches
             # - Reset connections
             # - Reload configurations
-            
+
             self.logger.info("Generic recovery completed for %s", service_name)
             return True
-            
+
         except Exception as e:
             self.logger.error("Generic recovery failed for %s: %s", service_name, str(e))
             return False
-    
+
     async def _family_graceful_degradation(self) -> Dict[str, Any]:
         """Graceful degradation for family operations."""
         return {
@@ -595,7 +595,7 @@ class ErrorRecoveryManager:
             "available_features": ["view_families", "basic_member_info"],
             "unavailable_features": ["create_family", "invite_members", "sbd_operations"]
         }
-    
+
     async def _sbd_graceful_degradation(self) -> Dict[str, Any]:
         """Graceful degradation for SBD operations."""
         return {
@@ -604,7 +604,7 @@ class ErrorRecoveryManager:
             "available_features": ["view_balance"],
             "unavailable_features": ["send_tokens", "receive_tokens", "transaction_history"]
         }
-    
+
     async def _email_graceful_degradation(self) -> Dict[str, Any]:
         """Graceful degradation for email operations."""
         return {
@@ -613,7 +613,7 @@ class ErrorRecoveryManager:
             "available_features": ["queue_emails"],
             "unavailable_features": ["immediate_email_delivery"]
         }
-    
+
     async def _generic_graceful_degradation(self) -> Dict[str, Any]:
         """Generic graceful degradation."""
         return {
@@ -622,32 +622,32 @@ class ErrorRecoveryManager:
             "available_features": ["basic_operations"],
             "unavailable_features": ["advanced_features"]
         }
-    
+
     async def _start_health_monitoring(self):
         """Start background health monitoring for automatic recovery."""
         self.logger.info("Starting background health monitoring")
-        
+
         while True:
             try:
                 await asyncio.sleep(DEFAULT_HEALTH_CHECK_INTERVAL)
                 await self._perform_health_checks()
-                
+
             except Exception as e:
                 self.logger.error("Health monitoring error: %s", str(e))
                 await asyncio.sleep(DEFAULT_HEALTH_CHECK_INTERVAL)
-    
+
     async def _perform_health_checks(self):
         """Perform health checks and trigger recovery if needed."""
         if not SYSTEM_COMPONENTS_AVAILABLE:
             return
-        
+
         # Check database health
         try:
             await db_manager.client.admin.command("ping")
         except Exception as e:
             self.logger.warning("Database health check failed, triggering recovery: %s", str(e))
             await self._trigger_automatic_recovery("database", e)
-        
+
         # Check Redis health
         try:
             redis_conn = await redis_manager.get_redis()
@@ -655,34 +655,34 @@ class ErrorRecoveryManager:
         except Exception as e:
             self.logger.warning("Redis health check failed, triggering recovery: %s", str(e))
             await self._trigger_automatic_recovery("redis", e)
-        
+
         # Check circuit breakers
         from second_brain_database.utils.error_handling import _circuit_breakers
         for name, cb in _circuit_breakers.items():
             if cb.state.value == "open":
                 self.logger.info("Circuit breaker %s is open, monitoring for recovery", name)
-    
+
     async def _trigger_automatic_recovery(self, service: str, error: Exception):
         """Trigger automatic recovery for a failed service."""
         context = ErrorContext(
             operation=f"automatic_recovery_{service}",
             metadata={"service_name": service, "automatic": True}
         )
-        
+
         recovery_strategy = RecoveryStrategy.SERVICE_RESTART
         if "circuit" in service.lower():
             recovery_strategy = RecoveryStrategy.CIRCUIT_BREAKER_RECOVERY
-        
+
         await self.recover_from_error(
             error, context, recovery_strategy, max_attempts=3
         )
-    
+
     def register_recovery_callback(self, operation: str, callback: Callable):
         """Register a callback to be called after recovery attempts."""
         if operation not in self.recovery_callbacks:
             self.recovery_callbacks[operation] = []
         self.recovery_callbacks[operation].append(callback)
-    
+
     async def _trigger_recovery_callbacks(
         self,
         operation: str,
@@ -702,13 +702,13 @@ class ErrorRecoveryManager:
                     "Recovery callback failed for %s: %s",
                     operation, str(e)
                 )
-    
+
     def get_recovery_stats(self) -> Dict[str, Any]:
         """Get recovery statistics."""
         total_recoveries = len(self.recovery_history)
         successful_recoveries = len([r for r in self.recovery_history if r.status == RecoveryStatus.SUCCESSFUL])
         failed_recoveries = len([r for r in self.recovery_history if r.status == RecoveryStatus.FAILED])
-        
+
         return {
             "total_recoveries": total_recoveries,
             "successful_recoveries": successful_recoveries,
@@ -717,13 +717,13 @@ class ErrorRecoveryManager:
             "active_recoveries": len(self.active_recoveries),
             "recovery_strategies": {
                 strategy.value: len([
-                    r for r in self.recovery_history 
+                    r for r in self.recovery_history
                     if r.recovery_strategy == strategy
                 ])
                 for strategy in RecoveryStrategy
             }
         }
-    
+
     def get_recent_recoveries(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent recovery attempts."""
         recent = sorted(
@@ -731,7 +731,7 @@ class ErrorRecoveryManager:
             key=lambda r: r.started_at,
             reverse=True
         )[:limit]
-        
+
         return [r.to_dict() for r in recent]
 
 
@@ -755,7 +755,7 @@ async def recover_from_redis_error(error: Exception, context: ErrorContext) -> T
 
 
 async def recover_from_circuit_breaker_error(
-    error: Exception, 
+    error: Exception,
     context: ErrorContext,
     circuit_breaker_name: str
 ) -> Tuple[bool, Any]:
@@ -767,7 +767,7 @@ async def recover_from_circuit_breaker_error(
 
 
 async def recover_with_graceful_degradation(
-    error: Exception, 
+    error: Exception,
     context: ErrorContext
 ) -> Tuple[bool, Any]:
     """Convenience function for graceful degradation recovery."""

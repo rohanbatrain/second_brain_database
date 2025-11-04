@@ -32,7 +32,7 @@ __all__ = [
     "mcp",
     "create_modern_mcp_server",
     "MCPSecurityError",
-    "MCPAuthenticationError", 
+    "MCPAuthenticationError",
     "MCPAuthorizationError",
     "MCPValidationError",
     "MCPRateLimitError",

@@ -17,7 +17,7 @@ def test_basic_imports():
         # Test basic imports that don't require FastAPI
         from second_brain_database.utils.logging_utils import (
             PerformanceLogger,
-            DatabaseLogger, 
+            DatabaseLogger,
             DatabaseContext,
             SecurityLogger,
             SecurityContext,
@@ -37,18 +37,18 @@ def test_performance_logger():
         with patch('second_brain_database.utils.logging_utils.get_logger') as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            
+
             from second_brain_database.utils.logging_utils import PerformanceLogger
-            
+
             perf_logger = PerformanceLogger()
             perf_logger.log_operation("test_operation", 0.5)
-            
+
             # Verify logger was called
             assert mock_logger.info.called, "Logger info method should be called"
             call_args = mock_logger.info.call_args[0][0]
             assert "test_operation" in call_args, "Operation name should be in log"
             assert "0.500s" in call_args, "Duration should be in log"
-            
+
         print("✓ PerformanceLogger test passed")
         return True
     except Exception as e:
@@ -61,27 +61,27 @@ def test_database_logger():
         with patch('second_brain_database.utils.logging_utils.get_logger') as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            
+
             from second_brain_database.utils.logging_utils import DatabaseLogger, DatabaseContext
-            
+
             db_logger = DatabaseLogger()
             context = DatabaseContext(
                 operation="find",
-                collection="users", 
+                collection="users",
                 query={"username": "test"},
                 duration=0.1,
                 result_count=1
             )
-            
+
             db_logger.log_query(context)
-            
+
             # Verify logger was called
             assert mock_logger.info.called, "Logger info method should be called"
             call_args = mock_logger.info.call_args[0][0]
             assert "find" in call_args, "Operation should be in log"
             assert "users" in call_args, "Collection should be in log"
             assert "0.100s" in call_args, "Duration should be in log"
-            
+
         print("✓ DatabaseLogger test passed")
         return True
     except Exception as e:
@@ -94,9 +94,9 @@ def test_security_logger():
         with patch('second_brain_database.utils.logging_utils.get_logger') as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            
+
             from second_brain_database.utils.logging_utils import SecurityLogger, SecurityContext
-            
+
             security_logger = SecurityLogger()
             context = SecurityContext(
                 event_type="login",
@@ -105,16 +105,16 @@ def test_security_logger():
                 success=True,
                 details={"method": "password"}
             )
-            
+
             security_logger.log_auth_event(context)
-            
+
             # Verify logger was called
             assert mock_logger.info.called, "Logger info method should be called"
             call_args = mock_logger.info.call_args[0][0]
             assert "AUTH SUCCESS" in call_args, "Auth success should be in log"
             assert "login" in call_args, "Event type should be in log"
             assert "user123" in call_args, "User ID should be in log"
-            
+
         print("✓ SecurityLogger test passed")
         return True
     except Exception as e:
@@ -126,24 +126,24 @@ def test_context_variables():
     try:
         from second_brain_database.utils.logging_utils import (
             request_id_context,
-            user_id_context, 
+            user_id_context,
             ip_address_context
         )
-        
+
         # Test initial empty state
         assert request_id_context.get('') == '', "Initial request_id should be empty"
         assert user_id_context.get('') == '', "Initial user_id should be empty"
         assert ip_address_context.get('') == '', "Initial ip_address should be empty"
-        
+
         # Test setting values
         request_id_context.set('req-123')
         user_id_context.set('user-456')
         ip_address_context.set('192.168.1.1')
-        
+
         assert request_id_context.get('') == 'req-123', "Request ID should be set"
         assert user_id_context.get('') == 'user-456', "User ID should be set"
         assert ip_address_context.get('') == '192.168.1.1', "IP address should be set"
-        
+
         print("✓ Context variables test passed")
         return True
     except Exception as e:
@@ -156,9 +156,9 @@ def test_query_sanitization():
         with patch('second_brain_database.utils.logging_utils.get_logger') as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            
+
             from second_brain_database.utils.logging_utils import DatabaseLogger, DatabaseContext
-            
+
             db_logger = DatabaseLogger()
             context = DatabaseContext(
                 operation="update",
@@ -166,14 +166,14 @@ def test_query_sanitization():
                 query={
                     "username": "test",
                     "password": "secret123",
-                    "token": "abc123", 
+                    "token": "abc123",
                     "normal_field": "value"
                 },
                 duration=0.1
             )
-            
+
             db_logger.log_query(context)
-            
+
             # Verify logger was called and sensitive data was redacted
             assert mock_logger.info.called, "Logger info method should be called"
             call_args = mock_logger.info.call_args[0][0]
@@ -181,7 +181,7 @@ def test_query_sanitization():
             assert "secret123" not in call_args, "Password should not appear in log"
             assert "abc123" not in call_args, "Token should not appear in log"
             assert "value" in call_args, "Normal field should appear in log"
-            
+
         print("✓ Query sanitization test passed")
         return True
     except Exception as e:
@@ -192,7 +192,7 @@ def main():
     """Run all tests."""
     print("Running logging utilities tests...")
     print("=" * 50)
-    
+
     tests = [
         test_basic_imports,
         test_performance_logger,
@@ -201,18 +201,18 @@ def main():
         test_context_variables,
         test_query_sanitization,
     ]
-    
+
     passed = 0
     total = len(tests)
-    
+
     for test in tests:
         if test():
             passed += 1
         print()
-    
+
     print("=" * 50)
     print(f"Tests passed: {passed}/{total}")
-    
+
     if passed == total:
         print("🎉 All tests passed!")
         return 0

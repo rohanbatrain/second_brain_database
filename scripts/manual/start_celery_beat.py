@@ -12,7 +12,7 @@ logger = get_logger(prefix="[CeleryBeat]")
 
 if __name__ == "__main__":
     logger.info("Starting Celery Beat scheduler...")
-    
+
     celery_app.start([
         "beat",
         "--loglevel=info",

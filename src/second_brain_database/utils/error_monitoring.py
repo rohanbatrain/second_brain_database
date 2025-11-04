@@ -94,7 +94,7 @@ class ErrorEvent:
     ip_address: Optional[str] = None
     recovery_attempted: bool = False
     recovery_successful: bool = False
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage and analysis."""
         return {
@@ -111,7 +111,7 @@ class ErrorEvent:
             "recovery_attempted": self.recovery_attempted,
             "recovery_successful": self.recovery_successful
         }
-    
+
     def get_signature(self) -> str:
         """Get a signature for error grouping."""
         signature_data = f"{self.operation}:{self.error_type}:{self.error_message[:100]}"
@@ -132,12 +132,12 @@ class ErrorPattern:
     affected_families: Set[str] = field(default_factory=set)
     recovery_attempts: int = 0
     recovery_successes: int = 0
-    
+
     def update(self, event: ErrorEvent):
         """Update pattern with new error event."""
         self.last_seen = event.timestamp
         self.count += 1
-        
+
         # Update severity to highest seen
         if event.severity.value == "critical":
             self.severity = ErrorSeverity.CRITICAL
@@ -145,25 +145,25 @@ class ErrorPattern:
             self.severity = ErrorSeverity.HIGH
         elif event.severity.value == "medium" and self.severity in [ErrorSeverity.LOW]:
             self.severity = ErrorSeverity.MEDIUM
-        
+
         # Track affected entities
         if event.user_id:
             self.affected_users.add(event.user_id)
         if event.family_id:
             self.affected_families.add(event.family_id)
-        
+
         # Track recovery attempts
         if event.recovery_attempted:
             self.recovery_attempts += 1
             if event.recovery_successful:
                 self.recovery_successes += 1
-    
+
     def get_recovery_rate(self) -> float:
         """Get recovery success rate for this pattern."""
         if self.recovery_attempts == 0:
             return 0.0
         return self.recovery_successes / self.recovery_attempts
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for analysis."""
         return {
@@ -195,7 +195,7 @@ class Alert:
     escalated_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
@@ -215,32 +215,32 @@ class Alert:
 class ErrorMonitor:
     """
     Comprehensive error monitoring and alerting system.
-    
+
     This monitor tracks errors across the system, detects patterns and anomalies,
     and generates alerts with appropriate escalation procedures.
     """
-    
+
     def __init__(self):
         self.logger = logger
-        
+
         # Error tracking
         self.error_events: deque = deque(maxlen=DEFAULT_ERROR_WINDOW_SIZE * 10)
         self.error_patterns: Dict[str, ErrorPattern] = {}
         self.error_rates: Dict[str, deque] = defaultdict(lambda: deque(maxlen=DEFAULT_ERROR_WINDOW_SIZE))
-        
+
         # Alert tracking
         self.active_alerts: Dict[str, Alert] = {}
         self.alert_history: List[Alert] = []
         self.last_alert_times: Dict[str, datetime] = {}
-        
+
         # Escalation tracking
         self.escalation_callbacks: Dict[EscalationLevel, List[Callable]] = defaultdict(list)
-        
+
         # Background tasks
         self.monitoring_task = None
         self._monitoring_started = False
         # Don't start monitoring during import - will be started lazily
-    
+
     def start_monitoring(self):
         """Start background monitoring tasks."""
         if not self._monitoring_started:
@@ -254,13 +254,13 @@ class ErrorMonitor:
             except RuntimeError:
                 # No running event loop, will start later when needed
                 self.logger.debug("No event loop available, monitoring will start later")
-    
+
     def stop_monitoring(self):
         """Stop background monitoring tasks."""
         if self.monitoring_task and not self.monitoring_task.done():
             self.monitoring_task.cancel()
             self.logger.info("Error monitoring stopped")
-    
+
     async def record_error(
         self,
         error: Exception,
@@ -271,7 +271,7 @@ class ErrorMonitor:
     ):
         """
         Record an error event for monitoring and analysis.
-        
+
         Args:
             error: The exception that occurred
             context: Error context information
@@ -295,10 +295,10 @@ class ErrorMonitor:
             recovery_attempted=recovery_attempted,
             recovery_successful=recovery_successful
         )
-        
+
         # Add to event history
         self.error_events.append(event)
-        
+
         # Update error patterns
         signature = event.get_signature()
         if signature in self.error_patterns:
@@ -316,10 +316,10 @@ class ErrorMonitor:
                 self.error_patterns[signature].affected_users.add(event.user_id)
             if event.family_id:
                 self.error_patterns[signature].affected_families.add(event.family_id)
-        
+
         # Update error rates
         self.error_rates[event.operation].append(event.timestamp)
-        
+
         # Log the error event
         self.logger.info(
             "Error recorded: %s in %s (severity: %s, recovery: %s)",
@@ -327,11 +327,11 @@ class ErrorMonitor:
             "successful" if recovery_successful else "attempted" if recovery_attempted else "none",
             extra=event.to_dict()
         )
-        
+
         # Trigger immediate analysis for critical errors
         if severity == ErrorSeverity.CRITICAL:
             await self._analyze_and_alert()
-    
+
     async def _monitoring_loop(self):
         """Main monitoring loop for periodic analysis."""
         while True:
@@ -340,42 +340,42 @@ class ErrorMonitor:
                 await self._analyze_and_alert()
                 await self._check_escalations()
                 await self._cleanup_old_data()
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in monitoring loop: %s", str(e))
                 await asyncio.sleep(60)
-    
+
     async def _analyze_and_alert(self):
         """Analyze error patterns and generate alerts."""
         current_time = datetime.now(timezone.utc)
-        
+
         # Check error rates
         await self._check_error_rates(current_time)
-        
+
         # Check for anomalies
         await self._check_anomalies(current_time)
-        
+
         # Check repeated errors
         await self._check_repeated_errors(current_time)
-        
+
         # Check system degradation
         await self._check_system_degradation(current_time)
-        
+
         # Check recovery failures
         await self._check_recovery_failures(current_time)
-    
+
     async def _check_error_rates(self, current_time: datetime):
         """Check error rates and generate alerts if thresholds are exceeded."""
         time_window = timedelta(minutes=DEFAULT_TIME_WINDOW_MINUTES)
         cutoff_time = current_time - time_window
-        
+
         for operation, error_times in self.error_rates.items():
             # Count recent errors
             recent_errors = [t for t in error_times if t >= cutoff_time]
             error_rate = len(recent_errors) / DEFAULT_TIME_WINDOW_MINUTES  # errors per minute
-            
+
             # Check thresholds
             if error_rate >= DEFAULT_CRITICAL_ERROR_RATE_THRESHOLD:
                 await self._generate_alert(
@@ -405,30 +405,30 @@ class ErrorMonitor:
                         "time_window_minutes": DEFAULT_TIME_WINDOW_MINUTES
                     }
                 )
-    
+
     async def _check_anomalies(self, current_time: datetime):
         """Check for anomalous error patterns using statistical analysis."""
         time_window = timedelta(hours=24)
         cutoff_time = current_time - time_window
-        
+
         # Group errors by hour for trend analysis
         hourly_errors = defaultdict(int)
         for event in self.error_events:
             if event.timestamp >= cutoff_time:
                 hour_key = event.timestamp.replace(minute=0, second=0, microsecond=0)
                 hourly_errors[hour_key] += 1
-        
+
         if len(hourly_errors) < 3:  # Need at least 3 data points
             return
-        
+
         error_counts = list(hourly_errors.values())
         mean_errors = statistics.mean(error_counts)
-        
+
         if len(error_counts) > 1:
             stdev_errors = statistics.stdev(error_counts)
             current_hour = current_time.replace(minute=0, second=0, microsecond=0)
             current_errors = hourly_errors.get(current_hour, 0)
-            
+
             # Check if current hour is anomalous
             if stdev_errors > 0 and current_errors > mean_errors + (DEFAULT_ANOMALY_DETECTION_THRESHOLD * stdev_errors):
                 await self._generate_alert(
@@ -443,21 +443,21 @@ class ErrorMonitor:
                         "threshold_multiplier": DEFAULT_ANOMALY_DETECTION_THRESHOLD
                     }
                 )
-    
+
     async def _check_repeated_errors(self, current_time: datetime):
         """Check for repeated error patterns that might indicate systemic issues."""
         time_window = timedelta(hours=1)
         cutoff_time = current_time - time_window
-        
+
         for signature, pattern in self.error_patterns.items():
             if pattern.last_seen >= cutoff_time and pattern.count >= 10:
                 # Check if this is a new repeated error pattern
                 alert_key = f"repeated_{signature}"
                 if alert_key not in self.last_alert_times or \
                    current_time - self.last_alert_times[alert_key] > timedelta(minutes=DEFAULT_ALERT_COOLDOWN_MINUTES):
-                    
+
                     severity = AlertSeverity.ERROR if pattern.severity == ErrorSeverity.CRITICAL else AlertSeverity.WARNING
-                    
+
                     await self._generate_alert(
                         AlertType.REPEATED_ERRORS,
                         severity,
@@ -472,19 +472,19 @@ class ErrorMonitor:
                             "recovery_rate": pattern.get_recovery_rate()
                         }
                     )
-                    
+
                     self.last_alert_times[alert_key] = current_time
-    
+
     async def _check_system_degradation(self, current_time: datetime):
         """Check for signs of system degradation."""
         time_window = timedelta(minutes=30)
         cutoff_time = current_time - time_window
-        
+
         # Count recent errors by severity
         recent_events = [e for e in self.error_events if e.timestamp >= cutoff_time]
         critical_errors = len([e for e in recent_events if e.severity == ErrorSeverity.CRITICAL])
         high_errors = len([e for e in recent_events if e.severity == ErrorSeverity.HIGH])
-        
+
         # Check for system degradation indicators
         if critical_errors >= 5 or high_errors >= 15:
             await self._generate_alert(
@@ -499,22 +499,22 @@ class ErrorMonitor:
                     "time_window_minutes": 30
                 }
             )
-    
+
     async def _check_recovery_failures(self, current_time: datetime):
         """Check for patterns of recovery failures."""
         time_window = timedelta(hours=2)
         cutoff_time = current_time - time_window
-        
+
         # Analyze recovery patterns
         recovery_stats = defaultdict(lambda: {"attempts": 0, "successes": 0})
-        
+
         for event in self.error_events:
             if event.timestamp >= cutoff_time and event.recovery_attempted:
                 key = f"{event.operation}:{event.error_type}"
                 recovery_stats[key]["attempts"] += 1
                 if event.recovery_successful:
                     recovery_stats[key]["successes"] += 1
-        
+
         # Check for poor recovery rates
         for key, stats in recovery_stats.items():
             if stats["attempts"] >= 5:  # At least 5 recovery attempts
@@ -534,7 +534,7 @@ class ErrorMonitor:
                             "successes": stats["successes"]
                         }
                     )
-    
+
     async def _generate_alert(
         self,
         alert_type: AlertType,
@@ -545,7 +545,7 @@ class ErrorMonitor:
     ):
         """Generate and process an alert."""
         alert_id = f"{alert_type.value}_{int(time.time() * 1000)}"
-        
+
         alert = Alert(
             alert_id=alert_id,
             alert_type=alert_type,
@@ -555,37 +555,37 @@ class ErrorMonitor:
             created_at=datetime.now(timezone.utc),
             metadata=metadata
         )
-        
+
         self.active_alerts[alert_id] = alert
-        
+
         # Log the alert (avoid 'message' field conflict)
         alert_dict = alert.to_dict()
         # Remove conflicting fields that might overwrite LogRecord fields
         safe_extra = {k: v for k, v in alert_dict.items() if k not in ['message', 'msg', 'args']}
-        
+
         self.logger.warning(
             "Alert generated: %s - %s",
             title, message,
             extra=safe_extra
         )
-        
+
         # Send to monitoring system
         if MONITORING_ENABLED:
             await family_monitor.send_alert(severity, title, message, metadata)
-        
+
         # Trigger escalation callbacks
         await self._trigger_escalation_callbacks(alert)
-    
+
     async def _check_escalations(self):
         """Check if any alerts need to be escalated."""
         current_time = datetime.now(timezone.utc)
         escalation_delay = timedelta(minutes=DEFAULT_ESCALATION_DELAY_MINUTES)
-        
+
         for alert in self.active_alerts.values():
             if alert.resolved_at is None and alert.escalated_at is None:
                 if current_time - alert.created_at >= escalation_delay:
                     await self._escalate_alert(alert)
-    
+
     async def _escalate_alert(self, alert: Alert):
         """Escalate an alert to the next level."""
         if alert.escalation_level == EscalationLevel.LEVEL_1:
@@ -594,18 +594,18 @@ class ErrorMonitor:
             alert.escalation_level = EscalationLevel.LEVEL_3
         elif alert.escalation_level == EscalationLevel.LEVEL_3:
             alert.escalation_level = EscalationLevel.LEVEL_4
-        
+
         alert.escalated_at = datetime.now(timezone.utc)
-        
+
         self.logger.warning(
             "Alert escalated to %s: %s",
             alert.escalation_level.value, alert.title,
             extra=alert.to_dict()
         )
-        
+
         # Trigger escalation callbacks
         await self._trigger_escalation_callbacks(alert)
-    
+
     async def _trigger_escalation_callbacks(self, alert: Alert):
         """Trigger registered escalation callbacks."""
         callbacks = self.escalation_callbacks.get(alert.escalation_level, [])
@@ -620,71 +620,71 @@ class ErrorMonitor:
                     "Escalation callback failed for alert %s: %s",
                     alert.alert_id, str(e)
                 )
-    
+
     async def _cleanup_old_data(self):
         """Clean up old monitoring data."""
         current_time = datetime.now(timezone.utc)
         cleanup_age = timedelta(days=7)
         cutoff_time = current_time - cleanup_age
-        
+
         # Clean up old error patterns
         patterns_to_remove = []
         for signature, pattern in self.error_patterns.items():
             if pattern.last_seen < cutoff_time:
                 patterns_to_remove.append(signature)
-        
+
         for signature in patterns_to_remove:
             del self.error_patterns[signature]
-        
+
         # Clean up resolved alerts
         resolved_alerts = [
             alert for alert in self.active_alerts.values()
             if alert.resolved_at and alert.resolved_at < cutoff_time
         ]
-        
+
         for alert in resolved_alerts:
             self.alert_history.append(alert)
             del self.active_alerts[alert.alert_id]
-        
+
         # Limit alert history size
         if len(self.alert_history) > 1000:
             self.alert_history = self.alert_history[-1000:]
-    
+
     def register_escalation_callback(self, level: EscalationLevel, callback: Callable):
         """Register a callback for alert escalations."""
         self.escalation_callbacks[level].append(callback)
-    
+
     def resolve_alert(self, alert_id: str):
         """Mark an alert as resolved."""
         if alert_id in self.active_alerts:
             self.active_alerts[alert_id].resolved_at = datetime.now(timezone.utc)
             self.logger.info("Alert resolved: %s", alert_id)
-    
+
     def get_monitoring_stats(self) -> Dict[str, Any]:
         """Get comprehensive monitoring statistics."""
         current_time = datetime.now(timezone.utc)
-        
+
         # Error statistics
         total_errors = len(self.error_events)
         recent_errors = len([
-            e for e in self.error_events 
+            e for e in self.error_events
             if current_time - e.timestamp <= timedelta(hours=24)
         ])
-        
+
         # Pattern statistics
         active_patterns = len(self.error_patterns)
         critical_patterns = len([
-            p for p in self.error_patterns.values() 
+            p for p in self.error_patterns.values()
             if p.severity == ErrorSeverity.CRITICAL
         ])
-        
+
         # Alert statistics
         active_alerts = len(self.active_alerts)
         critical_alerts = len([
-            a for a in self.active_alerts.values() 
+            a for a in self.active_alerts.values()
             if a.severity == AlertSeverity.CRITICAL
         ])
-        
+
         return {
             "error_statistics": {
                 "total_errors": total_errors,
@@ -708,13 +708,13 @@ class ErrorMonitor:
                 "recovery_success_rate": self._calculate_overall_recovery_rate()
             }
         }
-    
+
     def _calculate_overall_recovery_rate(self) -> float:
         """Calculate overall recovery success rate."""
         attempts = sum(1 for e in self.error_events if e.recovery_attempted)
         successes = sum(1 for e in self.error_events if e.recovery_successful)
         return successes / max(attempts, 1)
-    
+
     def get_error_patterns(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Get top error patterns by frequency."""
         patterns = sorted(
@@ -722,9 +722,9 @@ class ErrorMonitor:
             key=lambda p: p.count,
             reverse=True
         )[:limit]
-        
+
         return [p.to_dict() for p in patterns]
-    
+
     def get_active_alerts(self) -> List[Dict[str, Any]]:
         """Get all active alerts."""
         return [alert.to_dict() for alert in self.active_alerts.values()]

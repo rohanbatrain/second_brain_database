@@ -850,10 +850,10 @@ class WebAuthnChallengeDocument(BaseModel):
 class WebAuthnRegistrationBeginRequest(BaseDocumentedModel):
     """
     Request model for starting WebAuthn credential registration.
-    
+
     Allows users to provide an optional friendly name for their authenticator device.
     """
-    
+
     device_name: Optional[str] = Field(
         None,
         max_length=100,
@@ -873,10 +873,10 @@ class WebAuthnRegistrationBeginRequest(BaseDocumentedModel):
 class WebAuthnRegistrationBeginResponse(BaseDocumentedModel):
     """
     Response model for WebAuthn registration begin endpoint.
-    
+
     Contains WebAuthn credential creation options for the client.
     """
-    
+
     challenge: str = Field(..., description="Base64url-encoded challenge")
     rp: Dict[str, Any] = Field(..., description="Relying Party information")
     user: Dict[str, Any] = Field(..., description="User information")
@@ -919,10 +919,10 @@ class WebAuthnRegistrationBeginResponse(BaseDocumentedModel):
 class WebAuthnRegistrationCompleteRequest(BaseDocumentedModel):
     """
     Request model for completing WebAuthn credential registration.
-    
+
     Contains the WebAuthn credential creation response from the client.
     """
-    
+
     id: str = Field(..., description="Credential ID (base64url encoded)")
     rawId: str = Field(..., description="Raw credential ID (base64url encoded)")
     response: Dict[str, Any] = Field(..., description="Authenticator attestation response")
@@ -952,10 +952,10 @@ class WebAuthnRegistrationCompleteRequest(BaseDocumentedModel):
 class WebAuthnRegistrationCompleteResponse(BaseDocumentedModel):
     """
     Response model for completed WebAuthn credential registration.
-    
+
     Confirms successful registration and provides credential metadata.
     """
-    
+
     message: str = Field(
         default="WebAuthn credential registered successfully",
         description="Success message"
@@ -1084,11 +1084,11 @@ class WebAuthnCredentialDeletionResponse(BaseDocumentedModel):
 class AuthMethodsResponse(BaseDocumentedModel):
     """
     Response model for available authentication methods.
-    
+
     Provides information about what authentication methods are available
     for a user and their preferences.
     """
-    
+
     available_methods: List[str] = Field(
         default_factory=list,
         description="List of available authentication methods for the user",
@@ -1144,7 +1144,7 @@ class AuthPreferenceResponse(BaseDocumentedModel):
     """
     Response model for authentication preference updates.
     """
-    
+
     message: str = Field(
         default="Authentication preference updated successfully",
         description="Success message",
@@ -1169,11 +1169,11 @@ class AuthPreferenceResponse(BaseDocumentedModel):
 class AuthFallbackResponse(BaseDocumentedModel):
     """
     Response model for authentication fallback options.
-    
+
     Provides information about available fallback authentication methods
     when the primary method fails.
     """
-    
+
     has_fallback: bool = Field(
         default=False,
         description="Whether fallback authentication methods are available",
@@ -1219,12 +1219,12 @@ class AuthFallbackResponse(BaseDocumentedModel):
 class WebAuthnAuthenticationBeginRequest(BaseDocumentedModel):
     """
     Request model for starting WebAuthn authentication.
-    
+
     Allows authentication by username or email, similar to standard login.
     """
-    
+
     username: Optional[str] = Field(
-        None, 
+        None,
         description="Username for authentication. Either username or email must be provided.",
         example="john_doe"
     )
@@ -1251,7 +1251,7 @@ class WebAuthnAuthenticationBeginRequest(BaseDocumentedModel):
                     }
                 },
                 {
-                    "name": "Email Authentication", 
+                    "name": "Email Authentication",
                     "summary": "Start WebAuthn authentication with email",
                     "value": {
                         "email": "john.doe@example.com",
@@ -1273,10 +1273,10 @@ class WebAuthnAuthenticationBeginRequest(BaseDocumentedModel):
 class WebAuthnAuthenticationBeginResponse(BaseDocumentedModel):
     """
     Response model for WebAuthn authentication begin endpoint.
-    
+
     Contains WebAuthn credential request options for the client.
     """
-    
+
     publicKey: Dict[str, Any] = Field(
         ...,
         description="WebAuthn credential request options for navigator.credentials.get()",
@@ -1301,7 +1301,7 @@ class WebAuthnAuthenticationBeginResponse(BaseDocumentedModel):
     )
     email: Optional[str] = Field(
         None,
-        description="Email of the authenticating user", 
+        description="Email of the authenticating user",
         example="john.doe@example.com"
     )
 
@@ -1331,10 +1331,10 @@ class WebAuthnAuthenticationBeginResponse(BaseDocumentedModel):
 class WebAuthnAuthenticationCompleteRequest(BaseDocumentedModel):
     """
     Request model for completing WebAuthn authentication.
-    
+
     Contains the WebAuthn assertion response from the client.
     """
-    
+
     credential_id: str = Field(
         ...,
         description="Base64url encoded credential ID from the assertion response",
@@ -1366,7 +1366,7 @@ class WebAuthnAuthenticationCompleteRequest(BaseDocumentedModel):
             "example": {
                 "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
                 "authenticator_data": "authenticator-data-base64url-encoded",
-                "client_data_json": "client-data-json-base64url-encoded", 
+                "client_data_json": "client-data-json-base64url-encoded",
                 "signature": "assertion-signature-base64url-encoded",
                 "user_handle": "user-handle-base64url-encoded"
             }
@@ -1377,10 +1377,10 @@ class WebAuthnAuthenticationCompleteRequest(BaseDocumentedModel):
 class WebAuthnAuthenticationCompleteResponse(BaseDocumentedModel):
     """
     Response model for completed WebAuthn authentication.
-    
+
     Contains JWT token and user information, similar to standard login response.
     """
-    
+
     access_token: str = Field(
         ...,
         description="JWT access token for API authentication",

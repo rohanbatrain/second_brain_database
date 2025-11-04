@@ -44,19 +44,19 @@ async def get_mcp_websocket_manager() -> MCPWebSocketManager:
 async def initialize_managers():
     """Initialize the MCP WebSocket manager and dependencies."""
     global mcp_websocket_manager, ai_event_bus, security_manager
-    
+
     try:
         # Initialize security manager
         security_manager = SecurityManager()
-        
+
         # AI event bus removed with ai_orchestration system
         # Initialize MCP WebSocket manager without AI event bus
         mcp_websocket_manager = await initialize_mcp_websocket_manager(
             None, security_manager  # Pass None for ai_event_bus
         )
-        
+
         logger.info("MCP WebSocket managers initialized successfully")
-        
+
     except Exception as e:
         logger.error("Failed to initialize MCP WebSocket managers: %s", e)
         raise
@@ -66,7 +66,7 @@ async def initialize_managers():
 async def mcp_websocket_endpoint(websocket: WebSocket):
     """
     Main MCP WebSocket endpoint for real-time MCP protocol communication.
-    
+
     This endpoint provides:
     - MCP protocol message handling
     - Integration with AI orchestration system
@@ -75,16 +75,16 @@ async def mcp_websocket_endpoint(websocket: WebSocket):
     """
     session_id = str(uuid.uuid4())
     manager = await get_mcp_websocket_manager()
-    
+
     # Accept connection
     connected = await manager.connect(websocket, session_id)
     if not connected:
         await websocket.close(code=1011, reason="Failed to establish MCP session")
         return
-    
+
     try:
         logger.info("MCP WebSocket session started: %s", session_id)
-        
+
         while True:
             # Receive message from client
             try:
@@ -92,17 +92,17 @@ async def mcp_websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.error("Error receiving WebSocket message: %s", e)
                 break
-            
+
             # Handle MCP protocol message
             await manager.handle_message(websocket, data)
-            
+
     except WebSocketDisconnect:
         logger.info("MCP WebSocket client disconnected: %s", session_id)
     except Exception as e:
         logger.error("MCP WebSocket error for session %s: %s", session_id, e)
         try:
             await websocket.close(code=1011, reason=str(e))
-        except:
+        except Exception:  # TODO: Use specific exception type
             pass
     finally:
         # Cleanup session
@@ -113,21 +113,21 @@ async def mcp_websocket_endpoint(websocket: WebSocket):
 async def mcp_websocket_with_session(websocket: WebSocket, session_id: str):
     """
     MCP WebSocket endpoint with explicit session ID.
-    
+
     This allows clients to reconnect to existing sessions or
     coordinate multiple connections with the same session.
     """
     manager = await get_mcp_websocket_manager()
-    
+
     # Accept connection with provided session ID
     connected = await manager.connect(websocket, session_id)
     if not connected:
         await websocket.close(code=1011, reason="Failed to establish MCP session")
         return
-    
+
     try:
         logger.info("MCP WebSocket session resumed/started: %s", session_id)
-        
+
         while True:
             # Receive message from client
             try:
@@ -135,17 +135,17 @@ async def mcp_websocket_with_session(websocket: WebSocket, session_id: str):
             except Exception as e:
                 logger.error("Error receiving WebSocket message: %s", e)
                 break
-            
+
             # Handle MCP protocol message
             await manager.handle_message(websocket, data)
-            
+
     except WebSocketDisconnect:
         logger.info("MCP WebSocket client disconnected: %s", session_id)
     except Exception as e:
         logger.error("MCP WebSocket error for session %s: %s", session_id, e)
         try:
             await websocket.close(code=1011, reason=str(e))
-        except:
+        except Exception:  # TODO: Use specific exception type
             pass
     finally:
         # Cleanup session
@@ -156,13 +156,13 @@ async def mcp_websocket_with_session(websocket: WebSocket, session_id: str):
 async def list_mcp_websocket_sessions():
     """List active MCP WebSocket sessions."""
     manager = await get_mcp_websocket_manager()
-    
+
     sessions = []
     for session_id in manager.active_sessions:
         session_info = manager.get_session_info(session_id)
         if session_info:
             sessions.append(session_info)
-    
+
     return {
         "active_sessions": len(sessions),
         "sessions": sessions
@@ -173,11 +173,11 @@ async def list_mcp_websocket_sessions():
 async def get_mcp_websocket_session(session_id: str):
     """Get information about a specific MCP WebSocket session."""
     manager = await get_mcp_websocket_manager()
-    
+
     session_info = manager.get_session_info(session_id)
     if not session_info:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return session_info
 
 
@@ -185,13 +185,13 @@ async def get_mcp_websocket_session(session_id: str):
 async def broadcast_to_mcp_sessions(message: Dict[str, Any]):
     """
     Broadcast a message to all active MCP WebSocket sessions.
-    
+
     This is useful for system-wide notifications or updates.
     """
     manager = await get_mcp_websocket_manager()
-    
+
     await manager.broadcast_to_mcp_sessions(message)
-    
+
     return {
         "message": "Broadcast sent",
         "active_sessions": manager.get_active_session_count()
@@ -203,7 +203,7 @@ async def mcp_websocket_health():
     """Health check for MCP WebSocket functionality."""
     try:
         manager = await get_mcp_websocket_manager()
-        
+
         return {
             "status": "healthy",
             "active_sessions": manager.get_active_session_count(),
@@ -258,7 +258,7 @@ async def mcp_integration_status():
     """Get status of MCP integration with AI orchestration system."""
     try:
         manager = await get_mcp_websocket_manager()
-        
+
         return {
             "status": "integrated",
             "mcp_websocket_manager": "initialized",

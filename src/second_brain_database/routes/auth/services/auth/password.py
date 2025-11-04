@@ -273,7 +273,7 @@ async def send_user_agent_lockdown_code_email(
 ):
     """
     Send a User Agent lockdown confirmation code email with HTML template.
-    
+
     Args:
         email (str): The user's email address.
         code (str): The confirmation code.
@@ -298,7 +298,7 @@ async def send_blocked_ip_notification(
 ):
     """
     Send an email notification about a blocked access attempt due to IP Lockdown.
-    
+
     Args:
         email (str): The user's email address.
         attempted_ip (str): The IP address that was blocked.
@@ -307,13 +307,13 @@ async def send_blocked_ip_notification(
     """
     from second_brain_database.routes.auth.routes_html import render_blocked_ip_notification_email
     from second_brain_database.routes.auth.services.temporary_access import generate_temporary_ip_access_token
-    
+
     logger.info("Sending blocked IP notification to %s for IP %s", email, attempted_ip)
 
     # Generate temporary access tokens for action buttons
     allow_once_token = None
     add_to_trusted_token = None
-    
+
     try:
         allow_once_token = await generate_temporary_ip_access_token(
             user_email=email,
@@ -324,7 +324,7 @@ async def send_blocked_ip_notification(
         logger.debug("Generated allow once token for %s", email)
     except Exception as e:
         logger.error("Failed to generate allow once token for %s: %s", email, e, exc_info=True)
-    
+
     try:
         add_to_trusted_token = await generate_temporary_ip_access_token(
             user_email=email,
@@ -364,15 +364,15 @@ async def send_blocked_ip_notification(
         allow_once_token=allow_once_token,
         add_to_trusted_token=add_to_trusted_token
     )
-    
+
     try:
         await email_manager._send_via_console(email, subject, html_content)
         logger.info("Successfully sent blocked IP notification to %s", email)
     except RuntimeError as e:
         logger.error("Failed to send blocked IP notification to %s: %s", email, e, exc_info=True)
         log_error_with_context(
-            e, 
-            context={"email": email, "attempted_ip": attempted_ip, "endpoint": endpoint}, 
+            e,
+            context={"email": email, "attempted_ip": attempted_ip, "endpoint": endpoint},
             operation="send_blocked_ip_notification"
         )
 
@@ -383,7 +383,7 @@ async def send_blocked_user_agent_notification(
 ):
     """
     Send an email notification about a blocked access attempt due to User Agent Lockdown.
-    
+
     Args:
         email (str): The user's email address.
         attempted_user_agent (str): The User Agent that was blocked.
@@ -392,13 +392,13 @@ async def send_blocked_user_agent_notification(
     """
     from second_brain_database.routes.auth.routes_html import render_blocked_user_agent_notification_email
     from second_brain_database.routes.auth.services.temporary_access import generate_temporary_user_agent_access_token
-    
+
     logger.info("Sending blocked User Agent notification to %s for User Agent %s", email, attempted_user_agent)
 
     # Generate temporary access tokens for action buttons
     allow_once_token = None
     add_to_trusted_token = None
-    
+
     try:
         allow_once_token = await generate_temporary_user_agent_access_token(
             user_email=email,
@@ -409,7 +409,7 @@ async def send_blocked_user_agent_notification(
         logger.debug("Generated allow once token for %s", email)
     except Exception as e:
         logger.error("Failed to generate allow once token for %s: %s", email, e, exc_info=True)
-    
+
     try:
         add_to_trusted_token = await generate_temporary_user_agent_access_token(
             user_email=email,
@@ -449,14 +449,14 @@ async def send_blocked_user_agent_notification(
         allow_once_token=allow_once_token,
         add_to_trusted_token=add_to_trusted_token
     )
-    
+
     try:
         await email_manager._send_via_console(email, subject, html_content)
         logger.info("Successfully sent blocked User Agent notification to %s", email)
     except RuntimeError as e:
         logger.error("Failed to send blocked User Agent notification to %s: %s", email, e, exc_info=True)
         log_error_with_context(
-            e, 
-            context={"email": email, "attempted_user_agent": attempted_user_agent, "endpoint": endpoint}, 
+            e,
+            context={"email": email, "attempted_user_agent": attempted_user_agent, "endpoint": endpoint},
             operation="send_blocked_user_agent_notification"
         )

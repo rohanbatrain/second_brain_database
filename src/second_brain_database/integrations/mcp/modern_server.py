@@ -38,20 +38,20 @@ logger = get_logger(prefix="[ModernMCPServer]")
 async def mcp_lifespan(app):
     """
     FastMCP 2.x lifespan context manager for server startup and shutdown.
-    
+
     Handles initialization and cleanup of monitoring systems, database connections,
     and other resources following FastMCP 2.x patterns.
     """
     logger.info("Starting MCP server lifespan initialization...")
-    
+
     try:
         # Initialize monitoring systems
         await mcp_monitoring_integration.initialize()
         await mcp_monitoring_integration.start_monitoring()
         logger.info("MCP monitoring systems initialized")
-        
+
         yield
-        
+
     except Exception as e:
         logger.error("Error during MCP server lifespan: %s", e)
         await alert_server_failure(
@@ -71,7 +71,7 @@ async def mcp_lifespan(app):
 def create_auth_provider():
     """
     Create authentication provider following FastMCP 2.x patterns.
-    
+
     FastMCP 2.x supports native authentication providers that integrate
     with the server's auth system. For HTTP transport, we use JWT validation.
     For STDIO transport, authentication is handled at the process level.
@@ -80,15 +80,15 @@ def create_auth_provider():
     if settings.MCP_TRANSPORT == "stdio":
         logger.info("STDIO transport - using process-level security")
         return None
-    
+
     # HTTP transport authentication
     if not settings.MCP_SECURITY_ENABLED or not settings.MCP_REQUIRE_AUTH:
         logger.info("HTTP transport - authentication disabled for development")
         return None
-    
+
     # Production HTTP transport - use FastMCP's native auth patterns
     logger.info("Creating FastMCP 2.x JWT authentication provider")
-    
+
     # Import the custom auth provider that integrates with existing JWT system
     from .auth_middleware import FastMCPJWTAuthProvider
     return FastMCPJWTAuthProvider()
@@ -97,13 +97,13 @@ def create_auth_provider():
 def determine_component_tags() -> tuple[Set[str], Set[str]]:
     """
     Determine which component tags to include/exclude based on configuration.
-    
+
     Returns:
         Tuple of (include_tags, exclude_tags)
     """
     include_tags = set()
     exclude_tags = set()
-    
+
     # Environment-based filtering
     if settings.is_production:
         include_tags.add("production")
@@ -111,50 +111,50 @@ def determine_component_tags() -> tuple[Set[str], Set[str]]:
     else:
         include_tags.update({"development", "testing"})
         exclude_tags.add("production-only")
-    
+
     # Security-based filtering
     if settings.MCP_SECURITY_ENABLED:
         include_tags.add("secure")
     else:
         exclude_tags.add("secure-only")
-    
+
     # Feature-based filtering
     if settings.MCP_TOOLS_ENABLED:
         include_tags.add("tools")
     else:
         exclude_tags.add("tools")
-        
+
     if settings.MCP_RESOURCES_ENABLED:
         include_tags.add("resources")
     else:
         exclude_tags.add("resources")
-        
+
     if settings.MCP_PROMPTS_ENABLED:
         include_tags.add("prompts")
     else:
         exclude_tags.add("prompts")
-    
+
     return include_tags, exclude_tags
 
 
 def create_modern_mcp_server() -> FastMCP:
     """
     Create a modern FastMCP 2.x server instance following best practices.
-    
+
     This follows the recommended FastMCP 2.x patterns:
     - Simple server instantiation
     - Proper authentication configuration
     - Tool registration via decorators (handled in tool modules)
-    
+
     Returns:
         Configured FastMCP server instance with proper authentication
     """
     # Create authentication provider
     auth_provider = create_auth_provider()
-    
+
     # Determine component tags for filtering
     include_tags, exclude_tags = determine_component_tags()
-    
+
     # Create FastMCP 2.x server instance following documentation patterns
     try:
         server = FastMCP(
@@ -170,7 +170,7 @@ def create_modern_mcp_server() -> FastMCP:
             version=settings.MCP_SERVER_VERSION
         )
         logger.warning("Created FastMCP server without authentication due to error")
-    
+
     logger.info(
         "FastMCP 2.x server created: %s v%s (transport: %s, auth: %s)",
         settings.MCP_SERVER_NAME,
@@ -178,13 +178,13 @@ def create_modern_mcp_server() -> FastMCP:
         settings.MCP_TRANSPORT,
         "enabled" if auth_provider else "disabled"
     )
-    
+
     logger.info(
         "Component filtering - include: %s, exclude: %s",
         include_tags,
         exclude_tags
     )
-    
+
     return server
 
 

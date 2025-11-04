@@ -5,12 +5,12 @@ Verification script for WebAuthn security logging patterns implementation.
 
 def check_security_logging_patterns():
     """Check that WebAuthn services use proper security logging patterns."""
-    
+
     # Check WebAuthn authentication service
     with open('src/second_brain_database/routes/auth/services/webauthn/authentication.py', 'r') as f:
         auth_content = f.read()
 
-    # Check WebAuthn registration service  
+    # Check WebAuthn registration service
     with open('src/second_brain_database/routes/auth/services/webauthn/registration.py', 'r') as f:
         reg_content = f.read()
 
@@ -37,26 +37,26 @@ def check_security_logging_patterns():
 
     # Verify specific security events are logged
     print('\n✓ Checking specific security events:')
-    
+
     # Authentication events
     auth_success_events = [
         'webauthn_authentication_successful',
         'webauthn_registration_completed'
     ]
-    
+
     auth_failure_events = [
         'webauthn_authentication_user_not_found',
         'webauthn_authentication_abuse_suspended',
         'webauthn_authentication_inactive_account',
         'webauthn_authentication_email_not_verified'
     ]
-    
+
     for event in auth_success_events:
         found_in_auth = event in auth_content
         found_in_reg = event in reg_content
         found_in_routes = event in routes_content
         print(f'  - {event}: {"✓" if (found_in_auth or found_in_reg or found_in_routes) else "✗"}')
-    
+
     for event in auth_failure_events:
         found_in_auth = event in auth_content
         found_in_reg = event in reg_content

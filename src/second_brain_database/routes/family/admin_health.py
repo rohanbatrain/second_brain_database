@@ -34,25 +34,25 @@ async def get_comprehensive_system_health(
 ) -> JSONResponse:
     """
     Get comprehensive system health status with sensitive internal details.
-    
+
     **ADMIN ONLY** - This endpoint exposes sensitive system information including:
     - Internal component response times
     - Database connection details
     - Redis connectivity status
     - Error rates and failure details
     - Performance bottlenecks
-    
+
     **Rate Limiting:** 5 requests per hour per admin
-    
+
     **Security Logging:** All access attempts are logged for audit
-    
+
     **Returns:**
     - Detailed system health with internal metrics
     - Component-level diagnostics
     - Performance analysis data
     """
     admin_id = str(current_user["_id"])
-    
+
     # Log admin access for security audit
     log_family_security_event(
         event_type="admin_health_access",
@@ -66,7 +66,7 @@ async def get_comprehensive_system_health(
         },
         ip_address=getattr(request.client, "host", "unknown")
     )
-    
+
     # Restrictive rate limiting for admin endpoints
     await security_manager.check_rate_limit(
         request,
@@ -74,11 +74,11 @@ async def get_comprehensive_system_health(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         # Get comprehensive health status
         health_status = await family_monitor.check_family_system_health()
-        
+
         # Add admin-only sensitive details
         admin_details = {
             "internal_metrics": {
@@ -98,7 +98,7 @@ async def get_comprehensive_system_health(
                 "capacity_planning": await _get_capacity_planning_data()
             }
         }
-        
+
         # Combine standard health with admin details
         comprehensive_status = {
             "overall_healthy": all(status.healthy for status in health_status.values()),
@@ -117,17 +117,17 @@ async def get_comprehensive_system_health(
                 "timestamp": health_status[list(health_status.keys())[0]].last_check
             }
         }
-        
+
         logger.info(
             "Comprehensive system health accessed by admin %s (%s)",
             current_user.get("username", "unknown"), admin_id
         )
-        
+
         return JSONResponse(
             content=comprehensive_status,
             status_code=status.HTTP_200_OK
         )
-        
+
     except Exception as e:
         # Log security event for failed access
         log_family_security_event(
@@ -142,7 +142,7 @@ async def get_comprehensive_system_health(
             },
             ip_address=getattr(request.client, "host", "unknown")
         )
-        
+
         logger.error("Failed to get comprehensive system health for admin %s: %s", admin_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -160,23 +160,23 @@ async def get_detailed_system_metrics(
 ) -> JSONResponse:
     """
     Get detailed system metrics with sensitive operational data.
-    
+
     **ADMIN ONLY** - Exposes sensitive metrics including:
     - Database query performance statistics
     - Memory and CPU usage patterns
     - Network I/O metrics
     - Cache hit/miss ratios
     - Transaction success/failure rates
-    
+
     **Rate Limiting:** 3 requests per hour per admin
-    
+
     **Returns:**
     - Detailed performance metrics
     - Resource utilization data
     - Operational statistics
     """
     admin_id = str(current_user["_id"])
-    
+
     # Log admin access
     log_family_security_event(
         event_type="admin_metrics_access",
@@ -189,7 +189,7 @@ async def get_detailed_system_metrics(
         },
         ip_address=getattr(request.client, "host", "unknown")
     )
-    
+
     # Very restrictive rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -197,11 +197,11 @@ async def get_detailed_system_metrics(
         rate_limit_requests=3,
         rate_limit_period=3600
     )
-    
+
     try:
         # Get standard metrics
         standard_metrics = await family_monitor.collect_family_metrics()
-        
+
         # Add admin-only detailed metrics
         detailed_metrics = {
             "standard_metrics": standard_metrics.dict(),
@@ -218,17 +218,17 @@ async def get_detailed_system_metrics(
                 "access_level": "system_admin"
             }
         }
-        
+
         logger.info(
             "Detailed system metrics accessed by admin %s (%s)",
             current_user.get("username", "unknown"), admin_id
         )
-        
+
         return JSONResponse(
             content=detailed_metrics,
             status_code=status.HTTP_200_OK
         )
-        
+
     except Exception as e:
         logger.error("Failed to get detailed metrics for admin %s: %s", admin_id, e, exc_info=True)
         raise HTTPException(
@@ -247,21 +247,21 @@ async def trigger_system_maintenance(
 ) -> JSONResponse:
     """
     Trigger system maintenance operations.
-    
+
     **ADMIN ONLY** - Performs sensitive maintenance operations:
     - Database cleanup and optimization
     - Cache clearing and rebuilding
     - Log rotation and archival
     - Performance tuning adjustments
-    
+
     **Rate Limiting:** 1 request per hour per admin
-    
+
     **Returns:**
     - Maintenance operation results
     - System impact assessment
     """
     admin_id = str(current_user["_id"])
-    
+
     # Log admin maintenance action
     log_family_security_event(
         event_type="admin_maintenance_triggered",
@@ -275,7 +275,7 @@ async def trigger_system_maintenance(
         },
         ip_address=getattr(request.client, "host", "unknown")
     )
-    
+
     # Very restrictive rate limiting for maintenance operations
     await security_manager.check_rate_limit(
         request,
@@ -283,7 +283,7 @@ async def trigger_system_maintenance(
         rate_limit_requests=1,
         rate_limit_period=3600
     )
-    
+
     try:
         maintenance_results = {
             "database_cleanup": await _perform_database_cleanup(),
@@ -292,12 +292,12 @@ async def trigger_system_maintenance(
             "performance_tuning": await _perform_performance_tuning(),
             "security_audit": await _perform_security_audit()
         }
-        
+
         logger.info(
             "System maintenance triggered by admin %s (%s)",
             current_user.get("username", "unknown"), admin_id
         )
-        
+
         return JSONResponse(
             content={
                 "status": "maintenance_completed",
@@ -308,7 +308,7 @@ async def trigger_system_maintenance(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except Exception as e:
         logger.error("System maintenance failed for admin %s: %s", admin_id, e, exc_info=True)
         raise HTTPException(
@@ -326,7 +326,7 @@ async def _get_database_pool_metrics() -> Dict[str, Any]:
     """Get database connection pool metrics (admin-only)."""
     try:
         from second_brain_database.database import db_manager
-        
+
         # This would contain sensitive database connection info
         return {
             "active_connections": "admin_only_data",
@@ -358,7 +358,7 @@ async def _get_system_resource_metrics() -> Dict[str, Any]:
     """Get system resource usage metrics (admin-only)."""
     try:
         import psutil
-        
+
         return {
             "cpu_usage": psutil.cpu_percent(),
             "memory_usage": psutil.virtual_memory()._asdict(),

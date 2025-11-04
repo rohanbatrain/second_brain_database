@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 
 def test_invitation_filtering():
     """Test the invitation filtering logic with various scenarios."""
-    
+
     # Test cases simulating various invitation states
     test_invitations = [
         {
@@ -150,30 +150,30 @@ def test_invitation_filtering():
             "expected": False
         },
     ]
-    
+
     passed = 0
     failed = 0
-    
+
     print("=" * 80)
     print("Testing Invitation Filtering Logic")
     print("=" * 80)
-    
+
     for test_case in test_invitations:
         invitation = test_case["invitation"]
         expected = test_case["expected"]
-        
+
         # Apply filtering logic
         invitee_email = invitation.get("invitee_email") or ""
         invitee_username = invitation.get("invitee_username") or ""
         has_recipient_info = (invitee_email.strip() != "") or (invitee_username.strip() != "")
-        
+
         inviter_username = invitation.get("inviter_username", "Unknown")
         family_name = invitation.get("family_name", "Unknown Family")
         has_inviter_or_family_info = (
             (inviter_username and inviter_username != "Unknown") or
             (family_name and family_name != "Unknown Family")
         )
-        
+
         invitation_status = invitation.get("status", "")
         expires_at = invitation.get("expires_at")
         is_expired = False
@@ -181,12 +181,12 @@ def test_invitation_filtering():
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             is_expired = datetime.now(timezone.utc) > expires_at
-        
+
         # Determine if invitation should be filtered out
         skip_expired = is_expired and invitation_status != "pending"
         skip_missing_fields = not (has_recipient_info and has_inviter_or_family_info)
         should_include = not (skip_expired or skip_missing_fields)
-        
+
         # Check if result matches expected
         if should_include == expected:
             passed += 1
@@ -194,18 +194,18 @@ def test_invitation_filtering():
         else:
             failed += 1
             status = "✗ FAIL"
-        
+
         print(f"\n{status} - {test_case['name']}")
         print(f"  Invitation ID: {invitation['invitation_id']}")
         print(f"  Has Recipient Info: {has_recipient_info}")
         print(f"  Has Inviter/Family Info: {has_inviter_or_family_info}")
         print(f"  Expired: {is_expired}, Status: {invitation_status}")
         print(f"  Expected Include: {expected}, Actual Include: {should_include}")
-    
+
     print("\n" + "=" * 80)
     print(f"Test Results: {passed} passed, {failed} failed out of {len(test_invitations)} total")
     print("=" * 80)
-    
+
     return failed == 0
 
 

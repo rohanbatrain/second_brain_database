@@ -62,16 +62,16 @@ def get_admob_key_base64(key_id: str):
     summary="API Root Endpoint",
     description="""
     Root endpoint providing basic API information and status.
-    
+
     **Purpose:**
     - Verify API is accessible and running
     - Get basic API information (name, version, status)
     - Quick connectivity test for client applications
-    
+
     **Rate Limiting:**
     - 10 requests per 60 seconds per IP address
     - Designed for occasional connectivity checks
-    
+
     **Use Cases:**
     - API health verification
     - Client application startup checks
@@ -132,26 +132,26 @@ async def root(request: Request):
     summary="Comprehensive Health Check",
     description="""
     Comprehensive health check endpoint for monitoring system status.
-    
+
     **Health Checks Performed:**
     - Database connectivity (MongoDB)
     - Redis cache connectivity
     - API service status
-    
+
     **Response Codes:**
     - 200: All systems healthy
     - 503: One or more systems unhealthy
-    
+
     **Rate Limiting:**
     - 5 requests per 30 seconds per IP address
     - Optimized for monitoring systems
-    
+
     **Use Cases:**
     - Load balancer health checks
     - Monitoring system integration
     - Service dependency verification
     - Automated health monitoring
-    
+
     **Monitoring Integration:**
     This endpoint is designed for integration with monitoring tools
     like Prometheus, Grafana, or cloud monitoring services.
@@ -224,19 +224,19 @@ async def health_check(request: Request):
     summary="Kubernetes Health Check",
     description="""
     Lightweight health check endpoint optimized for Kubernetes health probes.
-    
+
     **Purpose:**
     - Kubernetes liveness probe endpoint
     - Quick health verification without heavy checks
     - High-frequency monitoring support
-    
+
     **Rate Limiting:**
     - 20 requests per 60 seconds per IP address
     - Optimized for frequent Kubernetes probe checks
-    
+
     **Response:**
     Always returns 200 OK with simple status message unless rate limited.
-    
+
     **Kubernetes Integration:**
     Configure as liveness probe in your Kubernetes deployment:
     ```yaml
@@ -277,20 +277,20 @@ async def kubernetes_health(request: Request):
     summary="Kubernetes Readiness Check",
     description="""
     Kubernetes readiness probe endpoint that verifies service is ready to handle traffic.
-    
+
     **Purpose:**
     - Kubernetes readiness probe endpoint
     - Verifies database connectivity before accepting traffic
     - Ensures service dependencies are available
-    
+
     **Rate Limiting:**
     - 3 requests per 30 seconds per IP address
     - Conservative limit for readiness checks
-    
+
     **Database Check:**
     Performs actual database connectivity test to ensure the service
     can handle requests that require database access.
-    
+
     **Kubernetes Integration:**
     Configure as readiness probe in your Kubernetes deployment:
     ```yaml
@@ -347,19 +347,19 @@ async def readiness_check(request: Request):
     summary="Liveness Check",
     description="""
     Simple liveness check endpoint that confirms the service is running.
-    
+
     **Purpose:**
     - Basic liveness verification
     - Service availability confirmation
     - Lightweight health check without dependencies
-    
+
     **Rate Limiting:**
     - 15 requests per 60 seconds per IP address
     - Balanced for regular monitoring
-    
+
     **Response:**
     Always returns 200 OK with alive status unless rate limited.
-    
+
     **Use Cases:**
     - Basic service monitoring
     - Load balancer health checks
@@ -676,22 +676,22 @@ async def admob_ssv_reward(
     summary="MCP Server Health Check",
     description="""
     Comprehensive health check endpoint for the FastMCP server.
-    
+
     **Health Checks Performed:**
     - MCP server initialization status
     - MCP server process status
     - MCP configuration validation
     - Tool, resource, and prompt registration status
-    
+
     **Response Codes:**
     - 200: MCP server healthy and operational
     - 503: MCP server unhealthy or not running
     - 404: MCP server disabled or not available
-    
+
     **Rate Limiting:**
     - 10 requests per 60 seconds per IP address
     - Optimized for monitoring systems
-    
+
     **Use Cases:**
     - MCP server monitoring
     - Integration health verification
@@ -779,7 +779,7 @@ async def mcp_health_check(request: Request):
         # Perform comprehensive health check
         health_result = await mcp_server_manager.get_comprehensive_health_status()
         health_result = await mcp_server_manager.health_check()
-        
+
         if health_result["healthy"]:
             logger.info("MCP server health check passed")
             return health_result
@@ -808,18 +808,18 @@ async def mcp_health_check(request: Request):
     summary="MCP Server Status Information",
     description="""
     Detailed status information endpoint for the FastMCP server.
-    
+
     **Status Information Provided:**
     - Server initialization and running status
     - Configuration details and settings
     - Tool, resource, and prompt counts
     - Server uptime and performance metrics
     - Process information and connection details
-    
+
     **Rate Limiting:**
     - 5 requests per 60 seconds per IP address
     - Conservative limit for detailed status queries
-    
+
     **Use Cases:**
     - MCP server monitoring dashboards
     - Integration status verification
@@ -895,7 +895,7 @@ async def mcp_status_check(request: Request):
 
         # Get server status
         status_result = await mcp_server_manager.get_server_status()
-        
+
         logger.info("MCP server status retrieved successfully")
         return status_result
 
@@ -917,18 +917,18 @@ async def mcp_status_check(request: Request):
     summary="MCP Server Metrics",
     description="""
     Performance and operational metrics endpoint for the FastMCP server.
-    
+
     **Metrics Provided:**
     - Server performance statistics
     - Tool execution metrics and success rates
     - Resource and prompt usage statistics
     - Error rates and response times
     - Connection and request statistics
-    
+
     **Rate Limiting:**
     - 3 requests per 60 seconds per IP address
     - Conservative limit for metrics collection
-    
+
     **Use Cases:**
     - Performance monitoring and alerting
     - Capacity planning and optimization
@@ -1007,7 +1007,7 @@ async def mcp_metrics_check(request: Request):
 
         # Get server status for basic metrics
         status_result = await mcp_server_manager.get_server_status()
-        
+
         # Build metrics response (placeholder implementation)
         # In a full implementation, these would come from actual metrics collection
         metrics = {
@@ -1042,7 +1042,7 @@ async def mcp_metrics_check(request: Request):
                 "circuit_breaker_enabled": settings.MCP_CIRCUIT_BREAKER_ENABLED
             }
         }
-        
+
         logger.info("MCP server metrics retrieved successfully")
         return metrics
 
@@ -1064,7 +1064,7 @@ async def mcp_metrics_check(request: Request):
     summary="AI Orchestration Health Check",
     description="""
     Comprehensive health check endpoint for the AI orchestration system.
-    
+
     **Health Checks Performed:**
     - AI orchestrator initialization and status
     - Model engine connectivity and performance
@@ -1072,16 +1072,16 @@ async def mcp_metrics_check(request: Request):
     - Resource manager status
     - Event bus operational status
     - Individual AI agents health
-    
+
     **Response Codes:**
     - 200: AI system healthy and operational
     - 503: AI system unhealthy or degraded
     - 404: AI system disabled or not available
-    
+
     **Rate Limiting:**
     - 10 requests per 60 seconds per IP address
     - Optimized for monitoring systems
-    
+
     **Use Cases:**
     - AI system monitoring and alerting
     - Load balancer health probes for AI services
@@ -1187,7 +1187,7 @@ async def ai_health_check(request: Request):
     summary="AI Orchestration Metrics",
     description="""
     Performance and operational metrics endpoint for the AI orchestration system.
-    
+
     **Metrics Provided:**
     - AI system performance statistics
     - Model engine metrics and response times
@@ -1195,11 +1195,11 @@ async def ai_health_check(request: Request):
     - Resource manager metrics
     - Agent execution statistics
     - Session and conversation metrics
-    
+
     **Rate Limiting:**
     - 5 requests per 60 seconds per IP address
     - Conservative limit for metrics collection
-    
+
     **Use Cases:**
     - Performance monitoring and alerting
     - Integration with monitoring systems (Prometheus, Grafana)

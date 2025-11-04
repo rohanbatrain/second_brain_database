@@ -863,3 +863,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ⭐ **Star this repo if you find it useful!** ⭐
 
 </div>
+
+
+## 📚 Documentation
+
+All project documentation is organized in the `docs/` directory:
+
+- **[Documentation Index](docs/INDEX.md)** - Complete documentation catalog
+- **[Implementation Status](docs/implementation/)** - Feature implementations and status
+- **[Integration Guides](docs/integrations/)** - External service integrations
+- **[Maintenance](docs/maintenance/)** - Code quality and maintenance reports
+- **[Operations](docs/operations/)** - Monitoring and operational guides
+
+For quick start instructions, see [QUICKSTART.md](QUICKSTART.md).

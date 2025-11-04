@@ -13,7 +13,7 @@ logger = get_logger(prefix="[CeleryWorker]")
 if __name__ == "__main__":
     logger.info("Starting Celery worker...")
     logger.info("Queues: default, ai, voice, workflows")
-    
+
     celery_app.worker_main([
         "worker",
         "--loglevel=info",

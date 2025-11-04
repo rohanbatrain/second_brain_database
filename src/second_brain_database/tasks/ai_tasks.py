@@ -18,7 +18,7 @@ def process_ai_message_async(
     agent_type: str = "personal"
 ) -> Dict[str, Any]:
     """Process AI message asynchronously.
-    
+
     Note: AI processing is currently disabled.
     """
     logger.warning(f"AI message processing requested but LangChain is disabled: session {session_id}")
@@ -34,10 +34,10 @@ def cleanup_expired_sessions():
     """Periodic task to cleanup expired AI sessions."""
     try:
         redis = redis_manager.get_redis_sync()
-        
+
         # Find all AI session keys
         session_keys = redis.keys("ai_session_*")
-        
+
         expired_count = 0
         for key in session_keys:
             # Check if key is expired (handled by Redis TTL)
@@ -50,18 +50,18 @@ def cleanup_expired_sessions():
                     # Archive to MongoDB
                     import json
                     data = json.loads(session_data)
-                    
+
                     db_manager.get_collection("ai_sessions_archive").insert_one({
                         **data,
                         "archived_at": datetime.now(timezone.utc)
                     })
-                    
+
                     expired_count += 1
-        
+
         logger.info(f"Archived {expired_count} expiring AI sessions")
-        
+
         return {"archived": expired_count}
-        
+
     except Exception as e:
         logger.error(f"Error cleaning up sessions: {e}", exc_info=True)
         return {"error": str(e)}
@@ -77,19 +77,19 @@ def sync_langsmith_traces():
 @celery_app.task(name="generate_ai_analytics")
 def generate_ai_analytics(user_id: str, date_range: int = 7):
     """Generate AI usage analytics for a user.
-    
+
     Args:
         user_id: User ID
         date_range: Days to analyze
-        
+
     Returns:
         Analytics dict
     """
     try:
         collection = db_manager.get_collection("ai_conversations")
-        
+
         start_date = datetime.now(timezone.utc) - timedelta(days=date_range)
-        
+
         # Aggregate analytics
         pipeline = [
             {
@@ -107,23 +107,23 @@ def generate_ai_analytics(user_id: str, date_range: int = 7):
                 }
             }
         ]
-        
+
         results = list(collection.aggregate(pipeline))
-        
+
         analytics = {
             "user_id": user_id,
             "date_range_days": date_range,
             "by_agent_type": results,
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
-        
+
         # Store analytics
         db_manager.get_collection("ai_analytics").insert_one(analytics)
-        
+
         logger.info(f"Generated AI analytics for user {user_id}")
-        
+
         return analytics
-        
+
     except Exception as e:
         logger.error(f"Error generating analytics: {e}", exc_info=True)
         return {"error": str(e)}

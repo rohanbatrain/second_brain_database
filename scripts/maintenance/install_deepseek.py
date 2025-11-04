@@ -41,12 +41,12 @@ def run_command(command, description):
 async def test_model(model_name):
     """Test if a model is working."""
     print(f"🧪 Testing {model_name}...")
-    
+
     client = OllamaClient(
         base_url=settings.OLLAMA_HOST,
         timeout=60  # Longer timeout for first run
     )
-    
+
     try:
         response = await client.generate(
             f"Hello! Please confirm you are {model_name} and say hello back.",
@@ -67,18 +67,18 @@ def main():
     """Main installation and verification process."""
     print("🚀 DeepSeek-R1:1.5b Installation Helper")
     print("=" * 50)
-    
+
     # Check if Ollama is installed
     print("1️⃣ Checking Ollama installation...")
     if not run_command("ollama --version", "Checking Ollama version"):
         print("❌ Ollama is not installed or not in PATH")
         print("💡 Please install Ollama first: https://ollama.ai/")
         return 1
-    
+
     # List current models
     print("\n2️⃣ Listing current models...")
     run_command("ollama list", "Listing installed models")
-    
+
     # Check if DeepSeek-R1 is already installed
     result = subprocess.run("ollama list | grep deepseek-r1", shell=True, capture_output=True, text=True)
     if result.returncode == 0:
@@ -86,28 +86,28 @@ def main():
     else:
         print("\n3️⃣ Installing DeepSeek-R1:1.5b...")
         print("⚠️ This may take several minutes depending on your internet connection...")
-        
+
         if not run_command("ollama pull deepseek-r1:1.5b", "Installing DeepSeek-R1:1.5b"):
             print("❌ Failed to install DeepSeek-R1:1.5b")
             print("💡 Try running manually: ollama pull deepseek-r1:1.5b")
             return 1
-    
+
     # Verify both models are available
     print("\n4️⃣ Verifying model availability...")
-    
+
     async def verify_models():
         models_to_test = ["gemma3:1b", "deepseek-r1:1.5b"]
         results = []
-        
+
         for model in models_to_test:
             result = await test_model(model)
             results.append((model, result))
-        
+
         return results
-    
+
     try:
         model_results = asyncio.run(verify_models())
-        
+
         print("\n📊 Model Verification Results:")
         all_working = True
         for model, working in model_results:
@@ -115,7 +115,7 @@ def main():
             print(f"   {model}: {status}")
             if not working:
                 all_working = False
-        
+
         if all_working:
             print("\n🎉 All models are working correctly!")
             print("\n💡 Next steps:")
@@ -131,7 +131,7 @@ def main():
             print("   - Try restarting Ollama: ollama serve")
             print("   - Check model names: ollama list")
             return 1
-            
+
     except Exception as e:
         print(f"❌ Model verification failed: {e}")
         return 1

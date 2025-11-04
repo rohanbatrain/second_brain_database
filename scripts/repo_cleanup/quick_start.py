@@ -34,18 +34,18 @@ def run_command(script_name: str, args: list = None):
     """Run a cleanup script"""
     repo_root = Path(__file__).parent.parent.parent
     script_path = repo_root / 'scripts' / 'repo_cleanup' / script_name
-    
+
     cmd = [sys.executable, str(script_path)]
     if args:
         cmd.extend(args)
-    
+
     print(f"\n{'='*70}")
     print(f"Running: {script_name}")
     print(f"{'='*70}\n")
-    
+
     import subprocess
     result = subprocess.run(cmd, cwd=repo_root)
-    
+
     return result.returncode
 
 
@@ -66,7 +66,7 @@ def option_full_cleanup():
     print("⚠️  This process may take several minutes.")
     print("⚠️  A git branch will be created for the cleanup.")
     print()
-    
+
     response = input("Continue? (yes/no): ")
     if response.lower() == 'yes':
         return run_command('run_cleanup.py')
@@ -88,7 +88,7 @@ def option_analyze():
     print()
     print("No files will be moved or modified.")
     print()
-    
+
     response = input("Continue? (yes/no): ")
     if response.lower() == 'yes':
         return run_command('file_analyzer.py')
@@ -111,7 +111,7 @@ def option_validate():
     print()
     print("No files will be moved or modified.")
     print()
-    
+
     response = input("Continue? (yes/no): ")
     if response.lower() == 'yes':
         return run_command('structure_validator.py')
@@ -127,11 +127,11 @@ def option_backup():
     print()
     print("Create a safety snapshot of your repository.")
     print()
-    
+
     description = input("Enter backup description (or press Enter for default): ").strip()
     if not description:
         description = "Manual backup"
-    
+
     return run_command('backup_manager.py', ['create', description])
 
 
@@ -140,23 +140,23 @@ def option_view_reports():
     print("\n📋 VIEWING REPORTS")
     print("="*70)
     print()
-    
+
     repo_root = Path(__file__).parent.parent.parent
     reports_dir = repo_root / 'scripts' / 'repo_cleanup' / 'reports'
-    
+
     if not reports_dir.exists():
         print("No reports directory found.")
         return 0
-    
+
     report_files = sorted(reports_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-    
+
     if not report_files:
         print("No reports found. Run analysis or validation first.")
         return 0
-    
+
     print("Recent reports:")
     print()
-    
+
     for i, report_file in enumerate(report_files[:10], 1):
         size_kb = report_file.stat().st_size / 1024
         from datetime import datetime
@@ -164,12 +164,12 @@ def option_view_reports():
         print(f"  {i}. {report_file.name}")
         print(f"     Size: {size_kb:.1f} KB | Modified: {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
         print()
-    
+
     print("\nTo view a report:")
     print(f"  cd {reports_dir}")
     print("  cat <report_name>")
     print()
-    
+
     return 0
 
 
@@ -186,28 +186,28 @@ def option_backups():
     print("  4. Create archive")
     print("  5. Back to main menu")
     print()
-    
+
     choice = input("Enter choice (1-5): ").strip()
-    
+
     if choice == '1':
         return run_command('backup_manager.py', ['list'])
-    
+
     elif choice == '2':
         snapshot_name = input("Enter snapshot name: ").strip()
         return run_command('backup_manager.py', ['verify', snapshot_name])
-    
+
     elif choice == '3':
         print("\n⚠️  WARNING: This will overwrite current files!")
         print("Make sure you have committed or backed up recent changes.")
         print()
         snapshot_name = input("Enter snapshot name to restore: ").strip()
         return run_command('backup_manager.py', ['restore', snapshot_name])
-    
+
     elif choice == '4':
         snapshot_name = input("Enter snapshot name (or press Enter for latest): ").strip()
         args = ['archive'] if not snapshot_name else ['archive', snapshot_name]
         return run_command('backup_manager.py', args)
-    
+
     else:
         return 0
 
@@ -217,10 +217,10 @@ def option_docs():
     print("\n📖 DOCUMENTATION")
     print("="*70)
     print()
-    
+
     repo_root = Path(__file__).parent.parent.parent
     readme_path = repo_root / 'scripts' / 'repo_cleanup' / 'README.md'
-    
+
     if readme_path.exists():
         print(f"Documentation location: {readme_path}")
         print()
@@ -228,7 +228,7 @@ def option_docs():
         print(f"  cat {readme_path}")
         print(f"  open {readme_path}")
         print()
-        
+
         response = input("Display README now? (yes/no): ")
         if response.lower() == 'yes':
             with open(readme_path) as f:
@@ -237,54 +237,54 @@ def option_docs():
                 print("="*70)
     else:
         print("README not found.")
-    
+
     return 0
 
 
 def main():
     """Main menu loop"""
     print_header()
-    
+
     print("Welcome to the Repository Cleanup System!")
     print()
     print("This interactive wizard will help you clean and reorganize")
     print("your repository safely, without losing any code or documentation.")
     print()
-    
+
     while True:
         print_menu()
         choice = input("Enter your choice (1-8): ").strip()
-        
+
         if choice == '1':
             option_full_cleanup()
-        
+
         elif choice == '2':
             option_analyze()
-        
+
         elif choice == '3':
             option_validate()
-        
+
         elif choice == '4':
             option_backup()
-        
+
         elif choice == '5':
             option_view_reports()
-        
+
         elif choice == '6':
             option_backups()
-        
+
         elif choice == '7':
             option_docs()
-        
+
         elif choice == '8':
             print("\n👋 Goodbye!")
             break
-        
+
         else:
             print("\n❌ Invalid choice. Please enter 1-8.")
-        
+
         input("\nPress Enter to continue...")
-    
+
     print()
 
 

@@ -264,17 +264,17 @@ class DatabaseManager:
             await self._create_index_if_not_exists(
                 users_collection, "password_reset_token_expiry", {"expireAfterSeconds": 0}
             )
-            
+
             # User Agent lockdown indexes for efficient access
             await self._create_index_if_not_exists(users_collection, "trusted_user_agent_lockdown", {})
             await self._create_index_if_not_exists(users_collection, "trusted_user_agents", {})
             await self._create_index_if_not_exists(users_collection, "trusted_user_agent_lockdown_codes", {})
-            
+
             # Temporary access token indexes for "allow once" functionality
             await self._create_index_if_not_exists(users_collection, "temporary_ip_access_tokens", {})
             await self._create_index_if_not_exists(users_collection, "temporary_user_agent_access_tokens", {})
             await self._create_index_if_not_exists(users_collection, "temporary_ip_bypasses", {})
-            
+
             # Family management indexes
             await self._create_index_if_not_exists(users_collection, "family_limits.max_families_allowed", {})
             await self._create_index_if_not_exists(users_collection, "family_memberships.family_id", {})
@@ -554,7 +554,7 @@ class DatabaseManager:
         """Create comprehensive indexes for family management collections with performance optimization"""
         try:
             db_logger.info("Creating indexes for family management collections")
-            
+
             # Families collection indexes - Core family management
             families_collection = self.get_collection("families")
             await self._create_index_if_not_exists(families_collection, "family_id", {"unique": True})
@@ -568,7 +568,7 @@ class DatabaseManager:
             # Compound indexes for efficient queries
             await self._create_index_if_not_exists(families_collection, [("admin_user_ids", 1), ("is_active", 1)], {})
             await self._create_index_if_not_exists(families_collection, [("is_active", 1), ("created_at", -1)], {})
-            
+
             # Family relationships collection indexes - Bidirectional relationship management
             relationships_collection = self.get_collection("family_relationships")
             await self._create_index_if_not_exists(relationships_collection, "relationship_id", {"unique": True})
@@ -584,7 +584,7 @@ class DatabaseManager:
             await self._create_index_if_not_exists(relationships_collection, [("family_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(relationships_collection, [("user_b_id", 1), ("status", 1)], {})
-            
+
             # Family invitations collection indexes - Email invitation system
             invitations_collection = self.get_collection("family_invitations")
             await self._create_index_if_not_exists(invitations_collection, "invitation_id", {"unique": True})
@@ -600,7 +600,7 @@ class DatabaseManager:
             await self._create_index_if_not_exists(invitations_collection, [("family_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(invitations_collection, [("invitee_user_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(invitations_collection, [("invitee_email", 1), ("status", 1)], {})
-            
+
             # Family notifications collection indexes - Notification system
             notifications_collection = self.get_collection("family_notifications")
             await self._create_index_if_not_exists(notifications_collection, "notification_id", {"unique": True})
@@ -614,7 +614,7 @@ class DatabaseManager:
             await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(notifications_collection, [("recipient_user_ids", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("created_at", -1)], {})
-            
+
             # Family token requests collection indexes - Token request system
             token_requests_collection = self.get_collection("family_token_requests")
             await self._create_index_if_not_exists(token_requests_collection, "request_id", {"unique": True})
@@ -629,7 +629,7 @@ class DatabaseManager:
             await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(token_requests_collection, [("requester_user_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("created_at", -1)], {})
-            
+
             # Family admin actions collection indexes - Admin action audit trail
             admin_actions_collection = self.get_collection("family_admin_actions")
             await self._create_index_if_not_exists(admin_actions_collection, "action_id", {"unique": True})
@@ -643,9 +643,9 @@ class DatabaseManager:
             await self._create_index_if_not_exists(admin_actions_collection, [("admin_user_id", 1), ("created_at", -1)], {})
             await self._create_index_if_not_exists(admin_actions_collection, [("target_user_id", 1), ("created_at", -1)], {})
             await self._create_index_if_not_exists(admin_actions_collection, [("family_id", 1), ("action_type", 1)], {})
-            
+
             db_logger.info("Family management collection indexes created successfully")
-            
+
         except Exception as e:
             db_logger.error("Failed to create family management indexes: %s", e)
             raise
@@ -654,16 +654,16 @@ class DatabaseManager:
         """Create comprehensive indexes for workspace management collections."""
         try:
             db_logger.info("Creating indexes for workspace management collections")
-            
+
             # Workspaces collection indexes
             workspaces_collection = self.get_collection("workspaces")
             await self._create_index_if_not_exists(workspaces_collection, "workspace_id", {"unique": True})
             await self._create_index_if_not_exists(workspaces_collection, "owner_id", {})
             await self._create_index_if_not_exists(workspaces_collection, "members.user_id", {})
             await self._create_index_if_not_exists(workspaces_collection, "created_at", {})
-            
+
             db_logger.info("Workspace management collection indexes created successfully")
-            
+
         except Exception as e:
             db_logger.error("Failed to create workspace management indexes: %s", e)
             raise
@@ -698,7 +698,7 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connection (alias for connect)"""
         await self.connect()
-        
+
     async def close(self):
         """Close database connection (alias for disconnect)"""
         await self.disconnect()

@@ -159,13 +159,13 @@ class Settings(BaseSettings):
     # Rate limiting configuration
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD_SECONDS: int = 60
-    
+
     # Family-specific rate limiting configuration
     FAMILY_CREATE_RATE_LIMIT: int = 2  # Max families created per hour per user
     FAMILY_INVITE_RATE_LIMIT: int = 10  # Max invitations sent per hour per user
     FAMILY_ADMIN_ACTION_RATE_LIMIT: int = 5  # Max admin actions per hour per user
     FAMILY_MEMBER_ACTION_RATE_LIMIT: int = 20  # Max member actions per hour per user
-    
+
     # Family limits configuration for billing integration
     DEFAULT_MAX_FAMILIES_ALLOWED: int = 1  # Default max families per user
     DEFAULT_MAX_MEMBERS_PER_FAMILY: int = 5  # Default max members per family
@@ -231,7 +231,7 @@ class Settings(BaseSettings):
     DOCS_CORS_METHODS: str = "GET"  # Allowed methods for docs CORS
     DOCS_CORS_HEADERS: str = "Content-Type,Authorization"  # Allowed headers for docs CORS
     DOCS_CORS_MAX_AGE: int = 3600  # CORS preflight cache duration
-    
+
     # General CORS configuration for API
     CORS_ENABLED: bool = True  # Enable CORS for the entire API
     CORS_ORIGINS: str = "http://localhost:3000,https://agentchat.vercel.app"  # Comma-separated allowed origins
@@ -240,13 +240,13 @@ class Settings(BaseSettings):
     # Ollama local LLM host (include scheme), default to local Ollama HTTP server
     OLLAMA_HOST: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "llama3.2:latest"  # default model name to use with Ollama (using full model)
-    
+
     # Multiple model support - comma-separated list of available models
     OLLAMA_AVAILABLE_MODELS: str = "llama3.2:latest,gemma3:1b,deepseek-r1:1.5b"  # Available models for selection
     OLLAMA_REASONING_MODEL: str = "deepseek-r1:1.5b"  # Specialized reasoning model
     OLLAMA_FAST_MODEL: str = "llama3.2:latest"  # Fast response model with tool support
     OLLAMA_AUTO_MODEL_SELECTION: bool = True  # Enable automatic model selection based on query type
-    
+
     # Celery Settings
     CELERY_BROKER_URL: str = ""  # Defaults to REDIS_URL
     CELERY_RESULT_BACKEND: str = ""  # Defaults to REDIS_URL
@@ -254,13 +254,13 @@ class Settings(BaseSettings):
     CELERY_ACCEPT_CONTENT: List[str] = ["json"]
     CELERY_TIMEZONE: str = "UTC"
     CELERY_ENABLE_UTC: bool = True
-    
+
     # LangSmith Observability
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "SecondBrainDatabase"
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = False
-    
+
     # AI Agent Configuration
     AI_MODEL_POOL_SIZE: int = 5  # Number of model instances in pool
     AI_MAX_CONCURRENT_SESSIONS: int = 100  # Max concurrent AI sessions
@@ -282,36 +282,36 @@ class Settings(BaseSettings):
     MCP_SERVER_NAME: str = "SecondBrainMCP"  # MCP server name
     MCP_SERVER_VERSION: str = "1.0.0"  # MCP server version
     MCP_DEBUG_MODE: bool = False  # Enable debug mode for MCP server
-    
+
     # Modern FastMCP 2.x transport configuration
     MCP_TRANSPORT: str = "stdio"  # "stdio" for local clients, "http" for remote/production
     MCP_HTTP_HOST: str = "127.0.0.1"  # Host for HTTP transport (use 0.0.0.0 for production)
     MCP_HTTP_PORT: int = 8001  # Port for HTTP transport
     MCP_HTTP_CORS_ENABLED: bool = False  # Enable CORS for HTTP transport
     MCP_HTTP_CORS_ORIGINS: str = "*"  # Allowed CORS origins (comma-separated)
-    
+
     # MCP Security configuration
     MCP_SECURITY_ENABLED: bool = True  # Enable security for MCP tools
     MCP_REQUIRE_AUTH: bool = True  # Require authentication for MCP tools
     MCP_AUTH_TOKEN: Optional[SecretStr] = None  # Bearer token for HTTP transport authentication
     MCP_AUDIT_ENABLED: bool = True  # Enable audit logging for MCP operations
-    
+
     # MCP Rate limiting configuration
     MCP_RATE_LIMIT_ENABLED: bool = True  # Enable rate limiting for MCP tools
     MCP_RATE_LIMIT_REQUESTS: int = 100  # Max MCP requests per period per user
     MCP_RATE_LIMIT_PERIOD: int = 60  # Rate limit period in seconds
     MCP_RATE_LIMIT_BURST: int = 10  # Burst limit for MCP requests
-    
+
     # MCP Performance configuration
     MCP_MAX_CONCURRENT_TOOLS: int = 50  # Maximum concurrent tool executions
     MCP_REQUEST_TIMEOUT: int = 30  # Request timeout in seconds
     MCP_TOOL_EXECUTION_TIMEOUT: int = 60  # Tool execution timeout in seconds
-    
+
     # MCP Tool configuration
     MCP_TOOLS_ENABLED: bool = True  # Enable MCP tools
     MCP_RESOURCES_ENABLED: bool = True  # Enable MCP resources
     MCP_PROMPTS_ENABLED: bool = True  # Enable MCP prompts
-    
+
     # MCP Tool Access Control (Individual tool categories)
     MCP_FAMILY_TOOLS_ENABLED: bool = True  # Enable family management tools
     MCP_AUTH_TOOLS_ENABLED: bool = True  # Enable authentication tools
@@ -320,24 +320,24 @@ class Settings(BaseSettings):
     MCP_WORKSPACE_TOOLS_ENABLED: bool = True  # Enable workspace tools
     MCP_ADMIN_TOOLS_ENABLED: bool = False  # Enable admin tools (default: false for security)
     MCP_SYSTEM_TOOLS_ENABLED: bool = False  # Enable system management tools (default: false for security)
-    
+
     # MCP Access control configuration
     MCP_ALLOWED_ORIGINS: Optional[str] = None  # Comma-separated allowed origins for MCP
     MCP_IP_WHITELIST: Optional[str] = None  # Comma-separated IP whitelist for MCP access
     MCP_CORS_ENABLED: bool = False  # Enable CORS for MCP server
-    
+
     # MCP Monitoring configuration
     MCP_METRICS_ENABLED: bool = True  # Enable metrics collection for MCP
     MCP_HEALTH_CHECK_ENABLED: bool = True  # Enable health check endpoints
     MCP_PERFORMANCE_MONITORING: bool = True  # Enable performance monitoring
-    
+
     # MCP Error handling configuration
     MCP_ERROR_RECOVERY_ENABLED: bool = True  # Enable error recovery mechanisms
     MCP_CIRCUIT_BREAKER_ENABLED: bool = True  # Enable circuit breaker pattern
     MCP_RETRY_ENABLED: bool = True  # Enable retry logic for failed operations
     MCP_RETRY_MAX_ATTEMPTS: int = 3  # Maximum retry attempts
     MCP_RETRY_BACKOFF_FACTOR: float = 2.0  # Exponential backoff factor
-    
+
     # MCP Cache configuration
     MCP_CACHE_ENABLED: bool = True  # Enable caching for MCP operations
     MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)

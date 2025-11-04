@@ -1,5 +1,5 @@
 """
-Admin service functions for password reset abuse management, 
+Admin service functions for password reset abuse management,
 whitelist/blocklist, and abuse event review.
 
 - PEP 8/257 compliant, MyPy strict compatible.

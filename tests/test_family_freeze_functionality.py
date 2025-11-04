@@ -68,21 +68,21 @@ class TestFamilyFreezeControls:
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_family_data), \
              patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_send_account_freeze_notification') as mock_notify:
-            
+
             mock_collection = AsyncMock()
             mock_get_collection.return_value = mock_collection
             mock_collection.update_one = AsyncMock()
-            
+
             result = await family_manager.freeze_family_account(
                 "fam_test123", "admin_user_1", "Suspicious activity detected"
             )
-            
+
             # Verify result
             assert result["is_frozen"] is True
             assert result["frozen_by"] == "admin_user_1"
             assert result["freeze_reason"] == "Suspicious activity detected"
             assert "frozen_at" in result
-            
+
             # Verify database update was called
             mock_collection.update_one.assert_called_once()
             update_call = mock_collection.update_one.call_args
@@ -90,7 +90,7 @@ class TestFamilyFreezeControls:
             assert update_call[0][1]["$set"]["sbd_account.is_frozen"] is True
             assert update_call[0][1]["$set"]["sbd_account.frozen_by"] == "admin_user_1"
             assert update_call[0][1]["$set"]["sbd_account.freeze_reason"] == "Suspicious activity detected"
-            
+
             # Verify notification was sent
             mock_notify.assert_called_once_with(
                 "fam_test123", "admin_user_1", "Suspicious activity detected", "frozen"
@@ -100,24 +100,24 @@ class TestFamilyFreezeControls:
     async def test_freeze_family_account_insufficient_permissions(self, mock_family_data):
         """Test freezing account with insufficient permissions."""
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_family_data):
-            
+
             with pytest.raises(InsufficientPermissions) as exc_info:
                 await family_manager.freeze_family_account(
                     "fam_test123", "non_admin_user", "Test reason"
                 )
-            
+
             assert "Only family admins can freeze the account" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_freeze_already_frozen_account(self, mock_frozen_family_data):
         """Test freezing an already frozen account."""
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_frozen_family_data):
-            
+
             with pytest.raises(FamilyError) as exc_info:
                 await family_manager.freeze_family_account(
                     "fam_test123", "admin_user_1", "Test reason"
                 )
-            
+
             assert "Family account is already frozen" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -126,27 +126,27 @@ class TestFamilyFreezeControls:
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_frozen_family_data), \
              patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_send_account_freeze_notification') as mock_notify:
-            
+
             mock_collection = AsyncMock()
             mock_get_collection.return_value = mock_collection
             mock_collection.update_one = AsyncMock()
-            
+
             result = await family_manager.unfreeze_family_account("fam_test123", "admin_user_1")
-            
+
             # Verify result
             assert result["is_frozen"] is False
             assert result["frozen_by"] is None
             assert result["frozen_at"] is None
             assert result["unfrozen_by"] == "admin_user_1"
             assert "unfrozen_at" in result
-            
+
             # Verify database update was called
             mock_collection.update_one.assert_called_once()
             update_call = mock_collection.update_one.call_args
             assert update_call[0][0] == {"family_id": "fam_test123"}
             assert update_call[0][1]["$set"]["sbd_account.is_frozen"] is False
             assert "$unset" in update_call[0][1]
-            
+
             # Verify notification was sent
             mock_notify.assert_called_once_with("fam_test123", "admin_user_1", None, "unfrozen")
 
@@ -154,10 +154,10 @@ class TestFamilyFreezeControls:
     async def test_unfreeze_not_frozen_account(self, mock_family_data):
         """Test unfreezing an account that is not frozen."""
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_family_data):
-            
+
             with pytest.raises(FamilyError) as exc_info:
                 await family_manager.unfreeze_family_account("fam_test123", "admin_user_1")
-            
+
             assert "Family account is not frozen" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -170,7 +170,7 @@ class TestFamilyFreezeControls:
             "status": "active",
             "managed_by_family": "fam_test123"
         }
-        
+
         mock_frozen_family = {
             "family_id": "fam_test123",
             "sbd_account": {
@@ -184,23 +184,23 @@ class TestFamilyFreezeControls:
                 }
             }
         }
-        
+
         with patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_get_family_by_id', return_value=mock_frozen_family), \
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager, '_log_spending_validation_failure') as mock_log_failure:
-            
+
             mock_users_collection = AsyncMock()
             mock_get_collection.return_value = mock_users_collection
             mock_users_collection.find_one.return_value = mock_virtual_account
-            
+
             result = await family_manager.validate_family_spending(
                 "family_test", "member_user_1", 500
             )
-            
+
             # Should return False for frozen account
             assert result is False
-            
+
             # Verify failure was logged with correct reason
             mock_log_failure.assert_called_once()
             log_call = mock_log_failure.call_args
@@ -217,7 +217,7 @@ class TestFamilyFreezeControls:
             "status": "active",
             "managed_by_family": "fam_test123"
         }
-        
+
         mock_family = {
             "family_id": "fam_test123",
             "sbd_account": {
@@ -230,23 +230,23 @@ class TestFamilyFreezeControls:
                 }
             }
         }
-        
+
         with patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_get_family_by_id', return_value=mock_family), \
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager, '_log_spending_validation_success') as mock_log_success:
-            
+
             mock_users_collection = AsyncMock()
             mock_get_collection.return_value = mock_users_collection
             mock_users_collection.find_one.return_value = mock_virtual_account
-            
+
             result = await family_manager.validate_family_spending(
                 "family_test", "member_user_1", 500
             )
-            
+
             # Should return True for unfrozen account with proper permissions
             assert result is True
-            
+
             # Verify success was logged
             mock_log_success.assert_called_once()
 
@@ -278,16 +278,16 @@ class TestEmergencyUnfreezeControls:
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_send_emergency_unfreeze_notification') as mock_notify:
-            
+
             mock_emergency_collection = AsyncMock()
             mock_get_collection.return_value = mock_emergency_collection
             mock_emergency_collection.find_one.return_value = None  # No existing request
             mock_emergency_collection.insert_one = AsyncMock()
-            
+
             result = await family_manager.initiate_emergency_unfreeze(
                 "fam_test123", "member_user_1", "Admin is unavailable and we need access"
             )
-            
+
             # Verify result
             assert "request_id" in result
             assert result["family_id"] == "fam_test123"
@@ -295,10 +295,10 @@ class TestEmergencyUnfreezeControls:
             assert result["required_approvals"] == 2  # Should require 2 approvals for 4 members
             assert result["current_approvals"] == 1  # Requester automatically approves
             assert "expires_at" in result
-            
+
             # Verify database insert was called
             mock_emergency_collection.insert_one.assert_called_once()
-            
+
             # Verify notification was sent
             mock_notify.assert_called_once()
 
@@ -310,20 +310,20 @@ class TestEmergencyUnfreezeControls:
             "request_type": "emergency_unfreeze",
             "status": "pending"
         }
-        
+
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_frozen_family), \
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection:
-            
+
             mock_emergency_collection = AsyncMock()
             mock_get_collection.return_value = mock_emergency_collection
             mock_emergency_collection.find_one.return_value = existing_request
-            
+
             with pytest.raises(FamilyError) as exc_info:
                 await family_manager.initiate_emergency_unfreeze(
                     "fam_test123", "member_user_1", "Test reason"
                 )
-            
+
             assert "emergency unfreeze request is already pending" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
@@ -340,42 +340,42 @@ class TestEmergencyUnfreezeControls:
             "reason": "Admin unavailable",
             "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
         }
-        
+
         mock_family = {
             "family_id": "fam_test123",
             "member_user_ids": ["member_user_1", "member_user_2", "member_user_3"],
             "sbd_account": {"is_frozen": True}
         }
-        
+
         with patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager, '_get_family_by_id', return_value=mock_family), \
              patch.object(family_manager, 'unfreeze_family_account') as mock_unfreeze, \
              patch.object(family_manager, '_send_emergency_unfreeze_executed_notification') as mock_notify:
-            
+
             mock_emergency_collection = AsyncMock()
             mock_get_collection.return_value = mock_emergency_collection
-            
+
             # First call returns original request, second call returns updated request
             mock_emergency_collection.find_one.side_effect = [
                 mock_request,
                 {**mock_request, "approvals": ["member_user_2", "member_user_1"]}
             ]
             mock_emergency_collection.update_one = AsyncMock()
-            
+
             mock_unfreeze.return_value = {"is_frozen": False}
-            
+
             result = await family_manager.approve_emergency_unfreeze("req_test123", "member_user_1")
-            
+
             # Verify result
             assert result["approved"] is True
             assert result["current_approvals"] == 2
             assert result["threshold_met"] is True
             assert result["executed"] is True
-            
+
             # Verify unfreeze was called
             mock_unfreeze.assert_called_once_with("fam_test123", "member_user_1")
-            
+
             # Verify notification was sent
             mock_notify.assert_called_once()
 
@@ -393,28 +393,28 @@ class TestEmergencyUnfreezeControls:
             "reason": "Admin unavailable",
             "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
         }
-        
+
         mock_family = {
             "family_id": "fam_test123",
             "member_user_ids": ["member_user_1", "member_user_2", "member_user_3", "member_user_4"]
         }
-        
+
         with patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_is_user_family_member', return_value=True), \
              patch.object(family_manager, '_get_family_by_id', return_value=mock_family):
-            
+
             mock_emergency_collection = AsyncMock()
             mock_get_collection.return_value = mock_emergency_collection
-            
+
             # First call returns original request, second call returns updated request
             mock_emergency_collection.find_one.side_effect = [
                 mock_request,
                 {**mock_request, "approvals": ["member_user_1"]}
             ]
             mock_emergency_collection.update_one = AsyncMock()
-            
+
             result = await family_manager.approve_emergency_unfreeze("req_test123", "member_user_1")
-            
+
             # Verify result
             assert result["approved"] is True
             assert result["current_approvals"] == 1
@@ -433,24 +433,24 @@ class TestEmergencyUnfreezeControls:
             "reason": "Admin unavailable",
             "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
         }
-        
+
         with patch.object(family_manager.db_manager, 'get_collection') as mock_get_collection, \
              patch.object(family_manager, '_is_user_family_member', return_value=True):
-            
+
             mock_emergency_collection = AsyncMock()
             mock_get_collection.return_value = mock_emergency_collection
             mock_emergency_collection.find_one.return_value = mock_request
             mock_emergency_collection.update_one = AsyncMock()
-            
+
             result = await family_manager.reject_emergency_unfreeze(
                 "req_test123", "member_user_1", "Not necessary"
             )
-            
+
             # Verify result
             assert result["rejected"] is True
             assert result["rejector_id"] == "member_user_1"
             assert result["reason"] == "Not necessary"
-            
+
             # Verify database update was called
             mock_emergency_collection.update_one.assert_called_once()
 
@@ -465,17 +465,17 @@ class TestFreezeNotifications:
             "family_id": "fam_test123",
             "member_user_ids": ["admin_user_1", "member_user_1", "member_user_2"]
         }
-        
+
         mock_admin_user = {"username": "admin_user", "email": "admin@test.com"}
-        
+
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_family), \
              patch.object(family_manager, '_get_user_by_id', return_value=mock_admin_user):
-            
+
             # This should not raise an exception
             await family_manager._send_account_freeze_notification(
                 "fam_test123", "admin_user_1", "Suspicious activity", "frozen"
             )
-            
+
             # The method logs the notification, so we just verify it completes successfully
             # In a real implementation, this would integrate with the notification system
 
@@ -486,17 +486,17 @@ class TestFreezeNotifications:
             "family_id": "fam_test123",
             "member_user_ids": ["admin_user_1", "member_user_1", "member_user_2"]
         }
-        
+
         mock_admin_user = {"username": "admin_user", "email": "admin@test.com"}
-        
+
         with patch.object(family_manager, '_get_family_by_id', return_value=mock_family), \
              patch.object(family_manager, '_get_user_by_id', return_value=mock_admin_user):
-            
+
             # This should not raise an exception
             await family_manager._send_account_freeze_notification(
                 "fam_test123", "admin_user_1", None, "unfrozen"
             )
-            
+
             # The method logs the notification, so we just verify it completes successfully
             # In a real implementation, this would integrate with the notification system
 

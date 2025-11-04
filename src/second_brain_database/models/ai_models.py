@@ -33,7 +33,7 @@ class MessageType(str, Enum):
 class AgentConfig(BaseModel):
     """Agent configuration."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     agent_type: AgentType = Field(description="Type of agent")
     model_name: str = Field(description="LLM model name")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
@@ -45,7 +45,7 @@ class AgentConfig(BaseModel):
 class AISessionContext(BaseModel):
     """AI session context."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     session_id: str = Field(description="Unique session identifier")
     user_id: str = Field(description="User ID")
     agent_type: AgentType = Field(description="Active agent type")
@@ -59,7 +59,7 @@ class AISessionContext(BaseModel):
 class MCPToolExecutionResult(BaseModel):
     """Result of MCP tool execution."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     tool_name: str = Field(description="Tool that was executed")
     success: bool = Field(description="Execution success status")
     result: Any = Field(description="Tool execution result")
@@ -71,7 +71,7 @@ class MCPToolExecutionResult(BaseModel):
 class AgentResponse(BaseModel):
     """Agent response."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     content: str = Field(description="Response content")
     agent_type: AgentType = Field(description="Agent that generated response")
     message_type: MessageType = Field(default=MessageType.TEXT)
@@ -84,7 +84,7 @@ class AgentResponse(BaseModel):
 class AIConversationDocument(BaseModel):
     """MongoDB document for AI conversations."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     session_id: str = Field(description="Session ID")
     user_id: str = Field(description="User ID")
     agent_type: AgentType = Field(description="Agent type")
@@ -99,7 +99,7 @@ class AIConversationDocument(BaseModel):
 class VoiceSessionConfig(BaseModel):
     """Voice session configuration."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     session_id: str = Field(description="Voice session ID")
     user_id: str = Field(description="User ID")
     sample_rate: int = Field(default=16000)
@@ -112,7 +112,7 @@ class VoiceSessionConfig(BaseModel):
 class LangGraphWorkflowConfig(BaseModel):
     """LangGraph workflow configuration."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     workflow_name: str = Field(description="Workflow name")
     nodes: List[str] = Field(description="Workflow nodes")
     edges: Dict[str, List[str]] = Field(description="Node connections")
@@ -125,7 +125,7 @@ class LangGraphWorkflowConfig(BaseModel):
 class StreamingChunk(BaseModel):
     """Streaming response chunk."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
     chunk_type: str = Field(description="Type: text, audio, tool_call")
     content: Any = Field(description="Chunk content")
     sequence: int = Field(description="Sequence number")

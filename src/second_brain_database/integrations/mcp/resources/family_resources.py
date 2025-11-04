@@ -28,38 +28,38 @@ from ....managers.redis_manager import redis_manager
 async def get_family_info_resource(family_id: str) -> str:
     """
     Get comprehensive family information as a resource.
-    
+
     Provides detailed family information including basic details,
     member count, SBD account status, and configuration settings.
-    
+
     Args:
         family_id: The ID of the family to get information for
-        
+
     Returns:
         JSON string containing family information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have access to the family
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Validate family access
         await require_family_access(family_id, user_context=user_context)
-        
+
         # Create family manager instance
         family_manager = FamilyManager(
             db_manager=db_manager,
             security_manager=security_manager,
             redis_manager=redis_manager
         )
-        
+
         # Get family details
         family_details = await family_manager.get_family_details(family_id, user_context.user_id)
-        
+
         # Get SBD account information
         sbd_account = await family_manager.get_family_sbd_account(family_id, user_context.user_id)
-        
+
         # Combine information
         family_info = {
             "id": family_id,
@@ -78,7 +78,7 @@ async def get_family_info_resource(family_id: str) -> str:
             "resource_type": "family_info",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_family_info_resource",
@@ -87,12 +87,12 @@ async def get_family_info_resource(family_id: str) -> str:
             resource_id=family_id,
             metadata={"family_name": family_details.get("name")}
         )
-        
-        logger.info("Provided family info resource for family %s to user %s", 
+
+        logger.info("Provided family info resource for family %s to user %s",
                    family_id, user_context.user_id)
-        
+
         return json.dumps(family_info, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get family info resource for %s: %s", family_id, e)
         return json.dumps({"error": f"Failed to retrieve family information: {str(e)}"}, indent=2)
@@ -102,31 +102,31 @@ async def get_family_info_resource(family_id: str) -> str:
 async def get_family_members_resource(family_id: str) -> str:
     """
     Get family member list as a resource with proper access control.
-    
+
     Provides comprehensive member information including roles,
     relationships, and permissions for authorized users.
-    
+
     Args:
         family_id: The ID of the family to get members for
-        
+
     Returns:
         JSON string containing family member list
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Validate family access
         await require_family_access(family_id, user_context=user_context)
-        
+
         family_manager = FamilyManager(
             db_manager=db_manager,
             security_manager=security_manager,
             redis_manager=redis_manager
         )
-        
+
         # Get family members
         members = await family_manager.get_family_members(family_id, user_context.user_id)
-        
+
         # Format member information
         member_list = []
         for member in members:
@@ -141,7 +141,7 @@ async def get_family_members_resource(family_id: str) -> str:
                 "status": member.get("status", "active")
             }
             member_list.append(member_info)
-        
+
         result = {
             "family_id": family_id,
             "members": member_list,
@@ -149,7 +149,7 @@ async def get_family_members_resource(family_id: str) -> str:
             "resource_type": "family_members",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_family_members_resource",
@@ -158,12 +158,12 @@ async def get_family_members_resource(family_id: str) -> str:
             resource_id=family_id,
             metadata={"member_count": len(member_list)}
         )
-        
-        logger.info("Provided family members resource for family %s to user %s", 
+
+        logger.info("Provided family members resource for family %s to user %s",
                    family_id, user_context.user_id)
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get family members resource for %s: %s", family_id, e)
         return json.dumps({"error": f"Failed to retrieve family members: {str(e)}"}, indent=2)
@@ -173,38 +173,38 @@ async def get_family_members_resource(family_id: str) -> str:
 async def get_family_statistics_resource(family_id: str) -> str:
     """
     Get family usage statistics and analytics as a resource.
-    
+
     Provides comprehensive statistics including spending patterns,
     activity metrics, and usage analytics for family management.
-    
+
     Args:
         family_id: The ID of the family to get statistics for
-        
+
     Returns:
         JSON string containing family statistics
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Validate family access
         await require_family_access(family_id, user_context=user_context)
-        
+
         family_manager = FamilyManager(
             db_manager=db_manager,
             security_manager=security_manager,
             redis_manager=redis_manager
         )
-        
+
         # Get family statistics
         stats = await family_manager.get_family_stats(family_id, user_context.user_id)
-        
+
         result = {
             "family_id": family_id,
             "statistics": stats,
             "resource_type": "family_statistics",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_family_statistics_resource",
@@ -213,12 +213,12 @@ async def get_family_statistics_resource(family_id: str) -> str:
             resource_id=family_id,
             metadata={"stats_requested": True}
         )
-        
-        logger.info("Provided family statistics resource for family %s to user %s", 
+
+        logger.info("Provided family statistics resource for family %s to user %s",
                    family_id, user_context.user_id)
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get family statistics resource for %s: %s", family_id, e)
         return json.dumps({"error": f"Failed to retrieve family statistics: {str(e)}"}, indent=2)

@@ -88,8 +88,8 @@ from second_brain_database.routes.auth.services.abuse.management import (
 )
 from second_brain_database.routes.auth.services.auth import login as login_service
 from second_brain_database.routes.auth.services.auth.login import (
-    create_access_token, 
-    get_current_user, 
+    create_access_token,
+    get_current_user,
     login_user,
     # get_user_auth_methods,
     set_user_auth_preference,
@@ -244,25 +244,25 @@ async def reconcile_blocklist_whitelist_on_startup():
     summary="Register a new user account",
     description="""
     Register a new user account with email verification.
-    
+
     **Process:**
     1. Validates user input (username, email, password strength)
     2. Creates user account in database
     3. Sends email verification link
     4. Returns JWT token for immediate API access
-    
+
     **Security Features:**
     - Password strength validation (8+ chars, mixed case, numbers, symbols)
     - Username format validation (alphanumeric, dashes, underscores only)
     - Email format validation and normalization
     - Rate limiting (100 requests per 60 seconds per IP)
     - Comprehensive audit logging
-    
+
     **Email Verification:**
     - Account is created but marked as unverified
     - Verification email sent automatically
     - Some features may be restricted until email is verified
-    
+
     **Response:**
     Returns JWT token and user information for immediate API access.
     """,
@@ -383,7 +383,7 @@ async def verify_email(request: Request, token: str = None, username: str = None
     set_auth_logging_context(ip_address=request_info["ip_address"])
 
     await security_manager.check_rate_limit(request, "verify-email")
-    
+
     # Check if request is from a web browser (render HTML) or API client (return JSON)
     user_agent = request.headers.get("user-agent", "").lower()
     accept_header = request.headers.get("accept", "").lower()
@@ -463,7 +463,7 @@ async def verify_email(request: Request, token: str = None, username: str = None
         auth_logger.log_email_verification(
             user_id=username, email=user.get("email", "unknown"), ip_address=request_info["ip_address"], success=True
         )
-        
+
         if is_browser and not is_mobile_app:
             from second_brain_database.routes.auth.main import render_email_verification_page
             return render_email_verification_page(request, success=True)
@@ -496,28 +496,28 @@ async def verify_email(request: Request, token: str = None, username: str = None
     summary="Authenticate user and obtain JWT token",
     description="""
     Authenticate user credentials and return JWT token for API access.
-    
+
     **Authentication Methods:**
     - Username + Password
     - Email + Password
     - Username/Email + Password + 2FA Code (if 2FA enabled)
-    
+
     **Input Formats:**
     - JSON: Use LoginRequest model with flexible authentication options
     - Form Data: OAuth2 compatible form data (username/password)
-    
+
     **2FA Flow:**
     1. First attempt: Send username/email + password
     2. If 2FA required: Response includes available 2FA methods
     3. Second attempt: Include two_fa_code and two_fa_method
-    
+
     **Security Features:**
     - Rate limiting (100 requests per 60 seconds per IP)
     - Email verification requirement
     - 2FA support (TOTP, backup codes)
     - Comprehensive audit logging
     - IP-based trusted device tracking
-    
+
     **Response:**
     Returns JWT token with user information and session details.
     """,
@@ -601,18 +601,18 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     Compatible with both JSON requests and OAuth2 form data.
     """
     await security_manager.check_rate_limit(request, "login")
-    
+
     # Log request details for debugging (especially for mobile apps)
     user_agent = request.headers.get("user-agent", "")
     content_type = request.headers.get("content-type", "")
     is_mobile_app = any(app in user_agent.lower() for app in ["emotion_tracker", "dart", "flutter"])
-    
+
     if is_mobile_app:
         logger.info(
             "POST /auth/login from mobile app - User-Agent: %s, Content-Type: %s, Method: %s, URL: %s",
             user_agent[:100], content_type, request.method, str(request.url)
         )
-    
+
     # Default values
     username = email = password = two_fa_code = two_fa_method = None
     client_side_encryption = False
@@ -769,17 +769,17 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     summary="Refresh JWT access token",
     description="""
     Refresh an expired or soon-to-expire JWT access token.
-    
+
     **Usage:**
     - Use this endpoint when your JWT token is about to expire
     - Requires a valid (non-expired) JWT token in Authorization header
     - Returns a new JWT token with extended expiration time
-    
+
     **Security:**
     - Rate limited to prevent abuse
     - Requires valid authentication
     - Old token remains valid until natural expiration
-    
+
     **Best Practice:**
     Implement automatic token refresh in your client applications
     to maintain seamless user experience.
@@ -1391,10 +1391,10 @@ async def block_reset_abuse(token: str):
 async def get_user_auth_methods(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Get available authentication methods for the current user.
-    
+
     Returns information about what authentication methods are available,
     user preferences, and usage statistics.
-    
+
     **Response includes:**
     - Available authentication methods (password, webauthn)
     - User's preferred authentication method
@@ -1402,12 +1402,12 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(e
     - Recent authentication method usage
     """
     from second_brain_database.routes.auth.services.auth.login import get_user_auth_methods
-    
+
     user_id = str(current_user["_id"])
     auth_methods = await get_user_auth_methods(user_id)
-    
+
     logger.info("Retrieved auth methods for user %s: %s", current_user["username"], auth_methods)
-    
+
     return {
         "available_methods": auth_methods["available_methods"],
         "preferred_method": auth_methods["preferred_method"],
@@ -1421,42 +1421,42 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(e
 
 @router.put("/auth-methods/preference", response_model=AuthPreferenceResponse)
 async def set_auth_preference(
-    request: Request, 
+    request: Request,
     preferred_method: str = Body(..., embed=True),
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Set the user's preferred authentication method.
-    
+
     The preferred method will be suggested first during login flows.
     The method must be available for the user (e.g., they must have WebAuthn credentials
     to set webauthn as preferred).
-    
+
     **Supported methods:**
     - password: Traditional password authentication
     - webauthn: WebAuthn/FIDO2 passwordless authentication
     """
     from second_brain_database.routes.auth.services.auth.login import set_user_auth_preference
-    
+
     user_id = str(current_user["_id"])
-    
+
     # Validate method
     if preferred_method not in ["password", "webauthn"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid authentication method. Must be 'password' or 'webauthn'"
         )
-    
+
     success = await set_user_auth_preference(user_id, preferred_method)
-    
+
     if not success:
         raise HTTPException(
             status_code=400,
             detail="Cannot set preferred method. Method may not be available for your account."
         )
-    
+
     logger.info("Updated auth preference for user %s: %s", current_user["username"], preferred_method)
-    
+
     return {
         "message": "Authentication preference updated successfully",
         "preferred_method": preferred_method
@@ -1471,34 +1471,34 @@ async def check_auth_fallback(
 ):
     """
     Check available authentication fallback options when one method fails.
-    
+
     This endpoint helps determine what alternative authentication methods
     are available if the primary method fails or is unavailable.
-    
+
     **Parameters:**
     - failed_method: The authentication method that failed ("password" or "webauthn")
-    
+
     **Response includes:**
     - Whether fallback options are available
     - List of available fallback methods
     - Recommended fallback method
     """
     from second_brain_database.routes.auth.services.auth.login import check_auth_fallback_available
-    
+
     user_id = str(current_user["_id"])
-    
+
     # Validate failed method
     if failed_method not in ["password", "webauthn"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid authentication method. Must be 'password' or 'webauthn'"
         )
-    
+
     fallback_info = await check_auth_fallback_available(user_id, failed_method)
-    
-    logger.info("Checked auth fallback for user %s, failed method %s: %s", 
+
+    logger.info("Checked auth fallback for user %s, failed method %s: %s",
                current_user["username"], failed_method, fallback_info)
-    
+
     return fallback_info
 
 
@@ -1656,7 +1656,7 @@ async def trusted_ips_lockdown_confirm(
             },
         },
     )
-    
+
     # Log lockdown configuration change security event
     log_security_event(
         event_type="lockdown_config_change",
@@ -1675,7 +1675,7 @@ async def trusted_ips_lockdown_confirm(
             "timestamp": datetime.utcnow().isoformat()
         }
     )
-    
+
     logger.info(
         "Trusted IP lockdown %s for user %s (confirmed from IP %s, trusted_ips updated if enabled)",
         action,
@@ -1706,10 +1706,10 @@ async def trusted_user_agents_lockdown_request(
 ):
     """
     Request to enable or disable User Agent lockdown with email confirmation.
-    
+
     For 'enable': requires a list of trusted User Agents.
     For 'disable': uses existing trusted User Agents from database.
-    
+
     Generates a confirmation code and sends it via email.
     """
     logger.info(
@@ -1722,19 +1722,19 @@ async def trusted_user_agents_lockdown_request(
     await security_manager.check_rate_limit(
         request, "trusted-user-agents-lockdown-request", rate_limit_requests=5, rate_limit_period=3600
     )
-    
+
     # Validate action parameter
     if action not in ("enable", "disable"):
         logger.info("Invalid User Agent lockdown action requested: %s by user %s", action, current_user.get("username"))
         raise HTTPException(status_code=400, detail="Invalid action. Must be 'enable' or 'disable'.")
-    
+
     if action == "disable":
         # First, check if trusted_user_agent_lockdown is enabled before proceeding
         user_doc = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
         if not user_doc.get("trusted_user_agent_lockdown", False):
             logger.info("Trusted User Agent Lockdown is not enabled for user %s; cannot disable", current_user.get("username"))
             raise HTTPException(status_code=400, detail="Trusted User Agent Lockdown is not enabled.")
-        
+
         # For disabling, ignore user-provided trusted_user_agents and use the current trusted_user_agents from the DB
         trusted_user_agents = user_doc.get("trusted_user_agents", [])
         if not trusted_user_agents:
@@ -1748,11 +1748,11 @@ async def trusted_user_agents_lockdown_request(
     elif not trusted_user_agents or not isinstance(trusted_user_agents, list):
         logger.info("No trusted_user_agents provided for lockdown by user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="trusted_user_agents must be a non-empty list.")
-    
+
     # Generate confirmation code
     code = secrets.token_urlsafe(8)
     expiry = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
-    
+
     # Store confirmation code in user document
     await db_manager.get_collection("users").update_one(
         {"_id": current_user["_id"]},
@@ -1767,9 +1767,9 @@ async def trusted_user_agents_lockdown_request(
             }
         },
     )
-    
+
     email = current_user.get("email")
-    
+
     if action == "disable":
         # Notify user of the User Agents that will be allowed to disable lockdown (before confirmation)
         from second_brain_database.managers.email import email_manager
@@ -1786,23 +1786,23 @@ async def trusted_user_agents_lockdown_request(
         """
         await email_manager._send_via_console(current_user["email"], subject, html_content)
         logger.info(
-            "User Agent lockdown disable email sent to user %s (allowed User Agents: %s)", 
-            current_user.get("username"), 
+            "User Agent lockdown disable email sent to user %s (allowed User Agents: %s)",
+            current_user.get("username"),
             trusted_user_agents
         )
-    
+
     try:
         await send_user_agent_lockdown_code_email(email, code, action, trusted_user_agents)
         logger.info(
-            "User Agent lockdown %s code sent to user %s (allowed User Agents: %s)", 
-            action, 
-            current_user.get("username"), 
+            "User Agent lockdown %s code sent to user %s (allowed User Agents: %s)",
+            action,
+            current_user.get("username"),
             trusted_user_agents
         )
     except Exception as e:
         logger.error("Failed to send User Agent lockdown code to %s: %s", email, str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to send confirmation code.") from e
-    
+
     logger.info("User Agent lockdown request completed for user %s (action: %s)", current_user.get("username"), action)
     return {"message": f"Confirmation code sent to {email}. Must confirm from one of the provided User Agents."}
 
@@ -1813,53 +1813,53 @@ async def trusted_user_agents_lockdown_confirm(
 ):
     """
     Confirm User Agent lockdown enable/disable action using the confirmation code.
-    
+
     Validates the confirmation code and User Agent, then updates the user's lockdown settings.
     """
     user = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
     request_user_agent = security_manager.get_client_user_agent(request)
-    
+
     logger.info(
         "[trusted_user_agents_lockdown_confirm] user=%s code=%s request_user_agent=%s",
         current_user.get("username"),
         code,
         request_user_agent,
     )
-    
+
     await security_manager.check_rate_limit(
         request, "trusted-user-agents-lockdown-confirm", rate_limit_requests=10, rate_limit_period=3600
     )
-    
+
     # Get the stored confirmation codes
     lockdown_codes = user.get("trusted_user_agent_lockdown_codes", [])
     if not lockdown_codes:
         logger.info("No User Agent lockdown codes found for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="No pending User Agent lockdown action.")
-    
+
     # Find the matching code
     matching_code = None
     for stored_code_data in lockdown_codes:
         if stored_code_data.get("code") == code:
             matching_code = stored_code_data
             break
-    
+
     if not matching_code:
         logger.info("Invalid User Agent lockdown code for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="Invalid code.")
-    
+
     # Check if code has expired
     expiry = matching_code.get("expires_at")
     if not expiry or datetime.utcnow() > datetime.fromisoformat(expiry):
         logger.info("Expired User Agent lockdown code for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="Code expired.")
-    
+
     action = matching_code.get("action")
     allowed_user_agents = matching_code.get("allowed_user_agents", [])
-    
+
     if not action or not allowed_user_agents:
         logger.info("Invalid User Agent lockdown code data for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="Invalid code data.")
-    
+
     # Validate that the request is coming from an allowed User Agent
     if action == "disable":
         # For disable, check against current trusted User Agents in database
@@ -1872,7 +1872,7 @@ async def trusted_user_agents_lockdown_confirm(
                 db_trusted_user_agents,
             )
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail="Disabling lockdown must be confirmed from one of your existing trusted User Agents."
             )
     else:  # action == "enable"
@@ -1885,17 +1885,17 @@ async def trusted_user_agents_lockdown_confirm(
                 allowed_user_agents,
             )
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail="Confirmation must be from one of the allowed User Agents."
             )
-    
+
     # Update user document with lockdown settings
     lockdown_flag = True if action == "enable" else False
     update_fields = {"trusted_user_agent_lockdown": lockdown_flag}
-    
+
     if action == "enable":
         update_fields["trusted_user_agents"] = allowed_user_agents
-    
+
     # Clear the used confirmation codes
     await db_manager.get_collection("users").update_one(
         {"_id": current_user["_id"]},
@@ -1906,7 +1906,7 @@ async def trusted_user_agents_lockdown_confirm(
             },
         },
     )
-    
+
     # Log lockdown configuration change security event
     log_security_event(
         event_type="lockdown_config_change",
@@ -1925,14 +1925,14 @@ async def trusted_user_agents_lockdown_confirm(
             "timestamp": datetime.utcnow().isoformat()
         }
     )
-    
+
     logger.info(
         "Trusted User Agent lockdown %s for user %s (confirmed from User Agent %s, trusted_user_agents updated if enabled)",
         action,
         current_user.get("username"),
         request_user_agent,
     )
-    
+
     return {
         "message": f"Trusted User Agent lockdown {action}d successfully.{' Trusted User Agents updated.' if action == 'enable' else ''}"
     }
@@ -1942,14 +1942,14 @@ async def trusted_user_agents_lockdown_confirm(
 async def trusted_user_agents_lockdown_status(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Get current User Agent lockdown status and requesting User Agent string.
-    
+
     Returns the current lockdown status and the User Agent string of the requesting client.
     This helps users understand their current lockdown configuration and identify their User Agent.
     """
     logger.info("[trusted_user_agents_lockdown_status] user=%s", current_user.get("username"))
     lockdown_status = bool(current_user.get("trusted_user_agent_lockdown", False))
     request_user_agent = security_manager.get_client_user_agent(request)
-    
+
     return {
         "trusted_user_agent_lockdown": lockdown_status,
         "your_user_agent": request_user_agent
@@ -1965,33 +1965,33 @@ async def allow_once_ip_access(
 ):
     """
     Grant temporary IP access using a token from blocked access notification email.
-    
+
     This endpoint allows users to bypass IP lockdown restrictions for 15 minutes
     using a secure token received via email when their access was blocked.
-    
+
     **Process:**
     1. User attempts to access account from untrusted IP
     2. Access is blocked and notification email is sent with "allow once" link
     3. User clicks link or uses token with this endpoint
     4. Temporary bypass is created for 15 minutes
-    
+
     **Security:**
     - Tokens are single-use and expire in 15 minutes
     - Tokens are stored in Redis with automatic expiration
     - All actions are logged for security monitoring
-    
+
     **Requirements:** 1.4, 2.4
     """
     await security_manager.check_rate_limit(
         request, "allow-once-ip", rate_limit_requests=10, rate_limit_period=3600
     )
-    
+
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
             validate_and_use_temporary_ip_token,
             execute_allow_once_ip_access
         )
-        
+
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
@@ -2000,7 +2000,7 @@ async def allow_once_ip_access(
                 status_code=400,
                 detail="Invalid or expired token. Please request a new access link."
             )
-        
+
         # Verify this is an "allow_once" action
         if token_data.get("action") != "allow_once":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
@@ -2008,7 +2008,7 @@ async def allow_once_ip_access(
                 status_code=400,
                 detail="Invalid token type for this action."
             )
-        
+
         # Execute the allow once action
         success = await execute_allow_once_ip_access(token_data)
         if not success:
@@ -2017,17 +2017,17 @@ async def allow_once_ip_access(
                 status_code=500,
                 detail="Failed to grant temporary access. Please try again."
             )
-        
-        logger.info("Granted temporary IP access for user %s, IP %s", 
+
+        logger.info("Granted temporary IP access for user %s, IP %s",
                    token_data.get("user_email"), token_data.get("ip_address"))
-        
+
         return {
             "message": "Temporary access granted successfully",
             "ip_address": token_data.get("ip_address"),
             "expires_in_minutes": 15,
             "endpoint": token_data.get("endpoint")
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2045,33 +2045,33 @@ async def allow_once_user_agent_access(
 ):
     """
     Grant temporary User Agent access using a token from blocked access notification email.
-    
+
     This endpoint allows users to bypass User Agent lockdown restrictions for 15 minutes
     using a secure token received via email when their access was blocked.
-    
+
     **Process:**
     1. User attempts to access account from untrusted User Agent
     2. Access is blocked and notification email is sent with "allow once" link
     3. User clicks link or uses token with this endpoint
     4. Temporary bypass is created for 15 minutes
-    
+
     **Security:**
     - Tokens are single-use and expire in 15 minutes
     - Tokens are stored in Redis with automatic expiration
     - All actions are logged for security monitoring
-    
+
     **Requirements:** 1.4, 2.4
     """
     await security_manager.check_rate_limit(
         request, "allow-once-user-agent", rate_limit_requests=10, rate_limit_period=3600
     )
-    
+
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
             validate_and_use_temporary_user_agent_token,
             execute_allow_once_user_agent_access
         )
-        
+
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
@@ -2080,7 +2080,7 @@ async def allow_once_user_agent_access(
                 status_code=400,
                 detail="Invalid or expired token. Please request a new access link."
             )
-        
+
         # Verify this is an "allow_once" action
         if token_data.get("action") != "allow_once":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
@@ -2088,7 +2088,7 @@ async def allow_once_user_agent_access(
                 status_code=400,
                 detail="Invalid token type for this action."
             )
-        
+
         # Execute the allow once action
         success = await execute_allow_once_user_agent_access(token_data)
         if not success:
@@ -2097,18 +2097,18 @@ async def allow_once_user_agent_access(
                 status_code=500,
                 detail="Failed to grant temporary access. Please try again."
             )
-        
-        logger.info("Granted temporary User Agent access for user %s, User Agent %s", 
-                   token_data.get("user_email"), 
+
+        logger.info("Granted temporary User Agent access for user %s, User Agent %s",
+                   token_data.get("user_email"),
                    token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
-        
+
         return {
             "message": "Temporary access granted successfully",
             "user_agent": token_data.get("user_agent"),
             "expires_in_minutes": 15,
             "endpoint": token_data.get("endpoint")
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2128,34 +2128,34 @@ async def add_ip_to_trusted_list(
 ):
     """
     Add an IP address to the trusted list using a token from blocked access notification email.
-    
+
     This endpoint allows users to permanently add an IP address to their trusted list
     using a secure token received via email when their access was blocked.
-    
+
     **Process:**
     1. User attempts to access account from untrusted IP
     2. Access is blocked and notification email is sent with "add to trusted list" link
     3. User clicks link or uses token with this endpoint
     4. IP is permanently added to their trusted IP list
-    
+
     **Security:**
     - Tokens are single-use and expire in 1 hour
     - Tokens are stored in Redis with automatic expiration
     - All actions are logged for security monitoring
     - Requires email confirmation for permanent additions
-    
+
     **Requirements:** 1.4, 2.4
     """
     await security_manager.check_rate_limit(
         request, "add-trusted-ip", rate_limit_requests=10, rate_limit_period=3600
     )
-    
+
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
             validate_and_use_temporary_ip_token,
             execute_add_to_trusted_ip_list
         )
-        
+
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
@@ -2164,7 +2164,7 @@ async def add_ip_to_trusted_list(
                 status_code=400,
                 detail="Invalid or expired token. Please request a new access link."
             )
-        
+
         # Verify this is an "add_to_trusted" action
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
@@ -2172,7 +2172,7 @@ async def add_ip_to_trusted_list(
                 status_code=400,
                 detail="Invalid token type for this action."
             )
-        
+
         # Execute the add to trusted list action
         success = await execute_add_to_trusted_ip_list(token_data)
         if not success:
@@ -2181,16 +2181,16 @@ async def add_ip_to_trusted_list(
                 status_code=500,
                 detail="Failed to add IP to trusted list. Please try again."
             )
-        
-        logger.info("Added IP to trusted list for user %s, IP %s", 
+
+        logger.info("Added IP to trusted list for user %s, IP %s",
                    token_data.get("user_email"), token_data.get("ip_address"))
-        
+
         return {
             "message": "IP address added to trusted list successfully",
             "ip_address": token_data.get("ip_address"),
             "endpoint": token_data.get("endpoint")
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2208,34 +2208,34 @@ async def add_user_agent_to_trusted_list(
 ):
     """
     Add a User Agent to the trusted list using a token from blocked access notification email.
-    
+
     This endpoint allows users to permanently add a User Agent to their trusted list
     using a secure token received via email when their access was blocked.
-    
+
     **Process:**
     1. User attempts to access account from untrusted User Agent
     2. Access is blocked and notification email is sent with "add to trusted list" link
     3. User clicks link or uses token with this endpoint
     4. User Agent is permanently added to their trusted User Agent list
-    
+
     **Security:**
     - Tokens are single-use and expire in 1 hour
     - Tokens are stored in Redis with automatic expiration
     - All actions are logged for security monitoring
     - Requires email confirmation for permanent additions
-    
+
     **Requirements:** 1.4, 2.4
     """
     await security_manager.check_rate_limit(
         request, "add-trusted-user-agent", rate_limit_requests=10, rate_limit_period=3600
     )
-    
+
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
             validate_and_use_temporary_user_agent_token,
             execute_add_to_trusted_user_agent_list
         )
-        
+
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
@@ -2244,7 +2244,7 @@ async def add_user_agent_to_trusted_list(
                 status_code=400,
                 detail="Invalid or expired token. Please request a new access link."
             )
-        
+
         # Verify this is an "add_to_trusted" action
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
@@ -2252,7 +2252,7 @@ async def add_user_agent_to_trusted_list(
                 status_code=400,
                 detail="Invalid token type for this action."
             )
-        
+
         # Execute the add to trusted list action
         success = await execute_add_to_trusted_user_agent_list(token_data)
         if not success:
@@ -2261,17 +2261,17 @@ async def add_user_agent_to_trusted_list(
                 status_code=500,
                 detail="Failed to add User Agent to trusted list. Please try again."
             )
-        
-        logger.info("Added User Agent to trusted list for user %s, User Agent %s", 
-                   token_data.get("user_email"), 
+
+        logger.info("Added User Agent to trusted list for user %s, User Agent %s",
+                   token_data.get("user_email"),
                    token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
-        
+
         return {
             "message": "User Agent added to trusted list successfully",
             "user_agent": token_data.get("user_agent"),
             "endpoint": token_data.get("endpoint")
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2429,12 +2429,12 @@ async def revoke_permanent_token(request: Request, token_id: str, current_user: 
     summary="Begin WebAuthn credential registration",
     description="""
     Start the WebAuthn credential registration process for the authenticated user.
-    
+
     **Process:**
     1. Generates a unique cryptographic challenge
     2. Retrieves user's existing credentials to exclude duplicates
     3. Returns WebAuthn credential creation options for the client
-    
+
     **Security Features:**
     - Requires valid JWT authentication
     - Challenge expires in 5 minutes
@@ -2443,14 +2443,14 @@ async def revoke_permanent_token(request: Request, token_id: str, current_user: 
     - Origin and referer validation
     - Comprehensive security logging and monitoring
     - Security headers for WebAuthn operations
-    
+
     **Usage:**
     - Call this endpoint first to get registration options
     - Use the response with WebAuthn API on the client side
     - Complete registration with /webauthn/register/complete
-    
+
     **Response:**
-    Returns WebAuthn credential creation options including challenge, 
+    Returns WebAuthn credential creation options including challenge,
     relying party info, user info, and supported algorithms.
     """,
     responses={
@@ -2474,7 +2474,7 @@ async def webauthn_register_begin(
 ):
     """
     Begin WebAuthn credential registration for authenticated user.
-    
+
     Generates WebAuthn credential creation options following existing auth patterns
     with enhanced security validation, request sanitization, and comprehensive monitoring.
     """
@@ -2488,7 +2488,7 @@ async def webauthn_register_begin(
 
     # Enhanced security validation using existing patterns
     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-    
+
     # Apply comprehensive security validation
     validation_context = await webauthn_security_validator.validate_webauthn_request(
         request=request,
@@ -2496,7 +2496,7 @@ async def webauthn_register_begin(
         user_id=current_user["username"],
         additional_checks={"authenticated_user": current_user}
     )
-    
+
     # Apply additional request integrity validation
     integrity_context = await webauthn_security_validator.validate_request_integrity(
         request=request,
@@ -2528,15 +2528,15 @@ async def webauthn_register_begin(
         options = WebAuthnRegistrationBeginResponse(**options_dict)
 
         logger.info("WebAuthn registration options generated for user: %s", current_user["username"])
-        
+
         # Create response with enhanced security headers
         from fastapi.responses import JSONResponse
         response_data = options.model_dump()
         response = JSONResponse(content=response_data)
-        
+
         # Add security headers following existing patterns
         response = webauthn_security_validator.add_security_headers(response, "registration")
-        
+
         return response
 
     except HTTPException:
@@ -2544,19 +2544,19 @@ async def webauthn_register_begin(
         raise
     except Exception as e:
         logger.error("Failed to generate WebAuthn registration options for user %s: %s", current_user["username"], e, exc_info=True)
-        
+
         # Log authentication failure following existing patterns
         log_auth_failure(
             event_type="webauthn_registration_begin_failed",
             user_id=current_user["username"],
             ip_address=request_info["ip_address"],
             details={
-                "error": str(e), 
+                "error": str(e),
                 "device_name": sanitized_request_data.get("device_name"),
                 "validation_context": validation_context
             },
         )
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate WebAuthn registration options"
@@ -2569,13 +2569,13 @@ async def webauthn_register_begin(
     summary="Complete WebAuthn credential registration",
     description="""
     Complete the WebAuthn credential registration process.
-    
+
     **Process:**
     1. Validates the WebAuthn credential creation response
     2. Verifies the challenge and attestation
     3. Stores the credential public key and metadata
     4. Returns confirmation with credential details
-    
+
     **Security Features:**
     - Challenge validation (one-time use, 5-minute expiry)
     - Attestation verification (simplified for "none" attestation)
@@ -2585,12 +2585,12 @@ async def webauthn_register_begin(
     - Origin and referer validation
     - Comprehensive audit logging and monitoring
     - Security headers for WebAuthn operations
-    
+
     **Usage:**
     - Call after successful WebAuthn credential creation on client
     - Provide the complete WebAuthn credential creation response
     - Optionally specify a friendly device name
-    
+
     **Response:**
     Returns confirmation with credential metadata and registration timestamp.
     """,
@@ -2615,8 +2615,8 @@ async def webauthn_register_complete(
 ):
     """
     Complete WebAuthn credential registration for authenticated user.
-    
-    Validates credential response and stores credential following existing 
+
+    Validates credential response and stores credential following existing
     validation and error handling patterns with enhanced security validation.
     """
     # Apply rate limiting following existing patterns
@@ -2629,7 +2629,7 @@ async def webauthn_register_complete(
 
     # Enhanced security validation using existing patterns
     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-    
+
     # Apply comprehensive security validation
     validation_context = await webauthn_security_validator.validate_webauthn_request(
         request=request,
@@ -2637,7 +2637,7 @@ async def webauthn_register_complete(
         user_id=current_user["username"],
         additional_checks={"authenticated_user": current_user}
     )
-    
+
     # Apply additional request integrity validation for registration complete
     integrity_context = await webauthn_security_validator.validate_request_integrity(
         request=request,
@@ -2677,7 +2677,7 @@ async def webauthn_register_complete(
         )
 
         logger.info("WebAuthn credential registered successfully for user: %s", current_user["username"])
-        
+
         # Log successful registration using existing auth success pattern
         log_auth_success(
             event_type="webauthn_registration_completed",
@@ -2701,12 +2701,12 @@ async def webauthn_register_complete(
             authenticator_type=result["authenticator_type"],
             created_at=result["created_at"]
         ).model_dump()
-        
+
         response = JSONResponse(content=response_data, status_code=201)
-        
+
         # Add security headers following existing patterns
         response = webauthn_security_validator.add_security_headers(response, "registration")
-        
+
         return response
 
     except HTTPException:
@@ -2714,7 +2714,7 @@ async def webauthn_register_complete(
         raise
     except Exception as e:
         logger.error("Failed to complete WebAuthn registration for user %s: %s", current_user["username"], e, exc_info=True)
-        
+
         # Log authentication failure following existing patterns
         log_auth_failure(
             event_type="webauthn_registration_complete_failed",
@@ -2727,7 +2727,7 @@ async def webauthn_register_complete(
                 "validation_context": validation_context
             },
         )
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to register WebAuthn credential"
@@ -2744,13 +2744,13 @@ async def list_webauthn_credentials(request: Request, current_user: dict = Depen
 
     Returns credential metadata (ID, device name, created date, last used, etc.)
     but never returns sensitive cryptographic data for security.
-    
+
     **Security Features:**
     - Requires authentication
     - Only returns user's own credentials
     - Excludes sensitive cryptographic data (public keys, signature counters)
     - Comprehensive audit logging
-    
+
     **Response Data:**
     - Credential ID (for management operations)
     - Device name (user-friendly identifier)
@@ -2790,14 +2790,14 @@ async def delete_webauthn_credential(request: Request, credential_id: str, curre
 
     Only the credential owner can delete their own credentials.
     Deleted credentials are immediately invalidated and cannot be used for authentication.
-    
+
     **Security Features:**
     - Requires authentication
     - Ownership verification (users can only delete their own credentials)
     - Comprehensive security logging
     - Cache invalidation for immediate effect
     - Soft delete with audit trail
-    
+
     **Important Notes:**
     - This action cannot be undone
     - The credential will no longer work for authentication
@@ -2843,17 +2843,17 @@ async def delete_webauthn_credential(request: Request, credential_id: str, curre
     summary="Begin WebAuthn passwordless authentication",
     description="""
     Start the WebAuthn authentication process for passwordless login.
-    
+
     **Process:**
     1. Validates user exists and account is active
     2. Retrieves user's registered WebAuthn credentials
     3. Generates a unique cryptographic challenge
     4. Returns WebAuthn credential request options for the client
-    
+
     **Authentication Methods:**
     - Username-based authentication
     - Email-based authentication
-    
+
     **Security Features:**
     - Account status validation (active, verified, not suspended)
     - Challenge generation with secure randomness
@@ -2864,12 +2864,12 @@ async def delete_webauthn_credential(request: Request, credential_id: str, curre
     - Comprehensive audit logging and monitoring
     - Security headers for WebAuthn operations
     - IP-based security checks (if trusted IP lockdown enabled)
-    
+
     **Usage:**
     - Call this endpoint first to get authentication options
     - Use the response with WebAuthn API on the client side
     - Complete authentication with /webauthn/authenticate/complete
-    
+
     **Response:**
     Returns WebAuthn credential request options including challenge,
     allowed credentials, and authentication parameters.
@@ -2901,7 +2901,7 @@ async def webauthn_authenticate_begin(
 ):
     """
     Begin WebAuthn authentication process for passwordless login.
-    
+
     Generates WebAuthn credential request options following existing auth patterns
     with enhanced security validation, request sanitization, and comprehensive monitoring.
     """
@@ -2915,9 +2915,9 @@ async def webauthn_authenticate_begin(
 
     # Enhanced security validation using existing patterns
     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-    
+
     identifier = auth_request.username or auth_request.email or "unknown"
-    
+
     # Apply comprehensive security validation
     validation_context = await webauthn_security_validator.validate_webauthn_request(
         request=request,
@@ -2925,7 +2925,7 @@ async def webauthn_authenticate_begin(
         user_id=identifier,
         additional_checks={"public_endpoint": True}  # No auth required for this endpoint
     )
-    
+
     # Apply additional request integrity validation for authentication begin
     integrity_context = await webauthn_security_validator.validate_request_integrity(
         request=request,
@@ -2963,10 +2963,10 @@ async def webauthn_authenticate_begin(
         from fastapi.responses import JSONResponse
         response_data = options.model_dump()
         response = JSONResponse(content=response_data)
-        
+
         # Add security headers following existing patterns
         response = webauthn_security_validator.add_security_headers(response, "authentication")
-        
+
         return response
 
     except HTTPException:
@@ -2974,7 +2974,7 @@ async def webauthn_authenticate_begin(
         raise
     except Exception as e:
         logger.error("Failed to generate WebAuthn authentication options for identifier %s: %s", identifier, e, exc_info=True)
-        
+
         # Log authentication failure following existing patterns
         log_auth_failure(
             event_type="webauthn_authentication_begin_failed",
@@ -2987,7 +2987,7 @@ async def webauthn_authenticate_begin(
                 "validation_context": validation_context
             },
         )
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate WebAuthn authentication options"
@@ -3000,14 +3000,14 @@ async def webauthn_authenticate_begin(
     summary="Complete WebAuthn passwordless authentication",
     description="""
     Complete the WebAuthn authentication process and obtain JWT token.
-    
+
     **Process:**
     1. Validates the WebAuthn assertion response from the client
     2. Verifies the challenge and cryptographic signature
     3. Updates credential usage statistics
     4. Generates JWT token for authenticated session
     5. Returns authentication result with user information
-    
+
     **Security Features:**
     - Challenge validation (one-time use, 60-second expiry)
     - Cryptographic signature verification (simulated for now)
@@ -3017,12 +3017,12 @@ async def webauthn_authenticate_begin(
     - Rate limiting (50 requests per 60 seconds per IP)
     - Comprehensive audit logging
     - JWT token generation with user context
-    
+
     **Usage:**
     - Call after successful WebAuthn assertion on client
     - Provide the complete WebAuthn assertion response
     - Receive JWT token for API access
-    
+
     **Response:**
     Returns JWT token and user information, similar to standard login response,
     plus additional WebAuthn-specific metadata about the credential used.
@@ -3052,8 +3052,8 @@ async def webauthn_authenticate_complete(
 ):
     """
     Complete WebAuthn authentication process and return JWT token.
-    
-    Validates assertion response and generates JWT token following existing 
+
+    Validates assertion response and generates JWT token following existing
     authentication patterns with enhanced security validation, request sanitization,
     and comprehensive monitoring.
     """
@@ -3067,9 +3067,9 @@ async def webauthn_authenticate_complete(
 
     # Enhanced security validation using existing patterns
     from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-    
+
     credential_id_short = auth_request.id[:16] + "..." if len(auth_request.id) > 16 else auth_request.id
-    
+
     # Apply comprehensive security validation
     validation_context = await webauthn_security_validator.validate_webauthn_request(
         request=request,
@@ -3077,7 +3077,7 @@ async def webauthn_authenticate_complete(
         user_id="unknown",  # Will be determined from credential
         additional_checks={"public_endpoint": True}  # No auth required for this endpoint
     )
-    
+
     # Apply additional request integrity validation for authentication complete
     integrity_context = await webauthn_security_validator.validate_request_integrity(
         request=request,
@@ -3112,7 +3112,7 @@ async def webauthn_authenticate_complete(
         set_auth_logging_context(user_id=result["username"], ip_address=request_info["ip_address"])
 
         logger.info("WebAuthn authentication successful for user: %s", result["username"])
-        
+
         # Log successful authentication using existing auth success pattern
         log_auth_success(
             event_type="webauthn_authentication_successful",
@@ -3142,12 +3142,12 @@ async def webauthn_authenticate_complete(
             authentication_method=result["authentication_method"],
             credential_used=result["credential_used"]
         ).model_dump()
-        
+
         response = JSONResponse(content=response_data)
-        
+
         # Add security headers following existing patterns
         response = webauthn_security_validator.add_security_headers(response, "authentication")
-        
+
         return response
 
     except HTTPException:
@@ -3155,7 +3155,7 @@ async def webauthn_authenticate_complete(
         raise
     except Exception as e:
         logger.error("Failed to complete WebAuthn authentication for credential %s: %s", credential_id_short, e, exc_info=True)
-        
+
         # Log authentication failure following existing patterns
         log_auth_failure(
             event_type="webauthn_authentication_complete_failed",
@@ -3167,7 +3167,7 @@ async def webauthn_authenticate_complete(
                 "validation_context": validation_context
             },
         )
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to complete WebAuthn authentication"
@@ -3181,7 +3181,7 @@ async def webauthn_authenticate_complete(
 async def login_page(request: Request):
     """
     Serve secure login page with both password and WebAuthn authentication options.
-    
+
     For mobile/desktop apps (like Flutter), returns JSON error instead of HTML.
     For web browsers, HTML rendering is currently disabled.
     """
@@ -3193,16 +3193,16 @@ async def login_page(request: Request):
     )
     request_info = extract_request_info(request)
     logger.info("Login page accessed from IP: %s", request_info["ip_address"])
-    
+
     # Check if request is from a mobile/desktop app (not a web browser)
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile_app = any(app in user_agent for app in ["emotion_tracker", "dart", "flutter"])
-    
+
     if is_mobile_app:
         # Return JSON error for mobile/desktop apps instead of HTML/redirect
         logger.warning(
-            "GET /auth/login accessed from mobile app - User-Agent: %s, Headers: %s", 
-            user_agent, 
+            "GET /auth/login accessed from mobile app - User-Agent: %s, Headers: %s",
+            user_agent,
             dict(request.headers)
         )
         return JSONResponse(
@@ -3219,7 +3219,7 @@ async def login_page(request: Request):
                 }
             }
         )
-    
+
     # Disabled: do not render HTML page for web browsers
     # try:
     #     from second_brain_database.routes.auth.routes_html import render_login_page
@@ -3291,7 +3291,7 @@ async def webauthn_manage_page(request: Request):
 async def handle_allow_once_ip_access(request: Request, token: str = Query(...)):
     """
     Handle "allow once" action from blocked IP notification email.
-    
+
     This endpoint validates the temporary access token and creates a temporary
     bypass that allows the IP to access the account for 15 minutes.
     """
@@ -3299,34 +3299,34 @@ async def handle_allow_once_ip_access(request: Request, token: str = Query(...))
         validate_and_use_temporary_ip_token,
         execute_allow_once_ip_access
     )
-    
+
     await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
-    
+
     try:
         # Validate and use the token
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
-            logger.warning("Invalid or expired allow once token from IP %s", 
+            logger.warning("Invalid or expired allow once token from IP %s",
                           security_manager.get_client_ip(request))
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid or expired token. Please request a new blocked access notification."
             )
-        
+
         # Verify this is an allow_once token
         if token_data.get("action") != "allow_once":
             logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
             raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-        
+
         # Execute the allow once action
         success = await execute_allow_once_ip_access(token_data)
         if not success:
             logger.error("Failed to execute allow once action for token: %s", token_data)
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="Failed to process allow once request. Please try again or contact support."
             )
-        
+
         # Return success page
         return HTMLResponse(f"""
         <!DOCTYPE html>
@@ -3363,7 +3363,7 @@ async def handle_allow_once_ip_access(request: Request, token: str = Query(...))
                 <div class="success-icon">✅</div>
                 <h1>Access Granted!</h1>
                 <p>Your IP address has been temporarily allowed to access your account.</p>
-                
+
                 <div class="details">
                     <div class="detail-item">
                         <span class="detail-label">IP Address:</span><br>
@@ -3378,10 +3378,10 @@ async def handle_allow_once_ip_access(request: Request, token: str = Query(...))
                         <span class="detail-value">{token_data.get('endpoint')}</span>
                     </div>
                 </div>
-                
+
                 <p><strong>You can now access your account from this IP address for the next 15 minutes.</strong></p>
                 <p>After this time expires, normal IP lockdown restrictions will resume.</p>
-                
+
                 <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
                     If you frequently access your account from this location, consider adding this IP to your trusted list.
                 </p>
@@ -3389,13 +3389,13 @@ async def handle_allow_once_ip_access(request: Request, token: str = Query(...))
         </body>
         </html>
         """)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error in allow once handler: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="An unexpected error occurred. Please try again or contact support."
         )
 
@@ -3404,7 +3404,7 @@ async def handle_allow_once_ip_access(request: Request, token: str = Query(...))
 async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...)):
     """
     Handle "add to trusted list" action from blocked IP notification email.
-    
+
     This endpoint validates the temporary access token and adds the IP address
     to the user's trusted IP list permanently.
     """
@@ -3412,34 +3412,34 @@ async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...
         validate_and_use_temporary_ip_token,
         execute_add_to_trusted_ip_list
     )
-    
+
     await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
-    
+
     try:
         # Validate and use the token
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
-            logger.warning("Invalid or expired add to trusted token from IP %s", 
+            logger.warning("Invalid or expired add to trusted token from IP %s",
                           security_manager.get_client_ip(request))
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid or expired token. Please request a new blocked access notification."
             )
-        
+
         # Verify this is an add_to_trusted token
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
             raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-        
+
         # Execute the add to trusted action
         success = await execute_add_to_trusted_ip_list(token_data)
         if not success:
             logger.error("Failed to execute add to trusted action for token: %s", token_data)
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="Failed to add IP to trusted list. Please try again or contact support."
             )
-        
+
         # Return success page
         return HTMLResponse(f"""
         <!DOCTYPE html>
@@ -3477,7 +3477,7 @@ async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...
                 <div class="success-icon">🔒</div>
                 <h1>IP Added to Trusted List!</h1>
                 <p>Your IP address has been permanently added to your trusted list.</p>
-                
+
                 <div class="details">
                     <div class="detail-item">
                         <span class="detail-label">IP Address:</span><br>
@@ -3488,15 +3488,15 @@ async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...
                         <span class="detail-value">{token_data.get('endpoint')}</span>
                     </div>
                 </div>
-                
+
                 <p><strong>You can now access your account from this IP address without restrictions.</strong></p>
-                
+
                 <div class="security-notice">
                     <h4>🛡️ Security Reminder</h4>
                     <p>This IP address will now have permanent access to your account. Make sure this is a location you trust and use regularly.</p>
                     <p>You can manage your trusted IP list through the API or by contacting support if you need to remove this IP later.</p>
                 </div>
-                
+
                 <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
                     Your IP lockdown settings remain active for all other IP addresses.
                 </p>
@@ -3504,13 +3504,13 @@ async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...
         </body>
         </html>
         """)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error in add to trusted handler: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="An unexpected error occurred. Please try again or contact support."
         )
 
@@ -3521,7 +3521,7 @@ async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...
 async def handle_allow_once_user_agent_access(request: Request, token: str = Query(...)):
     """
     Handle "allow once" action from blocked User Agent notification email.
-    
+
     This endpoint validates the temporary access token and creates a temporary bypass
     for the User Agent, allowing access for a limited time without adding to trusted list.
     """
@@ -3529,35 +3529,35 @@ async def handle_allow_once_user_agent_access(request: Request, token: str = Que
         validate_and_use_temporary_user_agent_token,
         execute_allow_once_user_agent_access
     )
-    
+
     try:
-        logger.info("Processing allow once User Agent access from IP %s", 
+        logger.info("Processing allow once User Agent access from IP %s",
                    security_manager.get_client_ip(request))
-        
+
         # Validate and use the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
-            logger.warning("Invalid or expired allow once User Agent token from IP %s", 
+            logger.warning("Invalid or expired allow once User Agent token from IP %s",
                           security_manager.get_client_ip(request))
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid or expired token. Please request a new one."
             )
-        
+
         # Verify this is an allow_once token
         if token_data.get("action") != "allow_once":
             logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
             raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-        
+
         # Execute the allow once action
         success = await execute_allow_once_user_agent_access(token_data)
         if not success:
             logger.error("Failed to execute allow once action for token: %s", token_data)
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="Failed to create temporary access. Please try again or contact support."
             )
-        
+
         # Return success page
         return HTMLResponse(content=f"""
         <!DOCTYPE html>
@@ -3596,12 +3596,12 @@ async def handle_allow_once_user_agent_access(request: Request, token: str = Que
                 <div class="success-icon">🔓</div>
                 <h1>Temporary Access Granted!</h1>
                 <p>Your User Agent has been granted temporary access for 15 minutes.</p>
-                
+
                 <div class="details">
                     <strong>User Agent:</strong><br>
                     <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
                 </div>
-                
+
                 <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
                     If you frequently access your account from this browser/application, consider adding this User Agent to your trusted list.
                 </p>
@@ -3609,13 +3609,13 @@ async def handle_allow_once_user_agent_access(request: Request, token: str = Que
         </body>
         </html>
         """)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error in allow once User Agent handler: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="An unexpected error occurred. Please try again or contact support."
         )
 
@@ -3624,7 +3624,7 @@ async def handle_allow_once_user_agent_access(request: Request, token: str = Que
 async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Query(...)):
     """
     Handle "add to trusted list" action from blocked User Agent notification email.
-    
+
     This endpoint validates the temporary access token and adds the User Agent address
     to the user's permanent trusted User Agent list.
     """
@@ -3632,35 +3632,35 @@ async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Q
         validate_and_use_temporary_user_agent_token,
         execute_add_to_trusted_user_agent_list
     )
-    
+
     try:
-        logger.info("Processing add User Agent to trusted list from IP %s", 
+        logger.info("Processing add User Agent to trusted list from IP %s",
                    security_manager.get_client_ip(request))
-        
+
         # Validate and use the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
-            logger.warning("Invalid or expired add to trusted User Agent token from IP %s", 
+            logger.warning("Invalid or expired add to trusted User Agent token from IP %s",
                           security_manager.get_client_ip(request))
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid or expired token. Please request a new one."
             )
-        
+
         # Verify this is an add_to_trusted token
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
             raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-        
+
         # Execute the add to trusted action
         success = await execute_add_to_trusted_user_agent_list(token_data)
         if not success:
             logger.error("Failed to execute add to trusted action for token: %s", token_data)
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="Failed to add User Agent to trusted list. Please try again or contact support."
             )
-        
+
         # Return success page
         return HTMLResponse(content=f"""
         <!DOCTYPE html>
@@ -3699,12 +3699,12 @@ async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Q
                 <div class="success-icon">🔒</div>
                 <h1>User Agent Added to Trusted List!</h1>
                 <p>Your User Agent has been permanently added to your trusted list.</p>
-                
+
                 <div class="details">
                     <strong>User Agent:</strong><br>
                     <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
                 </div>
-                
+
                 <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
                     You will no longer receive blocking notifications for this User Agent.
                 </p>
@@ -3712,12 +3712,12 @@ async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Q
         </body>
         </html>
         """)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error in add to trusted User Agent handler: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="An unexpected error occurred. Please try again or contact support."
         )

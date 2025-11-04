@@ -849,7 +849,5 @@ class TeamWalletManager:
         return await team_audit_manager.verify_audit_integrity(audit_id)
 
 
-
-
 # Global TeamWalletManager instance
 team_wallet_manager = TeamWalletManager()

@@ -10,7 +10,7 @@ from .family_models import *
 __all__ = [
     # Family models
     "CreateFamilyRequest",
-    "InviteMemberRequest", 
+    "InviteMemberRequest",
     "RespondToInvitationRequest",
     "UpdateRelationshipRequest",
     "UpdateSpendingPermissionsRequest",

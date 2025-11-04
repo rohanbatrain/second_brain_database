@@ -22,8 +22,8 @@ class MockCollection:
     async def find_one(self, query):
         if query.get('username') == 'testuser':
             return {
-                '_id': 'test_id', 
-                'username': 'testuser', 
+                '_id': 'test_id',
+                'username': 'testuser',
                 'token_version': 1,
                 'email': 'test@example.com',
                 'is_active': True
@@ -58,11 +58,11 @@ async def validate_permanent_token(token):
 async def get_current_user(token):
     """Test implementation of get_current_user that handles WebAuthn claims."""
     from fastapi import HTTPException, status
-    
+
     settings = MockSettings()
     db_manager = MockDbManager()
     logger = MockLogger()
-    
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -120,7 +120,7 @@ async def get_current_user(token):
             logger.debug("WebAuthn credential: %s", payload.get("webauthn_credential_id", "unknown"))
         else:
             logger.debug("Regular JWT validated for user: %s", username)
-        
+
         return user
 
     except jwt.ExpiredSignatureError as exc:
@@ -145,10 +145,10 @@ async def create_test_token(data):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub")})
-    
+
     # Add token_version
     to_encode["token_version"] = 1
-    
+
     # Add WebAuthn claims if present
     if data.get("webauthn"):
         to_encode.update({
@@ -159,7 +159,7 @@ async def create_test_token(data):
             "auth_method": "webauthn",
             "webauthn_auth_time": int(datetime.utcnow().timestamp())
         })
-    
+
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 async def test_get_current_user():
@@ -170,7 +170,7 @@ async def test_get_current_user():
         regular_user = await get_current_user(regular_token)
         print(f"✓ Regular token validated successfully")
         print(f"  User: {regular_user['username']}")
-        
+
         # Test WebAuthn token validation
         print("\nTesting WebAuthn token validation...")
         webauthn_token = await create_test_token({
@@ -183,12 +183,12 @@ async def test_get_current_user():
         webauthn_user = await get_current_user(webauthn_token)
         print(f"✓ WebAuthn token validated successfully")
         print(f"  User: {webauthn_user['username']}")
-        
+
         # Verify both return the same user
         assert regular_user['username'] == webauthn_user['username']
         assert regular_user['_id'] == webauthn_user['_id']
         print("✓ Both tokens return the same user data")
-        
+
         # Test invalid token
         print("\nTesting invalid token handling...")
         try:
@@ -197,7 +197,7 @@ async def test_get_current_user():
             return False
         except Exception as e:
             print(f"✓ Invalid token properly rejected: {type(e).__name__}")
-        
+
         # Test token with wrong version
         print("\nTesting token version mismatch...")
         wrong_version_token_data = {'sub': 'testuser'}
@@ -207,14 +207,14 @@ async def test_get_current_user():
             "exp": datetime.utcnow() + timedelta(minutes=30),
             "iat": datetime.utcnow()
         }, 'test_secret_key_for_jwt_testing_only', algorithm='HS256')
-        
+
         try:
             await get_current_user(wrong_version_token)
             print("✗ Should have failed with wrong token version")
             return False
         except Exception as e:
             print(f"✓ Wrong token version properly rejected: {type(e).__name__}")
-        
+
         print('\n✓ All tests passed - get_current_user works with WebAuthn tokens')
         return True
     except Exception as e:

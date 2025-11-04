@@ -33,17 +33,17 @@ logger = get_logger(prefix="[AVATARS]")
     summary="Get active rented avatars",
     description="""
     Retrieve all currently active rented avatars for the authenticated user.
-    
+
     **Rental System:**
     - Avatars can be rented for temporary use (typically hours or days)
     - Only returns avatars that are currently valid (not expired)
     - Rental periods are checked in real-time
-    
+
     **Use Cases:**
     - Display available temporary avatars in user interface
     - Check rental status before allowing avatar selection
     - Manage temporary avatar inventory
-    
+
     **Response:**
     Returns array of active rented avatars with rental details including expiration times.
     """,
@@ -165,22 +165,22 @@ async def get_rented_avatars(request: Request, current_user: dict = Depends(enfo
     summary="Get permanently owned avatars",
     description="""
     Retrieve all permanently owned avatars for the authenticated user.
-    
+
     **Ownership System:**
     - Avatars can be permanently owned through purchase or rewards
     - Owned avatars never expire and can be used indefinitely
     - Includes avatars obtained through bundles, individual purchases, or special rewards
-    
+
     **Avatar Types:**
     - Static avatars: Traditional profile pictures
     - Animated avatars: Premium animated profile pictures
     - Special edition avatars: Limited-time or achievement-based avatars
-    
+
     **Use Cases:**
     - Display user's permanent avatar collection
     - Allow avatar selection in user interface
     - Show ownership status for avatar management
-    
+
     **Response:**
     Returns array of permanently owned avatars with purchase/unlock details.
     """,
@@ -316,24 +316,24 @@ async def get_owned_avatars(request: Request, current_user: dict = Depends(enfor
     summary="Set current active avatar",
     description="""
     Set the current active avatar for the authenticated user and specific application.
-    
+
     **Multi-Application Support:**
     - Each application can have its own active avatar setting
     - Application is determined by User-Agent header
     - Allows users to have different avatars across different apps
-    
+
     **Ownership Verification:**
     - Verifies user owns or has valid rental for the avatar
     - Checks rental expiration for temporary avatars
     - Prevents setting avatars the user doesn't have access to
-    
+
     **Request Format:**
     ```json
     {
         "avatar_id": "emotion_tracker-static-avatar-cat-5"
     }
     ```
-    
+
     **Use Cases:**
     - User selects avatar in application settings
     - Application startup avatar loading
@@ -513,17 +513,17 @@ async def set_current_avatar(request: Request, data: dict, current_user: dict = 
     summary="Get current active avatar",
     description="""
     Retrieve the currently active avatar for the authenticated user and specific application.
-    
+
     **Multi-Application Support:**
     - Returns the avatar currently set for the requesting application
     - Application is determined by User-Agent header
     - Each app can have its own active avatar setting
-    
+
     **Use Cases:**
     - Application startup avatar loading
     - Profile display in user interface
     - Avatar synchronization across app sessions
-    
+
     **Response:**
     Returns the avatar ID currently set for the application, or null if no avatar is set.
     """,

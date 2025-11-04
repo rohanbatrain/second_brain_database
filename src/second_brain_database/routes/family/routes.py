@@ -100,29 +100,29 @@ async def create_family(
 ) -> FamilyResponse:
     """
     Create a new family with the current user as administrator.
-    
+
     The user automatically becomes the family administrator and can invite other members.
     A virtual SBD token account is created for the family with the format "family_[name]".
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must not have reached their maximum family limit
     - Family name must be unique (if provided)
-    
+
     **Returns:**
     - Family information including ID, name, and SBD account details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"family_create_{user_id}", 
-        rate_limit_requests=5, 
+        request,
+        f"family_create_{user_id}",
+        rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     # Create error context for comprehensive error handling
     error_context = ErrorContext(
         operation="create_family_api",
@@ -134,7 +134,7 @@ async def create_family(
             "endpoint": "/family/create"
         }
     )
-    
+
     try:
         # Pass request context for rate limiting and security
         request_context = {
@@ -142,16 +142,16 @@ async def create_family(
             "request_id": error_context.request_id,
             "ip_address": error_context.ip_address
         }
-        
+
         family_data = await family_manager.create_family(
-            user_id, 
+            user_id,
             family_request.name,
             request_context
         )
-        
-        logger.info("Family created successfully: %s by user %s", 
+
+        logger.info("Family created successfully: %s by user %s",
                    family_data["family_id"], user_id)
-        
+
         return FamilyResponse(
             family_id=family_data["family_id"],
             name=family_data["name"],
@@ -166,13 +166,13 @@ async def create_family(
                 "can_add_members": True
             }
         )
-        
+
     except FamilyLimitExceeded as e:
         # Record error for monitoring
         await record_error_event(e, error_context, ErrorSeverity.HIGH)
-        
+
         logger.warning("Family creation failed - limit exceeded for user %s: %s", user_id, e)
-        
+
         # Check if error has user-friendly response from error handling system
         if hasattr(e, 'user_friendly_response'):
             raise HTTPException(
@@ -188,26 +188,26 @@ async def create_family(
                     "upgrade_required": True
                 }
             )
-            
+
     except ValidationError as e:
         # Record error for monitoring
         await record_error_event(e, error_context, ErrorSeverity.MEDIUM)
-        
+
         logger.warning("Family creation failed - validation error for user %s: %s", user_id, e)
-        
+
         # Create user-friendly error response
         user_friendly_error = create_user_friendly_error(e, error_context)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=user_friendly_error['error']
         )
-        
+
     except RateLimitExceeded as e:
         # Record error for monitoring
         await record_error_event(e, error_context, ErrorSeverity.HIGH)
-        
+
         logger.warning("Family creation failed - rate limit exceeded for user %s: %s", user_id, e)
-        
+
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
@@ -216,13 +216,13 @@ async def create_family(
                 "retry_after": 3600  # 1 hour
             }
         )
-        
+
     except FamilyError as e:
         # Record error for monitoring
         await record_error_event(e, error_context, ErrorSeverity.HIGH)
-        
+
         logger.error("Family creation failed for user %s: %s", user_id, e)
-        
+
         # Check if error has user-friendly response from error handling system
         if hasattr(e, 'user_friendly_response'):
             raise HTTPException(
@@ -237,13 +237,13 @@ async def create_family(
                     "message": str(e)
                 }
             )
-            
+
     except Exception as e:
         # Record unexpected error for monitoring
         await record_error_event(e, error_context, ErrorSeverity.CRITICAL)
-        
+
         logger.error("Unexpected error in family creation for user %s: %s", user_id, e, exc_info=True)
-        
+
         # Create user-friendly error response for unexpected errors
         user_friendly_error = create_user_friendly_error(e, error_context)
         raise HTTPException(
@@ -259,18 +259,18 @@ async def get_my_families(
 ) -> List[FamilyResponse]:
     """
     Get all families that the current user belongs to.
-    
+
     Returns comprehensive family information including the user's role,
     SBD account details, and member statistics.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Returns:**
     - List of families with detailed information
     - Empty list if user belongs to no families
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -278,12 +278,12 @@ async def get_my_families(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         families = await family_manager.get_user_families(user_id)
-        
+
         logger.debug("Retrieved %d families for user %s", len(families), user_id)
-        
+
         family_responses = []
         for family in families:
             family_responses.append(FamilyResponse(
@@ -300,9 +300,9 @@ async def get_my_families(
                     "can_add_members": family["is_admin"]
                 }
             ))
-        
+
         return family_responses
-        
+
     except FamilyError as e:
         logger.error("Failed to get families for user %s: %s", user_id, e)
         raise HTTPException(
@@ -405,37 +405,36 @@ async def deny_purchase_request(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-
 @router.get(
     "/my-invitations",
     response_model=List[ReceivedInvitationResponse],
     summary="Get received family invitations",
     description="""
     Retrieve all family invitations received by the current authenticated user.
-    
+
     This endpoint returns invitations where the current user is the invitee,
     matching either by user ID or email address. Useful for implementing an
     in-app "Received Invitations" screen where users can see pending family
     invitations and accept/decline them directly.
-    
+
     **Key Features:**
     - Returns invitations sent TO the authenticated user
     - Includes complete family and inviter information
     - Supports filtering by invitation status
     - Sorted by creation date (newest first)
-    
+
     **Use Cases:**
     - Display pending family invitations in mobile app
     - Show invitation history (accepted/declined/expired)
     - Implement in-app invitation management
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Next Steps:**
     After retrieving invitations, users can:
     - Accept: POST /family/invitations/{invitation_id}/respond with action="accept"
     - Decline: POST /family/invitations/{invitation_id}/respond with action="decline"
-    
+
     **Response Details:**
     - `invitation_id`: Use this to accept/decline the invitation
     - `family_id`: ID of the family you're invited to join
@@ -523,19 +522,19 @@ async def get_my_invitations(
             user_email=user_email,
             status_filter=status
         )
-        
+
         # Filter invitations based on required conditions:
         # 1. Has recipient info (invitee_email OR invitee_username)
         # 2. Has inviter OR family info (inviter_username not "Unknown" OR family_name not "Unknown Family")
         # 3. Not in bad expired state: if expired and status is not pending, skip it
-        
+
         filtered_invitations = []
         for invitation in invitations:
             # Check recipient info
             invitee_email = invitation.get("invitee_email") or ""
             invitee_username = invitation.get("invitee_username") or ""
             has_recipient_info = (invitee_email.strip() != "") or (invitee_username.strip() != "")
-            
+
             # Check inviter OR family info
             inviter_username = invitation.get("inviter_username", "Unknown")
             family_name = invitation.get("family_name", "Unknown Family")
@@ -543,7 +542,7 @@ async def get_my_invitations(
                 (inviter_username and inviter_username != "Unknown") or
                 (family_name and family_name != "Unknown Family")
             )
-            
+
             # Check expired state
             invitation_status = invitation.get("status", "")
             expires_at = invitation.get("expires_at")
@@ -554,28 +553,28 @@ async def get_my_invitations(
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
                 is_expired = datetime.now(timezone.utc) > expires_at
-            
+
             # If expired and status is not pending, skip this invitation
             if is_expired and invitation_status != "pending":
-                logger.debug("Skipping invitation %s: expired with non-pending status %s", 
+                logger.debug("Skipping invitation %s: expired with non-pending status %s",
                            invitation.get("invitation_id"), invitation_status)
                 continue
-            
+
             # Apply all required conditions
             if not (has_recipient_info and has_inviter_or_family_info):
-                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)", 
+                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
                            invitation.get("invitation_id"), has_recipient_info, has_inviter_or_family_info)
                 continue
-            
+
             filtered_invitations.append(invitation)
-        
+
         logger.info(
             "User %s retrieved %d received invitations (%d passed validation, status_filter=%s)",
             user_id, len(filtered_invitations), len(invitations), status or "all"
         )
-        
+
         return [ReceivedInvitationResponse(**inv) for inv in filtered_invitations]
-        
+
     except FamilyError as e:
         logger.error(
             "Failed to fetch received invitations for user %s: %s",
@@ -611,23 +610,23 @@ async def invite_family_member(
 ) -> InvitationResponse:
     """
     Invite a user to join a family by email address or username.
-    
+
     Sends an email invitation to the specified user with accept/decline links.
     Only family administrators can send invitations.
-    
+
     **Rate Limiting:** 10 invitations per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Family must not have reached member limit
     - Invitee must exist in the system (by email or username)
     - Invitee must not already be a family member
-    
+
     **Returns:**
     - Invitation details including expiration time
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -635,17 +634,17 @@ async def invite_family_member(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         invitation_data = await family_manager.invite_member(
             family_id, user_id, invite_request.identifier, invite_request.relationship_type,
             invite_request.identifier_type, {"request": request}
         )
-        
-        logger.info("Family invitation sent: %s to %s (%s) for family %s", 
-                   invitation_data["invitation_id"], invite_request.identifier, 
+
+        logger.info("Family invitation sent: %s to %s (%s) for family %s",
+                   invitation_data["invitation_id"], invite_request.identifier,
                    invite_request.identifier_type, family_id)
-        
+
         # Use authoritative created_at and token returned by the manager when available
         return InvitationResponse(
             invitation_id=invitation_data["invitation_id"],
@@ -658,7 +657,7 @@ async def invite_family_member(
             expires_at=invitation_data["expires_at"],
             created_at=invitation_data.get("created_at") or invitation_data["expires_at"],
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for invitation: %s", family_id)
         raise HTTPException(
@@ -716,21 +715,21 @@ async def respond_to_invitation(
 ) -> JSONResponse:
     """
     Respond to a family invitation (accept or decline).
-    
+
     Only the invited user can respond to their own invitations.
     Accepting creates a bidirectional family relationship.
-    
+
     **Rate Limiting:** 20 responses per hour per user
-    
+
     **Requirements:**
     - User must be the invitation recipient
     - Invitation must be pending and not expired
-    
+
     **Returns:**
     - Response status and family information (if accepted)
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -738,15 +737,15 @@ async def respond_to_invitation(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         response_data = await family_manager.respond_to_invitation(
             invitation_id, user_id, response_request.action
         )
-        
-        logger.info("Family invitation %s: %s by user %s", 
+
+        logger.info("Family invitation %s: %s by user %s",
                    response_request.action, invitation_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -756,7 +755,7 @@ async def respond_to_invitation(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except InvitationNotFound as e:
         logger.warning("Invitation not found or expired: %s", e)
         raise HTTPException(
@@ -793,12 +792,12 @@ async def accept_invitation_by_token(
 ) -> JSONResponse:
     """
     Accept a family invitation using the email token link.
-    
+
     This endpoint is accessed via email links and doesn't require authentication.
     The token provides the necessary security and user identification.
-    
+
     **Rate Limiting:** 10 requests per hour per IP
-    
+
     **Returns:**
     - Success message and family information
     - Redirect information for the user to log in
@@ -810,14 +809,14 @@ async def accept_invitation_by_token(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         response_data = await family_manager.respond_to_invitation_by_token(
             invitation_token, "accept"
         )
-        
+
         logger.info("Family invitation accepted via token: %s", invitation_token[:8] + "...")
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -829,7 +828,7 @@ async def accept_invitation_by_token(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except InvitationNotFound as e:
         logger.warning("Invitation token not found or expired: %s", e)
         raise HTTPException(
@@ -859,12 +858,12 @@ async def decline_invitation_by_token(
 ) -> JSONResponse:
     """
     Decline a family invitation using the email token link.
-    
+
     This endpoint is accessed via email links and doesn't require authentication.
     The token provides the necessary security and user identification.
-    
+
     **Rate Limiting:** 10 requests per hour per IP
-    
+
     **Returns:**
     - Success message confirming the decline
     """
@@ -875,14 +874,14 @@ async def decline_invitation_by_token(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         response_data = await family_manager.respond_to_invitation_by_token(
             invitation_token, "decline"
         )
-        
+
         logger.info("Family invitation declined via token: %s", invitation_token[:8] + "...")
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -892,7 +891,7 @@ async def decline_invitation_by_token(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except InvitationNotFound as e:
         logger.warning("Invitation token not found or expired: %s", e)
         raise HTTPException(
@@ -924,22 +923,22 @@ async def get_family_invitations(
 ) -> List[InvitationResponse]:
     """
     Get all invitations for a family.
-    
+
     Only family administrators can view invitation details.
     Non-admin family members will receive an empty list.
     Optionally filter by status (pending, accepted, declined, expired).
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a member of the family
-    
+
     **Returns:**
     - List of family invitations with details (admins only)
     - Empty list for non-admin members
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -947,12 +946,12 @@ async def get_family_invitations(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         invitations = await family_manager.get_family_invitations(family_id, user_id, status_filter)
-        
+
         logger.debug("Retrieved %d invitations for family %s", len(invitations), family_id)
-        
+
         invitation_responses = []
         for invitation in invitations:
             # Filter invitations based on required conditions:
@@ -960,7 +959,7 @@ async def get_family_invitations(
             invitee_email = invitation.get("invitee_email") or ""
             invitee_username = invitation.get("invitee_username") or ""
             has_recipient_info = (invitee_email.strip() != "") or (invitee_username.strip() != "")
-            
+
             # 2. Has inviter OR family info (inviter_username not "Unknown" OR family_name not "Unknown Family")
             inviter_username = invitation.get("inviter_username", "Unknown")
             family_name = invitation.get("family_name", "Unknown Family")
@@ -968,7 +967,7 @@ async def get_family_invitations(
                 (inviter_username and inviter_username != "Unknown") or
                 (family_name and family_name != "Unknown Family")
             )
-            
+
             # 3. Not in bad expired state: if expired and status is not pending, skip it
             invitation_status = invitation.get("status", "")
             expires_at = invitation.get("expires_at")
@@ -979,19 +978,19 @@ async def get_family_invitations(
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
                 is_expired = datetime.now(timezone.utc) > expires_at
-            
+
             # If expired and status is not pending, skip this invitation
             if is_expired and invitation_status != "pending":
-                logger.debug("Skipping invitation %s: expired with non-pending status %s", 
+                logger.debug("Skipping invitation %s: expired with non-pending status %s",
                            invitation["invitation_id"], invitation_status)
                 continue
-            
+
             # Apply all required conditions
             if not (has_recipient_info and has_inviter_or_family_info):
-                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)", 
+                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
                            invitation["invitation_id"], has_recipient_info, has_inviter_or_family_info)
                 continue
-            
+
             invitation_responses.append(InvitationResponse(
                 invitation_id=invitation["invitation_id"],
                 family_name=family_name,
@@ -1003,12 +1002,12 @@ async def get_family_invitations(
                 expires_at=invitation["expires_at"],
                 created_at=invitation["created_at"]
             ))
-        
-        logger.info("Filtered invitations: %d out of %d passed validation for family %s", 
+
+        logger.info("Filtered invitations: %d out of %d passed validation for family %s",
                    len(invitation_responses), len(invitations), family_id)
-        
+
         return invitation_responses
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for invitations: %s", family_id)
         raise HTTPException(
@@ -1042,21 +1041,21 @@ async def resend_invitation(
 ) -> JSONResponse:
     """
     Resend a family invitation email.
-    
+
     Only family administrators can resend invitations.
     Can only resend pending, non-expired invitations.
-    
+
     **Rate Limiting:** 5 resends per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Invitation must be pending and not expired
-    
+
     **Returns:**
     - Resend confirmation and status
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1064,12 +1063,12 @@ async def resend_invitation(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         resend_data = await family_manager.resend_invitation(invitation_id, user_id)
-        
+
         logger.info("Invitation resent: %s by admin %s", invitation_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -1079,7 +1078,7 @@ async def resend_invitation(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except InvitationNotFound as e:
         logger.warning("Invitation not found for resend: %s", e)
         raise HTTPException(
@@ -1118,21 +1117,21 @@ async def cancel_invitation(
 ) -> JSONResponse:
     """
     Cancel a pending family invitation.
-    
+
     Only family administrators can cancel invitations.
     Can only cancel pending invitations.
-    
+
     **Rate Limiting:** 10 cancellations per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Invitation must be pending
-    
+
     **Returns:**
     - Cancellation confirmation
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1140,12 +1139,12 @@ async def cancel_invitation(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         cancel_data = await family_manager.cancel_invitation(invitation_id, user_id)
-        
+
         logger.info("Invitation cancelled: %s by admin %s", invitation_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -1154,7 +1153,7 @@ async def cancel_invitation(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except InvitationNotFound as e:
         logger.warning("Invitation not found for cancellation: %s", e)
         raise HTTPException(
@@ -1191,20 +1190,20 @@ async def cleanup_expired_invitations(
 ) -> JSONResponse:
     """
     Clean up expired family invitations (admin only).
-    
+
     This endpoint manually triggers the cleanup of expired invitations.
     Normally this would be handled by a scheduled task.
-    
+
     **Rate Limiting:** 2 requests per hour per user
-    
+
     **Requirements:**
     - User must be authenticated (no specific admin check for now)
-    
+
     **Returns:**
     - Cleanup statistics and results
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1212,12 +1211,12 @@ async def cleanup_expired_invitations(
         rate_limit_requests=2,
         rate_limit_period=3600
     )
-    
+
     try:
         cleanup_data = await family_manager.cleanup_expired_invitations()
-        
+
         logger.info("Manual invitation cleanup triggered by user %s", user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -1229,7 +1228,7 @@ async def cleanup_expired_invitations(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyError as e:
         logger.error("Failed to cleanup expired invitations: %s", e)
         raise HTTPException(
@@ -1251,23 +1250,23 @@ async def manage_admin_role(
 ) -> AdminActionResponse:
     """
     Promote a member to admin or demote an admin to member.
-    
+
     Only family administrators can perform admin role changes.
     Prevents demoting the last administrator to ensure family continuity.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Target user must be a family member
     - Cannot demote the last administrator
     - Cannot promote someone who is already an admin
-    
+
     **Returns:**
     - Admin action confirmation and details
     """
     admin_user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1275,19 +1274,19 @@ async def manage_admin_role(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         if admin_request.action == "promote":
             result = await family_manager.promote_to_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
+
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
-            
-            logger.info("User promoted to admin: %s by %s in family %s", 
+
+            logger.info("User promoted to admin: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return AdminActionResponse(
                 family_id=result["family_id"],
                 target_user_id=result["target_user_id"],
@@ -1300,18 +1299,18 @@ async def manage_admin_role(
                 message=result["message"],
                 transaction_safe=result["transaction_safe"]
             )
-            
+
         elif admin_request.action == "demote":
             result = await family_manager.demote_from_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
+
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
-            
-            logger.info("Admin demoted to member: %s by %s in family %s", 
+
+            logger.info("Admin demoted to member: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return AdminActionResponse(
                 family_id=result["family_id"],
                 target_user_id=result["target_user_id"],
@@ -1324,7 +1323,7 @@ async def manage_admin_role(
                 message=result["message"],
                 transaction_safe=result["transaction_safe"]
             )
-            
+
     except FamilyNotFound:
         logger.warning("Family not found for admin action: %s", family_id)
         raise HTTPException(
@@ -1383,22 +1382,22 @@ async def manage_backup_admin(
 ) -> BackupAdminResponse:
     """
     Designate or remove a backup administrator.
-    
+
     Backup administrators can be promoted to full admin status in case
     of emergency or if all current admins become unavailable.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Target user must be a family member
     - Target user cannot already be an admin
-    
+
     **Returns:**
     - Backup admin action confirmation and details
     """
     admin_user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1406,19 +1405,19 @@ async def manage_backup_admin(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         if backup_request.action == "designate":
             result = await family_manager.designate_backup_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
+
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
-            
-            logger.info("Backup admin designated: %s by %s in family %s", 
+
+            logger.info("Backup admin designated: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return BackupAdminResponse(
                 family_id=result["family_id"],
                 backup_user_id=result["backup_user_id"],
@@ -1431,18 +1430,18 @@ async def manage_backup_admin(
                 message=result["message"],
                 transaction_safe=result["transaction_safe"]
             )
-            
+
         elif backup_request.action == "remove":
             result = await family_manager.remove_backup_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
+
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
-            
-            logger.info("Backup admin removed: %s by %s in family %s", 
+
+            logger.info("Backup admin removed: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return BackupAdminResponse(
                 family_id=result["family_id"],
                 backup_user_id=result["backup_user_id"],
@@ -1455,7 +1454,7 @@ async def manage_backup_admin(
                 message=result["message"],
                 transaction_safe=result["transaction_safe"]
             )
-            
+
     except FamilyNotFound:
         logger.warning("Family not found for backup admin action: %s", family_id)
         raise HTTPException(
@@ -1504,20 +1503,20 @@ async def get_admin_actions_log(
 ) -> AdminActionsLogResponse:
     """
     Get the admin actions log for a family.
-    
+
     Returns a paginated list of all administrative actions performed
     in the family, including promotions, demotions, and backup admin changes.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
-    
+
     **Returns:**
     - Paginated list of admin actions with details
     """
     admin_user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1525,7 +1524,7 @@ async def get_admin_actions_log(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     # Validate pagination parameters
     if limit < 1 or limit > 100:
         raise HTTPException(
@@ -1535,7 +1534,7 @@ async def get_admin_actions_log(
                 "message": "Limit must be between 1 and 100"
             }
         )
-    
+
     if offset < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1544,14 +1543,14 @@ async def get_admin_actions_log(
                 "message": "Offset must be non-negative"
             }
         )
-    
+
     try:
         result = await family_manager.get_admin_actions_log(
             family_id, admin_user_id, limit, offset
         )
-        
+
         logger.debug("Retrieved admin actions log for family %s", family_id)
-        
+
         # Convert to response model
         log_entries = []
         for action in result["actions"]:
@@ -1568,13 +1567,13 @@ async def get_admin_actions_log(
                 ip_address=action.get("ip_address"),
                 user_agent=action.get("user_agent")
             ))
-        
+
         return AdminActionsLogResponse(
             family_id=result["family_id"],
             actions=log_entries,
             pagination=result["pagination"]
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for admin actions log: %s", family_id)
         raise HTTPException(
@@ -1612,15 +1611,15 @@ async def get_family_limits(
 ) -> FamilyLimitsResponse:
     """
     Get the current user's family limits and usage information.
-    
+
     Returns comprehensive information about family creation limits, member limits,
     current usage statistics, and billing integration data.
-    
+
     **Rate Limiting:** 30 requests per hour per user
-    
+
     **Parameters:**
     - include_billing_metrics: Include detailed billing metrics in response
-    
+
     **Returns:**
     - Current limits and usage statistics
     - Detailed limit status and enforcement information
@@ -1628,7 +1627,7 @@ async def get_family_limits(
     - Optional billing metrics for usage tracking
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1636,19 +1635,19 @@ async def get_family_limits(
         rate_limit_requests=30,
         rate_limit_period=3600
     )
-    
+
     try:
         # Get comprehensive limits data with billing metrics if requested
         limits_data = await family_manager.check_family_limits(
-            user_id, 
+            user_id,
             include_billing_metrics=include_billing_metrics
         )
-        
+
         logger.debug(
-            "Retrieved family limits for user %s (billing_metrics=%s)", 
+            "Retrieved family limits for user %s (billing_metrics=%s)",
             user_id, include_billing_metrics
         )
-        
+
         return FamilyLimitsResponse(
             max_families_allowed=limits_data["max_families_allowed"],
             max_members_per_family=limits_data["max_members_per_family"],
@@ -1660,7 +1659,7 @@ async def get_family_limits(
             billing_metrics=limits_data.get("billing_metrics"),
             upgrade_messaging=limits_data["upgrade_messaging"]
         )
-        
+
     except FamilyError as e:
         logger.error("Failed to get family limits for user %s: %s", user_id, e)
         raise HTTPException(
@@ -1683,18 +1682,18 @@ async def get_usage_tracking_data(
 ) -> UsageTrackingResponse:
     """
     Get family usage tracking data for billing integration.
-    
+
     Returns detailed usage metrics over a specified time period for billing
     and analytics purposes. This endpoint provides comprehensive data about
     family creation, member additions, and usage patterns.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Parameters:**
     - start_date: Start date in ISO format (defaults to 30 days ago)
     - end_date: End date in ISO format (defaults to now)
     - granularity: Data granularity - "daily", "weekly", or "monthly"
-    
+
     **Returns:**
     - Usage tracking data and metrics
     - Peak usage statistics
@@ -1702,7 +1701,7 @@ async def get_usage_tracking_data(
     - Historical usage patterns
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting for usage tracking (more restrictive)
     await security_manager.check_rate_limit(
         request,
@@ -1710,10 +1709,10 @@ async def get_usage_tracking_data(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         from datetime import datetime, timezone, timedelta
-        
+
         # Parse date parameters
         if start_date:
             try:
@@ -1728,7 +1727,7 @@ async def get_usage_tracking_data(
                 )
         else:
             start_dt = datetime.now(timezone.utc) - timedelta(days=30)
-            
+
         if end_date:
             try:
                 end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
@@ -1742,7 +1741,7 @@ async def get_usage_tracking_data(
                 )
         else:
             end_dt = datetime.now(timezone.utc)
-        
+
         # Validate granularity
         if granularity not in ["daily", "weekly", "monthly"]:
             raise HTTPException(
@@ -1752,19 +1751,19 @@ async def get_usage_tracking_data(
                     "message": "granularity must be 'daily', 'weekly', or 'monthly'"
                 }
             )
-        
+
         # Get usage tracking data
         usage_data = await family_manager.get_usage_tracking_data(
             user_id, start_dt, end_dt, granularity
         )
-        
+
         logger.debug(
-            "Retrieved usage tracking data for user %s (period: %s to %s, granularity: %s)", 
+            "Retrieved usage tracking data for user %s (period: %s to %s, granularity: %s)",
             user_id, start_dt.isoformat(), end_dt.isoformat(), granularity
         )
-        
+
         return UsageTrackingResponse(**usage_data)
-        
+
     except FamilyError as e:
         logger.error("Failed to get usage tracking data for user %s: %s", user_id, e)
         raise HTTPException(
@@ -1785,24 +1784,24 @@ async def update_family_limits(
 ) -> UpdateFamilyLimitsResponse:
     """
     Update family limits for the current user.
-    
+
     This endpoint allows updating family limits, typically used by billing
     systems or administrators to adjust user limits based on subscription changes.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Parameters:**
     - max_families_allowed: New maximum families allowed
     - max_members_per_family: New maximum members per family
     - validate_existing: Whether to validate existing families against new limits
-    
+
     **Returns:**
     - Updated limits information
     - Validation results for existing families
     - Enforcement status
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting for limit updates (more restrictive)
     await security_manager.check_rate_limit(
         request,
@@ -1810,7 +1809,7 @@ async def update_family_limits(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         # Prepare new limits dict
         new_limits = {}
@@ -1818,7 +1817,7 @@ async def update_family_limits(
             new_limits["max_families_allowed"] = limits_update.max_families_allowed
         if limits_update.max_members_per_family is not None:
             new_limits["max_members_per_family"] = limits_update.max_members_per_family
-        
+
         # Update family limits
         update_result = await family_manager.update_family_limits(
             user_id,
@@ -1826,14 +1825,14 @@ async def update_family_limits(
             updated_by=user_id,
             reason="User-initiated limits update"
         )
-        
+
         logger.info(
-            "Updated family limits for user %s: families=%d, members=%d", 
+            "Updated family limits for user %s: families=%d, members=%d",
             user_id, limits_update.max_families_allowed, limits_update.max_members_per_family
         )
-        
+
         return UpdateFamilyLimitsResponse(**update_result)
-        
+
     except FamilyError as e:
         logger.error("Failed to update family limits for user %s: %s", user_id, e)
         raise HTTPException(
@@ -1853,12 +1852,12 @@ async def get_limit_enforcement_status(
 ) -> LimitEnforcementResponse:
     """
     Get detailed limit enforcement status and validation results.
-    
+
     Returns comprehensive information about current limit enforcement,
     including validation results for existing families and grace periods.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Returns:**
     - Current enforcement status
     - Validation results for existing families
@@ -1866,7 +1865,7 @@ async def get_limit_enforcement_status(
     - Compliance recommendations
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1874,15 +1873,15 @@ async def get_limit_enforcement_status(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         # Get limit enforcement status
         enforcement_status = await family_manager.get_limit_enforcement_status(user_id)
-        
+
         logger.debug("Retrieved limit enforcement status for user %s", user_id)
-        
+
         return LimitEnforcementResponse(**enforcement_status)
-        
+
     except FamilyError as e:
         logger.error("Failed to get limit enforcement status for user %s: %s", user_id, e)
         raise HTTPException(
@@ -1904,21 +1903,21 @@ async def freeze_family_account(
 ) -> JSONResponse:
     """
     Freeze or unfreeze the family SBD account.
-    
+
     Only family administrators can freeze/unfreeze the account.
     Freezing prevents all spending from the family account while allowing deposits.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Account must not already be in the requested state
-    
+
     **Returns:**
     - Freeze/unfreeze confirmation and status
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -1926,7 +1925,7 @@ async def freeze_family_account(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         if freeze_request.action == "freeze":
             if not freeze_request.reason:
@@ -1937,14 +1936,14 @@ async def freeze_family_account(
                         "message": "Reason is required when freezing an account"
                     }
                 )
-            
+
             result = await family_manager.freeze_family_account(
                 family_id, admin_id, freeze_request.reason
             )
-            
-            logger.info("Family account frozen: %s by admin %s, reason: %s", 
+
+            logger.info("Family account frozen: %s by admin %s, reason: %s",
                        family_id, admin_id, freeze_request.reason)
-            
+
             return JSONResponse(
                 content={
                     "status": "success",
@@ -1958,12 +1957,12 @@ async def freeze_family_account(
                 },
                 status_code=status.HTTP_200_OK
             )
-            
+
         elif freeze_request.action == "unfreeze":
             result = await family_manager.unfreeze_family_account(family_id, admin_id)
-            
+
             logger.info("Family account unfrozen: %s by admin %s", family_id, admin_id)
-            
+
             return JSONResponse(
                 content={
                     "status": "success",
@@ -1976,7 +1975,7 @@ async def freeze_family_account(
                 },
                 status_code=status.HTTP_200_OK
             )
-            
+
     except FamilyNotFound:
         logger.warning("Family not found for freeze action: %s", family_id)
         raise HTTPException(
@@ -2015,22 +2014,22 @@ async def initiate_emergency_unfreeze(
 ) -> JSONResponse:
     """
     Initiate an emergency unfreeze request for the family account.
-    
+
     Emergency unfreeze allows family members to collaborate to unfreeze an account
     when administrators are unavailable. Requires approval from multiple family members.
-    
+
     **Rate Limiting:** 2 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - Account must be frozen
     - No other emergency request pending
-    
+
     **Returns:**
     - Emergency request details and approval requirements
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2038,17 +2037,17 @@ async def initiate_emergency_unfreeze(
         rate_limit_requests=2,
         rate_limit_period=3600
     )
-    
+
     try:
         reason = emergency_request.get("reason", "Emergency situation")
-        
+
         result = await family_manager.initiate_emergency_unfreeze(
             family_id, user_id, reason
         )
-        
-        logger.info("Emergency unfreeze initiated: %s by user %s for family %s", 
+
+        logger.info("Emergency unfreeze initiated: %s by user %s for family %s",
                    result["request_id"], user_id, family_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -2061,7 +2060,7 @@ async def initiate_emergency_unfreeze(
             },
             status_code=status.HTTP_201_CREATED
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for emergency unfreeze: %s", family_id)
         raise HTTPException(
@@ -2099,22 +2098,22 @@ async def approve_emergency_unfreeze(
 ) -> JSONResponse:
     """
     Approve an emergency unfreeze request.
-    
+
     Family members can approve emergency unfreeze requests. When enough approvals
     are collected, the account is automatically unfrozen.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - Request must be pending and not expired
     - User must not have already approved or rejected
-    
+
     **Returns:**
     - Approval status and execution result if threshold met
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2122,12 +2121,12 @@ async def approve_emergency_unfreeze(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         result = await family_manager.approve_emergency_unfreeze(request_id, user_id)
-        
+
         logger.info("Emergency unfreeze approved: %s by user %s", request_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -2141,7 +2140,7 @@ async def approve_emergency_unfreeze(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyError as e:
         logger.error("Emergency unfreeze approval failed: %s", e)
         raise HTTPException(
@@ -2171,21 +2170,21 @@ async def reject_emergency_unfreeze(
 ) -> JSONResponse:
     """
     Reject an emergency unfreeze request.
-    
+
     Family members can reject emergency unfreeze requests with an optional reason.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - Request must be pending and not expired
     - User must not have already approved or rejected
-    
+
     **Returns:**
     - Rejection confirmation
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2193,14 +2192,14 @@ async def reject_emergency_unfreeze(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         reason = rejection_data.get("reason", "No reason provided")
-        
+
         result = await family_manager.reject_emergency_unfreeze(request_id, user_id, reason)
-        
+
         logger.info("Emergency unfreeze rejected: %s by user %s", request_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -2211,7 +2210,7 @@ async def reject_emergency_unfreeze(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyError as e:
         logger.error("Emergency unfreeze rejection failed: %s", e)
         raise HTTPException(
@@ -2241,19 +2240,19 @@ async def get_emergency_unfreeze_requests(
 ) -> JSONResponse:
     """
     Get emergency unfreeze requests for a family.
-    
+
     Returns all emergency unfreeze requests with optional status filtering.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
-    
+
     **Returns:**
     - List of emergency requests with details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2261,14 +2260,14 @@ async def get_emergency_unfreeze_requests(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         requests = await family_manager.get_emergency_unfreeze_requests(
             family_id, user_id, status
         )
-        
+
         logger.debug("Retrieved %d emergency requests for family %s", len(requests), family_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -2277,7 +2276,7 @@ async def get_emergency_unfreeze_requests(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for emergency requests: %s", family_id)
         raise HTTPException(
@@ -2320,32 +2319,32 @@ async def get_family_notifications(
 ) -> NotificationListResponse:
     """
     Get family notifications for the current user with pagination and filtering.
-    
+
     Retrieves notifications sent to the current user for the specified family.
     Supports pagination and filtering by read/unread status.
-    
+
     **Rate Limiting:** 30 requests per minute per user
-    
+
     **Query Parameters:**
     - `limit`: Maximum number of notifications to return (default: 20, max: 100)
     - `offset`: Number of notifications to skip for pagination (default: 0)
     - `status_filter`: Filter by status ("read", "unread", "pending", "sent", "archived")
-    
+
     **Returns:**
     - List of notifications with pagination metadata
     - Unread count for the user
     - Pagination information for next/previous pages
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"family_notifications_{user_id}", 
+        request,
+        f"family_notifications_{user_id}",
         rate_limit_requests=30,
         rate_limit_period=60
     )
-    
+
     # Validate parameters
     if limit > 100:
         limit = 100
@@ -2353,7 +2352,7 @@ async def get_family_notifications(
         limit = 20
     if offset < 0:
         offset = 0
-    
+
     valid_status_filters = {"read", "unread", "pending", "sent", "archived"}
     if status_filter and status_filter not in valid_status_filters:
         raise HTTPException(
@@ -2363,7 +2362,7 @@ async def get_family_notifications(
                 "message": f"Status filter must be one of: {', '.join(valid_status_filters)}"
             }
         )
-    
+
     try:
         result = await family_manager.get_family_notifications(
             family_id=family_id,
@@ -2372,14 +2371,14 @@ async def get_family_notifications(
             offset=offset,
             status_filter=status_filter
         )
-        
+
         logger.info(
             "Retrieved %d notifications for user %s in family %s",
             len(result["notifications"]), user_id, family_id
         )
-        
+
         return NotificationListResponse(**result)
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for notifications: %s", family_id)
         raise HTTPException(
@@ -2418,29 +2417,29 @@ async def mark_notifications_read(
 ) -> JSONResponse:
     """
     Mark specific notifications as read for the current user.
-    
+
     Updates the read status of specified notifications and decrements the user's
     unread notification count accordingly.
-    
+
     **Rate Limiting:** 20 requests per minute per user
-    
+
     **Request Body:**
     - `notification_ids`: List of notification IDs to mark as read
-    
+
     **Returns:**
     - Number of notifications successfully marked as read
     - List of updated notification IDs
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"mark_notifications_read_{user_id}", 
+        request,
+        f"mark_notifications_read_{user_id}",
         rate_limit_requests=20,
         rate_limit_period=60
     )
-    
+
     # Validate request
     if not mark_request.notification_ids:
         raise HTTPException(
@@ -2450,7 +2449,7 @@ async def mark_notifications_read(
                 "message": "At least one notification ID is required"
             }
         )
-    
+
     if len(mark_request.notification_ids) > 50:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2459,19 +2458,19 @@ async def mark_notifications_read(
                 "message": "Cannot mark more than 50 notifications at once"
             }
         )
-    
+
     try:
         result = await family_manager.mark_notifications_read(
             family_id=family_id,
             user_id=user_id,
             notification_ids=mark_request.notification_ids
         )
-        
+
         logger.info(
             "Marked %d notifications as read for user %s in family %s",
             result["marked_count"], user_id, family_id
         )
-        
+
         return JSONResponse(
             content={
                 "message": f"Successfully marked {result['marked_count']} notifications as read",
@@ -2480,7 +2479,7 @@ async def mark_notifications_read(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for marking notifications: %s", family_id)
         raise HTTPException(
@@ -2518,37 +2517,37 @@ async def mark_all_notifications_read(
 ) -> JSONResponse:
     """
     Mark all notifications as read for the current user in the specified family.
-    
+
     Updates all unread notifications for the user in the family and resets
     their unread notification count to zero.
-    
+
     **Rate Limiting:** 10 requests per minute per user
-    
+
     **Returns:**
     - Number of notifications marked as read
     - Confirmation message
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"mark_all_notifications_read_{user_id}", 
+        request,
+        f"mark_all_notifications_read_{user_id}",
         rate_limit_requests=10,
         rate_limit_period=60
     )
-    
+
     try:
         result = await family_manager.mark_all_notifications_read(
             family_id=family_id,
             user_id=user_id
         )
-        
+
         logger.info(
             "Marked all %d notifications as read for user %s in family %s",
             result["marked_count"], user_id, family_id
         )
-        
+
         return JSONResponse(
             content={
                 "message": f"Successfully marked all {result['marked_count']} notifications as read",
@@ -2556,7 +2555,7 @@ async def mark_all_notifications_read(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for marking all notifications: %s", family_id)
         raise HTTPException(
@@ -2593,34 +2592,34 @@ async def get_notification_preferences(
 ) -> NotificationPreferencesResponse:
     """
     Get notification preferences for the current user.
-    
+
     Retrieves the user's notification delivery preferences and current
     unread notification count across all families.
-    
+
     **Rate Limiting:** 30 requests per minute per user
-    
+
     **Returns:**
     - Current notification preferences (email, push, SMS)
     - Unread notification count
     - Last checked timestamp
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"get_notification_preferences_{user_id}", 
+        request,
+        f"get_notification_preferences_{user_id}",
         rate_limit_requests=30,
         rate_limit_period=60
     )
-    
+
     try:
         result = await family_manager.get_notification_preferences(user_id=user_id)
-        
+
         logger.debug("Retrieved notification preferences for user %s", user_id)
-        
+
         return NotificationPreferencesResponse(**result)
-        
+
     except FamilyError as e:
         logger.error("Failed to get notification preferences: %s", e)
         raise HTTPException(
@@ -2640,32 +2639,32 @@ async def update_notification_preferences(
 ) -> NotificationPreferencesResponse:
     """
     Update notification preferences for the current user.
-    
+
     Updates the user's notification delivery preferences for email, push notifications,
     and SMS notifications across all family notifications.
-    
+
     **Rate Limiting:** 10 requests per minute per user
-    
+
     **Request Body:**
     - `preferences`: Dictionary of preference settings
       - `email_notifications`: Enable/disable email notifications
-      - `push_notifications`: Enable/disable push notifications  
+      - `push_notifications`: Enable/disable push notifications
       - `sms_notifications`: Enable/disable SMS notifications
-    
+
     **Returns:**
     - Updated notification preferences
     - Current unread notification count
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request, 
-        f"update_notification_preferences_{user_id}", 
+        request,
+        f"update_notification_preferences_{user_id}",
         rate_limit_requests=10,
         rate_limit_period=60
     )
-    
+
     try:
         # Build preferences dict from individual fields
         preferences = {}
@@ -2675,22 +2674,22 @@ async def update_notification_preferences(
             preferences["push_notifications"] = preferences_request.push_notifications
         if preferences_request.sms_notifications is not None:
             preferences["sms_notifications"] = preferences_request.sms_notifications
-        
+
         result = await family_manager.update_notification_preferences(
             user_id=user_id,
             preferences=preferences
         )
-        
+
         logger.info(
             "Updated notification preferences for user %s: %s",
             user_id, preferences
         )
-        
+
         # Get full preferences including unread count
         full_result = await family_manager.get_notification_preferences(user_id=user_id)
-        
+
         return NotificationPreferencesResponse(**full_result)
-        
+
     except ValidationError as e:
         logger.warning("Invalid notification preferences: %s", e)
         raise HTTPException(
@@ -2722,23 +2721,23 @@ async def create_token_request(
 ) -> TokenRequestResponse:
     """
     Create a token request from the family account.
-    
+
     Family members can request tokens from the shared family account.
     Requests under the auto-approval threshold are processed immediately.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - Family account must not be frozen
     - Amount must be positive
     - Reason must be at least 5 characters
-    
+
     **Returns:**
     - Token request details including status and expiration
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2746,7 +2745,7 @@ async def create_token_request(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         request_data = await family_manager.create_token_request(
             family_id=family_id,
@@ -2755,12 +2754,12 @@ async def create_token_request(
             reason=token_request.reason,
             request_context={"request": request}
         )
-        
+
         logger.info(
             "Token request created: %s for %d tokens by user %s in family %s",
             request_data["request_id"], token_request.amount, user_id, family_id
         )
-        
+
         return TokenRequestResponse(
             request_id=request_data["request_id"],
             requester_username=current_user["username"],
@@ -2772,7 +2771,7 @@ async def create_token_request(
             expires_at=request_data["expires_at"],
             admin_comments=None
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for token request: %s", family_id)
         raise HTTPException(
@@ -2842,20 +2841,20 @@ async def get_pending_token_requests(
 ) -> List[TokenRequestResponse]:
     """
     Get all pending token requests for a family (admin only).
-    
+
     Returns all pending token requests that require admin approval.
     Only family administrators can access this endpoint.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
-    
+
     **Returns:**
     - List of pending token requests with requester information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2863,12 +2862,12 @@ async def get_pending_token_requests(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         pending_requests = await family_manager.get_pending_token_requests(family_id, user_id)
-        
+
         logger.debug("Retrieved %d pending token requests for family %s", len(pending_requests), family_id)
-        
+
         response_requests = []
         for req in pending_requests:
             response_requests.append(TokenRequestResponse(
@@ -2884,9 +2883,9 @@ async def get_pending_token_requests(
                 expires_at=req["expires_at"],
                 admin_comments=None
             ))
-        
+
         return response_requests
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for pending requests: %s", family_id)
         raise HTTPException(
@@ -2926,22 +2925,22 @@ async def review_token_request(
 ) -> JSONResponse:
     """
     Review a token request (approve or deny) - admin only.
-    
+
     Family administrators can approve or deny pending token requests.
     Approved requests automatically transfer tokens to the requester.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Request must be in pending status
     - Request must not be expired
-    
+
     **Returns:**
     - Review confirmation and updated request status
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -2949,7 +2948,7 @@ async def review_token_request(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         review_data = await family_manager.review_token_request(
             request_id=request_id,
@@ -2958,12 +2957,12 @@ async def review_token_request(
             comments=review_request.comments,
             request_context={"request": request}
         )
-        
+
         logger.info(
             "Token request %s: %s by admin %s (amount: %d)",
             review_request.action, request_id, user_id, review_data["amount"]
         )
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -2979,7 +2978,7 @@ async def review_token_request(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except TokenRequestNotFound as e:
         logger.warning("Token request not found for review: %s", e)
         raise HTTPException(
@@ -3041,29 +3040,29 @@ async def get_my_token_requests(
 ) -> List[TokenRequestResponse]:
     """
     Get the current user's token request history for a family.
-    
+
     Returns the user's token requests in reverse chronological order,
     including pending, approved, denied, and expired requests.
-    
+
     **Rate Limiting:** 30 requests per hour per user
-    
+
     **Query Parameters:**
     - `limit`: Maximum number of requests to return (default: 20, max: 100)
-    
+
     **Requirements:**
     - User must be a family member
-    
+
     **Returns:**
     - List of user's token requests with status and admin comments
     """
     user_id = str(current_user["_id"])
-    
+
     # Validate limit parameter
     if limit > 100:
         limit = 100
     elif limit < 1:
         limit = 20
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3071,13 +3070,13 @@ async def get_my_token_requests(
         rate_limit_requests=30,
         rate_limit_period=3600
     )
-    
+
     try:
         user_requests = await family_manager.get_user_token_requests(family_id, user_id, limit)
-        
-        logger.debug("Retrieved %d token requests for user %s in family %s", 
+
+        logger.debug("Retrieved %d token requests for user %s in family %s",
                     len(user_requests), user_id, family_id)
-        
+
         response_requests = []
         for req in user_requests:
             response_requests.append(TokenRequestResponse(
@@ -3091,9 +3090,9 @@ async def get_my_token_requests(
                 expires_at=req["expires_at"],
                 admin_comments=req.get("admin_comments")
             ))
-        
+
         return response_requests
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for user requests: %s", family_id)
         raise HTTPException(
@@ -3130,20 +3129,20 @@ async def cleanup_expired_token_requests(
 ) -> JSONResponse:
     """
     Clean up expired token requests (admin utility).
-    
+
     This endpoint manually triggers the cleanup of expired token requests.
     Normally this would be handled by a scheduled task.
-    
+
     **Rate Limiting:** 2 requests per hour per user
-    
+
     **Requirements:**
     - User must be authenticated (no specific admin check for now)
-    
+
     **Returns:**
     - Cleanup statistics and results
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3151,12 +3150,12 @@ async def cleanup_expired_token_requests(
         rate_limit_requests=2,
         rate_limit_period=3600
     )
-    
+
     try:
         cleanup_data = await family_manager.cleanup_expired_token_requests()
-        
+
         logger.info("Manual token request cleanup triggered by user %s", user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -3167,7 +3166,7 @@ async def cleanup_expired_token_requests(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyError as e:
         logger.error("Failed to cleanup expired token requests: %s", e)
         raise HTTPException(
@@ -3189,20 +3188,20 @@ async def get_family_details(
 ) -> FamilyResponse:
     """
     Get detailed information about a specific family.
-    
+
     Returns comprehensive family information including member count,
     SBD account details, and the user's role in the family.
-    
+
     **Rate Limiting:** 30 requests per hour per user
-    
+
     **Requirements:**
     - User must be a member of the family
-    
+
     **Returns:**
     - Detailed family information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3210,12 +3209,12 @@ async def get_family_details(
         rate_limit_requests=30,
         rate_limit_period=3600
     )
-    
+
     try:
         family_data = await family_manager.get_family_details(family_id, user_id)
-        
+
         logger.debug("Retrieved family details for %s by user %s", family_id, user_id)
-        
+
         return FamilyResponse(
             family_id=family_data["family_id"],
             name=family_data["name"],
@@ -3226,7 +3225,7 @@ async def get_family_details(
             sbd_account=family_data["sbd_account"],
             usage_stats=family_data["usage_stats"]
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found: %s", family_id)
         raise HTTPException(
@@ -3264,20 +3263,20 @@ async def get_family_members(
 ) -> List[FamilyMemberResponse]:
     """
     Get all members of a family with their relationship information.
-    
+
     Returns detailed member information including relationships,
     roles, and spending permissions.
-    
+
     **Rate Limiting:** 3600 requests per hour per user
-    
+
     **Requirements:**
     - User must be a member of the family
-    
+
     **Returns:**
     - List of family members with detailed information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3285,12 +3284,12 @@ async def get_family_members(
         rate_limit_requests=3600,
         rate_limit_period=3600
     )
-    
+
     try:
         members_data = await family_manager.get_family_members(family_id, user_id)
-        
+
         logger.debug("Retrieved %d members for family %s", len(members_data), family_id)
-        
+
         member_responses = []
         for member in members_data:
             # Extract primary relationship from the current user's perspective
@@ -3305,7 +3304,7 @@ async def get_family_members(
                 # If no direct relationship with current user, use the first relationship
                 if primary_relationship == "member" and member["relationships"]:
                     primary_relationship = member["relationships"][0].get("relationship_type", "member")
-            
+
             member_responses.append(FamilyMemberResponse(
                 user_id=member["user_id"],
                 username=member["username"],
@@ -3315,9 +3314,9 @@ async def get_family_members(
                 joined_at=member["joined_at"],
                 spending_permissions=member["spending_permissions"]
             ))
-        
+
         return member_responses
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for members: %s", family_id)
         raise HTTPException(
@@ -3356,22 +3355,22 @@ async def remove_family_member(
 ) -> JSONResponse:
     """
     Remove a member from the family.
-    
+
     Only family administrators can remove members.
     Removes all bidirectional relationships and cleans up permissions.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Cannot remove the last administrator
     - Target user must be a family member
-    
+
     **Returns:**
     - Removal confirmation and cleanup details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3379,15 +3378,15 @@ async def remove_family_member(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         removal_data = await family_manager.remove_family_member(
             family_id, user_id, member_id, {"request": request}
         )
-        
-        logger.info("Family member removed: %s from %s by admin %s", 
+
+        logger.info("Family member removed: %s from %s by admin %s",
                    member_id, family_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -3401,7 +3400,7 @@ async def remove_family_member(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for member removal: %s", family_id)
         raise HTTPException(
@@ -3451,23 +3450,23 @@ async def modify_family_relationship(
 ) -> ModifyRelationshipResponse:
     """
     Modify the relationship type between two family members.
-    
+
     Only family administrators can modify relationships. This updates both
     sides of the bidirectional relationship and notifies affected users.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Both users must be family members
     - Relationship must exist and be active
     - New relationship type must be valid
-    
+
     **Returns:**
     - Updated relationship information including old and new types
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3475,21 +3474,21 @@ async def modify_family_relationship(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         result = await family_manager.modify_relationship_type(
-            family_id, 
-            admin_id, 
+            family_id,
+            admin_id,
             relationship_request.user_a_id,
             relationship_request.user_b_id,
             relationship_request.new_relationship_type,
             {"request": request}
         )
-        
-        logger.info("Family relationship modified: %s between %s and %s by admin %s", 
-                   result["relationship_id"], relationship_request.user_a_id, 
+
+        logger.info("Family relationship modified: %s between %s and %s by admin %s",
+                   result["relationship_id"], relationship_request.user_a_id,
                    relationship_request.user_b_id, admin_id)
-        
+
         return ModifyRelationshipResponse(
             relationship_id=result["relationship_id"],
             family_id=result["family_id"],
@@ -3502,7 +3501,7 @@ async def modify_family_relationship(
             modified_at=result["modified_at"],
             transaction_safe=result["transaction_safe"]
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for relationship modification: %s", family_id)
         raise HTTPException(
@@ -3581,20 +3580,20 @@ async def get_family_relationships(
 ) -> List[RelationshipDetailsResponse]:
     """
     Get all relationships within a family.
-    
+
     Returns detailed information about all family relationships including
     both users' perspectives and relationship metadata.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
-    
+
     **Returns:**
     - List of all family relationships with detailed information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3602,12 +3601,12 @@ async def get_family_relationships(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         relationships = await family_manager.get_family_relationships(family_id, user_id)
-        
+
         logger.debug("Retrieved %d relationships for family %s", len(relationships), family_id)
-        
+
         relationship_responses = []
         for rel in relationships:
             relationship_responses.append(RelationshipDetailsResponse(
@@ -3620,9 +3619,9 @@ async def get_family_relationships(
                 created_at=rel["created_at"],
                 updated_at=rel["updated_at"]
             ))
-        
+
         return relationship_responses
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for relationships: %s", family_id)
         raise HTTPException(
@@ -3661,21 +3660,21 @@ async def update_family_settings(
 ) -> JSONResponse:
     """
     Update family settings and configuration.
-    
+
     Only family administrators can update family settings.
     Supports updating name, notification settings, and other configurations.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Settings must pass validation
-    
+
     **Returns:**
     - Updated family information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3683,14 +3682,14 @@ async def update_family_settings(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         update_data = await family_manager.update_family_settings(
             family_id, user_id, family_update, {"request": request}
         )
-        
+
         logger.info("Family settings updated: %s by admin %s", family_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -3702,7 +3701,7 @@ async def update_family_settings(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for settings update: %s", family_id)
         raise HTTPException(
@@ -3749,22 +3748,22 @@ async def delete_family(
 ) -> JSONResponse:
     """
     Delete a family and clean up all associated resources.
-    
+
     Only family administrators can delete families.
     This action is irreversible and cleans up all relationships,
     SBD accounts, and associated data.
-    
+
     **Rate Limiting:** 2 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Family SBD account must be empty or have instructions for remaining tokens
-    
+
     **Returns:**
     - Deletion confirmation and cleanup details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3772,14 +3771,14 @@ async def delete_family(
         rate_limit_requests=2,
         rate_limit_period=3600
     )
-    
+
     try:
         deletion_data = await family_manager.delete_family(
             family_id, user_id, {"request": request}
         )
-        
+
         logger.info("Family deleted: %s by admin %s", family_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -3793,7 +3792,7 @@ async def delete_family(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for deletion: %s", family_id)
         raise HTTPException(
@@ -3842,20 +3841,20 @@ async def get_family_sbd_account(
 ) -> SBDAccountResponse:
     """
     Get family SBD account details including balance and spending permissions.
-    
+
     Returns comprehensive information about the family's shared SBD token account,
     including current balance, spending permissions for all members, and recent transactions.
-    
+
     **Rate Limiting:** 30 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
-    
+
     **Returns:**
     - SBD account information with permissions and transaction history
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3863,12 +3862,12 @@ async def get_family_sbd_account(
         rate_limit_requests=30,
         rate_limit_period=3600
     )
-    
+
     try:
         account_data = await family_manager.get_family_sbd_account(family_id, user_id)
-        
+
         logger.debug("Retrieved SBD account for family %s by user %s", family_id, user_id)
-        
+
         return SBDAccountResponse(
             account_username=account_data["account_username"],
             balance=account_data["balance"],
@@ -3879,7 +3878,7 @@ async def get_family_sbd_account(
             notification_settings=account_data["notification_settings"],
             recent_transactions=account_data.get("recent_transactions", [])
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for SBD account request: %s", family_id)
         raise HTTPException(
@@ -3918,21 +3917,21 @@ async def update_spending_permissions(
 ) -> JSONResponse:
     """
     Update spending permissions for a family member.
-    
+
     Allows family administrators to set spending limits and permissions
     for family members. Changes are logged and notifications are sent.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Target user must be a family member
-    
+
     **Returns:**
     - Updated permission information
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -3940,7 +3939,7 @@ async def update_spending_permissions(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         # Perform the update
         await family_manager.update_spending_permissions(
@@ -3956,14 +3955,14 @@ async def update_spending_permissions(
         # Retrieve full updated account to return to frontend (frontend expects full SBDAccount shape)
         account_data = await family_manager.get_family_sbd_account(family_id, admin_id)
 
-        logger.info("Updated spending permissions for user %s in family %s by admin %s", 
+        logger.info("Updated spending permissions for user %s in family %s by admin %s",
                    permissions_request.user_id, family_id, admin_id)
 
         return JSONResponse(
             content=account_data,
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for permissions update: %s", family_id)
         raise HTTPException(
@@ -4003,20 +4002,20 @@ async def get_family_transactions(
 ) -> JSONResponse:
     """
     Get family SBD account transaction history.
-    
+
     Returns paginated transaction history for the family's shared SBD account
     with member attribution and detailed transaction information.
-    
+
     **Rate Limiting:** 20 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
-    
+
     **Returns:**
     - Paginated transaction history with member details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4024,15 +4023,15 @@ async def get_family_transactions(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         transactions_data = await family_manager.get_family_transactions(
             family_id, user_id, skip, limit
         )
-        
-        logger.debug("Retrieved %d transactions for family %s by user %s", 
+
+        logger.debug("Retrieved %d transactions for family %s by user %s",
                     len(transactions_data["transactions"]), family_id, user_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -4051,7 +4050,7 @@ async def get_family_transactions(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for transactions request: %s", family_id)
         raise HTTPException(
@@ -4090,22 +4089,22 @@ async def freeze_unfreeze_account(
 ) -> JSONResponse:
     """
     Freeze or unfreeze the family SBD account.
-    
+
     Allows family administrators to temporarily freeze the shared account
     to prevent spending during disputes or emergencies. Deposits continue
     to work but all spending is blocked.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Reason required for freezing
-    
+
     **Returns:**
     - Account freeze status and details
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4113,7 +4112,7 @@ async def freeze_unfreeze_account(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         if freeze_request.action == "freeze":
             result = await family_manager.freeze_family_account(
@@ -4123,10 +4122,10 @@ async def freeze_unfreeze_account(
         else:
             result = await family_manager.unfreeze_family_account(family_id, admin_id)
             message = "Family account unfrozen successfully"
-        
-        logger.info("Family account %s: %s by admin %s", 
+
+        logger.info("Family account %s: %s by admin %s",
                    freeze_request.action, family_id, admin_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -4141,7 +4140,7 @@ async def freeze_unfreeze_account(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for account freeze: %s", family_id)
         raise HTTPException(
@@ -4180,21 +4179,21 @@ async def validate_spending_permission(
 ) -> JSONResponse:
     """
     Validate if the current user can spend the specified amount from family account.
-    
+
     Checks spending permissions, limits, and account status before allowing
     a transaction. Used by the SBD token system for permission validation.
-    
+
     **Rate Limiting:** 50 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - Amount must be positive
-    
+
     **Returns:**
     - Validation result with detailed permission information
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4202,7 +4201,7 @@ async def validate_spending_permission(
         rate_limit_requests=50,
         rate_limit_period=3600
     )
-    
+
     if amount <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -4211,23 +4210,23 @@ async def validate_spending_permission(
                 "message": "Amount must be positive"
             }
         )
-    
+
     try:
         # Get family account username for validation
         family_data = await family_manager.get_family_by_id(family_id)
         family_username = family_data["sbd_account"]["account_username"]
-        
+
         # Validate spending permission
         can_spend = await family_manager.validate_family_spending(
             family_username, user_id, amount, {"request": request, "user": current_user}
         )
-        
+
         # Get detailed permission information
         permissions = family_data["sbd_account"]["spending_permissions"].get(user_id, {})
-        
-        logger.debug("Spending validation for user %s in family %s: amount=%d, can_spend=%s", 
+
+        logger.debug("Spending validation for user %s in family %s: amount=%d, can_spend=%s",
                     user_id, family_id, amount, can_spend)
-        
+
         response_data = {
             "status": "success",
             "data": {
@@ -4246,7 +4245,7 @@ async def validate_spending_permission(
                 }
             }
         }
-        
+
         if not can_spend:
             # Determine the reason for denial
             if family_data["sbd_account"]["is_frozen"]:
@@ -4261,12 +4260,12 @@ async def validate_spending_permission(
             else:
                 response_data["data"]["denial_reason"] = "INSUFFICIENT_BALANCE"
                 response_data["data"]["denial_message"] = "Insufficient balance in family account"
-        
+
         return JSONResponse(
             content=response_data,
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for spending validation: %s", family_id)
         raise HTTPException(
@@ -4379,24 +4378,24 @@ async def direct_transfer_tokens(
 ) -> JSONResponse:
     """
     Directly transfer SBD tokens from family account to a recipient (admin-only).
-    
+
     Allows family administrators to transfer tokens directly to users or external accounts
     without going through the normal token request/approval workflow. This is useful for
     immediate transfers, rewards, or administrative adjustments.
-    
+
     **Rate Limiting:** 10 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Family account must not be frozen
     - Sufficient balance in family account
     - Recipient must exist (user_id or username)
-    
+
     **Returns:**
     - Transfer confirmation with transaction details
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4404,7 +4403,7 @@ async def direct_transfer_tokens(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         # Perform the direct transfer
         transfer_result = await family_manager.direct_transfer_tokens(
@@ -4415,11 +4414,11 @@ async def direct_transfer_tokens(
             transfer_request.amount,
             transfer_request.reason
         )
-        
-        logger.info("Direct token transfer completed: %s - %d tokens from family %s to %s by admin %s", 
-                   transfer_result["transaction_id"], transfer_request.amount, family_id, 
+
+        logger.info("Direct token transfer completed: %s - %d tokens from family %s to %s by admin %s",
+                   transfer_result["transaction_id"], transfer_request.amount, family_id,
                    transfer_result["recipient_username"], admin_id)
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -4428,7 +4427,7 @@ async def direct_transfer_tokens(
             },
             status_code=status.HTTP_200_OK
         )
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for direct transfer: %s", family_id)
         raise HTTPException(
@@ -4468,23 +4467,23 @@ async def manage_backup_admin(
 ) -> BackupAdminResponse:
     """
     Designate or remove backup administrator for account recovery.
-    
+
     Backup administrators are automatically promoted to full admin if all primary
     admins become unavailable, ensuring family continuity.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family administrator
     - Target user must be a family member
     - Target user cannot already be an admin (for designation)
     - Target user must be a backup admin (for removal)
-    
+
     **Returns:**
     - Backup admin action confirmation and details
     """
     admin_user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4492,28 +4491,28 @@ async def manage_backup_admin(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         if backup_request.action == "designate":
             result = await family_manager.designate_backup_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
-            logger.info("Backup admin designated: %s by %s in family %s", 
+
+            logger.info("Backup admin designated: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return BackupAdminResponse(**result)
-            
+
         elif backup_request.action == "remove":
             result = await family_manager.remove_backup_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
-            
-            logger.info("Backup admin removed: %s by %s in family %s", 
+
+            logger.info("Backup admin removed: %s by %s in family %s",
                        user_id, admin_user_id, family_id)
-            
+
             return BackupAdminResponse(**result)
-            
+
     except FamilyNotFound:
         logger.warning("Family not found for backup admin action: %s", family_id)
         raise HTTPException(
@@ -4570,23 +4569,23 @@ async def initiate_account_recovery(
 ) -> RecoveryInitiationResponse:
     """
     Initiate account recovery process when admin accounts are compromised or deleted.
-    
+
     This endpoint starts the recovery process when no active administrators remain.
     If backup administrators exist, they are automatically promoted. Otherwise,
     a multi-member verification process is initiated.
-    
+
     **Rate Limiting:** 2 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member
     - No active administrators must exist
     - Recovery reason must be provided
-    
+
     **Returns:**
     - Recovery initiation confirmation with process details
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4594,17 +4593,17 @@ async def initiate_account_recovery(
         rate_limit_requests=2,
         rate_limit_period=3600
     )
-    
+
     try:
         result = await family_manager.initiate_account_recovery(
             family_id, user_id, recovery_request.recovery_reason, {"request": request}
         )
-        
-        logger.info("Account recovery initiated: %s for family %s by %s", 
+
+        logger.info("Account recovery initiated: %s for family %s by %s",
                    result.get("recovery_id", "auto_promotion"), family_id, user_id)
-        
+
         return RecoveryInitiationResponse(**result)
-        
+
     except FamilyNotFound:
         logger.warning("Family not found for recovery initiation: %s", family_id)
         raise HTTPException(
@@ -4661,24 +4660,24 @@ async def verify_account_recovery(
 ) -> RecoveryVerificationResponse:
     """
     Verify account recovery request by providing verification code.
-    
+
     Family members must provide verification codes (typically sent via email)
     to confirm the recovery request. Once sufficient verifications are received,
     the most senior family member is automatically promoted to administrator.
-    
+
     **Rate Limiting:** 5 requests per hour per user
-    
+
     **Requirements:**
     - User must be a family member of the recovering family
     - Recovery request must be in pending verification status
     - Valid verification code must be provided
     - User cannot have already verified this recovery request
-    
+
     **Returns:**
     - Verification confirmation and recovery status
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -4686,16 +4685,16 @@ async def verify_account_recovery(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         result = await family_manager.verify_account_recovery(
             recovery_id, user_id, verify_request.verification_code, {"request": request}
         )
-        
+
         logger.info("Recovery verification provided: %s by %s", recovery_id, user_id)
-        
+
         return RecoveryVerificationResponse(**result)
-        
+
     except ValidationError as e:
         logger.warning("Invalid recovery verification: %s", e)
         raise HTTPException(
@@ -4749,14 +4748,14 @@ async def get_family_sbd_transaction_history(
 ):
     """
     Get comprehensive family SBD transaction history with audit trails and family context.
-    
+
     This endpoint provides detailed transaction history including:
     - Family member attribution for all transactions
     - Comprehensive audit trail information
     - Transaction context and compliance metadata
     - Filtering by date range and transaction types
     - Pagination support for large datasets
-    
+
     Args:
         family_id: ID of the family
         start_date: Start date filter (ISO format)
@@ -4765,10 +4764,10 @@ async def get_family_sbd_transaction_history(
         include_audit_trail: Whether to include detailed audit trail information
         limit: Maximum number of transactions to return (max 1000)
         offset: Number of transactions to skip for pagination
-        
+
     Returns:
         Comprehensive transaction history with family context and audit trails
-        
+
     Raises:
         403: If user lacks permission to access family audit information
         404: If family not found
@@ -4778,16 +4777,16 @@ async def get_family_sbd_transaction_history(
     try:
         # Rate limiting
         await security_manager.check_rate_limit(
-            request, f"family_audit_history_{current_user['username']}", 
+            request, f"family_audit_history_{current_user['username']}",
             rate_limit_requests=20, rate_limit_period=300
         )
-        
+
         user_id = str(current_user["_id"])
-        
+
         # Validate and parse parameters
         parsed_start_date = None
         parsed_end_date = None
-        
+
         if start_date:
             try:
                 from datetime import datetime
@@ -4800,7 +4799,7 @@ async def get_family_sbd_transaction_history(
                         "message": "start_date must be in ISO format"
                     }
                 )
-        
+
         if end_date:
             try:
                 from datetime import datetime
@@ -4813,16 +4812,16 @@ async def get_family_sbd_transaction_history(
                         "message": "end_date must be in ISO format"
                     }
                 )
-        
+
         # Parse transaction types
         parsed_transaction_types = None
         if transaction_types:
             parsed_transaction_types = [t.strip() for t in transaction_types.split(',')]
-        
+
         # Validate limit
         if limit > 1000:
             limit = 1000
-        
+
         # Get transaction history with family context
         result = await family_audit_manager.get_family_transaction_history_with_context(
             family_id=family_id,
@@ -4834,19 +4833,19 @@ async def get_family_sbd_transaction_history(
             limit=limit,
             offset=offset
         )
-        
+
         logger.info(
             "Family SBD transaction history retrieved: %d records for family %s by user %s",
             len(result["transactions"]), family_id, user_id
         )
-        
+
         return JSONResponse(
             content={
                 "status": "success",
                 "data": result
             }
         )
-        
+
     except FamilyAuditError as e:
         if e.error_code == "INSUFFICIENT_PERMISSIONS":
             logger.warning("Insufficient permissions for transaction history: %s", e)
@@ -4907,24 +4906,24 @@ async def generate_family_compliance_report(
 ):
     """
     Generate comprehensive compliance report for family SBD transactions.
-    
+
     This endpoint generates detailed compliance reports including:
     - Transaction volume and pattern analysis
     - Family member activity summaries
     - Audit trail integrity verification
     - Compliance flags and risk indicators
     - Regulatory compliance information
-    
+
     Args:
         family_id: ID of the family
         report_type: Type of report (comprehensive, summary, transactions_only)
         start_date: Start date for report period (ISO format)
         end_date: End date for report period (ISO format)
         export_format: Format for export (json, csv, pdf)
-        
+
     Returns:
         Comprehensive compliance report with audit information
-        
+
     Raises:
         403: If user is not family admin
         404: If family not found
@@ -4934,12 +4933,12 @@ async def generate_family_compliance_report(
     try:
         # Rate limiting for compliance reports (more restrictive)
         await security_manager.check_rate_limit(
-            request, f"family_compliance_report_{current_user['username']}", 
+            request, f"family_compliance_report_{current_user['username']}",
             rate_limit_requests=5, rate_limit_period=3600
         )
-        
+
         user_id = str(current_user["_id"])
-        
+
         # Validate report type
         valid_report_types = ["comprehensive", "summary", "transactions_only"]
         if report_type not in valid_report_types:
@@ -4950,7 +4949,7 @@ async def generate_family_compliance_report(
                     "message": f"report_type must be one of: {', '.join(valid_report_types)}"
                 }
             )
-        
+
         # Validate export format
         valid_formats = ["json", "csv", "pdf"]
         if export_format not in valid_formats:
@@ -4961,11 +4960,11 @@ async def generate_family_compliance_report(
                     "message": f"export_format must be one of: {', '.join(valid_formats)}"
                 }
             )
-        
+
         # Parse dates
         parsed_start_date = None
         parsed_end_date = None
-        
+
         if start_date:
             try:
                 from datetime import datetime
@@ -4978,7 +4977,7 @@ async def generate_family_compliance_report(
                         "message": "start_date must be in ISO format"
                     }
                 )
-        
+
         if end_date:
             try:
                 from datetime import datetime
@@ -4991,7 +4990,7 @@ async def generate_family_compliance_report(
                         "message": "end_date must be in ISO format"
                     }
                 )
-        
+
         # Generate compliance report
         report = await family_audit_manager.generate_compliance_report(
             family_id=family_id,
@@ -5001,19 +5000,19 @@ async def generate_family_compliance_report(
             end_date=parsed_end_date,
             export_format=export_format
         )
-        
+
         logger.info(
             "Compliance report generated: %s for family %s by admin %s",
             report["report_metadata"]["report_id"], family_id, user_id
         )
-        
+
         return JSONResponse(
             content={
                 "status": "success",
                 "data": report
             }
         )
-        
+
     except ComplianceReportError as e:
         if "admin" in str(e).lower() or "permission" in str(e).lower():
             logger.warning("Insufficient admin permissions for compliance report: %s", e)
@@ -5091,21 +5090,21 @@ async def verify_audit_trail_integrity(
 ):
     """
     Verify integrity of family audit trail records.
-    
+
     This endpoint performs cryptographic verification of audit trail integrity including:
     - Hash verification for all audit records
     - Detection of corrupted or tampered records
     - Missing audit trail identification
     - Comprehensive integrity reporting
-    
+
     Args:
         family_id: ID of the family
         start_date: Start date for verification period (ISO format)
         end_date: End date for verification period (ISO format)
-        
+
     Returns:
         Audit trail integrity verification results
-        
+
     Raises:
         403: If user is not family admin
         404: If family not found
@@ -5115,12 +5114,12 @@ async def verify_audit_trail_integrity(
     try:
         # Rate limiting for integrity checks
         await security_manager.check_rate_limit(
-            request, f"family_audit_integrity_{current_user['username']}", 
+            request, f"family_audit_integrity_{current_user['username']}",
             rate_limit_requests=10, rate_limit_period=3600
         )
-        
+
         user_id = str(current_user["_id"])
-        
+
         # Verify admin permissions
         try:
             await family_audit_manager._verify_family_admin_permission(family_id, user_id)
@@ -5134,11 +5133,11 @@ async def verify_audit_trail_integrity(
                     }
                 )
             raise
-        
+
         # Parse dates
         parsed_start_date = None
         parsed_end_date = None
-        
+
         if start_date:
             try:
                 from datetime import datetime
@@ -5151,7 +5150,7 @@ async def verify_audit_trail_integrity(
                         "message": "start_date must be in ISO format"
                     }
                 )
-        
+
         if end_date:
             try:
                 from datetime import datetime
@@ -5164,23 +5163,23 @@ async def verify_audit_trail_integrity(
                         "message": "end_date must be in ISO format"
                     }
                 )
-        
+
         # Set default date range if not provided (last 30 days)
         if not parsed_start_date and not parsed_end_date:
             from datetime import datetime, timedelta, timezone
             parsed_end_date = datetime.now(timezone.utc)
             parsed_start_date = parsed_end_date - timedelta(days=30)
-        
+
         # Perform integrity verification
         integrity_results = await family_audit_manager._verify_audit_trail_integrity(
             family_id, parsed_start_date, parsed_end_date
         )
-        
+
         logger.info(
             "Audit trail integrity check completed for family %s by admin %s: %s",
             family_id, user_id, "PASSED" if integrity_results["integrity_verified"] else "FAILED"
         )
-        
+
         return JSONResponse(
             content={
                 "status": "success",
@@ -5194,7 +5193,7 @@ async def verify_audit_trail_integrity(
                 }
             }
         )
-        
+
     except FamilyAuditError as e:
         if e.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS":
             logger.warning("Insufficient admin permissions for integrity check: %s", e)

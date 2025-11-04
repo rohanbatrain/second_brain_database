@@ -22,16 +22,16 @@ logger = get_logger(prefix="[MCP_WorkspaceResources]")
 async def get_workspace_info_resource(workspace_id: str) -> str:
     """
     Get workspace information as a resource.
-    
+
     Args:
         workspace_id: The ID of the workspace to get information for
-        
+
     Returns:
         JSON string containing workspace information
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Mock workspace data - replace with actual workspace manager integration
         workspace_info = {
             "workspace_id": workspace_id,
@@ -47,13 +47,13 @@ async def get_workspace_info_resource(workspace_id: str) -> str:
                 "notifications_enabled": True
             }
         }
-        
+
         result = {
             "workspace": workspace_info,
             "resource_type": "workspace_info",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_workspace_info_resource",
             user_context=user_context,
@@ -61,9 +61,9 @@ async def get_workspace_info_resource(workspace_id: str) -> str:
             resource_id=workspace_id,
             metadata={"workspace_name": workspace_info["name"]}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get workspace info resource for %s: %s", workspace_id, e)
         return json.dumps({"error": f"Failed to retrieve workspace information: {str(e)}"}, indent=2)
@@ -73,16 +73,16 @@ async def get_workspace_info_resource(workspace_id: str) -> str:
 async def get_workspace_members_resource(workspace_id: str) -> str:
     """
     Get workspace members as a resource.
-    
+
     Args:
         workspace_id: The ID of the workspace to get members for
-        
+
     Returns:
         JSON string containing workspace members
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Mock members data - replace with actual workspace manager integration
         members = [
             {
@@ -100,7 +100,7 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
                 "permissions": ["read", "write"]
             }
         ]
-        
+
         result = {
             "workspace_id": workspace_id,
             "members": members,
@@ -108,7 +108,7 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
             "resource_type": "workspace_members",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_workspace_members_resource",
             user_context=user_context,
@@ -116,9 +116,9 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
             resource_id=workspace_id,
             metadata={"member_count": len(members)}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get workspace members resource for %s: %s", workspace_id, e)
         return json.dumps({"error": f"Failed to retrieve workspace members: {str(e)}"}, indent=2)

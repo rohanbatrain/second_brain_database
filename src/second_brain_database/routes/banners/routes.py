@@ -34,22 +34,22 @@ logger = get_logger(prefix="[BANNERS]")
     summary="Get active rented banners",
     description="""
     Retrieve all currently active rented banners for the authenticated user.
-    
+
     **Banner Rental System:**
     - Banners can be rented for temporary use (typically hours or days)
     - Only returns banners that are currently valid (not expired)
     - Rental periods are checked in real-time against current UTC time
-    
+
     **Banner Types:**
     - Static banners: Traditional profile header images
     - Animated banners: Premium animated header backgrounds
     - Seasonal banners: Limited-time themed banners
-    
+
     **Use Cases:**
     - Display available temporary banners in user interface
     - Check rental status before allowing banner selection
     - Manage temporary banner inventory for profile customization
-    
+
     **Response:**
     Returns array of active rented banners with rental details including expiration times.
     """,
@@ -171,23 +171,23 @@ async def get_rented_banners(request: Request, current_user: dict = Depends(enfo
     summary="Get permanently owned banners",
     description="""
     Retrieve all permanently owned banners for the authenticated user.
-    
+
     **Banner Ownership System:**
     - Banners can be permanently owned through purchase or rewards
     - Owned banners never expire and can be used indefinitely
     - Includes banners obtained through bundles, individual purchases, or special events
-    
+
     **Banner Categories:**
     - Static banners: Traditional profile header images
     - Animated banners: Premium animated header backgrounds
     - Seasonal banners: Limited-time themed banners
     - Achievement banners: Unlocked through specific accomplishments
-    
+
     **Use Cases:**
     - Display user's permanent banner collection
     - Allow banner selection in profile customization
     - Show ownership status for banner management
-    
+
     **Response:**
     Returns array of permanently owned banner IDs for efficient processing.
     """,
@@ -282,24 +282,24 @@ async def get_owned_banners(request: Request, current_user: dict = Depends(enfor
     summary="Set current active banner",
     description="""
     Set the current active banner for the authenticated user and specific application.
-    
+
     **Multi-Application Support:**
     - Each application can have its own active banner setting
     - Application is determined by User-Agent header
     - Allows users to have different banners across different apps
-    
+
     **Ownership Verification:**
     - Verifies user owns or has valid rental for the banner
     - Checks rental expiration for temporary banners
     - Prevents setting banners the user doesn't have access to
-    
+
     **Request Format:**
     ```json
     {
         "banner_id": "emotion_tracker-static-banner-earth-1"
     }
     ```
-    
+
     **Use Cases:**
     - User selects banner in profile customization
     - Application startup banner loading
@@ -458,17 +458,17 @@ async def set_current_banner(request: Request, data: dict, current_user: dict = 
     summary="Get current active banner",
     description="""
     Retrieve the currently active banner for the authenticated user and specific application.
-    
+
     **Multi-Application Support:**
     - Returns the banner currently set for the requesting application
     - Application is determined by User-Agent header
     - Each app can have its own active banner setting
-    
+
     **Use Cases:**
     - Application startup banner loading
     - Profile header display in user interface
     - Banner synchronization across app sessions
-    
+
     **Response:**
     Returns the banner ID currently set for the application, or null if no banner is set.
     """,

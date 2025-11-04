@@ -12,25 +12,25 @@ import os
 @dataclass
 class MonitoringThresholds:
     """Monitoring thresholds for family system alerts."""
-    
+
     # Performance thresholds (seconds)
     slow_operation_threshold: float = 2.0
     very_slow_operation_threshold: float = 5.0
     critical_operation_threshold: float = 10.0
-    
+
     # Error rate thresholds (percentage)
     high_error_rate_threshold: float = 0.05  # 5%
     critical_error_rate_threshold: float = 0.10  # 10%
-    
+
     # System health thresholds
     max_pending_invitations: int = 100
     max_pending_token_requests: int = 50
     max_response_time: float = 3.0  # seconds
-    
+
     # SBD token thresholds
     max_frozen_accounts_percentage: float = 0.20  # 20%
     low_balance_threshold: int = 10  # SBD tokens
-    
+
     # Rate limiting thresholds
     max_operations_per_minute: int = 100
     max_errors_per_minute: int = 10
@@ -39,16 +39,16 @@ class MonitoringThresholds:
 @dataclass
 class AlertingConfig:
     """Configuration for alerting systems."""
-    
+
     # Alert cooldown periods (seconds)
     alert_cooldown_period: int = 1800  # 30 minutes
     critical_alert_cooldown: int = 300  # 5 minutes
-    
+
     # Alert channels (would be configured per environment)
     enable_email_alerts: bool = True
     enable_slack_alerts: bool = False
     enable_pagerduty_alerts: bool = False
-    
+
     # Alert recipients
     admin_email: str = os.getenv("FAMILY_ADMIN_EMAIL", "admin@example.com")
     slack_webhook_url: str = os.getenv("SLACK_WEBHOOK_URL", "")
@@ -58,17 +58,17 @@ class AlertingConfig:
 @dataclass
 class MetricsConfig:
     """Configuration for metrics collection."""
-    
+
     # Collection intervals (seconds)
     health_check_interval: int = 300  # 5 minutes
     metrics_collection_interval: int = 60  # 1 minute
     performance_data_retention: int = 3600  # 1 hour
-    
+
     # Metrics storage
     enable_prometheus_metrics: bool = True
     prometheus_port: int = 9090
     metrics_prefix: str = "family_system"
-    
+
     # Data retention
     operation_data_retention_hours: int = 24
     error_data_retention_hours: int = 72
@@ -78,22 +78,22 @@ class MetricsConfig:
 @dataclass
 class LoggingConfig:
     """Configuration for family system logging."""
-    
+
     # Log levels
     default_log_level: str = "INFO"
     performance_log_level: str = "DEBUG"
     security_log_level: str = "INFO"
     audit_log_level: str = "INFO"
-    
+
     # Structured logging
     enable_structured_logging: bool = True
     log_format: str = "json"
-    
+
     # Log destinations
     enable_file_logging: bool = True
     enable_loki_logging: bool = True
     enable_console_logging: bool = True
-    
+
     # Log rotation
     max_log_file_size: str = "100MB"
     max_log_files: int = 10
@@ -122,7 +122,7 @@ MONITORING_CONFIGS = {
             enable_console_logging=True
         )
     },
-    
+
     "staging": {
         "thresholds": MonitoringThresholds(
             slow_operation_threshold=2.5,
@@ -144,7 +144,7 @@ MONITORING_CONFIGS = {
             enable_loki_logging=True
         )
     },
-    
+
     "production": {
         "thresholds": MonitoringThresholds(),  # Use defaults
         "alerting": AlertingConfig(
@@ -166,18 +166,18 @@ MONITORING_CONFIGS = {
 def get_monitoring_config(environment: str = None) -> Dict[str, Any]:
     """
     Get monitoring configuration for the specified environment.
-    
+
     Args:
         environment: Environment name (development, staging, production)
-        
+
     Returns:
         Dictionary containing monitoring configuration
     """
     if environment is None:
         environment = os.getenv("ENV", "development").lower()
-    
+
     config = MONITORING_CONFIGS.get(environment, MONITORING_CONFIGS["development"])
-    
+
     return {
         "environment": environment,
         "thresholds": config["thresholds"],

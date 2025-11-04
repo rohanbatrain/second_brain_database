@@ -20,7 +20,7 @@ def execute_multi_step_workflow(
     workflow_id: str
 ) -> Dict[str, Any]:
     """Execute multi-step workflow asynchronously.
-    
+
     Note: Workflow functionality is currently disabled.
     """
     logger.warning(f"Multi-step workflow requested but system is disabled: {workflow_id}")
@@ -39,7 +39,7 @@ def execute_shopping_workflow(
     workflow_id: str
 ) -> Dict[str, Any]:
     """Execute shopping workflow asynchronously.
-    
+
     Note: Workflow functionality is currently disabled.
     """
     logger.warning(f"Shopping workflow requested but system is disabled: {workflow_id}")
@@ -53,10 +53,10 @@ def execute_shopping_workflow(
 @celery_app.task(name="monitor_workflow_progress")
 def monitor_workflow_progress(workflow_id: str) -> Dict[str, Any]:
     """Monitor and report workflow progress.
-    
+
     Args:
         workflow_id: Workflow ID to monitor
-        
+
     Returns:
         Progress status
     """
@@ -64,10 +64,10 @@ def monitor_workflow_progress(workflow_id: str) -> Dict[str, Any]:
         workflow = db_manager.get_collection("workflows").find_one(
             {"workflow_id": workflow_id}
         )
-        
+
         if not workflow:
             return {"error": "Workflow not found"}
-        
+
         progress = {
             "workflow_id": workflow_id,
             "status": workflow["status"],
@@ -75,9 +75,9 @@ def monitor_workflow_progress(workflow_id: str) -> Dict[str, Any]:
             "completed_at": workflow.get("completed_at"),
             "error": workflow.get("error")
         }
-        
+
         return progress
-        
+
     except Exception as e:
         logger.error(f"Error monitoring workflow: {e}", exc_info=True)
         return {"error": str(e)}

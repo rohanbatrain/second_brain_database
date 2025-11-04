@@ -8,7 +8,7 @@ import sys
 sys.path.append('src')
 
 from second_brain_database.routes.auth.services.webauthn.credentials import (
-    get_user_credential_list, 
+    get_user_credential_list,
     delete_credential_by_id
 )
 

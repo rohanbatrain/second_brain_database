@@ -11,12 +11,12 @@ def print_system_info():
     """Print cleanup system information"""
     repo_root = Path(__file__).parent.parent.parent
     cleanup_dir = repo_root / 'scripts' / 'repo_cleanup'
-    
+
     print("\n" + "="*70)
     print("🧹 REPOSITORY CLEANUP SYSTEM - INFO")
     print("="*70)
     print()
-    
+
     # System info
     print("📍 Locations:")
     print(f"   Repository Root: {repo_root}")
@@ -24,7 +24,7 @@ def print_system_info():
     print(f"   Reports: {cleanup_dir / 'reports'}")
     print(f"   Backups: {repo_root / 'backups'}")
     print()
-    
+
     # Available scripts
     print("📜 Available Scripts:")
     scripts = sorted([f for f in cleanup_dir.glob('*.py') if f.name != '__init__.py'])
@@ -32,7 +32,7 @@ def print_system_info():
         size = script.stat().st_size / 1024
         print(f"   • {script.name:<30} ({size:.1f} KB)")
     print()
-    
+
     # Recent activity
     reports_dir = cleanup_dir / 'reports'
     if reports_dir.exists():
@@ -44,22 +44,22 @@ def print_system_info():
                 print(f"   • {report.name}")
                 print(f"     {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
             print()
-    
+
     # Backups
     backup_dir = repo_root / 'backups'
     if backup_dir.exists():
         snapshots = [d for d in backup_dir.iterdir() if d.is_dir()]
         archives = [f for f in backup_dir.iterdir() if f.suffix == '.gz']
-        
+
         if snapshots or archives:
             print(f"💾 Backups: {len(snapshots)} snapshots, {len(archives)} archives")
-            
+
             if snapshots:
                 latest = max(snapshots, key=lambda p: p.stat().st_mtime)
                 mtime = datetime.fromtimestamp(latest.stat().st_mtime)
                 print(f"   Latest: {latest.name} ({mtime.strftime('%Y-%m-%d %H:%M:%S')})")
             print()
-    
+
     # Quick start commands
     print("🚀 Quick Start:")
     print()
@@ -75,7 +75,7 @@ def print_system_info():
     print("   Create backup:")
     print("   $ python scripts/repo_cleanup/backup_manager.py create 'My backup'")
     print()
-    
+
     print("="*70)
     print("📖 For full documentation: scripts/repo_cleanup/README.md")
     print("="*70)

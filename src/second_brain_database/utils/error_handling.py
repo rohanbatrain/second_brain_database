@@ -105,7 +105,7 @@ class ErrorContext:
     ip_address: Optional[str] = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging."""
         return {
@@ -134,12 +134,12 @@ class RetryConfig:
 class CircuitBreaker:
     """
     Circuit breaker implementation for protecting against cascading failures.
-    
+
     The circuit breaker monitors the failure rate of operations and opens
     when the failure threshold is exceeded, preventing further calls until
     the service recovers.
     """
-    
+
     def __init__(
         self,
         name: str,
@@ -151,29 +151,29 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.expected_exception = expected_exception
-        
+
         self.failure_count = 0
         self.last_failure_time = None
         self.state = CircuitBreakerState.CLOSED
         self.success_count = 0
-        
+
         logger.info(
             "Circuit breaker initialized: %s (threshold: %d, timeout: %ds)",
             name, failure_threshold, recovery_timeout
         )
-    
+
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         """
         Execute function with circuit breaker protection.
-        
+
         Args:
             func: Function to execute
             *args: Function arguments
             **kwargs: Function keyword arguments
-            
+
         Returns:
             Function result
-            
+
         Raises:
             CircuitBreakerOpenError: When circuit is open
             Original exception: When function fails
@@ -184,22 +184,22 @@ class CircuitBreaker:
                 logger.info("Circuit breaker %s moved to HALF_OPEN state", self.name)
             else:
                 raise CircuitBreakerOpenError(f"Circuit breaker {self.name} is OPEN")
-        
+
         try:
             result = await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(*args, **kwargs)
             self._on_success()
             return result
-            
+
         except self.expected_exception as e:
             self._on_failure()
             raise
-    
+
     def _should_attempt_reset(self) -> bool:
         """Check if circuit breaker should attempt to reset."""
         if self.last_failure_time is None:
             return True
         return time.time() - self.last_failure_time >= self.recovery_timeout
-    
+
     def _on_success(self):
         """Handle successful operation."""
         self.failure_count = 0
@@ -207,19 +207,19 @@ class CircuitBreaker:
             self.state = CircuitBreakerState.CLOSED
             logger.info("Circuit breaker %s moved to CLOSED state", self.name)
         self.success_count += 1
-    
+
     def _on_failure(self):
         """Handle failed operation."""
         self.failure_count += 1
         self.last_failure_time = time.time()
-        
+
         if self.failure_count >= self.failure_threshold:
             self.state = CircuitBreakerState.OPEN
             logger.warning(
                 "Circuit breaker %s moved to OPEN state (failures: %d)",
                 self.name, self.failure_count
             )
-            
+
             # Send alert for circuit breaker opening
             if MONITORING_ENABLED:
                 asyncio.create_task(family_monitor.send_alert(
@@ -232,7 +232,7 @@ class CircuitBreaker:
                         "threshold": self.failure_threshold
                     }
                 ))
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get circuit breaker statistics."""
         return {
@@ -249,11 +249,11 @@ class CircuitBreaker:
 class BulkheadSemaphore:
     """
     Bulkhead pattern implementation using semaphores for resource isolation.
-    
+
     Limits the number of concurrent operations to prevent resource exhaustion
     and isolate failures to specific resource pools.
     """
-    
+
     def __init__(self, name: str, capacity: int = DEFAULT_BULKHEAD_CAPACITY):
         self.name = name
         self.capacity = capacity
@@ -261,30 +261,30 @@ class BulkheadSemaphore:
         self.active_count = 0
         self.total_requests = 0
         self.rejected_requests = 0
-        
+
         logger.info("Bulkhead semaphore initialized: %s (capacity: %d)", name, capacity)
-    
+
     async def acquire(self, timeout: Optional[float] = None) -> bool:
         """
         Acquire semaphore with optional timeout.
-        
+
         Args:
             timeout: Maximum time to wait for acquisition
-            
+
         Returns:
             True if acquired, False if timeout
         """
         self.total_requests += 1
-        
+
         try:
             if timeout:
                 await asyncio.wait_for(self.semaphore.acquire(), timeout=timeout)
             else:
                 await self.semaphore.acquire()
-            
+
             self.active_count += 1
             return True
-            
+
         except asyncio.TimeoutError:
             self.rejected_requests += 1
             logger.warning(
@@ -292,13 +292,13 @@ class BulkheadSemaphore:
                 self.name, self.active_count, self.capacity
             )
             return False
-    
+
     def release(self):
         """Release semaphore."""
         if self.active_count > 0:
             self.semaphore.release()
             self.active_count -= 1
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get bulkhead statistics."""
         return {
@@ -371,42 +371,42 @@ async def retry_with_backoff(
 ) -> Any:
     """
     Execute function with retry logic and configurable backoff strategies.
-    
+
     Args:
         func: Function to execute
         config: Retry configuration
         context: Error context for logging
         *args: Function arguments
         **kwargs: Function keyword arguments
-        
+
     Returns:
         Function result
-        
+
     Raises:
         RetryExhaustedError: When all retry attempts are exhausted
         Original exception: When non-retryable exception occurs
     """
     last_exception = None
     delay = config.initial_delay
-    
+
     for attempt in range(config.max_attempts):
         try:
             if asyncio.iscoroutinefunction(func):
                 result = await func(*args, **kwargs)
             else:
                 result = func(*args, **kwargs)
-            
+
             if attempt > 0:
                 logger.info(
                     "Operation succeeded after %d attempts: %s",
                     attempt + 1, context.operation
                 )
-            
+
             return result
-            
+
         except Exception as e:
             last_exception = e
-            
+
             # Check if exception is non-retryable
             if config.non_retryable_exceptions and any(
                 isinstance(e, exc_type) for exc_type in config.non_retryable_exceptions
@@ -416,7 +416,7 @@ async def retry_with_backoff(
                     context.operation, str(e)
                 )
                 raise
-            
+
             # Check if exception is retryable (if specified)
             if config.retryable_exceptions and not any(
                 isinstance(e, exc_type) for exc_type in config.retryable_exceptions
@@ -426,14 +426,14 @@ async def retry_with_backoff(
                     context.operation, str(e)
                 )
                 raise
-            
+
             # Log retry attempt
             if attempt < config.max_attempts - 1:
                 logger.warning(
                     "Attempt %d/%d failed for %s, retrying in %.2fs: %s",
                     attempt + 1, config.max_attempts, context.operation, delay, str(e)
                 )
-                
+
                 await asyncio.sleep(delay)
                 delay = _calculate_next_delay(delay, config)
             else:
@@ -441,7 +441,7 @@ async def retry_with_backoff(
                     "All %d attempts failed for %s: %s",
                     config.max_attempts, context.operation, str(e)
                 )
-    
+
     # All attempts exhausted
     raise RetryExhaustedError(
         f"Operation {context.operation} failed after {config.max_attempts} attempts. "
@@ -467,10 +467,10 @@ def _calculate_next_delay(current_delay: float, config: RetryConfig) -> float:
 def sanitize_sensitive_data(data: Any) -> Any:
     """
     Sanitize sensitive data from logs and error messages.
-    
+
     Args:
         data: Data to sanitize (string, dict, list, etc.)
-        
+
     Returns:
         Sanitized data with sensitive information redacted
     """
@@ -479,7 +479,7 @@ def sanitize_sensitive_data(data: Any) -> Any:
         for pattern in SENSITIVE_PATTERNS:
             sanitized = re.sub(pattern, r'\1<REDACTED>', sanitized, flags=re.IGNORECASE)
         return sanitized
-    
+
     elif isinstance(data, dict):
         sanitized = {}
         for key, value in data.items():
@@ -491,13 +491,13 @@ def sanitize_sensitive_data(data: Any) -> Any:
             else:
                 sanitized[key] = sanitize_sensitive_data(value)
         return sanitized
-    
+
     elif isinstance(data, list):
         return [sanitize_sensitive_data(item) for item in data]
-    
+
     elif isinstance(data, tuple):
         return tuple(sanitize_sensitive_data(item) for item in data)
-    
+
     else:
         return data
 
@@ -509,28 +509,28 @@ def validate_input(
 ) -> Dict[str, Any]:
     """
     Validate and sanitize input data with comprehensive security controls.
-    
+
     Args:
         data: Input data to validate
         schema: Validation schema
         context: Error context for logging
-        
+
     Returns:
         Validated and sanitized data
-        
+
     Raises:
         ValidationError: When validation fails
     """
     try:
         validated = {}
-        
+
         for field, rules in schema.items():
             value = data.get(field) if isinstance(data, dict) else getattr(data, field, None)
-            
+
             # Check required fields
             if rules.get('required', False) and value is None:
                 raise ValidationError(f"Required field '{field}' is missing")
-            
+
             if value is not None:
                 # Type validation
                 expected_type = rules.get('type')
@@ -539,51 +539,51 @@ def validate_input(
                         f"Field '{field}' must be of type {expected_type.__name__}, "
                         f"got {type(value).__name__}"
                     )
-                
+
                 # Length validation for strings
                 if isinstance(value, str):
                     min_length = rules.get('min_length')
                     max_length = rules.get('max_length')
-                    
+
                     if min_length and len(value) < min_length:
                         raise ValidationError(
                             f"Field '{field}' must be at least {min_length} characters"
                         )
-                    
+
                     if max_length and len(value) > max_length:
                         raise ValidationError(
                             f"Field '{field}' must be at most {max_length} characters"
                         )
-                    
+
                     # Pattern validation
                     pattern = rules.get('pattern')
                     if pattern and not re.match(pattern, value):
                         raise ValidationError(f"Field '{field}' does not match required pattern")
-                    
+
                     # Sanitize string input
                     value = _sanitize_string_input(value)
-                
+
                 # Numeric validation
                 if isinstance(value, (int, float)):
                     min_value = rules.get('min_value')
                     max_value = rules.get('max_value')
-                    
+
                     if min_value is not None and value < min_value:
                         raise ValidationError(f"Field '{field}' must be at least {min_value}")
-                    
+
                     if max_value is not None and value > max_value:
                         raise ValidationError(f"Field '{field}' must be at most {max_value}")
-                
+
                 # Custom validation function
                 validator = rules.get('validator')
                 if validator and not validator(value):
                     raise ValidationError(f"Field '{field}' failed custom validation")
-                
+
                 validated[field] = value
-        
+
         logger.debug("Input validation successful for %s", context.operation)
         return validated
-        
+
     except ValidationError:
         raise
     except Exception as e:
@@ -599,17 +599,17 @@ def _sanitize_string_input(value: str) -> str:
     """Sanitize string input to prevent injection attacks."""
     # Remove null bytes
     value = value.replace('\x00', '')
-    
+
     # Limit length to prevent DoS
     if len(value) > 10000:
         value = value[:10000]
-    
+
     # Remove or escape potentially dangerous characters
     # This is a basic implementation - in production, use a proper sanitization library
     dangerous_chars = ['<', '>', '"', "'", '&', '\r', '\n']
     for char in dangerous_chars:
         value = value.replace(char, '')
-    
+
     return value.strip()
 
 
@@ -620,17 +620,17 @@ def create_user_friendly_error(
 ) -> Dict[str, Any]:
     """
     Create user-friendly error messages from technical exceptions.
-    
+
     Args:
         exception: Original exception
         context: Error context
         include_technical_details: Whether to include technical details
-        
+
     Returns:
         User-friendly error response
     """
     error_type = type(exception).__name__
-    
+
     # Map technical errors to user-friendly messages
     user_messages = {
         'ValidationError': 'The information you provided is not valid. Please check your input and try again.',
@@ -649,9 +649,9 @@ def create_user_friendly_error(
         'DatabaseError': 'A database error occurred. Please try again later.',
         'EmailError': 'Unable to send email. Please verify your email address and try again.',
     }
-    
+
     user_message = user_messages.get(error_type, 'An unexpected error occurred. Please try again later.')
-    
+
     error_response = {
         'error': {
             'code': error_type.upper(),
@@ -661,7 +661,7 @@ def create_user_friendly_error(
             'support_reference': _generate_support_reference(exception, context)
         }
     }
-    
+
     # Add technical details for debugging (admin users or development)
     if include_technical_details:
         error_response['error']['technical_details'] = {
@@ -670,11 +670,11 @@ def create_user_friendly_error(
             'operation': context.operation,
             'context': sanitize_sensitive_data(context.to_dict())
         }
-    
+
     # Add specific error context based on exception type
     if hasattr(exception, 'context'):
         error_response['error']['context'] = sanitize_sensitive_data(exception.context)
-    
+
     return error_response
 
 
@@ -696,7 +696,7 @@ def handle_errors(
 ):
     """
     Comprehensive error handling decorator with circuit breaker, bulkhead, retry, and fallback.
-    
+
     Args:
         operation_name: Name of the operation for logging
         circuit_breaker: Circuit breaker name (creates if not exists)
@@ -717,9 +717,9 @@ def handle_errors(
                 request_id=kwargs.get('request_id'),
                 ip_address=kwargs.get('ip_address')
             )
-            
+
             start_time = time.time()
-            
+
             try:
                 # Bulkhead protection
                 bulkhead_sem = None
@@ -728,12 +728,12 @@ def handle_errors(
                     acquired = await bulkhead_sem.acquire(timeout=5.0)
                     if not acquired:
                         raise BulkheadCapacityError(f"Bulkhead {bulkhead} at capacity")
-                
+
                 try:
                     # Circuit breaker protection
                     if circuit_breaker:
                         cb = get_circuit_breaker(circuit_breaker)
-                        
+
                         # Retry logic
                         if retry_config:
                             async def circuit_breaker_func():
@@ -755,24 +755,24 @@ def handle_errors(
                                 result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
                             else:
                                 result = await func(*args, **kwargs)
-                    
+
                     duration = time.time() - start_time
                     logger.info(
                         "Operation %s completed successfully in %.3fs",
                         operation_name, duration,
                         extra=context.to_dict()
                     )
-                    
+
                     return result
-                    
+
                 finally:
                     # Release bulkhead
                     if bulkhead_sem:
                         bulkhead_sem.release()
-            
+
             except Exception as e:
                 duration = time.time() - start_time
-                
+
                 # Log error with context
                 logger.error(
                     "Operation %s failed after %.3fs: %s",
@@ -783,7 +783,7 @@ def handle_errors(
                         'traceback': traceback.format_exc()
                     }
                 )
-                
+
                 # Send alert for critical errors
                 if MONITORING_ENABLED and isinstance(e, (
                     CircuitBreakerOpenError, BulkheadCapacityError, RetryExhaustedError
@@ -799,7 +799,7 @@ def handle_errors(
                             "context": sanitize_sensitive_data(context.to_dict())
                         }
                     )
-                
+
                 # Try fallback function
                 if fallback_func:
                     try:
@@ -812,22 +812,22 @@ def handle_errors(
                             "Fallback failed for %s: %s",
                             operation_name, str(fallback_error)
                         )
-                
+
                 # Return user-friendly error or re-raise
                 if user_friendly_errors:
                     error_response = create_user_friendly_error(e, context)
                     # In a real application, you might want to raise a custom HTTP exception
                     # For now, we'll add the error response to the exception
                     e.user_friendly_response = error_response
-                
+
                 raise
-        
+
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
             # Simplified synchronous version
             context = ErrorContext(operation=operation_name)
             start_time = time.time()
-            
+
             try:
                 result = func(*args, **kwargs)
                 duration = time.time() - start_time
@@ -836,26 +836,26 @@ def handle_errors(
                     operation_name, duration
                 )
                 return result
-                
+
             except Exception as e:
                 duration = time.time() - start_time
                 logger.error(
                     "Operation %s (sync) failed after %.3fs: %s",
                     operation_name, duration, str(e)
                 )
-                
+
                 if user_friendly_errors:
                     error_response = create_user_friendly_error(e, context)
                     e.user_friendly_response = error_response
-                
+
                 raise
-        
+
         # Return appropriate wrapper
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         else:
             return sync_wrapper
-    
+
     return decorator
 
 
@@ -867,21 +867,21 @@ async def get_error_handling_health() -> Dict[str, Any]:
         "bulkheads": {},
         "overall_healthy": True
     }
-    
+
     # Check circuit breakers
     for name, cb in _circuit_breakers.items():
         stats = cb.get_stats()
         health_status["circuit_breakers"][name] = stats
         if stats["state"] == CircuitBreakerState.OPEN.value:
             health_status["overall_healthy"] = False
-    
+
     # Check bulkheads
     for name, bulkhead in _bulkheads.items():
         stats = bulkhead.get_stats()
         health_status["bulkheads"][name] = stats
         if stats["rejection_rate"] > 0.1:  # 10% rejection rate threshold
             health_status["overall_healthy"] = False
-    
+
     return health_status
 
 
@@ -895,14 +895,14 @@ async def with_graceful_degradation(
 ) -> Any:
     """
     Execute function with graceful degradation fallback.
-    
+
     Args:
         primary_func: Primary function to execute
         fallback_func: Fallback function if primary fails
         context: Error context
         *args: Function arguments
         **kwargs: Function keyword arguments
-        
+
     Returns:
         Result from primary or fallback function
     """
@@ -913,7 +913,7 @@ async def with_graceful_degradation(
             "Primary function failed for %s, attempting graceful degradation: %s",
             context.operation, str(e)
         )
-        
+
         try:
             result = await fallback_func(*args, **kwargs)
             logger.info("Graceful degradation successful for %s", context.operation)

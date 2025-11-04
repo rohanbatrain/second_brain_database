@@ -20,10 +20,10 @@ from typing import Dict, List, Any
 
 class TokenRequestWorkflowValidator:
     """Validates token request workflow functionality."""
-    
+
     def __init__(self):
         self.test_results = []
-        
+
     def log_test_result(self, test_name: str, success: bool, details: str = ""):
         """Log test result for reporting."""
         status = "✅ PASS" if success else "❌ FAIL"
@@ -37,11 +37,11 @@ class TokenRequestWorkflowValidator:
         print(f"{status}: {test_name}")
         if details:
             print(f"    Details: {details}")
-    
+
     def validate_token_request_structure(self):
         """Validate token request data structure requirements."""
         test_name = "Token Request Data Structure Validation"
-        
+
         try:
             # Define expected token request structure based on requirements
             expected_fields = {
@@ -59,10 +59,10 @@ class TokenRequestWorkflowValidator:
                 "reviewed_at": (datetime, type(None)),
                 "processed_at": (datetime, type(None))
             }
-            
+
             # Validate required status values
             valid_statuses = {"pending", "approved", "denied", "expired", "auto_approved"}
-            
+
             # Test sample token request
             sample_request = {
                 "request_id": "req_abc123def456",
@@ -79,12 +79,12 @@ class TokenRequestWorkflowValidator:
                 "reviewed_at": None,
                 "processed_at": None
             }
-            
+
             # Validate structure
             for field, expected_type in expected_fields.items():
                 if field not in sample_request:
                     raise AssertionError(f"Missing required field: {field}")
-                
+
                 value = sample_request[field]
                 if isinstance(expected_type, tuple):
                     if not any(isinstance(value, t) for t in expected_type):
@@ -92,20 +92,20 @@ class TokenRequestWorkflowValidator:
                 else:
                     if not isinstance(value, expected_type):
                         raise AssertionError(f"Field {field} has invalid type: {type(value)}")
-            
+
             # Validate status
             if sample_request["status"] not in valid_statuses:
                 raise AssertionError(f"Invalid status: {sample_request['status']}")
-            
+
             self.log_test_result(test_name, True, "Token request structure is valid")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Structure validation failed: {str(e)}")
-    
+
     def validate_request_creation_logic(self):
         """Validate token request creation business logic."""
         test_name = "Token Request Creation Logic"
-        
+
         try:
             # Test validation rules
             validation_tests = [
@@ -150,48 +150,48 @@ class TokenRequestWorkflowValidator:
                     "should_pass": True
                 }
             ]
-            
+
             passed_validations = 0
             for test in validation_tests:
                 try:
                     # Simulate validation logic
                     amount = test["amount"]
                     reason = test["reason"]
-                    
+
                     if amount <= 0:
                         if test["should_pass"]:
                             raise AssertionError(f"Test '{test['name']}' should have passed but failed validation")
                         continue
-                    
+
                     if not reason or len(reason.strip()) < 5:
                         if test["should_pass"]:
                             raise AssertionError(f"Test '{test['name']}' should have passed but failed validation")
                         continue
-                    
+
                     if not test["should_pass"]:
                         raise AssertionError(f"Test '{test['name']}' should have failed but passed validation")
-                    
+
                     passed_validations += 1
-                    
+
                 except AssertionError:
                     raise
                 except Exception:
                     if test["should_pass"]:
                         raise AssertionError(f"Test '{test['name']}' failed unexpectedly")
-            
+
             self.log_test_result(test_name, True, f"All {len(validation_tests)} validation tests passed")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Validation logic failed: {str(e)}")
-    
+
     def validate_auto_approval_logic(self):
         """Validate auto-approval criteria and processing."""
         test_name = "Auto-Approval Logic Validation"
-        
+
         try:
             # Test auto-approval scenarios
             auto_approval_threshold = 50
-            
+
             test_cases = [
                 {
                     "amount": 25,
@@ -218,30 +218,30 @@ class TokenRequestWorkflowValidator:
                     "expected_status": "pending"
                 }
             ]
-            
+
             for case in test_cases:
                 # Simulate auto-approval logic
                 auto_approved = case["amount"] <= case["threshold"]
                 status = "auto_approved" if auto_approved else "pending"
-                
+
                 if auto_approved != case["expected_auto_approved"]:
                     raise AssertionError(f"Auto-approval logic failed for amount {case['amount']}")
-                
+
                 if status != case["expected_status"]:
                     raise AssertionError(f"Status logic failed for amount {case['amount']}")
-            
+
             self.log_test_result(test_name, True, f"Auto-approval logic validated for {len(test_cases)} scenarios")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Auto-approval validation failed: {str(e)}")
-    
+
     def validate_request_expiration_logic(self):
         """Validate request expiration handling."""
         test_name = "Request Expiration Logic"
-        
+
         try:
             now = datetime.now(timezone.utc)
-            
+
             # Test expiration scenarios
             expiration_tests = [
                 {
@@ -265,23 +265,23 @@ class TokenRequestWorkflowValidator:
                     "is_expired": False
                 }
             ]
-            
+
             for test in expiration_tests:
                 # Simulate expiration check logic
                 is_expired = now >= test["expires_at"]
-                
+
                 if is_expired != test["is_expired"]:
                     raise AssertionError(f"Expiration logic failed for '{test['name']}'")
-            
+
             self.log_test_result(test_name, True, f"Expiration logic validated for {len(expiration_tests)} scenarios")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Expiration validation failed: {str(e)}")
-    
+
     def validate_review_workflow_logic(self):
         """Validate admin review workflow logic."""
         test_name = "Review Workflow Logic"
-        
+
         try:
             # Test review scenarios
             review_tests = [
@@ -296,39 +296,39 @@ class TokenRequestWorkflowValidator:
                     "should_process": False
                 }
             ]
-            
+
             valid_actions = {"approve", "deny"}
-            
+
             for test in review_tests:
                 # Validate action
                 if test["action"] not in valid_actions:
                     raise AssertionError(f"Invalid action: {test['action']}")
-                
+
                 # Simulate review logic
                 new_status = "approved" if test["action"] == "approve" else "denied"
                 should_process = test["action"] == "approve"
-                
+
                 if new_status != test["expected_status"]:
                     raise AssertionError(f"Status logic failed for action '{test['action']}'")
-                
+
                 if should_process != test["should_process"]:
                     raise AssertionError(f"Processing logic failed for action '{test['action']}'")
-            
+
             # Test invalid actions
             invalid_actions = ["maybe", "pending", "cancel", ""]
             for invalid_action in invalid_actions:
                 if invalid_action in valid_actions:
                     raise AssertionError(f"Invalid action '{invalid_action}' was accepted")
-            
+
             self.log_test_result(test_name, True, "Review workflow logic validated")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Review workflow validation failed: {str(e)}")
-    
+
     def validate_permission_requirements(self):
         """Validate permission requirements for token request operations."""
         test_name = "Permission Requirements Validation"
-        
+
         try:
             # Define permission scenarios
             permission_tests = [
@@ -369,7 +369,7 @@ class TokenRequestWorkflowValidator:
                     "should_allow": False
                 }
             ]
-            
+
             for test in permission_tests:
                 # Simulate permission check logic
                 if test["operation"] == "create_request":
@@ -378,19 +378,19 @@ class TokenRequestWorkflowValidator:
                     has_permission = test["is_family_admin"]
                 else:
                     has_permission = False
-                
+
                 if has_permission != test["should_allow"]:
                     raise AssertionError(f"Permission check failed for {test['operation']} with role {test['user_role']}")
-            
+
             self.log_test_result(test_name, True, f"Permission requirements validated for {len(permission_tests)} scenarios")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Permission validation failed: {str(e)}")
-    
+
     def validate_audit_trail_requirements(self):
         """Validate audit trail and logging requirements."""
         test_name = "Audit Trail Requirements"
-        
+
         try:
             # Define required audit fields
             required_audit_fields = {
@@ -401,7 +401,7 @@ class TokenRequestWorkflowValidator:
                 "request_id": str,
                 "operation_context": dict
             }
-            
+
             # Test audit log structure
             sample_audit_log = {
                 "operation_type": "create_token_request",
@@ -417,32 +417,32 @@ class TokenRequestWorkflowValidator:
                     "user_agent": "Mozilla/5.0..."
                 }
             }
-            
+
             # Validate audit log structure
             for field, expected_type in required_audit_fields.items():
                 if field not in sample_audit_log:
                     raise AssertionError(f"Missing required audit field: {field}")
-                
+
                 if not isinstance(sample_audit_log[field], expected_type):
                     raise AssertionError(f"Audit field {field} has invalid type")
-            
+
             # Validate operation context
             context = sample_audit_log["operation_context"]
             required_context_fields = ["amount", "reason", "auto_approved"]
-            
+
             for field in required_context_fields:
                 if field not in context:
                     raise AssertionError(f"Missing required context field: {field}")
-            
+
             self.log_test_result(test_name, True, "Audit trail requirements validated")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Audit trail validation failed: {str(e)}")
-    
+
     def validate_notification_requirements(self):
         """Validate notification requirements for token requests."""
         test_name = "Notification Requirements"
-        
+
         try:
             # Define notification scenarios
             notification_scenarios = [
@@ -472,7 +472,7 @@ class TokenRequestWorkflowValidator:
                     "notification_type": "token_request_expired"
                 }
             ]
-            
+
             # Validate notification structure
             for scenario in notification_scenarios:
                 # Check required fields
@@ -480,23 +480,23 @@ class TokenRequestWorkflowValidator:
                 for field in required_fields:
                     if field not in scenario:
                         raise AssertionError(f"Missing notification field: {field}")
-                
+
                 # Validate recipients
                 if not isinstance(scenario["recipients"], list):
                     raise AssertionError(f"Recipients must be a list for event: {scenario['event']}")
-                
+
                 if len(scenario["recipients"]) == 0:
                     raise AssertionError(f"No recipients specified for event: {scenario['event']}")
-            
+
             self.log_test_result(test_name, True, f"Notification requirements validated for {len(notification_scenarios)} scenarios")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Notification validation failed: {str(e)}")
-    
+
     def validate_rate_limiting_requirements(self):
         """Validate rate limiting requirements."""
         test_name = "Rate Limiting Requirements"
-        
+
         try:
             # Define rate limiting scenarios
             rate_limits = {
@@ -511,64 +511,64 @@ class TokenRequestWorkflowValidator:
                     "operation": "review_token_request"
                 }
             }
-            
+
             # Validate rate limit structure
             for operation, config in rate_limits.items():
                 required_fields = ["limit", "window", "operation"]
                 for field in required_fields:
                     if field not in config:
                         raise AssertionError(f"Missing rate limit field {field} for {operation}")
-                
+
                 # Validate values
                 if config["limit"] <= 0:
                     raise AssertionError(f"Invalid rate limit for {operation}: {config['limit']}")
-                
+
                 if config["window"] <= 0:
                     raise AssertionError(f"Invalid rate window for {operation}: {config['window']}")
-            
+
             self.log_test_result(test_name, True, f"Rate limiting requirements validated for {len(rate_limits)} operations")
-            
+
         except Exception as e:
             self.log_test_result(test_name, False, f"Rate limiting validation failed: {str(e)}")
-    
+
     async def run_all_validations(self):
         """Run all token request workflow validations."""
         print("🧪 Running Token Request Workflow Validation Tests")
         print("=" * 60)
-        
+
         # Core structure and logic validations
         self.validate_token_request_structure()
         self.validate_request_creation_logic()
         self.validate_auto_approval_logic()
         self.validate_request_expiration_logic()
         self.validate_review_workflow_logic()
-        
+
         # Security and compliance validations
         self.validate_permission_requirements()
         self.validate_audit_trail_requirements()
         self.validate_notification_requirements()
         self.validate_rate_limiting_requirements()
-        
+
         # Print summary
         print("\n" + "=" * 60)
         print("📊 Validation Results Summary")
         print("=" * 60)
-        
+
         total_tests = len(self.test_results)
         passed_tests = sum(1 for result in self.test_results if result["success"])
         failed_tests = total_tests - passed_tests
-        
+
         print(f"Total Validations: {total_tests}")
         print(f"Passed: {passed_tests} ✅")
         print(f"Failed: {failed_tests} ❌")
         print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%")
-        
+
         if failed_tests > 0:
             print("\n❌ Failed Validations:")
             for result in self.test_results:
                 if not result["success"]:
                     print(f"  - {result['test']}: {result['details']}")
-        
+
         print("\n🎯 Requirements Coverage:")
         print("  ✅ 6.1 - Token request creation and validation")
         print("  ✅ 6.2 - Admin notification and review processes")
@@ -576,7 +576,7 @@ class TokenRequestWorkflowValidator:
         print("  ✅ 6.4 - Auto-approval criteria and processing")
         print("  ✅ 6.5 - Request expiration and cleanup")
         print("  ✅ 6.6 - Request history and audit trail maintenance")
-        
+
         return passed_tests == total_tests
 
 
@@ -584,7 +584,7 @@ async def main():
     """Main validation execution function."""
     validator = TokenRequestWorkflowValidator()
     success = await validator.run_all_validations()
-    
+
     if success:
         print("\n🎉 All token request workflow validations passed!")
         return 0

@@ -24,12 +24,12 @@ USAGE_GUIDE = """
 ════════════════════════════════════════════════════════════════════
 
 🎯 Using the Shell Script (Easiest):
-   
+
    cd scripts/repo_cleanup
    ./cleanup.sh start
 
 🎯 Using Python Directly:
-   
+
    python scripts/repo_cleanup/quick_start.py
 
 This launches an interactive wizard that guides you through all options.
@@ -58,30 +58,30 @@ This will:
 ════════════════════════════════════════════════════════════════════
 
 📊 Analyze Files Only:
-   
+
    python scripts/repo_cleanup/file_analyzer.py
-   
+
    Output:
    • reports/analysis_report_TIMESTAMP.json
    • reports/migration_plan_TIMESTAMP.md
 
 ✅ Validate Structure Only:
-   
+
    python scripts/repo_cleanup/structure_validator.py
-   
+
    Output:
    • reports/validation_report_TIMESTAMP.json
 
 📦 Migrate Files Only:
-   
+
    # Dry-run first (recommended)
    python scripts/repo_cleanup/file_migrator.py --dry-run
-   
+
    # Then execute
    python scripts/repo_cleanup/file_migrator.py
 
 📚 Consolidate Documentation:
-   
+
    python scripts/repo_cleanup/doc_consolidator.py
 
 ════════════════════════════════════════════════════════════════════
@@ -89,29 +89,29 @@ This will:
 ════════════════════════════════════════════════════════════════════
 
 💾 Create Backup:
-   
+
    python scripts/repo_cleanup/backup_manager.py create "My backup description"
 
 📋 List All Backups:
-   
+
    python scripts/repo_cleanup/backup_manager.py list
 
 🔍 Verify Backup Integrity:
-   
+
    python scripts/repo_cleanup/backup_manager.py verify snapshot_20231104_120000
 
 📦 Create Compressed Archive:
-   
+
    # Archive latest snapshot
    python scripts/repo_cleanup/backup_manager.py archive
-   
+
    # Archive specific snapshot
    python scripts/repo_cleanup/backup_manager.py archive snapshot_20231104_120000
 
 🔙 Restore from Backup:
-   
+
    ⚠️  WARNING: This will overwrite current files!
-   
+
    python scripts/repo_cleanup/backup_manager.py restore snapshot_20231104_120000
 
 ════════════════════════════════════════════════════════════════════
@@ -121,22 +121,22 @@ This will:
 All reports are saved in: scripts/repo_cleanup/reports/
 
 📊 View Analysis Report:
-   
+
    cat scripts/repo_cleanup/reports/analysis_report_*.json | jq
-   
+
    # Or use Python
    python -m json.tool scripts/repo_cleanup/reports/analysis_report_*.json
 
 📋 View Migration Plan:
-   
+
    cat scripts/repo_cleanup/reports/migration_plan_*.md
 
 ✅ View Validation Report:
-   
+
    cat scripts/repo_cleanup/reports/validation_report_*.json | jq
 
 📝 View Execution Log:
-   
+
    cat scripts/repo_cleanup/reports/cleanup_execution_*.log
 
 ════════════════════════════════════════════════════════════════════
@@ -147,7 +147,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 
    1. List available backups:
       python scripts/repo_cleanup/backup_manager.py list
-   
+
    2. Restore from backup:
       python scripts/repo_cleanup/backup_manager.py restore <snapshot_name>
 
@@ -161,10 +161,10 @@ All reports are saved in: scripts/repo_cleanup/reports/
 
    If changes are committed:
       git revert HEAD
-   
+
    If changes are not committed:
       git reset --hard HEAD~1
-   
+
    Nuclear option (restore from backup):
       python scripts/repo_cleanup/backup_manager.py restore <snapshot_name>
 
@@ -172,7 +172,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 
    Check Python version (requires 3.8+):
       python --version
-   
+
    Check if scripts are executable:
       chmod +x scripts/repo_cleanup/*.py
 
@@ -183,7 +183,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 🎛️  Customize Categorization Rules:
 
    Edit: scripts/repo_cleanup/file_analyzer.py
-   
+
    Add new rule:
    self.rules['my_category'] = {
        'patterns': [r'my_pattern.*\\.py$'],
@@ -194,7 +194,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 🎛️  Customize Validation Rules:
 
    Edit: scripts/repo_cleanup/structure_validator.py
-   
+
    Add new validation:
    def validate_my_rule(self):
        # Your validation logic
@@ -207,7 +207,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 🎛️  Custom Backup Location:
 
    Edit: scripts/repo_cleanup/backup_manager.py
-   
+
    Change:
    self.backup_dir = self.repo_root / 'my_custom_backup_dir'
 
@@ -239,7 +239,7 @@ All reports are saved in: scripts/repo_cleanup/reports/
 
 ════════════════════════════════════════════════════════════════════
 
-Questions or issues? 
+Questions or issues?
 • Check the README: scripts/repo_cleanup/README.md
 • View system info: python scripts/repo_cleanup/system_info.py
 • List backups: python scripts/repo_cleanup/backup_manager.py list

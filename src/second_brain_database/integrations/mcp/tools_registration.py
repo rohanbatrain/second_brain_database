@@ -54,10 +54,10 @@ async def get_server_info() -> dict:
 @mcp.tool
 async def echo_message(message: str) -> str:
     """Echo a message back to the client.
-    
+
     Args:
         message: The message to echo back
-        
+
     Returns:
         The echoed message with a prefix
     """
@@ -67,11 +67,11 @@ async def echo_message(message: str) -> str:
 @mcp.tool
 def add_numbers(a: int, b: int) -> int:
     """Add two integer numbers together.
-    
+
     Args:
         a: First number to add
         b: Second number to add
-        
+
     Returns:
         The sum of a and b
     """
@@ -81,7 +81,7 @@ def add_numbers(a: int, b: int) -> int:
 @mcp.tool
 def health_check_tool() -> dict:
     """Perform a health check and return detailed status.
-    
+
     Returns:
         Dictionary containing health status information
     """
@@ -111,7 +111,7 @@ def process_data(
         "original": data,
         "operation": operation
     }
-    
+
     if operation == "uppercase":
         result["processed"] = data.upper()
     elif operation == "lowercase":
@@ -121,10 +121,10 @@ def process_data(
     else:
         result["processed"] = data
         result["warning"] = f"Unknown operation: {operation}"
-    
+
     if include_timestamp:
         result["timestamp"] = datetime.now().isoformat()
-    
+
     return result
 
 
@@ -143,7 +143,7 @@ def divide_numbers(a: float, b: float) -> dict:
                 "a": a,
                 "b": b
             }
-        
+
         result = a / b
         return {
             "result": result,
@@ -151,7 +151,7 @@ def divide_numbers(a: float, b: float) -> dict:
             "b": b,
             "operation": "division"
         }
-    
+
     except Exception as e:
         return {
             "error": f"Calculation error: {str(e)}",
@@ -163,7 +163,7 @@ def divide_numbers(a: float, b: float) -> dict:
 def register_example_tools():
     """
     Register example tools with the MCP server.
-    
+
     Note: In FastMCP 2.x, tools are automatically registered when the module
     is imported and the @mcp.tool decorators are executed. This function
     is provided for explicit registration if needed.

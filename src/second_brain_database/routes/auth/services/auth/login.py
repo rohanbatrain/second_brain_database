@@ -44,12 +44,12 @@ request_ip_ctx = contextvars.ContextVar("request_ip", default=None)
 async def get_user_auth_methods(user_id: str) -> Dict[str, Any]:
     """
     Get available authentication methods for a user.
-    
+
     Checks what authentication methods are available and returns user preferences.
-    
+
     Args:
         user_id (str): User ID to check authentication methods for
-        
+
     Returns:
         Dict[str, Any]: Available authentication methods and preferences
     """
@@ -64,10 +64,10 @@ async def get_user_auth_methods(user_id: str) -> Dict[str, Any]:
                 "has_webauthn": False,
                 "webauthn_credential_count": 0,
             }
-        
+
         # Check for password authentication
         has_password = bool(user.get("hashed_password"))
-        
+
         # Remove WebAuthn/passkey support
         has_webauthn = False
         available_methods = []
@@ -85,7 +85,7 @@ async def get_user_auth_methods(user_id: str) -> Dict[str, Any]:
             "recent_auth_methods": user.get("recent_auth_methods", []),
             "last_auth_method": user.get("last_auth_method"),
         }
-        
+
     except Exception as e:
         logger.error("Failed to get user auth methods: %s", e, exc_info=True)
         log_error_with_context(
@@ -106,13 +106,13 @@ async def get_user_auth_methods(user_id: str) -> Dict[str, Any]:
 async def set_user_auth_preference(user_id: str, preferred_method: str) -> bool:
     """
     Set user's preferred authentication method.
-    
+
     Validates that the method is available for the user before setting preference.
-    
+
     Args:
         user_id (str): User ID to set preference for
         preferred_method (str): Preferred authentication method ("password")
-        
+
     Returns:
         bool: True if preference was set successfully, False otherwise
     """
@@ -120,16 +120,16 @@ async def set_user_auth_preference(user_id: str, preferred_method: str) -> bool:
         # Validate the preferred method is available
         auth_methods = await get_user_auth_methods(user_id)
         if preferred_method not in auth_methods["available_methods"]:
-            logger.warning("Cannot set unavailable auth method as preference: %s for user %s", 
+            logger.warning("Cannot set unavailable auth method as preference: %s for user %s",
                           preferred_method, user_id)
             return False
-        
+
         # Update user preference
         result = await db_manager.get_collection("users").update_one(
             {"_id": user_id},
             {"$set": {"preferred_auth_method": preferred_method}}
         )
-        
+
         if result.modified_count > 0:
             logger.info("Updated auth preference for user %s: %s", user_id, preferred_method)
             log_security_event(
@@ -142,7 +142,7 @@ async def set_user_auth_preference(user_id: str, preferred_method: str) -> bool:
         else:
             logger.warning("Failed to update auth preference for user %s", user_id)
             return False
-            
+
     except Exception as e:
         logger.error("Failed to set user auth preference: %s", e, exc_info=True)
         log_error_with_context(
@@ -157,23 +157,23 @@ async def set_user_auth_preference(user_id: str, preferred_method: str) -> bool:
 async def check_auth_fallback_available(user_id: str, failed_method: str) -> Dict[str, Any]:
     """
     Check if authentication fallback is available when one method fails.
-    
+
     Determines what alternative authentication methods are available if the primary method fails.
-    
+
     Args:
         user_id (str): User ID to check fallback for
         failed_method (str): Authentication method that failed
-        
+
     Returns:
         Dict[str, Any]: Fallback options and recommendations
     """
     try:
         auth_methods = await get_user_auth_methods(user_id)
         available_methods = auth_methods["available_methods"]
-        
+
         # Remove the failed method from available options
         fallback_methods = [method for method in available_methods if method != failed_method]
-        
+
         # Determine recommended fallback
         recommended_fallback = None
         if fallback_methods:
@@ -184,7 +184,7 @@ async def check_auth_fallback_available(user_id: str, failed_method: str) -> Dic
             else:
                 # Otherwise, recommend the first available fallback
                 recommended_fallback = fallback_methods[0]
-        
+
         fallback_info = {
             "has_fallback": len(fallback_methods) > 0,
             "fallback_methods": fallback_methods,
@@ -192,11 +192,11 @@ async def check_auth_fallback_available(user_id: str, failed_method: str) -> Dic
             "failed_method": failed_method,
             "total_methods_available": len(available_methods),
         }
-        
+
         logger.info("Auth fallback check for user %s: %s", user_id, fallback_info)
-        
+
         return fallback_info
-        
+
     except Exception as e:
         logger.error("Failed to check auth fallback: %s", e, exc_info=True)
         log_error_with_context(
@@ -221,14 +221,14 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
     """
     from second_brain_database.routes.auth.routes_html import render_blocked_ip_notification_email
     from second_brain_database.routes.auth.services.temporary_access import generate_temporary_ip_access_token
-    
+
     logger.info("Sending blocked login notification to %s for IP %s", email, attempted_ip)
 
     # Generate temporary access tokens for action buttons
     allow_once_token = None
     add_to_trusted_token = None
     endpoint = "POST /auth/login"
-    
+
     try:
         allow_once_token = await generate_temporary_ip_access_token(
             user_email=email,
@@ -239,7 +239,7 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
         logger.debug("Generated allow once token for login notification to %s", email)
     except Exception as e:
         logger.error("Failed to generate allow once token for login notification to %s: %s", email, e, exc_info=True)
-    
+
     try:
         add_to_trusted_token = await generate_temporary_ip_access_token(
             user_email=email,
@@ -258,8 +258,8 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
         ip_address=attempted_ip,
         success=False,
         details={
-            "attempted_ip": attempted_ip, 
-            "trusted_ips": trusted_ips, 
+            "attempted_ip": attempted_ip,
+            "trusted_ips": trusted_ips,
             "endpoint": endpoint,
             "action": "notification_sent",
             "tokens_generated": {
@@ -279,7 +279,7 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
         allow_once_token=allow_once_token,
         add_to_trusted_token=add_to_trusted_token
     )
-    
+
     try:
         await email_manager._send_via_console(email, subject, html_content)
         logger.info("Successfully sent blocked login notification to %s", email)
@@ -302,7 +302,7 @@ async def login_user(
 ) -> Dict[str, Any]:
     """
     Authenticate a user using password authentication methods.
-    
+
     Supports dual authentication with fallback mechanisms and user preference storage.
     Handles lockout, failed attempts, and 2FA enforcement for authentication methods.
     Enforces account suspension for repeated password reset abuse.
@@ -426,15 +426,15 @@ async def login_user(
                 self.headers = {}
                 self.url = type('obj', (object,), {'path': '/auth/login'})
                 self.method = 'POST'
-        
+
         mock_request = MockRequest(request_ip_ctx.get())
         await security_manager.check_ip_lockdown(mock_request, user)
-        
+
     except HTTPException as ip_lockdown_error:
         # IP lockdown blocked the login attempt
-        logger.warning("Login blocked by IP lockdown for user %s from IP %s", 
+        logger.warning("Login blocked by IP lockdown for user %s from IP %s",
                       user_id, request_ip_ctx.get())
-        
+
         # Send blocked login notification
         try:
             user_email = user.get("email")
@@ -448,7 +448,7 @@ async def login_user(
                 logger.info("Sent blocked login notification to %s", user_email)
         except Exception as email_error:
             logger.error("Failed to send blocked login notification: %s", email_error, exc_info=True)
-        
+
         # Re-raise the IP lockdown exception
         raise ip_lockdown_error
 
@@ -478,9 +478,9 @@ async def login_user(
             logger.debug("Incremented failed login attempts for user %s", user_id)
 
             raise HTTPException(status_code=401, detail="Invalid credentials")
-            
+
         logger.info("Password authentication successful for user %s", user_id)
-        
+
     else:
         logger.warning("Invalid authentication method for user %s: %s", user_id, authentication_method)
         log_security_event(
@@ -552,7 +552,7 @@ async def login_user(
         "last_login": datetime.utcnow(),
         "last_auth_method": authentication_method,
     }
-    
+
     # Update preferred authentication method based on usage patterns
     current_preferred = user.get("preferred_auth_method")
     if not current_preferred:
@@ -564,25 +564,25 @@ async def login_user(
         recent_auth_methods = user.get("recent_auth_methods", [])
         if len([m for m in recent_auth_methods if m == authentication_method]) >= 2:
             update_data["preferred_auth_method"] = authentication_method
-            logger.info("Updating preferred auth method for user %s: %s -> %s", 
+            logger.info("Updating preferred auth method for user %s: %s -> %s",
                        user_id, current_preferred, authentication_method)
-    
+
     # Track recent authentication methods (last 5)
     recent_methods = user.get("recent_auth_methods", [])
     recent_methods.append(authentication_method)
     if len(recent_methods) > 5:
         recent_methods = recent_methods[-5:]
     update_data["recent_auth_methods"] = recent_methods
-    
+
     # Clear failed login attempts and update user document
     await db_manager.get_collection("users").update_one(
-        {"_id": user["_id"]}, 
+        {"_id": user["_id"]},
         {
             "$set": update_data,
             "$unset": {"failed_login_attempts": ""}
         }
     )
-    
+
     # Log successful authentication with method details
     log_security_event(
         event_type="login_successful",
@@ -595,15 +595,15 @@ async def login_user(
             "preferred_auth_method": update_data.get("preferred_auth_method"),
         },
     )
-    
+
     if client_side_encryption:
         logger.info("User %s logged in with client-side encryption enabled", user["username"])
-    
+
     logger.info("User %s logged in successfully using %s authentication", user["username"], authentication_method)
-    
+
     # Add authentication metadata to user document for return
     user["authentication_method"] = authentication_method
-    
+
     return user
 
 
@@ -626,7 +626,7 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub")})
-    
+
     # Add user-specific claims including token_version
     if "username" in data or "sub" in data:
         username = data.get("username") or data.get("sub")
@@ -636,20 +636,20 @@ async def create_access_token(data: Dict[str, Any]) -> str:
         if user:
             token_version = user.get("token_version", 0)
             to_encode["token_version"] = token_version
-    
+
     secret_key = getattr(settings, "SECRET_KEY", None)
     if hasattr(secret_key, "get_secret_value"):
         secret_key = secret_key.get_secret_value()
     if not isinstance(secret_key, (str, bytes)) or not secret_key:
         logger.error("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
         raise RuntimeError("JWT secret key is missing or invalid. Check your settings.SECRET_KEY.")
-    
+
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=settings.ALGORITHM)
-    
+
     auth_method = "password"
-    logger.debug("JWT access token created for user: %s (auth method: %s)", 
+    logger.debug("JWT access token created for user: %s (auth method: %s)",
                 data.get("username") or data.get("sub"), auth_method)
-    
+
     return encoded_jwt
 
 

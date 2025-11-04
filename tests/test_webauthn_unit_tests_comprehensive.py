@@ -679,7 +679,7 @@ class TestWebAuthnAuthenticationFlows:
                 "is_active": True,
                 "abuse_suspended": False
             }
-            
+
             # Mock database operations
             with patch.object(db_manager, 'get_collection') as mock_get_collection:
                 mock_collection = AsyncMock()
@@ -698,7 +698,7 @@ class TestWebAuthnAuthenticationFlows:
                     # Mock challenge operations
                     with patch('second_brain_database.routes.auth.services.webauthn.authentication.generate_secure_challenge') as mock_gen_challenge:
                         mock_gen_challenge.return_value = "test_challenge_123"
-                        
+
                         with patch('second_brain_database.routes.auth.services.webauthn.authentication.store_challenge') as mock_store_challenge:
                             mock_store_challenge.return_value = True
 
@@ -752,7 +752,7 @@ class TestWebAuthnAuthenticationFlows:
                 "is_active": True,
                 "abuse_suspended": False
             }
-            
+
             # Mock database operations
             with patch.object(db_manager, 'get_collection') as mock_get_collection:
                 mock_collection = AsyncMock()
@@ -789,7 +789,7 @@ class TestWebAuthnAuthenticationFlows:
                 "abuse_suspended": True,
                 "abuse_suspended_at": datetime.utcnow()
             }
-            
+
             # Mock database operations
             with patch.object(db_manager, 'get_collection') as mock_get_collection:
                 mock_collection = AsyncMock()
@@ -945,9 +945,9 @@ class TestWebAuthnMonitoring:
 
             # Should log both the slow operation event and the regular monitoring event
             assert mock_log.call_count >= 2
-            
+
             # Check for slow operation event
-            slow_op_calls = [call for call in mock_log.call_args_list 
+            slow_op_calls = [call for call in mock_log.call_args_list
                            if call[1]["event_type"] == "webauthn_slow_authentication"]
             assert len(slow_op_calls) > 0, "Should log slow operation event"
 

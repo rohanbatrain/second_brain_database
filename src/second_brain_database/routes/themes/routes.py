@@ -34,28 +34,28 @@ logger = get_logger(prefix="[THEMES]")
     summary="Get active rented themes",
     description="""
     Retrieve all currently active rented themes for the authenticated user.
-    
+
     **Application-Specific Filtering:**
     - Only returns themes compatible with the requesting application
     - Application is determined by User-Agent header
     - Currently supports Emotion Tracker themes
-    
+
     **Theme Rental System:**
     - Themes can be rented for temporary use (typically hours or days)
     - Only returns themes that are currently valid (not expired)
     - Rental periods are checked in real-time against current UTC time
-    
+
     **Theme Categories:**
     - Light themes: Optimized for daytime use
     - Dark themes: Optimized for low-light environments
     - Seasonal themes: Limited-time themed appearances
     - Special edition themes: Event-based or achievement themes
-    
+
     **Use Cases:**
     - Display available temporary themes in application settings
     - Check rental status before allowing theme selection
     - Manage temporary theme inventory for UI customization
-    
+
     **Response:**
     Returns array of active rented themes with rental details including expiration times.
     """,
@@ -184,35 +184,35 @@ async def get_rented_themes(request: Request, current_user: dict = Depends(enfor
     summary="Get permanently owned themes",
     description="""
     Retrieve all permanently owned themes for the authenticated user.
-    
+
     **Application-Specific Filtering:**
     - Only returns themes compatible with the requesting application
     - Application is determined by User-Agent header
     - Currently supports Emotion Tracker themes
-    
+
     **Theme Ownership System:**
     - Themes can be permanently owned through purchase or rewards
     - Owned themes never expire and can be used indefinitely
     - Includes themes obtained through bundles, individual purchases, or special events
-    
+
     **Theme Categories:**
     - Light themes: Optimized for daytime use with bright, vibrant colors
     - Dark themes: Optimized for low-light environments with muted tones
     - Seasonal themes: Limited-time themed appearances for holidays/events
     - Premium themes: High-quality themes with advanced visual effects
-    
+
     **Available Theme Collections:**
     - Serenity Green (Light/Dark variants)
     - Pacific Blue (Light/Dark variants)
     - Blush Rose (Light/Dark variants)
     - Midnight Lavender (Light variant)
     - And many more color schemes
-    
+
     **Use Cases:**
     - Display user's permanent theme collection in settings
     - Allow theme selection in application customization
     - Show ownership status for theme management
-    
+
     **Response:**
     Returns array of permanently owned themes with purchase/unlock details.
     """,

@@ -18,7 +18,7 @@ class WorkspaceMember(BaseModel):
 class WorkspaceSettings(BaseModel):
     """Defines settings for a workspace."""
     allow_member_invites: bool = Field(
-        True, 
+        True,
         description="Determines if non-admin members can invite others (as viewers)."
     )
     default_new_member_role: Literal["editor", "viewer"] = Field(
@@ -68,7 +68,7 @@ class WorkspaceDocument(BaseModel):
     settings: WorkspaceSettings = Field(default_factory=WorkspaceSettings, description="Settings for the workspace.")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
     # SBD account information for team wallet functionality
     sbd_account: WorkspaceSBDAccount = Field(
         default_factory=WorkspaceSBDAccount,

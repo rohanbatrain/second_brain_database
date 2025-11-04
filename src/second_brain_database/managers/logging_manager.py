@@ -9,7 +9,7 @@ Loki Downtime Handling:
 - If Loki is unavailable at import or handler setup,
   logs are sent to the console (stdout) via StreamHandler.
 - If Loki becomes unavailable at runtime (e.g., network outage),
-  logs sent to the Loki handler may be lost or dropped, 
+  logs sent to the Loki handler may be lost or dropped,
   depending on the handler's internal retry/buffering logic.
 - By default, logs generated during Loki downtime are NOT automatically resent to Loki
   when it comes back up.
@@ -21,7 +21,7 @@ Loki Downtime Handling:
   or a custom handler with persistent buffering.
 
 Usage:
-- Use get_logger() to obtain a logger instance. 
+- Use get_logger() to obtain a logger instance.
 Logs will go to Loki if available, otherwise to console or buffer file.
 """
 
@@ -60,11 +60,11 @@ BUFFER_LOCK = threading.Lock()
 def _ensure_console_handler(logger: logging.Logger, formatter: logging.Formatter) -> bool:
     """
     Ensure logger has a StreamHandler for console output.
-    
+
     Args:
         logger: The logger instance to check and modify
         formatter: The formatter to apply to the StreamHandler
-        
+
     Returns:
         bool: True if a new StreamHandler was added, False if one already existed
     """
@@ -72,7 +72,7 @@ def _ensure_console_handler(logger: logging.Logger, formatter: logging.Formatter
     for handler in logger.handlers:
         if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
             return False  # Already has console handler
-    
+
     # Add StreamHandler for console output
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
@@ -103,7 +103,7 @@ def ping_loki_and_flush_if_available():
     try:
         # Use shorter timeout and more aggressive connection settings
         resp = requests.get(
-            LOKI_HEALTH_URL, 
+            LOKI_HEALTH_URL,
             timeout=(2, 3),  # (connect_timeout, read_timeout)
             headers={'Connection': 'close'}  # Don't keep connection alive
         )
@@ -129,7 +129,7 @@ def ping_loki_and_flush_if_available():
                 logger.info("[LoggingManager] Buffer flush is disabled by admin toggle.")
         else:
             logger.warning(f"[LoggingManager] Loki health check failed: status {resp.status_code}")
-    except (requests.exceptions.RequestException, requests.exceptions.Timeout, 
+    except (requests.exceptions.RequestException, requests.exceptions.Timeout,
             requests.exceptions.ConnectionError) as e:
         logger.warning(f"[LoggingManager] Loki health check connection failed: {e}")
     except Exception as e:

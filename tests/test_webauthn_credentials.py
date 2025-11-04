@@ -71,13 +71,13 @@ async def test_credential_retrieval():
     print("Testing user credentials retrieval...")
     credentials = await get_user_credentials(user_id)
     assert len(credentials) > 0, "Should retrieve at least one credential"
-    
+
     found_credential = None
     for cred in credentials:
         if cred["credential_id"] == credential_id:
             found_credential = cred
             break
-    
+
     assert found_credential is not None, "Should find the stored credential"
     assert found_credential["public_key"] == public_key, "Public key should match"
     assert found_credential["device_name"] == "Test iPhone", "Device name should match"
@@ -110,7 +110,7 @@ async def test_credential_caching():
     print("Testing cache hit...")
     credentials2 = await get_user_credentials(user_id)
     assert len(credentials2) == len(credentials1), "Cached results should match database results"
-    
+
     # Verify the data is the same
     cred1 = next((c for c in credentials1 if c["credential_id"] == credential_id), None)
     cred2 = next((c for c in credentials2 if c["credential_id"] == credential_id), None)
@@ -262,7 +262,7 @@ async def test_credential_update_existing():
     credentials = await get_user_credentials(user_id)
     matching_creds = [c for c in credentials if c["credential_id"] == credential_id]
     assert len(matching_creds) == 1, "Should have only one credential with this ID"
-    
+
     updated_cred = matching_creds[0]
     assert updated_cred["public_key"] == updated_public_key, "Public key should be updated"
     assert updated_cred["device_name"] == "Updated Device", "Device name should be updated"
@@ -323,7 +323,7 @@ async def main():
         # Cleanup connections
         try:
             await db_manager.disconnect()
-        except:
+        except Exception:  # TODO: Use specific exception type
             pass
 
     return 0

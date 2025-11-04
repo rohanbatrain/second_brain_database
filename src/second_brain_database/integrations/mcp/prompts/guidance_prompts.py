@@ -23,34 +23,34 @@ from ....database import db_manager
 mcp_server = get_mcp_server()
 
 if mcp_server is not None:
-    
+
     @mcp_server.prompt("family_management_guide")
     async def family_management_guidance_prompt() -> str:
         """
         Provide comprehensive family management guidance with user context.
-        
+
         Offers personalized guidance for family operations based on the user's
         current family memberships, roles, and available actions.
-        
+
         Returns:
             Contextual family management guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Get user's family information for context
             families_collection = db_manager.get_collection("families")
             user_families = await families_collection.find({
                 "members.user_id": user_context.user_id
             }).to_list(length=None)
-            
+
             # Determine user's roles and capabilities
             owned_families = [f for f in user_families if f.get("owner_id") == user_context.user_id]
             admin_families = [f for f in user_families if any(
-                m.get("user_id") == user_context.user_id and m.get("role") == "admin" 
+                m.get("user_id") == user_context.user_id and m.get("role") == "admin"
                 for m in f.get("members", [])
             )]
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="family_management_guidance_prompt",
@@ -59,7 +59,7 @@ if mcp_server is not None:
                 resource_id="family_management_guide",
                 metadata={"family_count": len(user_families)}
             )
-            
+
             prompt = f"""
 # Family Management Assistant
 
@@ -147,10 +147,10 @@ Remember: Family management requires careful balance of accessibility and securi
 ---
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 """
-            
+
             logger.info("Provided family management guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate family management guidance prompt: %s", e)
             return f"Error generating family management guidance: {str(e)}"
@@ -159,25 +159,25 @@ Remember: Family management requires careful balance of accessibility and securi
     async def shop_navigation_guidance_prompt() -> str:
         """
         Provide shop navigation and purchase assistance guidance.
-        
+
         Offers guidance for browsing the digital shop, making purchases,
         and managing digital assets effectively.
-        
+
         Returns:
             Shop navigation and purchase guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Get user's current SBD balance and assets for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
                 {"_id": user_context.user_id},
                 {"sbd_balance": 1, "sbd_stats": 1}
             )
-            
+
             current_balance = user_data.get("sbd_balance", 0) if user_data else 0
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="shop_navigation_guidance_prompt",
@@ -186,7 +186,7 @@ Remember: Family management requires careful balance of accessibility and securi
                 resource_id="shop_navigation_guide",
                 metadata={"user_balance": current_balance}
             )
-            
+
             prompt = f"""
 # Digital Shop Navigation Assistant
 
@@ -305,10 +305,10 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 *Current SBD Balance: {current_balance} tokens*
 """
-            
+
             logger.info("Provided shop navigation guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate shop navigation guidance prompt: %s", e)
             return f"Error generating shop navigation guidance: {str(e)}"
@@ -317,29 +317,29 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
     async def workspace_management_guidance_prompt() -> str:
         """
         Provide workspace management guidance for team operations.
-        
+
         Offers comprehensive guidance for workspace creation, member management,
         and team collaboration within the workspace system.
-        
+
         Returns:
             Workspace management guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Get user's workspace information for context
             workspaces_collection = db_manager.get_collection("workspaces")
             user_workspaces = await workspaces_collection.find({
                 "members.user_id": user_context.user_id
             }).to_list(length=None)
-            
+
             # Determine user's roles and capabilities
             owned_workspaces = [w for w in user_workspaces if w.get("owner_id") == user_context.user_id]
             admin_workspaces = [w for w in user_workspaces if any(
-                m.get("user_id") == user_context.user_id and m.get("role") == "admin" 
+                m.get("user_id") == user_context.user_id and m.get("role") == "admin"
                 for m in w.get("members", [])
             )]
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="workspace_management_guidance_prompt",
@@ -348,7 +348,7 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
                 resource_id="workspace_management_guide",
                 metadata={"workspace_count": len(user_workspaces)}
             )
-            
+
             prompt = f"""
 # Workspace Management Assistant
 
@@ -479,10 +479,10 @@ Remember: Effective workspace management requires balancing team autonomy with a
 ---
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 """
-            
+
             logger.info("Provided workspace management guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate workspace management guidance prompt: %s", e)
             return f"Error generating workspace management guidance: {str(e)}"
@@ -491,29 +491,29 @@ Remember: Effective workspace management requires balancing team autonomy with a
     async def security_setup_guidance_prompt() -> str:
         """
         Provide security setup guidance for account protection.
-        
+
         Offers comprehensive guidance for setting up and maintaining
         account security including 2FA, lockdowns, and best practices.
-        
+
         Returns:
             Security setup guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Get user's current security status for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
                 {"_id": user_context.user_id},
                 {"two_factor": 1, "security": 1, "email_verified": 1}
             )
-            
+
             # Analyze current security status
             two_fa_enabled = user_data.get("two_factor", {}).get("enabled", False) if user_data else False
             email_verified = user_data.get("email_verified", False) if user_data else False
             ip_lockdown = user_data.get("security", {}).get("ip_lockdown", {}).get("enabled", False) if user_data else False
             ua_lockdown = user_data.get("security", {}).get("user_agent_lockdown", {}).get("enabled", False) if user_data else False
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="security_setup_guidance_prompt",
@@ -522,7 +522,7 @@ Remember: Effective workspace management requires balancing team autonomy with a
                 resource_id="security_setup_guide",
                 metadata={"two_fa_enabled": two_fa_enabled, "lockdowns_active": ip_lockdown or ua_lockdown}
             )
-            
+
             prompt = f"""
 # Account Security Setup Assistant
 
@@ -665,10 +665,10 @@ Remember: Security is an ongoing process, not a one-time setup. Regular reviews 
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 *Security Level: {"High" if two_fa_enabled and (ip_lockdown or ua_lockdown) else "Medium" if two_fa_enabled else "Basic"}*
 """
-            
+
             logger.info("Provided security setup guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate security setup guidance prompt: %s", e)
             return f"Error generating security setup guidance: {str(e)}"
@@ -677,16 +677,16 @@ Remember: Security is an ongoing process, not a one-time setup. Regular reviews 
     async def troubleshooting_guidance_prompt() -> str:
         """
         Provide troubleshooting guidance for common issues.
-        
+
         Offers comprehensive troubleshooting assistance for common
         system issues, error resolution, and support procedures.
-        
+
         Returns:
             Troubleshooting guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="troubleshooting_guidance_prompt",
@@ -695,7 +695,7 @@ Remember: Security is an ongoing process, not a one-time setup. Regular reviews 
                 resource_id="troubleshooting_guide",
                 metadata={"help_requested": True}
             )
-            
+
             prompt = f"""
 # Troubleshooting Assistant
 
@@ -898,10 +898,10 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 *Need immediate help? Check system status first, then contact support if issues persist.*
 """
-            
+
             logger.info("Provided troubleshooting guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate troubleshooting guidance prompt: %s", e)
             return f"Error generating troubleshooting guidance: {str(e)}"
@@ -910,31 +910,31 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
     async def onboarding_guidance_prompt() -> str:
         """
         Provide onboarding guidance for new users.
-        
+
         Offers comprehensive onboarding assistance to help new users
         get started with the Second Brain Database system effectively.
-        
+
         Returns:
             New user onboarding guidance prompt
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Get user account age for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
                 {"_id": user_context.user_id},
                 {"created_at": 1, "email_verified": 1, "two_factor": 1}
             )
-            
+
             account_age_days = 0
             if user_data and user_data.get("created_at"):
                 account_age_days = (datetime.utcnow() - user_data.get("created_at")).days
-            
+
             is_new_user = account_age_days < 7
             email_verified = user_data.get("email_verified", False) if user_data else False
             two_fa_enabled = user_data.get("two_factor", {}).get("enabled", False) if user_data else False
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="onboarding_guidance_prompt",
@@ -943,7 +943,7 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
                 resource_id="onboarding_guide",
                 metadata={"account_age_days": account_age_days, "is_new_user": is_new_user}
             )
-            
+
             prompt = f"""
 # Welcome to Second Brain Database!
 
@@ -1120,10 +1120,10 @@ Remember: Learning a new system takes time. Be patient with yourself, explore at
 *Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
 *Account created: {account_age_days} days ago*
 """
-            
+
             logger.info("Provided onboarding guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-            
+
         except Exception as e:
             logger.error("Failed to generate onboarding guidance prompt: %s", e)
             return f"Error generating onboarding guidance: {str(e)}"
@@ -1132,16 +1132,16 @@ Remember: Learning a new system takes time. Be patient with yourself, explore at
     async def api_usage_guidance_prompt() -> str:
         """
         Provide API usage guidance for developers.
-        
+
         Offers comprehensive guidance for developers using the
         Second Brain Database API and MCP integration.
-        
+
         Returns:
             API usage guidance prompt for developers
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="api_usage_guidance_prompt",
@@ -1150,7 +1150,7 @@ Remember: Learning a new system takes time. Be patient with yourself, explore at
                 resource_id="api_usage_guide",
                 metadata={"developer_guide": True}
             )
-            
+
             prompt = f"""
 # API Usage Guide for Developers
 
@@ -1310,13 +1310,13 @@ Python
 
 import timeimport requestsdef api_request_with_backoff(url, headers):
     response = requests.get(url, headers=headers)
-    
+
     if response.status_code == 429:
         reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
         wait_time = max(0, reset_time - int(time.time()))
         time.sleep(wait_time + 1)
         return api_request_with_backoff(url, headers)
-    
+
     return response
 Best Practices
 Security
@@ -1343,16 +1343,16 @@ Python
 
 import asynciofrom second_brain_db import SecondBrainClientasync def main():
     client = SecondBrainClient(api_token="your-token")
-    
+
     # Get user families
     families = await client.get_user_families()
-    
+
     # Create new family
     new_family = await client.create_family(name="My Family")
-    
+
     # Get family members
     members = await client.get_family_members(new_family.id)
-    
+
     print(f"Created family with {len(members)} members")
 
 asyncio.run(main())
@@ -1390,7 +1390,7 @@ API Documentation: /docs | MCP Server: {settings.MCP_SERVER_NAME}
 """
             logger.info("Provided API usage guidance prompt to user %s", user_context.user_id)
             return prompt.strip()
-        
+
         except Exception as e:
             logger.error("Failed to generate API usage guidance prompt: %s", e)
             return f"Error generating API usage guidance: {str(e)}"

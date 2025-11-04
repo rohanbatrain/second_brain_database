@@ -69,9 +69,9 @@ async def create_session(
             user_id, "ai_sessions", limit=50, window=3600
         ):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        
+
         session_id = str(uuid.uuid4())
-        
+
         # Store session metadata in Redis
         redis = get_redis_manager()
         redis.set(
@@ -83,15 +83,15 @@ async def create_session(
             }),
             ex=3600,  # 1 hour TTL
         )
-        
+
         logger.info(f"Created AI session {session_id} for user {user_id}")
-        
+
         return SessionResponse(
             session_id=session_id,
             status="created",
             message="Session created successfully",
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -111,7 +111,7 @@ async def chat(
             user_id, "ai_messages", limit=100, window=3600
         ):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        
+
         # Create MCP user context
         user_context = MCPUserContext(
             user_id=user_id,
@@ -127,15 +127,15 @@ async def chat(
             token_id="",
             authenticated_at=datetime.now(timezone.utc),
         )
-        
+
         # Generate session ID
         session_id = str(uuid.uuid4())
-        
+
         # Get orchestrator and process message
         orchestrator = get_orchestrator_instance()
         if orchestrator is None:
             raise HTTPException(status_code=503, detail="AI system is currently disabled")
-        
+
         response = await orchestrator.chat(
             session_id=session_id,
             user_id=user_id,
@@ -143,15 +143,15 @@ async def chat(
             user_context=user_context,
             agent_type=request.agent_type,
         )
-        
+
         if "error" in response:
             raise HTTPException(status_code=500, detail=response["error"])
-        
+
         return MessageResponse(
             response=response["response"],
             session_id=response["session_id"],
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -167,18 +167,18 @@ async def get_session(
     try:
         redis = get_redis_manager()
         data = redis.get(f"ai:session:{session_id}")
-        
+
         if not data:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         session_data = json.loads(data)
-        
+
         # Verify user owns session
         if session_data["user_id"] != str(current_user["_id"]):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         return session_data
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -194,24 +194,24 @@ async def delete_session(
     try:
         redis = get_redis_manager()
         data = redis.get(f"ai:session:{session_id}")
-        
+
         if not data:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         session_data = json.loads(data)
-        
+
         # Verify user owns session
         if session_data["user_id"] != str(current_user["_id"]):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Clear session
         orchestrator = get_orchestrator_instance()
         if orchestrator:
             orchestrator.clear_session(session_id)
         redis.delete(f"ai:session:{session_id}")
-        
+
         return {"status": "deleted", "session_id": session_id}
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -224,7 +224,7 @@ async def run_multi_step_workflow(
     user_context: MCPUserContext = Depends(get_mcp_user_context),
 ):
     """Run multi-step workflow for complex tasks.
-    
+
     Note: Workflows are currently disabled.
     """
     raise HTTPException(status_code=503, detail="Workflow system is currently disabled")
@@ -236,7 +236,7 @@ async def run_shopping_workflow(
     user_context: MCPUserContext = Depends(get_mcp_user_context),
 ):
     """Run shopping workflow for purchases.
-    
+
     Note: Workflows are currently disabled.
     """
     raise HTTPException(status_code=503, detail="Workflow system is currently disabled")

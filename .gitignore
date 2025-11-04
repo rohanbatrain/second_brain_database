@@ -183,3 +183,54 @@ cython_debug/
 *.kiro
 .sbd
 .sbd
+
+
+# Code Quality Reports
+CODE_QUALITY_REPORT.md
+CODEBASE_IMPROVEMENTS_*.md
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDEs
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Environment
+.env.local
+.env.*.local
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Testing
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+*.cover
+
+# Build
+build/
+dist/
+*.egg-info/

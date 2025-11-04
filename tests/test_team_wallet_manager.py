@@ -73,7 +73,7 @@ class TestTeamWalletManager:
             if name == "workspaces":
                 return mock_workspaces
             return AsyncMock()
-        
+
         mock_db_manager.get_collection = mock_get_collection
 
         # Execute
@@ -139,7 +139,7 @@ class TestTeamWalletManager:
             elif name == "team_token_requests":
                 return mock_requests
             return AsyncMock()
-        
+
         mock_db_manager.get_collection = mock_get_collection
 
         # Execute

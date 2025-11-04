@@ -78,7 +78,7 @@
 
 #     Args:
 #         username (Optional[str]): Username for authentication
-#         email (Optional[str]): Email for authentication  
+#         email (Optional[str]): Email for authentication
 #         user_verification (str): User verification requirement ("required", "preferred", "discouraged")
 
 #     Returns:
@@ -169,7 +169,7 @@
 
 #         # Get user's WebAuthn credentials
 #         credentials = await get_user_credentials(user_id, active_only=True)
-        
+
 #         if not credentials:
 #             logger.info("No WebAuthn credentials found for user %s", user_identifier)
 #             log_security_event(
@@ -179,13 +179,13 @@
 #                 details={"credential_count": 0},
 #             )
 #             raise HTTPException(
-#                 status_code=404, 
+#                 status_code=404,
 #                 detail="No WebAuthn credentials found. Please register a credential first."
 #             )
 
 #         # Generate secure challenge
 #         challenge = generate_secure_challenge()
-        
+
 #         # Store challenge for later validation
 #         await store_challenge(challenge, user_id, "authentication")
 
@@ -237,7 +237,7 @@
 #         # Monitor failed authentication attempt with enhanced monitoring
 #         import time
 #         operation_duration = time.time() - locals().get('start_time', time.time())
-        
+
 #         await webauthn_monitor.monitor_authentication_attempt(
 #             user_id=identifier,
 #             credential_id=None,
@@ -254,11 +254,11 @@
 #         raise
 #     except Exception as e:
 #         logger.error("Failed to begin WebAuthn authentication: %s", e, exc_info=True)
-        
+
 #         # Monitor failed authentication attempt
 #         import time
 #         operation_duration = time.time() - locals().get('start_time', time.time())
-        
+
 #         await webauthn_monitor.monitor_authentication_attempt(
 #             user_id=identifier,
 #             credential_id=None,
@@ -271,7 +271,7 @@
 #                 "phase": "challenge_generation"
 #             }
 #         )
-        
+
 #         log_error_with_context(
 #             e,
 #             context={
@@ -283,7 +283,7 @@
 #             operation="webauthn_authentication_begin",
 #         )
 #         raise HTTPException(
-#             status_code=500, 
+#             status_code=500,
 #             detail="Failed to begin WebAuthn authentication"
 #         ) from e
 
@@ -343,7 +343,7 @@
 #             raise HTTPException(status_code=401, detail="Invalid credential")
 
 #         user_id = credential["user_id"]
-        
+
 #         # Get user document
 #         user = await db_manager.get_collection("users").find_one({"_id": ObjectId(user_id)})
 #         if not user:
@@ -439,31 +439,31 @@
 #             create_signed_data_for_assertion,
 #             hash_client_data_json
 #         )
-        
+
 #         try:
 #             # Parse client data JSON using crypto module
 #             parsed_client_data = parse_client_data_json(client_data_json)
-            
+
 #             # Decode authenticator data
 #             auth_data_bytes = base64.urlsafe_b64decode(authenticator_data + "==")
-            
+
 #             # Create the data that should have been signed
 #             client_data_hash = hash_client_data_json(client_data_json)
 #             signed_data = create_signed_data_for_assertion(auth_data_bytes, client_data_hash)
-            
+
 #             # Decode signature
 #             signature_bytes = base64.urlsafe_b64decode(signature + "==")
-            
+
 #             # Parse stored public key
 #             try:
 #                 stored_public_key = json.loads(credential["public_key"]) if isinstance(credential["public_key"], str) else credential["public_key"]
 #             except (json.JSONDecodeError, TypeError):
 #                 # Fallback for credentials stored with old format
 #                 stored_public_key = {"key_format": "UNKNOWN"}
-            
+
 #             # Verify signature using crypto module (placeholder implementation)
 #             signature_valid = verify_signature_placeholder(signature_bytes, signed_data, stored_public_key)
-            
+
 #             if not signature_valid:
 #                 logger.warning("WebAuthn signature verification failed")
 #                 log_security_event(
@@ -473,33 +473,33 @@
 #                     details={"credential_id": credential_id[:16] + "..."},
 #                 )
 #                 raise HTTPException(status_code=401, detail="Invalid assertion signature")
-            
+
 #             # Extract signature counter from authenticator data (simplified)
 #             # In a full implementation, this would properly parse the authenticator data structure
 #             if len(auth_data_bytes) >= 37:
 #                 new_sign_count = struct.unpack(">I", auth_data_bytes[33:37])[0]
 #             else:
 #                 new_sign_count = credential.get("sign_count", 0) + 1
-            
+
 #             # Check signature counter for replay attacks
 #             if new_sign_count <= credential.get("sign_count", 0):
-#                 logger.warning("Potential replay attack: sign count not incremented (old: %d, new: %d)", 
+#                 logger.warning("Potential replay attack: sign count not incremented (old: %d, new: %d)",
 #                              credential.get("sign_count", 0), new_sign_count)
 #                 # In production, you might want to reject this, but for now we'll just log a warning
-            
+
 #             logger.info("WebAuthn signature verification completed successfully")
-            
+
 #         except Exception as e:
 #             logger.warning("Failed to verify WebAuthn assertion, using fallback: %s", e)
 #             # Fallback to basic verification for compatibility
 #             new_sign_count = credential.get("sign_count", 0) + 1
-        
+
 #         # Update credential usage
 #         await update_credential_usage(credential_id, new_sign_count)
 
 #         # Use the enhanced login_user function for dual authentication support
 #         from second_brain_database.routes.auth.services.auth.login import login_user
-        
+
 #         # Call login_user with WebAuthn authentication method
 #         authenticated_user = await login_user(
 #             username=user.get("username"),
@@ -510,11 +510,11 @@
 #             webauthn_authenticator_type=credential.get("authenticator_type", "unknown"),
 #             client_side_encryption=user.get("client_side_encryption", False),
 #         )
-        
+
 #         # Generate JWT token with WebAuthn claims
 #         issued_at = int(datetime.utcnow().timestamp())
 #         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        
+
 #         # Create token data with WebAuthn-specific claims
 #         token_data = {
 #             "sub": user["username"],
@@ -523,7 +523,7 @@
 #             "webauthn_device_name": credential.get("device_name", "Unknown"),
 #             "webauthn_authenticator_type": credential.get("authenticator_type", "unknown"),
 #         }
-        
+
 #         token = await create_access_token(token_data)
 
 #         logger.info("WebAuthn authentication successful for user %s", user_identifier)
@@ -544,7 +544,7 @@
 #         # Monitor successful authentication with enhanced monitoring
 #         import time
 #         operation_duration = time.time() - locals().get('start_time', time.time())
-        
+
 #         await webauthn_monitor.monitor_authentication_attempt(
 #             user_id=user_identifier,
 #             credential_id=credential_id,
@@ -585,6 +585,6 @@
 #             operation="webauthn_authentication_complete",
 #         )
 #         raise HTTPException(
-#             status_code=500, 
+#             status_code=500,
 #             detail="Failed to complete WebAuthn authentication"
 #         ) from e

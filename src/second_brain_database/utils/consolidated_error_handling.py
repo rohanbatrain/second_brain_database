@@ -61,7 +61,7 @@ class ConsolidatedErrorResponse(BaseModel):
 
 class ConsolidatedSecurityError(Exception):
     """Base exception for consolidated security errors"""
-    
+
     def __init__(
         self,
         message: str,
@@ -78,7 +78,7 @@ class ConsolidatedSecurityError(Exception):
         self.status_code = status_code
         self.retry_after = retry_after
         super().__init__(message)
-    
+
     def to_response(self) -> ConsolidatedErrorResponse:
         """Convert exception to standardized response format"""
         return ConsolidatedErrorResponse(
@@ -94,7 +94,7 @@ class ConsolidatedSecurityError(Exception):
 
 class AuthenticationError(ConsolidatedSecurityError):
     """Authentication-related errors"""
-    
+
     def __init__(self, message: str = "Authentication failed", **kwargs):
         super().__init__(
             message=message,
@@ -107,7 +107,7 @@ class AuthenticationError(ConsolidatedSecurityError):
 
 class AuthorizationError(ConsolidatedSecurityError):
     """Authorization-related errors"""
-    
+
     def __init__(self, message: str = "Access denied", **kwargs):
         super().__init__(
             message=message,
@@ -120,7 +120,7 @@ class AuthorizationError(ConsolidatedSecurityError):
 
 class RateLimitError(ConsolidatedSecurityError):
     """Rate limiting errors"""
-    
+
     def __init__(self, message: str = "Rate limit exceeded", retry_after: int = 60, **kwargs):
         super().__init__(
             message=message,
@@ -134,7 +134,7 @@ class RateLimitError(ConsolidatedSecurityError):
 
 class SecurityPolicyError(ConsolidatedSecurityError):
     """Security policy violations"""
-    
+
     def __init__(self, message: str = "Security policy violation", **kwargs):
         super().__init__(
             message=message,
@@ -147,7 +147,7 @@ class SecurityPolicyError(ConsolidatedSecurityError):
 
 class ValidationError(ConsolidatedSecurityError):
     """Input validation errors"""
-    
+
     def __init__(self, message: str = "Validation failed", **kwargs):
         super().__init__(
             message=message,
@@ -160,7 +160,7 @@ class ValidationError(ConsolidatedSecurityError):
 
 class FamilyOperationError(ConsolidatedSecurityError):
     """Family operation errors"""
-    
+
     def __init__(self, message: str = "Family operation failed", **kwargs):
         super().__init__(
             message=message,
@@ -173,7 +173,7 @@ class FamilyOperationError(ConsolidatedSecurityError):
 
 class SBDOperationError(ConsolidatedSecurityError):
     """SBD operation errors"""
-    
+
     def __init__(self, message: str = "SBD operation failed", **kwargs):
         super().__init__(
             message=message,
@@ -186,7 +186,7 @@ class SBDOperationError(ConsolidatedSecurityError):
 
 class SystemError(ConsolidatedSecurityError):
     """System-level errors"""
-    
+
     def __init__(self, message: str = "System error occurred", **kwargs):
         super().__init__(
             message=message,
@@ -201,7 +201,7 @@ class ConsolidatedErrorHandler:
     """
     Consolidated error handler that standardizes error processing
     """
-    
+
     def __init__(self):
         self.logger = logger
         self._error_counters = {}
@@ -211,7 +211,7 @@ class ConsolidatedErrorHandler:
             ErrorSeverity.HIGH: 20,
             ErrorSeverity.CRITICAL: 5
         }
-    
+
     async def handle_security_error(
         self,
         error: Union[ConsolidatedSecurityError, Exception],
@@ -222,14 +222,14 @@ class ConsolidatedErrorHandler:
     ) -> HTTPException:
         """
         Handle security errors with consolidated logging and monitoring
-        
+
         Args:
             error: The error to handle
             user_id: Optional user ID for context
             ip_address: Optional IP address for context
             endpoint: Optional endpoint for context
             additional_context: Optional additional context
-            
+
         Returns:
             HTTPException with standardized format
         """
@@ -241,7 +241,7 @@ class ConsolidatedErrorHandler:
                 message=str(error),
                 details={"original_error": str(error)}
             )
-        
+
         # Log the error with consolidated format
         await self._log_consolidated_error(
             consolidated_error,
@@ -250,19 +250,19 @@ class ConsolidatedErrorHandler:
             endpoint=endpoint,
             additional_context=additional_context
         )
-        
+
         # Update error counters and check for alerting
         await self._update_error_counters(consolidated_error)
-        
+
         # Create standardized HTTP exception
         error_response = consolidated_error.to_response()
-        
+
         return HTTPException(
             status_code=consolidated_error.status_code,
             detail=error_response.dict(),
             headers={"Retry-After": str(consolidated_error.retry_after)} if consolidated_error.retry_after else None
         )
-    
+
     async def _log_consolidated_error(
         self,
         error: ConsolidatedSecurityError,
@@ -272,7 +272,7 @@ class ConsolidatedErrorHandler:
         additional_context: Optional[Dict[str, Any]] = None
     ) -> None:
         """Log error with consolidated format to reduce duplication"""
-        
+
         # Create consolidated log details
         log_details = {
             "error_category": error.category.value,
@@ -281,13 +281,13 @@ class ConsolidatedErrorHandler:
             "status_code": error.status_code,
             **error.details
         }
-        
+
         if endpoint:
             log_details["endpoint"] = endpoint
-        
+
         if additional_context:
             log_details.update(additional_context)
-        
+
         # Log security event
         log_security_event(
             event_type=f"consolidated_error_{error.category.value}",
@@ -296,10 +296,10 @@ class ConsolidatedErrorHandler:
             success=False,
             details=log_details
         )
-        
+
         # Log to application logger based on severity
         log_message = f"Consolidated security error: {error.message}"
-        
+
         if error.severity == ErrorSeverity.CRITICAL:
             self.logger.critical(log_message, extra=log_details, exc_info=True)
         elif error.severity == ErrorSeverity.HIGH:
@@ -308,20 +308,20 @@ class ConsolidatedErrorHandler:
             self.logger.warning(log_message, extra=log_details)
         else:
             self.logger.info(log_message, extra=log_details)
-    
+
     async def _update_error_counters(self, error: ConsolidatedSecurityError) -> None:
         """Update error counters and trigger alerts if thresholds are exceeded"""
         current_hour = datetime.now().strftime("%Y-%m-%d-%H")
         counter_key = f"{error.category.value}:{error.severity.value}:{current_hour}"
-        
+
         # Update counter
         self._error_counters[counter_key] = self._error_counters.get(counter_key, 0) + 1
-        
+
         # Check alert threshold
         threshold = self._alert_thresholds.get(error.severity, 50)
         if self._error_counters[counter_key] >= threshold:
             await self._trigger_error_alert(error, self._error_counters[counter_key])
-    
+
     async def _trigger_error_alert(self, error: ConsolidatedSecurityError, count: int) -> None:
         """Trigger alert for high error rates"""
         alert_details = {
@@ -331,20 +331,20 @@ class ConsolidatedErrorHandler:
             "time_window": "1 hour",
             "alert_type": "error_threshold_exceeded"
         }
-        
+
         self.logger.critical(
             "Error threshold exceeded: %s errors of severity %s in the last hour",
             count, error.severity.value,
             extra=alert_details
         )
-        
+
         # Log alert event
         log_security_event(
             event_type="error_threshold_alert",
             success=False,
             details=alert_details
         )
-    
+
     def create_user_friendly_message(self, error: ConsolidatedSecurityError) -> str:
         """Create user-friendly error messages"""
         user_friendly_messages = {
@@ -357,19 +357,19 @@ class ConsolidatedErrorHandler:
             ErrorCategory.SBD_OPERATION: "SBD operation failed. Please try again or contact support.",
             ErrorCategory.SYSTEM: "A system error occurred. Please try again later."
         }
-        
+
         return user_friendly_messages.get(error.category, error.message)
-    
+
     def get_error_statistics(self) -> Dict[str, Any]:
         """Get error statistics for monitoring"""
         current_hour = datetime.now().strftime("%Y-%m-%d-%H")
-        
+
         stats = {
             "current_hour": current_hour,
             "error_counts": {},
             "total_errors": 0
         }
-        
+
         for key, count in self._error_counters.items():
             if current_hour in key:
                 category, severity, _ = key.split(":")
@@ -377,7 +377,7 @@ class ConsolidatedErrorHandler:
                     stats["error_counts"][category] = {}
                 stats["error_counts"][category][severity] = count
                 stats["total_errors"] += count
-        
+
         return stats
 
 
@@ -397,18 +397,18 @@ def handle_consolidated_errors(func):
             user_id = None
             ip_address = None
             endpoint = None
-            
+
             # Try to extract context from common parameter names
             for arg in args:
                 if hasattr(arg, 'client') and hasattr(arg.client, 'host'):
                     ip_address = arg.client.host
                 if hasattr(arg, 'method') and hasattr(arg, 'url'):
                     endpoint = f"{arg.method} {arg.url.path}"
-            
+
             for key, value in kwargs.items():
                 if key == 'current_user' and isinstance(value, dict):
                     user_id = str(value.get("_id", value.get("username", "")))
-            
+
             raise await consolidated_error_handler.handle_security_error(
                 error=e,
                 user_id=user_id,
@@ -423,5 +423,5 @@ def handle_consolidated_errors(func):
                     details={"original_error": str(e)}
                 )
             )
-    
+
     return wrapper

@@ -24,7 +24,7 @@ from second_brain_database.managers.workspace_manager import (
 )
 from second_brain_database.routes.auth.dependencies import get_current_user_dep
 from second_brain_database.managers.team_wallet_manager import (
-    team_wallet_manager, 
+    team_wallet_manager,
     TeamWalletError,
     WorkspaceNotFound,
     InsufficientPermissions
@@ -519,12 +519,12 @@ async def create_token_request(
 ):
     """
     Create a token request from the team account.
-    
+
     Workspace members can request tokens from the shared account.
     Requests under the auto-approval threshold are processed immediately.
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -532,7 +532,7 @@ async def create_token_request(
         rate_limit_requests=10,
         rate_limit_period=3600
     )
-    
+
     try:
         request_data = await team_wallet_manager.create_token_request(
             workspace_id=workspace_id,
@@ -579,11 +579,11 @@ async def get_pending_token_requests(
 ):
     """
     Get all pending token requests for a workspace (admin only).
-    
+
     Returns all pending token requests that require admin approval.
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -591,7 +591,7 @@ async def get_pending_token_requests(
         rate_limit_requests=30,
         rate_limit_period=3600
     )
-    
+
     try:
         pending_requests = await team_wallet_manager.get_pending_token_requests(workspace_id, user_id)
         return pending_requests
@@ -629,11 +629,11 @@ async def review_token_request(
 ):
     """
     Review a token request (approve or deny) - admin only.
-    
+
     Workspace administrators can approve or deny pending token requests.
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -641,7 +641,7 @@ async def review_token_request(
         rate_limit_requests=20,
         rate_limit_period=3600
     )
-    
+
     try:
         result = await team_wallet_manager.review_token_request(
             request_id=request_id,
@@ -657,7 +657,7 @@ async def review_token_request(
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Error reviewing token request {request_id} for workspace {workspace_id} by user {user_id}: {str(e)}", exc_info=True)
-        
+
         error_code = getattr(e, 'error_code', 'INTERNAL_SERVER_ERROR')
         if error_code in ["TOKEN_REQUEST_NOT_FOUND", "VALIDATION_ERROR"]:
             logger.warning(f"Token request review failed with 400 error: {error_code} - {str(e)}")
@@ -678,11 +678,11 @@ async def update_spending_permissions(
 ):
     """
     Update spending permissions for workspace members.
-    
+
     Only workspace admins can modify spending permissions.
     """
     user_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -690,7 +690,7 @@ async def update_spending_permissions(
         rate_limit_requests=5,
         rate_limit_period=3600
     )
-    
+
     try:
         updated_permissions = {}
         for member_user_id, member_perms in permissions.member_permissions.items():
@@ -701,7 +701,7 @@ async def update_spending_permissions(
                 permissions=member_perms
             )
             updated_permissions[member_user_id] = result
-        
+
         return WalletPermissionsResponse(permissions=updated_permissions)
     except WorkspaceNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "WORKSPACE_NOT_FOUND", "message": "Workspace not found"})
@@ -740,11 +740,11 @@ async def freeze_unfreeze_account(
 ):
     """
     Freeze or unfreeze the team account.
-    
+
     Only workspace admins can freeze/unfreeze the account.
     """
     admin_id = str(current_user["_id"])
-    
+
     # Apply rate limiting
     await security_manager.check_rate_limit(
         request,
@@ -752,7 +752,7 @@ async def freeze_unfreeze_account(
         rate_limit_requests=3,
         rate_limit_period=3600
     )
-    
+
     try:
         if freeze_request.action == "freeze":
             result = await team_wallet_manager.freeze_team_account(
@@ -760,12 +760,12 @@ async def freeze_unfreeze_account(
             )
         else:
             result = await team_wallet_manager.unfreeze_team_account(workspace_id, admin_id)
-        
+
         if result.get("frozen_at"):
             result["frozen_at"] = result["frozen_at"].isoformat()
         if result.get("unfrozen_at"):
             result["unfrozen_at"] = result["unfrozen_at"].isoformat()
-        
+
         return result
     except WorkspaceNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "WORKSPACE_NOT_FOUND", "message": "Workspace not found"})

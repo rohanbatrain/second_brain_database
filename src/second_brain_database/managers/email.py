@@ -59,7 +59,7 @@ class EmailManager:
         return False
 
     async def send_family_invitation_email(
-        self, to_email: str, inviter_username: str, family_name: str, 
+        self, to_email: str, inviter_username: str, family_name: str,
         relationship_type: str, accept_link: str, decline_link: str, expires_at: str
     ) -> bool:
         """

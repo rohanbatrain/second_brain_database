@@ -41,7 +41,7 @@ class TestFamilyAuditManager:
         # Mock collection
         mock_collection = AsyncMock()
         mock_db_manager.get_collection.return_value = mock_collection
-        
+
         # Test data
         family_id = "fam_test123"
         transaction_id = "txn_test456"
@@ -51,7 +51,7 @@ class TestFamilyAuditManager:
         to_account = "user_test"
         family_member_id = "user_123"
         family_member_username = "testuser"
-        
+
         transaction_context = {
             "original_note": "Test transaction",
             "request_metadata": {
@@ -59,7 +59,7 @@ class TestFamilyAuditManager:
                 "user_agent": "test-agent"
             }
         }
-        
+
         # Execute
         result = await audit_manager.log_sbd_transaction_audit(
             family_id=family_id,
@@ -72,14 +72,14 @@ class TestFamilyAuditManager:
             family_member_username=family_member_username,
             transaction_context=transaction_context
         )
-        
+
         # Verify
         assert result["family_id"] == family_id
         assert result["transaction_id"] == transaction_id
         assert "audit_id" in result
         assert "integrity_hash" in result
         assert result["compliance_eligible"] is True
-        
+
         # Verify database calls
         mock_collection.insert_one.assert_called_once()
         mock_db_manager.log_query_success.assert_called_once()
@@ -94,12 +94,12 @@ class TestFamilyAuditManager:
             "timestamp": "2024-01-01T00:00:00Z",
             "transaction_id": "txn_test"
         }
-        
+
         family_id = "fam_test123"
         family_member_id = "user_123"
         family_member_username = "testuser"
         additional_context = {"test_key": "test_value"}
-        
+
         # Execute
         enhanced_transaction = await audit_manager.enhance_transaction_with_family_attribution(
             transaction=transaction,
@@ -108,7 +108,7 @@ class TestFamilyAuditManager:
             family_member_username=family_member_username,
             additional_context=additional_context
         )
-        
+
         # Verify
         assert "family_attribution" in enhanced_transaction
         assert enhanced_transaction["family_attribution"]["family_id"] == family_id
@@ -164,14 +164,14 @@ class TestFamilyAuditManager:
                 "family_members_involved": ["testuser"]
             }
         }
-        
+
         # Mock the permission verification methods
         with patch.object(audit_manager, '_verify_family_access_permission', return_value=None):
             with patch.object(audit_manager, '_get_family_sbd_transactions', return_value=[]):
                 # Mock the database operations
                 mock_audit_collection = AsyncMock()
                 mock_audit_collection.count_documents.return_value = 1
-                
+
                 # Create a proper mock cursor
                 mock_cursor = MagicMock()
                 mock_cursor.to_list = AsyncMock(return_value=[{
@@ -199,20 +199,20 @@ class TestFamilyAuditManager:
                         "version": 1
                     }
                 }])
-                
+
                 # Mock the cursor chain properly
                 mock_find = MagicMock()
                 mock_sort = MagicMock()
                 mock_skip = MagicMock()
                 mock_limit = MagicMock()
-                
+
                 mock_find.sort.return_value = mock_sort
                 mock_sort.skip.return_value = mock_skip
                 mock_skip.limit.return_value = mock_cursor
-                
+
                 mock_audit_collection.find.return_value = mock_find
                 mock_db_manager.get_collection.return_value = mock_audit_collection
-                
+
                 # Execute
                 result = await audit_manager.get_family_transaction_history_with_context(
                     family_id="fam_test123",
@@ -220,7 +220,7 @@ class TestFamilyAuditManager:
                     limit=100,
                     offset=0
                 )
-        
+
         # Verify
         assert result["family_id"] == "fam_test123"
         assert len(result["transactions"]) == 1
@@ -233,7 +233,7 @@ class TestFamilyAuditManager:
         # Mock collections
         mock_families_collection = AsyncMock()
         mock_db_manager.get_collection.return_value = mock_families_collection
-        
+
         # Mock family data
         mock_families_collection.find_one.return_value = {
             "family_id": "fam_test123",
@@ -245,7 +245,7 @@ class TestFamilyAuditManager:
                 "is_frozen": False
             }
         }
-        
+
         # Mock transaction history
         mock_transaction_history = {
             "transactions": [
@@ -268,7 +268,7 @@ class TestFamilyAuditManager:
                 "transaction_types_found": ["send"]
             }
         }
-        
+
         with patch.object(audit_manager, 'get_family_transaction_history_with_context', return_value=mock_transaction_history):
             with patch.object(audit_manager, '_verify_audit_trail_integrity', return_value={"integrity_verified": True}):
                 with patch.object(audit_manager, '_log_compliance_report_generation'):
@@ -278,7 +278,7 @@ class TestFamilyAuditManager:
                         user_id="user_123",
                         report_type="comprehensive"
                     )
-        
+
         # Verify
         assert result["report_metadata"]["report_type"] == "comprehensive"
         assert result["family_information"]["family_id"] == "fam_test123"
@@ -302,10 +302,10 @@ class TestFamilyAuditManager:
                 "hash": None  # This should be excluded from hash calculation
             }
         }
-        
+
         # Execute
         hash_result = audit_manager._calculate_audit_hash(audit_record)
-        
+
         # Verify
         assert isinstance(hash_result, str)
         assert len(hash_result) == 64  # SHA-256 hex string length
@@ -317,23 +317,23 @@ class TestFamilyAuditManager:
         # Mock collections
         mock_families_collection = AsyncMock()
         mock_users_collection = AsyncMock()
-        
+
         def get_collection_side_effect(name):
             if name == "families":
                 return mock_families_collection
             elif name == "users":
                 return mock_users_collection
             return AsyncMock()
-        
+
         mock_db_manager.get_collection.side_effect = get_collection_side_effect
-        
+
         # Mock data
         mock_families_collection.find_one.return_value = {"family_id": "fam_test123"}
         mock_users_collection.find_one.return_value = {
             "_id": "user_123",
             "family_memberships": [{"family_id": "fam_test123"}]
         }
-        
+
         # Execute (should not raise exception)
         await audit_manager._verify_family_access_permission("fam_test123", "user_123")
 
@@ -343,27 +343,27 @@ class TestFamilyAuditManager:
         # Mock collections
         mock_families_collection = AsyncMock()
         mock_users_collection = AsyncMock()
-        
+
         def get_collection_side_effect(name):
             if name == "families":
                 return mock_families_collection
             elif name == "users":
                 return mock_users_collection
             return AsyncMock()
-        
+
         mock_db_manager.get_collection.side_effect = get_collection_side_effect
-        
+
         # Mock data - user not in family
         mock_families_collection.find_one.return_value = {"family_id": "fam_test123"}
         mock_users_collection.find_one.return_value = {
             "_id": "user_123",
             "family_memberships": []  # No family memberships
         }
-        
+
         # Execute and verify exception
         with pytest.raises(FamilyAuditError) as exc_info:
             await audit_manager._verify_family_access_permission("fam_test123", "user_123")
-        
+
         assert exc_info.value.error_code == "INSUFFICIENT_PERMISSIONS"
 
     @pytest.mark.asyncio
@@ -372,13 +372,13 @@ class TestFamilyAuditManager:
         # Mock collection
         mock_families_collection = AsyncMock()
         mock_db_manager.get_collection.return_value = mock_families_collection
-        
+
         # Mock data
         mock_families_collection.find_one.return_value = {
             "family_id": "fam_test123",
             "admin_user_ids": ["user_123"]
         }
-        
+
         # Execute (should not raise exception)
         await audit_manager._verify_family_admin_permission("fam_test123", "user_123")
 
@@ -388,17 +388,17 @@ class TestFamilyAuditManager:
         # Mock collection
         mock_families_collection = AsyncMock()
         mock_db_manager.get_collection.return_value = mock_families_collection
-        
+
         # Mock data - user not admin
         mock_families_collection.find_one.return_value = {
             "family_id": "fam_test123",
             "admin_user_ids": ["other_user"]  # User not in admin list
         }
-        
+
         # Execute and verify exception
         with pytest.raises(FamilyAuditError) as exc_info:
             await audit_manager._verify_family_admin_permission("fam_test123", "user_123")
-        
+
         assert exc_info.value.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS"
 
     def test_audit_error_creation(self):
@@ -408,7 +408,7 @@ class TestFamilyAuditManager:
             error_code="TEST_ERROR",
             context={"test_key": "test_value"}
         )
-        
+
         assert str(error) == "Test error message"
         assert error.error_code == "TEST_ERROR"
         assert error.context["test_key"] == "test_value"
@@ -421,7 +421,7 @@ class TestFamilyAuditManager:
             report_type="comprehensive",
             family_id="fam_test123"
         )
-        
+
         assert str(error) == "Test compliance error"
         assert error.error_code == "COMPLIANCE_REPORT_ERROR"
         assert error.context["report_type"] == "comprehensive"
@@ -435,7 +435,7 @@ class TestFamilyAuditManager:
             expected_hash="expected_hash",
             actual_hash="actual_hash"
         )
-        
+
         assert str(error) == "Audit trail corrupted"
         assert error.error_code == "AUDIT_TRAIL_CORRUPTED"
         assert error.context["audit_id"] == "audit_123"

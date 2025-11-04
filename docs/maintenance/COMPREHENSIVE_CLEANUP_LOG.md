@@ -1,0 +1,91 @@
+# Comprehensive Cleanup Summary
+Generated: 2025-11-04 19:26:04
+Mode: EXECUTED
+
+## Files Removed (13)
+- pids/celery_beat.pid
+- pids/celery_worker.pid
+- pids/fastapi.pid
+- pids/flower.pid
+- pids/livekit.pid
+- celerybeat-schedule
+- celerybeat-schedule-shm
+- celerybeat-schedule-wal
+- uv.lock
+- coverage.xml
+- .DS_Store
+- docker-compose copy.yml.bkp.yml
+- repo_structure_before.txt
+
+## Files Moved (34)
+- example_langgraph_usage.py.unused → legacy/unused/example_langgraph_usage.py.unused
+- final_coverage_test.py.unused → legacy/unused/final_coverage_test.py.unused
+- langgraph.json.unused → legacy/unused/langgraph.json.unused
+- langgraph_dev.log.unused → legacy/unused/langgraph_dev.log.unused
+- langgraph_fixed.log.unused → legacy/unused/langgraph_fixed.log.unused
+- langgraph_minimal.log.unused → legacy/unused/langgraph_minimal.log.unused
+- langgraph_requirements.txt.unused → legacy/unused/langgraph_requirements.txt.unused
+- test_langchain.py.unused → legacy/unused/test_langchain.py.unused
+- test_langchain_full_coverage.py.unused → legacy/unused/test_langchain_full_coverage.py.unused
+- test_langgraph_platform.py.unused → legacy/unused/test_langgraph_platform.py.unused
+- chat_ui.html → docs/examples/chat_ui.html
+- voice_agent_test.html → docs/examples/voice_agent_test.html
+- family_integration_validation_results.json → docs/validation/family_integration_validation_results.json
+- kiro_mcp_config.json → config/kiro_mcp_config.json
+- vscode_mcp_config.json → config/vscode_mcp_config.json
+- test_voice_config.env → config/test_voice_config.env
+- clean_guidance_prompts.py → scripts/maintenance/clean_guidance_prompts.py
+- cleanup_repository.py → scripts/maintenance/cleanup_repository.py
+- fix_mcp_auth_now.py → scripts/maintenance/fix_mcp_auth_now.py
+- fix_resource_indentation.py → scripts/maintenance/fix_resource_indentation.py
+- mcp_connection_guide.py → scripts/maintenance/mcp_connection_guide.py
+- update_mcp_resources.py → scripts/maintenance/update_mcp_resources.py
+- update_mcp_tools.py → scripts/maintenance/update_mcp_tools.py
+- verify_family_setup.py → scripts/maintenance/verify_family_setup.py
+- verify_platform_config.py → scripts/maintenance/verify_platform_config.py
+- verify_task3_implementation.py → scripts/maintenance/verify_task3_implementation.py
+- test_agent_chat.py → tests/integration/test_agent_chat.py
+- test_voice_agent_mcp.py → tests/integration/test_voice_agent_mcp.py
+- run_voice_agent.sh → scripts/tools/run_voice_agent.sh
+- test_voice_agent.sh → scripts/tools/test_voice_agent.sh
+- start.sh → scripts/start.sh
+- stop.sh → scripts/stop.sh
+- repo_cleanup_analysis.ipynb → docs/analysis/repo_cleanup_analysis.ipynb
+- mcp_server.py → src/second_brain_database/integrations/mcp/mcp_server.py
+
+## Directories Removed (35)
+- htmlcov
+- .pytest_cache
+- .mypy_cache
+- backups/snapshot_20251104_185011/.mypy_cache
+- tests/__pycache__
+- scripts/manual/__pycache__
+- src/second_brain_database/__pycache__
+- src/second_brain_database/tasks/__pycache__
+- src/second_brain_database/managers/__pycache__
+- src/second_brain_database/utils/__pycache__
+- src/second_brain_database/models/__pycache__
+- src/second_brain_database/docs/__pycache__
+- src/second_brain_database/integrations/__pycache__
+- src/second_brain_database/integrations/mcp/__pycache__
+- src/second_brain_database/integrations/mcp/tools/__pycache__
+- src/second_brain_database/integrations/mcp/resources/__pycache__
+- src/second_brain_database/integrations/mcp/prompts/__pycache__
+- src/second_brain_database/routes/__pycache__
+- src/second_brain_database/routes/langgraph/__pycache__
+- src/second_brain_database/routes/auth/__pycache__
+- src/second_brain_database/routes/auth/periodics/__pycache__
+- src/second_brain_database/routes/auth/services/__pycache__
+- src/second_brain_database/routes/auth/services/security/__pycache__
+- src/second_brain_database/routes/auth/services/auth/__pycache__
+- src/second_brain_database/routes/auth/services/utils/__pycache__
+- src/second_brain_database/routes/auth/services/webauthn/__pycache__
+- src/second_brain_database/routes/auth/services/abuse/__pycache__
+- src/second_brain_database/routes/shop/__pycache__
+- src/second_brain_database/routes/family/__pycache__
+- src/second_brain_database/routes/sbd_tokens/__pycache__
+- src/second_brain_database/routes/workspaces/__pycache__
+- src/second_brain_database/routes/banners/__pycache__
+- src/second_brain_database/routes/profile/__pycache__
+- src/second_brain_database/routes/avatars/__pycache__
+- src/second_brain_database/routes/themes/__pycache__

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, validator
 
 class RateLimit(BaseModel):
     """Rate limiting configuration for MCP tools."""
-    
+
     requests_per_minute: int = Field(
         default=60,
         ge=1,
@@ -29,7 +29,7 @@ class RateLimit(BaseModel):
         le=100,
         description="Maximum burst requests allowed"
     )
-    
+
     @validator('requests_per_hour')
     def validate_hourly_limit(cls, v, values):
         """Ensure hourly limit is reasonable compared to per-minute limit."""
@@ -42,7 +42,7 @@ class RateLimit(BaseModel):
 
 class SecurityConfig(BaseModel):
     """Security configuration for MCP tools."""
-    
+
     require_auth: bool = Field(
         default=True,
         description="Whether authentication is required for MCP tools"
@@ -79,7 +79,7 @@ class SecurityConfig(BaseModel):
 
 class MCPServerConfig(BaseModel):
     """MCP server configuration."""
-    
+
     server_name: str = Field(
         default="SecondBrainMCP",
         min_length=1,
@@ -118,14 +118,14 @@ class MCPServerConfig(BaseModel):
         default_factory=SecurityConfig,
         description="Security configuration"
     )
-    
+
     @validator('host')
     def validate_host(cls, v):
         """Validate host format."""
         if not v or v.strip() == "":
             raise ValueError("Host cannot be empty")
         return v.strip()
-    
+
     @validator('port')
     def validate_port_range(cls, v):
         """Validate port is in acceptable range."""
@@ -136,7 +136,7 @@ class MCPServerConfig(BaseModel):
 
 class MCPToolConfig(BaseModel):
     """Configuration for individual MCP tools."""
-    
+
     name: str = Field(
         ...,
         min_length=1,
@@ -165,7 +165,7 @@ class MCPToolConfig(BaseModel):
         le=300,
         description="Tool-specific timeout in seconds"
     )
-    
+
     @validator('name')
     def validate_name_format(cls, v):
         """Validate tool name format."""
@@ -176,7 +176,7 @@ class MCPToolConfig(BaseModel):
 
 class MCPResourceConfig(BaseModel):
     """Configuration for MCP resources."""
-    
+
     name: str = Field(
         ...,
         min_length=1,
@@ -201,7 +201,7 @@ class MCPResourceConfig(BaseModel):
         ge=0,
         description="Cache TTL in seconds (0 = no cache)"
     )
-    
+
     @validator('uri_template')
     def validate_uri_template(cls, v):
         """Validate URI template format."""
@@ -212,7 +212,7 @@ class MCPResourceConfig(BaseModel):
 
 class MCPPromptConfig(BaseModel):
     """Configuration for MCP prompts."""
-    
+
     name: str = Field(
         ...,
         min_length=1,
@@ -231,7 +231,7 @@ class MCPPromptConfig(BaseModel):
         default=True,
         description="Whether the prompt should include user context"
     )
-    
+
     @validator('name')
     def validate_name_format(cls, v):
         """Validate prompt name format."""

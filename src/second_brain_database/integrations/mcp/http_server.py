@@ -32,33 +32,33 @@ logger = get_logger(prefix="[MCP_HTTP]")
 class MCPHTTPServer:
     """
     Production-ready HTTP server for FastMCP 2.x following modern patterns.
-    
+
     This implementation uses FastMCP's native http_app() method and follows
     the recommended ASGI application approach for production deployments.
     """
-    
+
     def __init__(self):
         # Add custom routes first (before creating http_app)
         self._add_custom_routes()
-        
+
         # Create middleware for the FastMCP app
         self.middleware = self._create_middleware()
-        
+
         # Create the native FastMCP HTTP app with middleware
         # Note: FastMCP handles the /mcp path internally
         self.app = mcp.http_app(middleware=self.middleware)
-        
+
     def _create_middleware(self):
         """Create middleware list for FastMCP app following 2.x patterns."""
         middleware = []
-        
+
         # Note: Authentication is handled by FastMCP 2.x natively via the auth provider
         # No custom authentication middleware needed
-        
+
         # CORS middleware for browser-based MCP clients
         if settings.MCP_HTTP_CORS_ENABLED:
             origins = [origin.strip() for origin in settings.MCP_HTTP_CORS_ORIGINS.split(",")]
-            
+
             # FastMCP 2.x requires specific headers for MCP protocol
             cors_middleware = Middleware(
                 CORSMiddleware,
@@ -67,19 +67,19 @@ class MCPHTTPServer:
                 allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
                 allow_headers=[
                     "mcp-protocol-version",
-                    "mcp-session-id", 
+                    "mcp-session-id",
                     "Authorization",
                     "Content-Type",
                 ],
                 expose_headers=["mcp-session-id"],  # Required for session management
             )
             middleware.append(cors_middleware)
-        
+
         return middleware
-    
+
     def _add_custom_routes(self):
         """Add custom routes to the FastMCP app using the custom_route decorator."""
-        
+
         # Add health check route using FastMCP's custom_route decorator
         @mcp.custom_route("/health", methods=["GET"])
         async def health_check(request):
@@ -97,7 +97,7 @@ class MCPHTTPServer:
                     },
                     "components": {}
                 }
-                
+
                 # Check FastMCP server status
                 try:
                     # FastMCP 2.x doesn't expose internal managers directly
@@ -114,7 +114,7 @@ class MCPHTTPServer:
                         "error": str(e)
                     }
                     health_data["status"] = "degraded"
-                
+
                 # Check monitoring integration
                 if mcp_monitoring_integration:
                     try:
@@ -126,12 +126,12 @@ class MCPHTTPServer:
                             "error": str(e)
                         }
                         health_data["status"] = "degraded"
-                
+
                 return JSONResponse(
                     content=health_data,
                     status_code=200 if health_data["status"] == "healthy" else 503
                 )
-                
+
             except Exception as e:
                 logger.error("Health check failed: %s", e)
                 return JSONResponse(
@@ -142,7 +142,7 @@ class MCPHTTPServer:
                     },
                     status_code=503
                 )
-        
+
         # Add metrics route using FastMCP's custom_route decorator
         @mcp.custom_route("/metrics", methods=["GET"])
         async def metrics(request):
@@ -153,7 +153,7 @@ class MCPHTTPServer:
                         content="Monitoring not available",
                         status_code=503
                     )
-                
+
                 metrics_data = await mcp_monitoring_integration.get_prometheus_metrics()
                 return Response(
                     content=metrics_data,
@@ -167,7 +167,6 @@ class MCPHTTPServer:
                 )
 
 
-        
         # Add status route using FastMCP's custom_route decorator
         @mcp.custom_route("/status", methods=["GET"])
         async def server_status(request):
@@ -209,15 +208,15 @@ class MCPHTTPServer:
                         "ai_tools": "healthy"
                     }
                 }
-                
+
                 # In a real implementation, we would check actual AI components
                 # For now, we'll return a basic health status
-                
+
                 return JSONResponse(
                     content=ai_health,
                     status_code=200
                 )
-                
+
             except Exception as e:
                 logger.error("AI health check failed: %s", e)
                 return JSONResponse(
@@ -268,7 +267,7 @@ class MCPHTTPServer:
                     if part == "sessions" and i + 1 < len(path_parts):
                         session_id = path_parts[i + 1]
                         break
-                
+
                 if not session_id:
                     return JSONResponse(
                         content={
@@ -277,13 +276,13 @@ class MCPHTTPServer:
                         },
                         status_code=400
                     )
-                
+
                 return JSONResponse({
                     "status": "success",
                     "session_id": session_id,
                     "message": "AI message endpoint - implementation pending"
                 })
-                
+
             except Exception as e:
                 logger.error("AI session message endpoint error: %s", e)
                 return JSONResponse(
@@ -293,7 +292,7 @@ class MCPHTTPServer:
                     },
                     status_code=500
                 )
-    
+
     async def start(self, host: str = None, port: int = None):
         """Start the production-ready HTTP server using FastMCP's recommended approach."""
         # Use settings values if not provided
@@ -307,7 +306,7 @@ class MCPHTTPServer:
             "enabled" if mcp.auth else "disabled",
             "enabled" if settings.MCP_HTTP_CORS_ENABLED else "disabled"
         )
-        
+
         # Use uvicorn to serve the ASGI app (recommended for production)
         config = uvicorn.Config(
             self.app,
@@ -318,7 +317,7 @@ class MCPHTTPServer:
             server_header=False,
             date_header=False,
         )
-        
+
         server = uvicorn.Server(config)
         await server.serve()
 
@@ -336,7 +335,7 @@ async def run_http_server(host: str = None, port: int = None):
 def create_production_app():
     """
     Create production ASGI app for deployment.
-    
+
     This follows FastMCP 2.x recommended patterns for production deployment.
     Use this with uvicorn: uvicorn module:create_production_app --factory
     """

@@ -19,13 +19,13 @@ from tests.test_webauthn_integration_framework import WebAuthnIntegrationTestFra
 def test_webauthn_integration():
     """
     Main integration test function that can be called by other test runners.
-    
+
     Returns:
         bool: True if all tests pass, False otherwise
     """
     print("🚀 Starting WebAuthn Integration Tests")
     print("=" * 60)
-    
+
     try:
         # Run the async test framework
         success = asyncio.run(run_webauthn_tests())
@@ -46,7 +46,7 @@ async def run_webauthn_tests():
 def main():
     """Main entry point for standalone test execution."""
     success = test_webauthn_integration()
-    
+
     if success:
         print("\n🎉 All WebAuthn integration tests passed!")
         sys.exit(0)

@@ -25,7 +25,7 @@ def check_system():
     """Check system requirements"""
     print("\n📋 Checking system requirements...")
     print("-" * 70)
-    
+
     # Check Python version
     import sys
     python_version = sys.version_info
@@ -33,7 +33,7 @@ def check_system():
         print(f"✅ Python {python_version.major}.{python_version.minor}.{python_version.micro}")
     else:
         print(f"⚠️  Python {python_version.major}.{python_version.minor} (3.8+ recommended)")
-    
+
     # Check Git
     try:
         import subprocess
@@ -42,20 +42,20 @@ def check_system():
             print(f"✅ Git installed: {result.stdout.strip()}")
         else:
             print("⚠️  Git not found (optional but recommended)")
-    except:
+    except Exception:  # TODO: Use specific exception type
         print("⚠️  Git not found (optional but recommended)")
-    
+
     # Check repo root
     repo_root = Path(__file__).parent.parent.parent
     print(f"✅ Repository root: {repo_root}")
-    
+
     # Check if in git repo
     git_dir = repo_root / '.git'
     if git_dir.exists():
         print("✅ Git repository detected")
     else:
         print("⚠️  Not a git repository (backups will still work)")
-    
+
     print()
 
 
@@ -172,7 +172,7 @@ def offer_quick_start():
     """Offer to launch quick start wizard"""
     print("\n" + "=" * 70)
     response = input("\n🎯 Would you like to launch the interactive wizard now? (yes/no): ")
-    
+
     if response.lower() in ['yes', 'y']:
         print("\n🚀 Launching interactive wizard...\n")
         import subprocess
@@ -195,7 +195,7 @@ def main():
     show_safety_info()
     show_next_steps()
     offer_quick_start()
-    
+
     print("\n" + "=" * 70)
     print("📖 Full documentation: scripts/repo_cleanup/README.md")
     print("=" * 70)

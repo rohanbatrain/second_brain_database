@@ -12,7 +12,7 @@ import re
 
 class DocConsolidator:
     """Consolidates and merges documentation files."""
-    
+
     # Documentation merge groups
     MERGE_GROUPS = {
         'production_guide': {
@@ -72,16 +72,16 @@ class DocConsolidator:
     def merge_documents(self, group_name: str, config: Dict) -> str:
         """
         Merge multiple documents into one.
-        
+
         Args:
             group_name: Name of the merge group
             config: Configuration dict with sources, output, title, etc.
-        
+
         Returns:
             Merged content as string
         """
         print(f"  📚 Merging {group_name}...")
-        
+
         # Start with header
         content = f"""# {config['title']}
 
@@ -95,11 +95,11 @@ class DocConsolidator:
 ## Table of Contents
 
 """
-        
+
         # Collect content from all sources
         sections = []
         toc_entries = []
-        
+
         for source in config['sources']:
             # Try to find the source file in various locations
             source_paths = [
@@ -110,31 +110,31 @@ class DocConsolidator:
                 self.repo_root / 'docs' / 'integrations' / 'voice' / source,
                 self.repo_root / 'docs' / 'integrations' / 'langgraph' / source,
             ]
-            
+
             source_content = ""
             found_path = None
-            
+
             for path in source_paths:
                 if path.exists():
                     source_content = self.read_markdown_file(path)
                     found_path = path
                     break
-            
+
             if not source_content:
                 print(f"    ⚠️  Source not found: {source}")
                 continue
-            
+
             # Extract title from source
             title_match = re.search(r'^#\s+(.+)$', source_content, re.MULTILINE)
             section_title = title_match.group(1) if title_match else source
-            
+
             # Remove the first title (we'll use our own)
             source_content = re.sub(r'^#\s+.+$', '', source_content, count=1, flags=re.MULTILINE)
-            
+
             # Add to sections
             section_anchor = section_title.lower().replace(' ', '-').replace('🚀', '').replace('🔌', '').replace('🎤', '').replace('🕸️', '').strip()
             toc_entries.append(f"- [{section_title}](#{section_anchor})")
-            
+
             sections.append(f"""
 ## {section_title}
 
@@ -144,14 +144,14 @@ class DocConsolidator:
 
 ---
 """)
-        
+
         # Add TOC
         content += '\n'.join(toc_entries)
         content += '\n\n---\n'
-        
+
         # Add all sections
         content += '\n'.join(sections)
-        
+
         # Add footer
         content += f"""
 
@@ -165,7 +165,7 @@ This document was automatically consolidated from multiple sources on {datetime.
 """
         for source in config['sources']:
             content += f"- `{source}`\n"
-        
+
         return content
 
     def write_consolidated_doc(self, output_path: Path, content: str) -> bool:
@@ -173,7 +173,7 @@ This document was automatically consolidated from multiple sources on {datetime.
         if self.dry_run:
             print(f"    🔍 Would write to: {output_path}")
             return True
-        
+
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(content, encoding='utf-8')
@@ -186,24 +186,24 @@ This document was automatically consolidated from multiple sources on {datetime.
     def consolidate_documentation(self) -> List[str]:
         """Consolidate all documentation groups."""
         print("\n📚 Consolidating documentation...\n")
-        
+
         for group_name, config in self.MERGE_GROUPS.items():
             # Merge documents
             merged_content = self.merge_documents(group_name, config)
-            
+
             # Write consolidated document
             output_path = self.repo_root / config['output']
             success = self.write_consolidated_doc(output_path, merged_content)
-            
+
             if success:
                 self.consolidation_log.append(f"{group_name} → {config['output']}")
-        
+
         return self.consolidation_log
 
     def create_docs_index(self) -> bool:
         """Create master documentation index."""
         print("\n📑 Creating documentation index...\n")
-        
+
         index_content = f"""# 📚 Documentation Index
 
 **Last Updated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -296,13 +296,13 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.
 
 *This index is automatically maintained. Last regenerated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}*
 """
-        
+
         index_path = self.repo_root / "docs" / "README.md"
-        
+
         if self.dry_run:
             print(f"  🔍 Would create index at: {index_path}")
             return True
-        
+
         try:
             index_path.parent.mkdir(parents=True, exist_ok=True)
             index_path.write_text(index_content, encoding='utf-8')
@@ -326,7 +326,7 @@ Mode: {'DRY RUN' if self.dry_run else 'PRODUCTION'}
 """
         for consolidation in self.consolidation_log:
             report += f"- {consolidation}\n"
-        
+
         return report
 
 
@@ -334,13 +334,13 @@ if __name__ == "__main__":
     # Standalone testing
     import sys
     repo_root = Path(__file__).parent.parent.parent
-    
+
     print("Testing DocConsolidator in dry-run mode...\n")
-    
+
     consolidator = DocConsolidator(repo_root, dry_run=True)
     results = consolidator.consolidate_documentation()
     consolidator.create_docs_index()
-    
+
     print(f"\n📊 Consolidation Results:")
     for result in results:
         print(f"   - {result}")

@@ -12,7 +12,7 @@ from collections import defaultdict
 
 class FileAnalyzer:
     """Analyzes repository files and categorizes them for cleanup."""
-    
+
     # File categorization patterns
     PATTERNS = {
         'maintenance_scripts': [
@@ -62,7 +62,7 @@ class FileAnalyzer:
             r'.*\.env$',
         ],
     }
-    
+
     # Directories to skip during analysis
     SKIP_DIRS = {
         '.git', '__pycache__', 'node_modules', '.pytest_cache',
@@ -86,7 +86,7 @@ class FileAnalyzer:
         """Check if directory should be skipped."""
         dir_name = dir_path.name
         return any(
-            dir_name == skip or dir_name.startswith('.') 
+            dir_name == skip or dir_name.startswith('.')
             for skip in self.SKIP_DIRS
         )
 
@@ -94,13 +94,13 @@ class FileAnalyzer:
         """Categorize a file based on patterns."""
         relative_path = file_path.relative_to(self.repo_root)
         path_str = str(relative_path)
-        
+
         # Check each category pattern
         for category, patterns in self.PATTERNS.items():
             for pattern in patterns:
                 if re.search(pattern, path_str, re.IGNORECASE):
                     return category
-        
+
         # Default categorization based on location
         if 'src/' in path_str:
             return 'source_code'
@@ -112,13 +112,13 @@ class FileAnalyzer:
             return 'scripts'
         elif 'infra/' in path_str:
             return 'infrastructure'
-        
+
         return 'uncategorized'
 
     def analyze_file(self, file_path: Path):
         """Analyze a single file and update statistics."""
         self.file_stats['total_files'] += 1
-        
+
         # Update file type stats
         if file_path.suffix == '.py':
             self.file_stats['python_files'] += 1
@@ -126,11 +126,11 @@ class FileAnalyzer:
             self.file_stats['markdown_files'] += 1
         elif file_path.suffix in {'.json', '.yml', '.yaml', '.toml', '.env'}:
             self.file_stats['config_files'] += 1
-        
+
         # Check if it's a test file
         if 'test' in file_path.name.lower():
             self.file_stats['test_files'] += 1
-        
+
         # Categorize
         category = self.categorize_file(file_path)
         relative_path = str(file_path.relative_to(self.repo_root))
@@ -140,7 +140,7 @@ class FileAnalyzer:
         """Recursively scan directory and analyze files."""
         if directory is None:
             directory = self.repo_root
-        
+
         for item in directory.iterdir():
             if item.is_dir():
                 if not self.should_skip_dir(item):
@@ -151,16 +151,16 @@ class FileAnalyzer:
     def analyze_repository(self) -> Dict:
         """Perform complete repository analysis."""
         print("🔍 Analyzing repository structure...")
-        
+
         # Scan all files
         self.scan_directory()
-        
+
         # Print categorization summary
         print("\n📊 Categorization Summary:")
         for category, files in sorted(self.categorization.items()):
             if files:
                 print(f"   {category}: {len(files)} files")
-        
+
         return {
             'total_files': self.file_stats['total_files'],
             'python_files': self.file_stats['python_files'],
@@ -176,18 +176,18 @@ class FileAnalyzer:
 
     def find_duplicate_docs(self) -> Dict[str, List[str]]:
         """Find potentially duplicate documentation files."""
-        docs = [f for f in self.categorization.get('documentation', []) 
+        docs = [f for f in self.categorization.get('documentation', [])
                 if f.endswith('.md')]
-        
+
         # Group by similar names (ignoring case and common prefixes)
         similar_groups = defaultdict(list)
-        
+
         for doc in docs:
             # Normalize name for comparison
             name = Path(doc).name.lower()
             name = re.sub(r'(production_|deployment_|setup_)', '', name)
             similar_groups[name].append(doc)
-        
+
         # Return only groups with multiple files
         return {k: v for k, v in similar_groups.items() if len(v) > 1}
 
@@ -214,7 +214,7 @@ Generated: {Path(__file__).parent}
                 if len(files) > 20:
                     report += f"- ... and {len(files) - 20} more\n"
                 report += "\n"
-        
+
         # Add duplicate analysis
         duplicates = self.find_duplicate_docs()
         if duplicates:
@@ -224,7 +224,7 @@ Generated: {Path(__file__).parent}
                 for doc in docs:
                     report += f"- {doc}\n"
                 report += "\n"
-        
+
         return report
 
 
@@ -232,17 +232,17 @@ if __name__ == "__main__":
     # Standalone testing
     import sys
     repo_root = Path(__file__).parent.parent.parent
-    
+
     analyzer = FileAnalyzer(repo_root)
     results = analyzer.analyze_repository()
-    
+
     print("\n" + "=" * 70)
     print("Analysis Complete!")
     print("=" * 70)
-    
+
     # Generate report
     report = analyzer.generate_analysis_report()
     report_path = repo_root / "ANALYSIS_REPORT.md"
     report_path.write_text(report)
-    
+
     print(f"\n📄 Report saved to: {report_path}")

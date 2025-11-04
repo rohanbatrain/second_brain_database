@@ -64,7 +64,7 @@ class SecondBrainVoiceAgent:
             # Import MCP server instance
             from second_brain_database.integrations.mcp.mcp_instance import get_mcp_server
             self.mcp_server = get_mcp_server()
-            
+
             if self.mcp_server:
                 # Get available tools from the MCP server
                 self.available_tools = self._get_available_mcp_tools()
@@ -74,7 +74,7 @@ class SecondBrainVoiceAgent:
                 logger.warning("MCP server not available")
                 self.available_tools = {}
                 return False
-            
+
         except ImportError as e:
             logger.warning(f"MCP server not available: {e}")
             self.mcp_server = None
@@ -91,7 +91,7 @@ class SecondBrainVoiceAgent:
         try:
             if not self.mcp_server:
                 return {}
-            
+
             # Get all registered tools from the FastMCP server
             tools = {}
             # FastMCP 2.x has a different API for listing tools
@@ -99,7 +99,7 @@ class SecondBrainVoiceAgent:
             if hasattr(self.mcp_server, '_tools'):
                 for tool_name, tool_func in self.mcp_server._tools.items():
                     tools[tool_name] = tool_func
-            
+
             # Also check for tools registered via decorators
             if hasattr(self.mcp_server, 'list_tools'):
                 try:
@@ -108,12 +108,12 @@ class SecondBrainVoiceAgent:
                         if tool_name not in tools:
                             # Try to get the tool function
                             tools[tool_name] = getattr(self.mcp_server, tool_name, None)
-                except:
+                except Exception:  # TODO: Use specific exception type
                     pass
-            
+
             logger.info("Found MCP tools: %s", list(tools.keys()))
             return tools
-            
+
         except Exception as e:
             logger.error(f"Failed to get available MCP tools: {e}")
             return {}
@@ -135,7 +135,7 @@ class SecondBrainVoiceAgent:
             # Create a mock MCP user context for the voice agent
             from second_brain_database.integrations.mcp.context import MCPUserContext
             from datetime import datetime, timezone
-            
+
             user_context = MCPUserContext(
                 user_id="voice-agent-user",
                 username="Voice Assistant",
@@ -154,11 +154,11 @@ class SecondBrainVoiceAgent:
                 token_id="voice-session-token",
                 authenticated_at=datetime.now(timezone.utc)
             )
-            
+
             # Set the user context
             from second_brain_database.integrations.mcp.context import set_mcp_user_context
             set_mcp_user_context(user_context)
-            
+
             # Try to call the actual MCP tool
             tool_func = self.available_tools[tool_name]
             if tool_func and callable(tool_func):
@@ -200,7 +200,7 @@ class SecondBrainVoiceAgent:
             return await self._call_mcp_tool("list_user_families")
         elif any(keyword in message_lower for keyword in ["family info", "family details", "get family"]):
             return await self._call_mcp_tool("get_family", family_id="extract_from_context")  # Would need context extraction
-        
+
         # Member management tools
         elif any(keyword in message_lower for keyword in ["invite", "add member", "join family"]):
             return await self._call_mcp_tool("invite_family_member", email="user@example.com")  # Would need email extraction
@@ -208,19 +208,19 @@ class SecondBrainVoiceAgent:
             return await self._call_mcp_tool("remove_family_member", user_id="extract_from_context")
         elif any(keyword in message_lower for keyword in ["family members", "list members", "who's in family"]):
             return await self._call_mcp_tool("list_family_members", family_id="extract_from_context")
-        
+
         # Shop tools
         elif any(keyword in message_lower for keyword in ["browse shop", "show products", "what's for sale"]):
             return await self._call_mcp_tool("list_shop_items")
         elif any(keyword in message_lower for keyword in ["buy", "purchase", "get item"]):
             return await self._call_mcp_tool("purchase_shop_item", item_id="extract_from_context")
-        
+
         # System/admin tools
         elif any(keyword in message_lower for keyword in ["check status", "server status", "system health", "health check"]):
             return await self._call_mcp_tool("get_server_status")
         elif any(keyword in message_lower for keyword in ["server info", "system info"]):
             return await self._call_mcp_tool("get_server_info")
-        
+
         # Profile tools
         elif any(keyword in message_lower for keyword in ["my profile", "profile info", "user details"]):
             return await self._call_mcp_tool("get_user_profile")
@@ -260,7 +260,7 @@ class SecondBrainVoiceAgent:
                 "System Administration": ["get_server_status", "get_server_info"],
                 "User Profile": ["get_user_profile", "update_user_profile"]
             }
-            
+
             for category, tools in tool_categories.items():
                 available_in_category = [t for t in tools if t in self.available_tools]
                 if available_in_category:

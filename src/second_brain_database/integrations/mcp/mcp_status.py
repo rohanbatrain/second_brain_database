@@ -18,7 +18,7 @@ logger = get_logger(prefix="[MCP_Status]")
 async def get_comprehensive_mcp_status() -> Dict[str, Any]:
     """
     Get comprehensive status of the FastMCP integration.
-    
+
     Returns:
         Dictionary with detailed status information
     """
@@ -32,7 +32,7 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
         "prompts": {},
         "errors": []
     }
-    
+
     try:
         # Test FastMCP import
         try:
@@ -42,15 +42,15 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
             status["fastmcp_import"] = "failed"
             status["errors"].append(f"FastMCP import failed: {e}")
             return status
-        
+
         # Test server creation and ensure tools are imported
         try:
             from .modern_server import mcp
             from .mcp_instance import ensure_tools_imported
-            
+
             # Ensure all tools are imported
             ensure_tools_imported()
-            
+
             status["server"] = {
                 "available": True,
                 "name": mcp.name,
@@ -66,7 +66,7 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
             }
             status["errors"].append(f"Server creation failed: {e}")
             return status
-        
+
         # Test tool listing
         try:
             tools = await mcp.get_tools()
@@ -82,7 +82,7 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
                 "error": str(e)
             }
             status["errors"].append(f"Tool listing failed: {e}")
-        
+
         # Test resource listing
         try:
             resources = await mcp.get_resources()
@@ -98,7 +98,7 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
                 "error": str(e)
             }
             status["errors"].append(f"Resource listing failed: {e}")
-        
+
         # Test prompt listing
         try:
             prompts = await mcp.get_prompts()
@@ -114,7 +114,7 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
                 "error": str(e)
             }
             status["errors"].append(f"Prompt listing failed: {e}")
-        
+
         # Determine overall status
         if len(status["errors"]) == 0:
             status["integration_status"] = "healthy"
@@ -122,19 +122,19 @@ async def get_comprehensive_mcp_status() -> Dict[str, Any]:
             status["integration_status"] = "working_with_issues"
         else:
             status["integration_status"] = "degraded"
-            
+
     except Exception as e:
         status["integration_status"] = "failed"
         status["errors"].append(f"Status check failed: {e}")
         logger.error("MCP status check failed: %s", e)
-    
+
     return status
 
 
 async def test_mcp_tool_execution() -> Dict[str, Any]:
     """
     Test MCP tool execution with a simple test.
-    
+
     Returns:
         Dictionary with test results
     """
@@ -144,16 +144,16 @@ async def test_mcp_tool_execution() -> Dict[str, Any]:
         "test_tool_execution": False,
         "errors": []
     }
-    
+
     try:
         from .modern_server import mcp
-        
+
         # Test tool registration
         @mcp.tool
         def mcp_test_tool(message: str) -> str:
             """A test tool for MCP integration testing"""
             return f"MCP Test Response: {message}"
-        
+
         # Check if tool was registered
         tools = await mcp.get_tools()
         if "mcp_test_tool" in tools:
@@ -161,22 +161,22 @@ async def test_mcp_tool_execution() -> Dict[str, Any]:
             logger.info("Test tool successfully registered")
         else:
             test_results["errors"].append("Test tool was not registered")
-        
+
         # Note: We can't easily test tool execution without a full MCP client
         # This would require setting up the MCP protocol communication
         test_results["test_tool_execution"] = "skipped_requires_mcp_client"
-        
+
     except Exception as e:
         test_results["errors"].append(f"Tool test failed: {e}")
         logger.error("MCP tool test failed: %s", e)
-    
+
     return test_results
 
 
 async def diagnose_mcp_issues() -> Dict[str, Any]:
     """
     Diagnose common MCP integration issues.
-    
+
     Returns:
         Dictionary with diagnosis and recommendations
     """
@@ -186,37 +186,37 @@ async def diagnose_mcp_issues() -> Dict[str, Any]:
         "recommendations": [],
         "status": "unknown"
     }
-    
+
     try:
         # Get comprehensive status
         status = await get_comprehensive_mcp_status()
-        
+
         # Check for common issues
         if status["integration_status"] == "failed":
             diagnosis["issues_found"].append("FastMCP integration completely failed")
             diagnosis["recommendations"].append("Check FastMCP installation: pip install fastmcp==2.13.0.2")
-        
+
         if not status["server"]["available"]:
             diagnosis["issues_found"].append("MCP server not available")
             diagnosis["recommendations"].append("Check modern_server.py configuration")
-        
+
         if status["tools"]["count"] == 0:
             diagnosis["issues_found"].append("No tools registered")
             diagnosis["recommendations"].append("Ensure tool modules are imported (family_tools, auth_tools, etc.)")
-        
+
         if status["resources"]["count"] == 0:
             diagnosis["issues_found"].append("No resources registered")
             diagnosis["recommendations"].append("Check resource module imports")
-        
+
         if status["prompts"]["count"] == 0:
             diagnosis["issues_found"].append("No prompts registered")
             diagnosis["recommendations"].append("Check prompt module imports")
-        
+
         # Check configuration issues
         if not status["server"].get("auth_enabled", False):
             diagnosis["issues_found"].append("Authentication not enabled")
             diagnosis["recommendations"].append("Check MCP_SECURITY_ENABLED and MCP_REQUIRE_AUTH settings")
-        
+
         # Determine overall diagnosis
         if len(diagnosis["issues_found"]) == 0:
             diagnosis["status"] = "healthy"
@@ -227,7 +227,7 @@ async def diagnose_mcp_issues() -> Dict[str, Any]:
         else:
             diagnosis["status"] = "needs_attention"
             diagnosis["recommendations"].append("Significant issues detected, review configuration")
-        
+
         # Add general recommendations
         diagnosis["recommendations"].extend([
             "Run 'python -c \"from src.second_brain_database.integrations.mcp.mcp_status import *; import asyncio; print(asyncio.run(get_comprehensive_mcp_status()))\"' for detailed status",
@@ -235,12 +235,12 @@ async def diagnose_mcp_issues() -> Dict[str, Any]:
             "Ensure all required dependencies are installed",
             "Verify configuration settings in config.py"
         ])
-        
+
     except Exception as e:
         diagnosis["issues_found"].append(f"Diagnosis failed: {e}")
         diagnosis["status"] = "diagnosis_failed"
         logger.error("MCP diagnosis failed: %s", e)
-    
+
     return diagnosis
 
 
@@ -252,13 +252,13 @@ def print_mcp_status():
         print("=" * 60)
         print("FastMCP 2.13.0.2 Integration Status Report")
         print("=" * 60)
-        
+
         status = await get_comprehensive_mcp_status()
-        
+
         print(f"Overall Status: {status['integration_status'].upper()}")
         print(f"Timestamp: {status['timestamp']}")
         print()
-        
+
         # Server status
         print("🖥️  Server Status:")
         if status["server"]["available"]:
@@ -271,7 +271,7 @@ def print_mcp_status():
         else:
             print(f"   ❌ Server Unavailable: {status['server'].get('error', 'Unknown error')}")
         print()
-        
+
         # Tools status
         print("🔧 Tools Status:")
         if status["tools"]["available"]:
@@ -281,7 +281,7 @@ def print_mcp_status():
         else:
             print(f"   ❌ Tools Unavailable: {status['tools'].get('error', 'Unknown error')}")
         print()
-        
+
         # Resources status
         print("📁 Resources Status:")
         if status["resources"]["available"]:
@@ -291,7 +291,7 @@ def print_mcp_status():
         else:
             print(f"   ❌ Resources Unavailable: {status['resources'].get('error', 'Unknown error')}")
         print()
-        
+
         # Prompts status
         print("💬 Prompts Status:")
         if status["prompts"]["available"]:
@@ -301,31 +301,31 @@ def print_mcp_status():
         else:
             print(f"   ❌ Prompts Unavailable: {status['prompts'].get('error', 'Unknown error')}")
         print()
-        
+
         # Errors
         if status["errors"]:
             print("⚠️  Errors Detected:")
             for error in status["errors"]:
                 print(f"   • {error}")
             print()
-        
+
         # Diagnosis
         diagnosis = await diagnose_mcp_issues()
         print("🔍 Diagnosis:")
         print(f"   Status: {diagnosis['status'].upper()}")
-        
+
         if diagnosis["issues_found"]:
             print("   Issues Found:")
             for issue in diagnosis["issues_found"]:
                 print(f"     • {issue}")
-        
+
         if diagnosis["recommendations"]:
             print("   Recommendations:")
             for rec in diagnosis["recommendations"][:5]:  # Show first 5
                 print(f"     • {rec}")
-        
+
         print("=" * 60)
-    
+
     # Run the async function
     asyncio.run(_print_status())
 

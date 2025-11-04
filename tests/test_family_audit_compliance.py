@@ -64,7 +64,7 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Test audit logging for different operation types
             operations_to_test = [
                 {
@@ -94,7 +94,7 @@ class TestFamilyAuditCompliance:
                     "details": {"previous_role": "member", "new_role": "admin", "reason": "succession_plan"}
                 }
             ]
-            
+
             for operation in operations_to_test:
                 await family_audit_manager.log_family_audit_event(
                     operation_type=operation["operation_type"],
@@ -105,22 +105,22 @@ class TestFamilyAuditCompliance:
                     ip_address="192.168.1.1",
                     user_agent="TestAgent/1.0"
                 )
-            
+
             # Verify audit records were created
             assert mock_audit_collection.insert_one.call_count == len(operations_to_test)
-            
+
             # Verify audit record structure
             for call in mock_audit_collection.insert_one.call_args_list:
                 audit_record = call[0][0]
-                
+
                 # Check required fields
                 required_fields = [
-                    "audit_id", "operation_type", "family_id", "user_id", 
+                    "audit_id", "operation_type", "family_id", "user_id",
                     "timestamp", "ip_address", "user_agent", "details"
                 ]
                 for field in required_fields:
                     assert field in audit_record
-                
+
                 # Verify data types and formats
                 assert isinstance(audit_record["timestamp"], str)
                 assert audit_record["audit_id"].startswith("audit_")
@@ -133,7 +133,7 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Test sensitive data access scenarios
             sensitive_operations = [
                 {
@@ -174,7 +174,7 @@ class TestFamilyAuditCompliance:
                     "access_reason": "compliance_audit"
                 }
             ]
-            
+
             for operation in sensitive_operations:
                 await family_audit_manager.log_sensitive_data_access(
                     data_type=operation["data_type"],
@@ -186,14 +186,14 @@ class TestFamilyAuditCompliance:
                     ip_address="192.168.1.1",
                     user_agent="AdminPanel/1.0"
                 )
-            
+
             # Verify sensitive access logs were created
             assert mock_audit_collection.insert_one.call_count == len(sensitive_operations)
-            
+
             # Verify sensitive data logging includes security markers
             for call in mock_audit_collection.insert_one.call_args_list:
                 audit_record = call[0][0]
-                
+
                 assert audit_record["operation_type"] == "sensitive_data_access"
                 assert audit_record["security_level"] == "sensitive"
                 assert "data_type" in audit_record
@@ -208,7 +208,7 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Test various admin actions
             admin_actions = [
                 {
@@ -262,7 +262,7 @@ class TestFamilyAuditCompliance:
                     }
                 }
             ]
-            
+
             for action in admin_actions:
                 await family_audit_manager.log_admin_action(
                     action_type=action["action_type"],
@@ -274,14 +274,14 @@ class TestFamilyAuditCompliance:
                     ip_address="192.168.1.100",
                     user_agent="AdminDashboard/2.0"
                 )
-            
+
             # Verify admin action logs were created
             assert mock_audit_collection.insert_one.call_count == len(admin_actions)
-            
+
             # Verify admin action logging includes comprehensive context
             for call in mock_audit_collection.insert_one.call_args_list:
                 audit_record = call[0][0]
-                
+
                 assert audit_record["operation_type"] == "admin_action"
                 assert audit_record["security_level"] == "admin"
                 assert "action_type" in audit_record
@@ -297,7 +297,7 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Mock audit data for report
             mock_audit_data = [
                 {
@@ -327,9 +327,9 @@ class TestFamilyAuditCompliance:
                     "action_type": "member_removal"
                 }
             ]
-            
+
             mock_audit_collection.find.return_value.to_list.return_value = mock_audit_data
-            
+
             # Generate compliance report
             report_params = {
                 "family_id": "fam_test123",
@@ -339,9 +339,9 @@ class TestFamilyAuditCompliance:
                 "include_admin_actions": True,
                 "report_format": "detailed"
             }
-            
+
             report = await family_audit_manager.generate_compliance_report(**report_params)
-            
+
             # Verify report structure
             assert "report_id" in report
             assert "generation_timestamp" in report
@@ -349,18 +349,18 @@ class TestFamilyAuditCompliance:
             assert "summary" in report
             assert "audit_events" in report
             assert "compliance_metrics" in report
-            
+
             # Verify report content
             assert report["report_parameters"]["family_id"] == "fam_test123"
             assert len(report["audit_events"]) == 3
-            
+
             # Verify summary statistics
             summary = report["summary"]
             assert "total_events" in summary
             assert "events_by_type" in summary
             assert "events_by_security_level" in summary
             assert "unique_users" in summary
-            
+
             # Verify compliance metrics
             metrics = report["compliance_metrics"]
             assert "data_access_compliance" in metrics
@@ -374,10 +374,10 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Mock family_monitor.send_alert
             family_monitor.send_alert = AsyncMock()
-            
+
             # Test suspicious activity patterns
             suspicious_patterns = [
                 {
@@ -390,14 +390,14 @@ class TestFamilyAuditCompliance:
                             "timestamp": datetime.now(timezone.utc)
                         },
                         {
-                            "operation_type": "admin_action", 
+                            "operation_type": "admin_action",
                             "admin_id": "admin_suspicious123",
                             "action_type": "permission_modification",
                             "timestamp": datetime.now(timezone.utc) + timedelta(minutes=1)
                         },
                         {
                             "operation_type": "admin_action",
-                            "admin_id": "admin_suspicious123", 
+                            "admin_id": "admin_suspicious123",
                             "action_type": "account_freeze",
                             "timestamp": datetime.now(timezone.utc) + timedelta(minutes=2)
                         }
@@ -416,7 +416,7 @@ class TestFamilyAuditCompliance:
                         },
                         {
                             "operation_type": "sensitive_data_access",
-                            "user_id": "user_suspicious456", 
+                            "user_id": "user_suspicious456",
                             "data_type": "financial_data",
                             "timestamp": datetime.now(timezone.utc) + timedelta(minutes=5),
                             "ip_address": "10.0.0.1"  # Different IP
@@ -437,7 +437,7 @@ class TestFamilyAuditCompliance:
                     "expected_flags": ["off_hours_activity", "large_transaction_off_hours"]
                 }
             ]
-            
+
             for pattern in suspicious_patterns:
                 # Simulate the suspicious events
                 for event in pattern["events"]:
@@ -449,13 +449,13 @@ class TestFamilyAuditCompliance:
                         ip_address=event.get("ip_address", "192.168.1.1"),
                         metadata=event
                     )
-                
+
                 # Verify suspicious activity was flagged
                 flagged_activities = await family_audit_manager.get_flagged_activities(
                     family_id="fam_test123",
                     time_window_hours=24
                 )
-                
+
                 # Check that expected flags were generated
                 for expected_flag in pattern["expected_flags"]:
                     flag_found = any(
@@ -471,7 +471,7 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
-            
+
             # Test different access levels
             access_scenarios = [
                 {
@@ -485,7 +485,7 @@ class TestFamilyAuditCompliance:
                 {
                     "user_role": "family_member",
                     "user_id": "member_test456",
-                    "family_id": "fam_test123", 
+                    "family_id": "fam_test123",
                     "requested_data": "family_audit_logs",
                     "should_allow": True,
                     "allowed_fields": ["operation_type", "timestamp"],  # Limited fields
@@ -509,7 +509,7 @@ class TestFamilyAuditCompliance:
                     "expected_error": "INSUFFICIENT_PERMISSIONS"
                 }
             ]
-            
+
             for scenario in access_scenarios:
                 try:
                     audit_data = await family_audit_manager.get_audit_data_with_access_control(
@@ -518,22 +518,22 @@ class TestFamilyAuditCompliance:
                         family_id=scenario["family_id"],
                         data_type=scenario["requested_data"]
                     )
-                    
+
                     if scenario["should_allow"]:
                         # Verify data was returned
                         assert audit_data is not None
-                        
+
                         # Verify field filtering based on role
                         if scenario["allowed_fields"] != ["*"]:
                             for record in audit_data.get("records", []):
                                 # Check allowed fields are present
                                 for field in scenario["allowed_fields"]:
                                     assert field in record
-                                
+
                                 # Check restricted fields are not present
                                 for field in scenario.get("restricted_fields", []):
                                     assert field not in record
-                        
+
                         # Verify access was logged
                         mock_audit_collection.insert_one.assert_called()
                         access_log = mock_audit_collection.insert_one.call_args[0][0]
@@ -543,7 +543,7 @@ class TestFamilyAuditCompliance:
                     else:
                         # Should not reach here if access should be denied
                         assert False, "Access should have been denied"
-                        
+
                 except Exception as e:
                     if not scenario["should_allow"]:
                         # Verify correct error for denied access
@@ -559,46 +559,46 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_families_collection = AsyncMock()
-            
+
             mock_db.get_collection.side_effect = lambda name: {
                 "family_audit_logs": mock_audit_collection,
                 "families": mock_families_collection
             }[name]
-            
+
             # Mock family operations data
             family_operations = [
                 {"operation_id": "op_001", "operation_type": "family_create", "timestamp": "2024-01-15T10:00:00Z"},
                 {"operation_id": "op_002", "operation_type": "member_invite", "timestamp": "2024-01-15T11:00:00Z"},
                 {"operation_id": "op_003", "operation_type": "sbd_spend", "timestamp": "2024-01-15T12:00:00Z"}
             ]
-            
+
             # Mock corresponding audit logs (missing one)
             audit_logs = [
                 {"operation_id": "op_001", "audit_id": "audit_001", "timestamp": "2024-01-15T10:00:00Z"},
                 {"operation_id": "op_002", "audit_id": "audit_002", "timestamp": "2024-01-15T11:00:00Z"}
                 # Missing audit log for op_003
             ]
-            
+
             mock_families_collection.find.return_value.to_list.return_value = family_operations
             mock_audit_collection.find.return_value.to_list.return_value = audit_logs
-            
+
             # Validate audit trail completeness
             validation_result = await family_audit_manager.validate_audit_trail_completeness(
                 family_id="fam_test123",
                 start_date="2024-01-15T00:00:00Z",
                 end_date="2024-01-15T23:59:59Z"
             )
-            
+
             # Verify validation results
             assert "completeness_score" in validation_result
             assert "missing_audit_logs" in validation_result
             assert "integrity_issues" in validation_result
             assert "recommendations" in validation_result
-            
+
             # Verify missing audit log was detected
             assert len(validation_result["missing_audit_logs"]) == 1
             assert validation_result["missing_audit_logs"][0]["operation_id"] == "op_003"
-            
+
             # Verify completeness score calculation
             expected_score = len(audit_logs) / len(family_operations) * 100
             assert validation_result["completeness_score"] == expected_score
@@ -610,12 +610,12 @@ class TestFamilyAuditCompliance:
         with patch('src.second_brain_database.database.db_manager') as mock_db:
             mock_audit_collection = AsyncMock()
             mock_archive_collection = AsyncMock()
-            
+
             mock_db.get_collection.side_effect = lambda name: {
                 "family_audit_logs": mock_audit_collection,
                 "family_audit_archive": mock_archive_collection
             }[name]
-            
+
             # Mock old audit logs that should be archived
             old_logs = [
                 {
@@ -625,15 +625,15 @@ class TestFamilyAuditCompliance:
                     "retention_category": "standard"
                 },
                 {
-                    "audit_id": "audit_old_002", 
+                    "audit_id": "audit_old_002",
                     "timestamp": (datetime.now(timezone.utc) - timedelta(days=450)).isoformat(),
                     "operation_type": "sensitive_data_access",
                     "retention_category": "sensitive"
                 }
             ]
-            
+
             mock_audit_collection.find.return_value.to_list.return_value = old_logs
-            
+
             # Execute retention policy
             retention_result = await family_audit_manager.apply_retention_policy(
                 retention_periods={
@@ -642,17 +642,17 @@ class TestFamilyAuditCompliance:
                     "admin": 1825  # 5 years
                 }
             )
-            
+
             # Verify retention policy application
             assert "archived_count" in retention_result
             assert "deleted_count" in retention_result
             assert "retained_count" in retention_result
-            
+
             # Verify archival operations
             if retention_result["archived_count"] > 0:
                 mock_archive_collection.insert_many.assert_called()
                 mock_audit_collection.delete_many.assert_called()
-            
+
             # Verify retention categories are respected
             # Standard logs older than 365 days should be archived
             # Sensitive logs older than 2555 days should be archived

@@ -106,11 +106,11 @@ class TestShopPaymentEndpoints:
             "email": "test@example.com"
         }
         mock_get_current_user.return_value = mock_user
-        
+
         # Mock database collection
         mock_collection = AsyncMock()
         mock_get_collection.return_value = mock_collection
-        
+
         # Mock user families
         mock_get_user_families.return_value = [
             {
@@ -118,7 +118,7 @@ class TestShopPaymentEndpoints:
                 "name": "Test Family"
             }
         ]
-        
+
         # Mock family SBD account
         mock_get_family_sbd_account.return_value = {
             "spending_permissions": {
@@ -130,18 +130,18 @@ class TestShopPaymentEndpoints:
             "is_frozen": False,
             "balance": 500
         }
-        
+
         # Mock user document in database
         mock_collection.find_one.return_value = mock_user
-        
+
         # Create test client
         from second_brain_database.main import app
         client = TestClient(app)
-        
+
         # Make request with mock JWT token
         headers = {"Authorization": "Bearer mock_token"}
         response = client.get("/shop/payment-options", headers=headers)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "data" in data
@@ -740,7 +740,7 @@ class TestShopPaymentSystemErrorProof:
         users_collection = db_manager.get_collection("users")
         user_doc = await users_collection.find_one({"username": test_db_setup["test_user"]["username"]})
         mock_enforce_lockdowns.return_value = user_doc
-        
+
         # Create test client with proper headers
         client = TestClient(app)
         headers = {
@@ -748,31 +748,31 @@ class TestShopPaymentSystemErrorProof:
             "User-Agent": "emotion_tracker/1.0.0",
             "X-Forwarded-For": "127.0.0.1"
         }
-        
+
         # Test payment options endpoint
         response = client.get("/shop/payment-options", headers=headers)
-        
+
         # Assert successful response
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
         assert "payment_options" in data["data"]
-        
+
         # Verify personal balance
         personal_balance = data["data"]["payment_options"]["personal"]["balance"]
         assert personal_balance == 1000  # From test setup
-        
+
         # Verify family accounts (should include test family)
         family_accounts = data["data"]["payment_options"]["family"]
         assert len(family_accounts) >= 1
-        
+
         # Find the test family account
         test_family = None
         for family in family_accounts:
             if family["family_id"] == test_db_setup["test_family"]["family_id"]:
                 test_family = family
                 break
-        
+
         assert test_family is not None
         assert test_family["balance"] == 5000  # From test setup
         assert test_family["can_spend"] is True  # User has spending permissions

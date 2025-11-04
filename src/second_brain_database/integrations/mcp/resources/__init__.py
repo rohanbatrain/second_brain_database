@@ -16,7 +16,7 @@ from . import test_resources
 
 __all__ = [
     "family_resources",
-    "user_resources", 
+    "user_resources",
     "workspace_resources",
     "system_resources",
     "shop_resources",

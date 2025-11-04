@@ -22,13 +22,13 @@ logger = get_logger(prefix="[MCP_ShopResources]")
 async def get_shop_avatars_resource() -> str:
     """
     Get available shop avatars as a resource.
-    
+
     Returns:
         JSON string containing available avatars
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Mock avatar data - replace with actual shop integration
         avatars = [
             {
@@ -39,21 +39,21 @@ async def get_shop_avatars_resource() -> str:
                 "preview_url": "/assets/avatars/professional_preview.png"
             },
             {
-                "id": "avatar_002", 
+                "id": "avatar_002",
                 "name": "Casual Avatar",
                 "price": 25,
                 "category": "casual",
                 "preview_url": "/assets/avatars/casual_preview.png"
             }
         ]
-        
+
         result = {
             "avatars": avatars,
             "total_count": len(avatars),
             "resource_type": "shop_avatars",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_shop_avatars_resource",
             user_context=user_context,
@@ -61,9 +61,9 @@ async def get_shop_avatars_resource() -> str:
             resource_id="avatars",
             metadata={"avatar_count": len(avatars)}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get shop avatars resource: %s", e)
         return json.dumps({"error": f"Failed to retrieve shop avatars: {str(e)}"}, indent=2)
@@ -73,13 +73,13 @@ async def get_shop_avatars_resource() -> str:
 async def get_shop_themes_resource() -> str:
     """
     Get available shop themes as a resource.
-    
+
     Returns:
         JSON string containing available themes
     """
     try:
         user_context = get_mcp_user_context()
-        
+
         # Mock theme data - replace with actual shop integration
         themes = [
             {
@@ -91,20 +91,20 @@ async def get_shop_themes_resource() -> str:
             },
             {
                 "id": "theme_002",
-                "name": "Light Minimal", 
+                "name": "Light Minimal",
                 "price": 20,
                 "category": "light",
                 "preview_url": "/assets/themes/light_minimal_preview.png"
             }
         ]
-        
+
         result = {
             "themes": themes,
             "total_count": len(themes),
             "resource_type": "shop_themes",
             "last_updated": datetime.utcnow().isoformat()
         }
-        
+
         await create_mcp_audit_trail(
             operation="get_shop_themes_resource",
             user_context=user_context,
@@ -112,9 +112,9 @@ async def get_shop_themes_resource() -> str:
             resource_id="themes",
             metadata={"theme_count": len(themes)}
         )
-        
+
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
         logger.error("Failed to get shop themes resource: %s", e)
         return json.dumps({"error": f"Failed to retrieve shop themes: {str(e)}"}, indent=2)

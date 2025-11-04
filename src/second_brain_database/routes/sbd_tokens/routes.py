@@ -45,13 +45,13 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
     if not isinstance(amount, int) or amount <= 0:
         logger.warning("[SBD TOKENS SEND] Invalid amount: %s", amount)
         return JSONResponse({"status": "error", "detail": "Amount must be a positive integer"}, status_code=400)
-    
+
     # Check if sender is trying to spend from a family account
     if await family_manager.is_virtual_family_account(from_user):
         # Validate family spending permissions with enhanced security
         user_id = str(current_user["_id"])
         request_context = {"request": request, "user": current_user}
-        
+
         # Enhanced validation with detailed error messages
         validation_result = await family_manager.validate_family_spending(from_user, user_id, amount, request_context)
         if not validation_result:
@@ -60,7 +60,7 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                 family_data = await family_manager.get_family_by_account_username(from_user)
                 if family_data:
                     permissions = family_data["sbd_account"]["spending_permissions"].get(user_id, {})
-                    
+
                     if family_data["sbd_account"]["is_frozen"]:
                         error_detail = "Family account is currently frozen and cannot be used for spending"
                     elif not permissions.get("can_spend", False):
@@ -73,27 +73,27 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                     error_detail = "Family account not found"
             except Exception:
                 error_detail = "You don't have permission to spend from this family account, the amount exceeds your limit, or the account is frozen"
-            
-            logger.warning("[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s", 
+
+            logger.warning("[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s",
                          user_id, from_user, amount)
             return JSONResponse({
-                "status": "error", 
+                "status": "error",
                 "detail": error_detail
             }, status_code=403)
-    
+
     # Prevent sending to reserved username patterns (family_ or team_)
     if to_user.lower().startswith("family_") or to_user.lower().startswith("team_"):
         # Check if it's a valid virtual family account
         if to_user.lower().startswith("family_") and not await family_manager.is_virtual_family_account(to_user):
             logger.warning("[SBD TOKENS SEND] Attempt to send to non-existent family account: %s", to_user)
             return JSONResponse({
-                "status": "error", 
+                "status": "error",
                 "detail": "Family account does not exist. Family accounts can only be created through the family system."
             }, status_code=400)
         elif to_user.lower().startswith("team_"):
             logger.warning("[SBD TOKENS SEND] Attempt to send to reserved team account: %s", to_user)
             return JSONResponse({
-                "status": "error", 
+                "status": "error",
                 "detail": "Team accounts are reserved and not yet implemented."
             }, status_code=400)
     users_collection = db_manager.get_collection("users")
@@ -141,16 +141,16 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         "timestamp": now_iso,
                         "transaction_id": transaction_id,
                     }
-                    
+
                     # Add family member attribution if spending from family account
                     family_id = None
                     if await family_manager.is_virtual_family_account(from_user):
                         user_id = str(current_user["_id"])
                         username = current_user["username"]
-                        
+
                         # Get family ID for audit trail
                         family_id = await family_manager.get_family_id_by_sbd_account(from_user)
-                        
+
                         # Enhanced family member attribution with audit context
                         enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
                             send_txn, family_id, user_id, username, {
@@ -183,12 +183,12 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         "timestamp": now_iso,
                         "transaction_id": transaction_id,
                     }
-                    
+
                     # Add family member attribution if receiving from family account
                     if await family_manager.is_virtual_family_account(from_user):
                         user_id = str(current_user["_id"])
                         username = current_user["username"]
-                        
+
                         # Enhanced family member attribution for receive transaction
                         enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
                             receive_txn, family_id, user_id, username, {
@@ -239,7 +239,7 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                                 "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
                                 transaction_id, audit_error
                             )
-                    
+
                     logger.info(
                         "[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)",
                         amount,
@@ -280,16 +280,16 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                 "timestamp": now_iso,
                 "transaction_id": transaction_id,
             }
-            
+
             # Add family member attribution if spending from family account
             family_id = None
             if await family_manager.is_virtual_family_account(from_user):
                 user_id = str(current_user["_id"])
                 username = current_user["username"]
-                
+
                 # Get family ID for audit trail
                 family_id = await family_manager.get_family_id_by_sbd_account(from_user)
-                
+
                 # Enhanced family member attribution with audit context
                 enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
                     send_txn, family_id, user_id, username, {
@@ -319,12 +319,12 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                 "timestamp": now_iso,
                 "transaction_id": transaction_id,
             }
-            
+
             # Add family member attribution if receiving from family account
             if await family_manager.is_virtual_family_account(from_user):
                 user_id = str(current_user["_id"])
                 username = current_user["username"]
-                
+
                 # Enhanced family member attribution for receive transaction
                 enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
                     receive_txn, family_id, user_id, username, {
@@ -373,7 +373,7 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                         "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
                         transaction_id, audit_error
                     )
-            
+
             logger.info(
                 "[SBD TOKENS SEND] %s tokens sent from %s to %s (txn_id=%s)", amount, from_user, to_user, transaction_id
             )

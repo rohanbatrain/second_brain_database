@@ -63,7 +63,7 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
 
     # Validate username format and reserved prefixes using comprehensive validation
     from second_brain_database.managers.family_manager import family_manager
-    
+
     is_valid, error_message = await family_manager.validate_username_against_reserved_prefixes(user.username)
     if not is_valid:
         logger.info("Username validation failed: %s for username=%s", error_message, user.username)

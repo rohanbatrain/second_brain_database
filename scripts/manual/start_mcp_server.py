@@ -33,14 +33,14 @@ logger = get_logger(prefix="[MCP_Server_Startup]")
 async def check_server_health():
     """Check MCP server health before starting."""
     print("🔍 Checking MCP server health...")
-    
+
     try:
         # Initialize database connection first
         from second_brain_database.integrations.mcp.database_integration import initialize_mcp_database
-        
+
         print("🔗 Initializing database connection...")
         db_initialized = await initialize_mcp_database()
-        
+
         if not db_initialized:
             print("❌ Database initialization failed!")
             print("💡 Make sure MongoDB is running:")
@@ -48,27 +48,27 @@ async def check_server_health():
             print("   # or")
             print("   sudo systemctl start mongod")
             return False
-        
+
         print("✅ Database connection established")
-        
+
         # Ensure all tools are imported
         ensure_tools_imported()
-        
+
         # Get server info
         info = await get_mcp_server_info()
-        
+
         if not info.get("available", False):
             print("❌ MCP server not available!")
             return False
-        
+
         print(f"✅ MCP Server: {info['name']}")
         print(f"📊 Tools: {info['tool_count']}")
         print(f"📁 Resources: {info['resource_count']}")
         print(f"💬 Prompts: {info['prompt_count']}")
         print(f"🔐 Auth: {'Enabled' if info['auth_enabled'] else 'Disabled'}")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Health check failed: {e}")
         return False
@@ -89,7 +89,7 @@ def print_connection_info(transport: str, port: int = None, host: str = "127.0.0
     """Print connection information."""
     print("\n📡 Connection Information:")
     print("-" * 30)
-    
+
     if transport == "stdio":
         print("🔌 Transport: STDIO")
         print("📝 Usage: Connect via stdin/stdout")
@@ -105,7 +105,7 @@ def print_connection_info(transport: str, port: int = None, host: str = "127.0.0
         print("  }")
         print("}")
         print("```")
-        
+
     elif transport == "http":
         print(f"🔌 Transport: HTTP (FastMCP 2.x)")
         print(f"🌐 URL: http://{host}:{port}")
@@ -153,26 +153,26 @@ async def start_mcp_server(transport: str = None, port: int = None, host: str = 
         port = settings.MCP_HTTP_PORT
     if host is None:
         host = settings.MCP_HTTP_HOST
-        
+
     print_startup_banner()
-    
+
     # Health check
     if not await check_server_health():
         print("\n❌ Server health check failed. Exiting.")
         sys.exit(1)
-    
+
     print_available_tools_summary()
     print_connection_info(transport, port, host)
-    
+
     print(f"\n🚀 Starting MCP server with {transport.upper()} transport...")
-    
+
     try:
         if transport == "stdio":
             print("📡 Server running on STDIO - ready for MCP client connections")
             print("🔄 Press Ctrl+C to stop")
             # Use FastMCP's native run method for STDIO
             await mcp.run_async(transport="stdio")
-            
+
         elif transport == "http":
             print(f"📡 FastMCP 2.x HTTP server running on {host}:{port}")
             print(f"🌐 MCP Endpoint: http://{host}:{port}/mcp")
@@ -183,15 +183,15 @@ async def start_mcp_server(transport: str = None, port: int = None, host: str = 
             print("🔄 Press Ctrl+C to stop")
             # Use the HTTP server wrapper for additional features
             await run_http_server(host=host, port=port)
-            
+
         else:
             print(f"❌ Unsupported transport: {transport}")
             sys.exit(1)
-            
+
     except KeyboardInterrupt:
         print("\n🛑 Shutting down MCP server...")
         logger.info("MCP server shutdown requested by user")
-        
+
     except Exception as e:
         print(f"\n❌ Server error: {e}")
         logger.error("MCP server error: %s", e)
@@ -208,47 +208,47 @@ Examples:
   python start_mcp_server.py                    # Start with STDIO (default)
   python start_mcp_server.py --transport http   # Start with HTTP on port 8001
   python start_mcp_server.py --transport http --port 9000  # Custom port
-  
+
 Transport Options:
   stdio: Standard input/output (ideal for local development)
   http:  HTTP server (ideal for remote connections)
         """
     )
-    
+
     parser.add_argument(
         "--transport",
         choices=["stdio", "http"],
         default="stdio",
         help="Transport protocol (default: stdio)"
     )
-    
+
     parser.add_argument(
         "--port",
         type=int,
         default=8001,
         help="Port for HTTP transport (default: 8001)"
     )
-    
+
     parser.add_argument(
         "--host",
         default="127.0.0.1",
         help="Host to bind HTTP transport to (default: 127.0.0.1, use 0.0.0.0 for production)"
     )
-    
+
     parser.add_argument(
         "--status",
         action="store_true",
         help="Show server status and exit"
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.status:
         print("📊 MCP Server Status:")
         print("=" * 30)
         print_mcp_status()
         return
-    
+
     # Run the server
     asyncio.run(start_mcp_server(args.transport, args.port, args.host))
 

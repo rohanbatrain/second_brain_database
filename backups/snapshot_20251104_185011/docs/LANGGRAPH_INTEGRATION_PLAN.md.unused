@@ -1,0 +1,245 @@
+# LangGraph Integration Plan for Second Brain Database
+
+## Overview
+
+LangGraph provides a powerful framework for building stateful, multi-agent AI workflows. This plan outlines how to integrate LangGraph with your existing MCP system to create sophisticated AI agents that can use your MCP tools.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LangGraph Layer                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   Family    │  │  Personal   │  │  Commerce   │         │
+│  │   Agent     │  │   Agent     │  │   Agent     │         │
+│  │  (Graph)    │  │  (Graph)    │  │  (Graph)    │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│                    MCP Tools Layer                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   Family    │  │    Shop     │  │    Auth     │         │
+│  │   Tools     │  │   Tools     │  │   Tools     │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│                 Second Brain Database                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Benefits of LangGraph Integration
+
+1. **Stateful Conversations**: Maintain conversation state across interactions
+2. **Complex Workflows**: Build multi-step agent workflows
+3. **Tool Integration**: Seamlessly use your existing MCP tools
+4. **Human-in-the-Loop**: Support for human approval steps
+5. **Parallel Processing**: Run multiple agent tasks concurrently
+6. **Error Recovery**: Built-in error handling and retry mechanisms
+
+## Implementation Plan
+
+### Phase 1: Core LangGraph Setup
+
+1. **Install Dependencies**
+   ```bash
+   uv add langgraph langchain-core langchain-openai
+   ```
+
+2. **Create LangGraph Integration Module**
+   ```
+   src/second_brain_database/integrations/langgraph/
+   ├── __init__.py
+   ├── agents/
+   │   ├── __init__.py
+   │   ├── family_agent.py
+   │   ├── personal_agent.py
+   │   └── commerce_agent.py
+   ├── tools/
+   │   ├── __init__.py
+   │   └── mcp_tool_wrapper.py
+   ├── graphs/
+   │   ├── __init__.py
+   │   ├── family_workflow.py
+   │   └── conversation_graph.py
+   └── state/
+       ├── __init__.py
+       └── conversation_state.py
+   ```
+
+### Phase 2: MCP Tool Integration
+
+Create wrappers that allow LangGraph agents to use your existing MCP tools:
+
+```python
+# src/second_brain_database/integrations/langgraph/tools/mcp_tool_wrapper.py
+
+from langchain_core.tools import BaseTool
+from typing import Dict, Any, Optional
+from ...mcp.tools.family_tools import get_family_info
+from ...mcp.context import create_mcp_user_context
+
+class MCPFamilyInfoTool(BaseTool):
+    name = "get_family_info"
+    description = "Get information about a family including members and SBD balance"
+    
+    def _run(self, family_id: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+        # Convert user context and call MCP tool
+        mcp_context = create_mcp_user_context(user_context)
+        return get_family_info(family_id)
+```
+
+### Phase 3: Agent Graphs
+
+Create LangGraph workflows for different agent types:
+
+```python
+# src/second_brain_database/integrations/langgraph/agents/family_agent.py
+
+from langgraph import StateGraph, END
+from langchain_core.messages import HumanMessage, AIMessage
+from ..state.conversation_state import ConversationState
+from ..tools.mcp_tool_wrapper import MCPFamilyInfoTool
+
+def create_family_agent_graph():
+    # Define the graph
+    workflow = StateGraph(ConversationState)
+    
+    # Add nodes
+    workflow.add_node("understand_request", understand_family_request)
+    workflow.add_node("execute_family_action", execute_family_action)
+    workflow.add_node("format_response", format_family_response)
+    
+    # Add edges
+    workflow.add_edge("understand_request", "execute_family_action")
+    workflow.add_edge("execute_family_action", "format_response")
+    workflow.add_edge("format_response", END)
+    
+    # Set entry point
+    workflow.set_entry_point("understand_request")
+    
+    return workflow.compile()
+```
+
+### Phase 4: HTTP API Integration
+
+Add LangGraph endpoints to your existing FastAPI application:
+
+```python
+# src/second_brain_database/routes/langgraph/routes.py
+
+from fastapi import APIRouter, Depends
+from ...integrations.langgraph.agents.family_agent import create_family_agent_graph
+
+router = APIRouter(prefix="/langgraph", tags=["LangGraph"])
+
+@router.post("/family/chat")
+async def family_chat(
+    message: str,
+    session_id: str,
+    user_context = Depends(get_current_user)
+):
+    graph = create_family_agent_graph()
+    
+    result = await graph.ainvoke({
+        "messages": [HumanMessage(content=message)],
+        "user_context": user_context,
+        "session_id": session_id
+    })
+    
+    return {"response": result["messages"][-1].content}
+```
+
+## Example Use Cases
+
+### 1. Family Management Workflow
+
+```python
+# Multi-step family management
+user_input = "I want to create a family and invite my brother John"
+
+# LangGraph workflow:
+# 1. Understand request → Create family + Invite member
+# 2. Execute → Call create_family MCP tool
+# 3. Execute → Call invite_family_member MCP tool  
+# 4. Format → Return success message with family details
+```
+
+### 2. Commerce Assistant
+
+```python
+# Shopping workflow with decision points
+user_input = "I want to buy a theme but need to check my balance first"
+
+# LangGraph workflow:
+# 1. Check balance → Call get_family_token_balance
+# 2. Decision node → Enough balance?
+# 3a. If yes → Show available themes
+# 3b. If no → Suggest ways to earn tokens
+# 4. Purchase → Call purchase_item if user confirms
+```
+
+### 3. Personal Assistant with Memory
+
+```python
+# Stateful conversation
+user_input = "Remember that I prefer blue themes"
+
+# LangGraph maintains state across conversations
+# Next interaction: "Show me some themes"
+# Agent remembers preference and filters for blue themes
+```
+
+## Integration with Existing Systems
+
+### MCP Tools
+- ✅ All existing MCP tools can be wrapped for LangGraph
+- ✅ Authentication and security remain unchanged
+- ✅ Audit logging continues to work
+
+### Database
+- ✅ LangGraph can use existing MongoDB for state persistence
+- ✅ Redis can be used for session management
+- ✅ No changes to existing data models needed
+
+### Flutter App
+- ✅ Flutter app can call LangGraph endpoints
+- ✅ WebSocket support for real-time conversations
+- ✅ Streaming responses for better UX
+
+## Configuration
+
+Add LangGraph configuration to your existing config:
+
+```python
+# src/second_brain_database/config.py
+
+class Settings(BaseSettings):
+    # ... existing config ...
+    
+    # LangGraph Configuration
+    LANGGRAPH_ENABLED: bool = True
+    LANGGRAPH_MODEL_PROVIDER: str = "openai"  # or "ollama"
+    LANGGRAPH_MODEL_NAME: str = "gpt-4"
+    LANGGRAPH_MAX_ITERATIONS: int = 10
+    LANGGRAPH_TIMEOUT: int = 60
+    LANGGRAPH_STATE_BACKEND: str = "redis"  # or "memory"
+    
+    # OpenAI Configuration (if using OpenAI)
+    OPENAI_API_KEY: str = ""
+    
+    # Ollama Configuration (if using local models)
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama2"
+```
+
+## Next Steps
+
+1. **Start Small**: Begin with a simple family agent that uses 2-3 MCP tools
+2. **Add State Management**: Implement conversation state persistence
+3. **Build Complex Workflows**: Create multi-step agent workflows
+4. **Add Human-in-the-Loop**: For sensitive operations like token transfers
+5. **Scale Up**: Add more agent types and capabilities
+
+## Example Implementation
+
+Want me to create a working example of a LangGraph family agent that uses your existing MCP tools?

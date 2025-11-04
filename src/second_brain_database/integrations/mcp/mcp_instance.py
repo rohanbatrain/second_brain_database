@@ -18,10 +18,10 @@ logger = get_logger(prefix="[MCP_Instance]")
 def get_mcp_server():
     """
     Get the shared FastMCP 2.13.0.2 server instance.
-    
+
     This now uses the modern server implementation with proper authentication,
     tag filtering, and production configuration.
-    
+
     Returns:
         The FastMCP Server instance if available, None otherwise
     """
@@ -39,7 +39,7 @@ def get_mcp_server():
 def get_mcp_instance():
     """
     Legacy compatibility method - returns the FastMCP 2.13.0.2 server instance.
-    
+
     Returns:
         The FastMCP Server instance if available, None otherwise
     """
@@ -48,14 +48,14 @@ def get_mcp_instance():
 async def get_mcp_tools() -> Dict[str, Any]:
     """
     Get all registered MCP tools (async).
-    
+
     Returns:
         Dictionary of tool name -> tool object
     """
     server = get_mcp_server()
     if server is None:
         return {}
-    
+
     try:
         # FastMCP 2.x doesn't expose get_tools() method
         # Return empty dict for now - tools are registered internally
@@ -67,14 +67,14 @@ async def get_mcp_tools() -> Dict[str, Any]:
 async def get_mcp_resources() -> Dict[str, Any]:
     """
     Get all registered MCP resources (async).
-    
+
     Returns:
         Dictionary of resource URI -> resource object
     """
     server = get_mcp_server()
     if server is None:
         return {}
-    
+
     try:
         # FastMCP 2.x doesn't expose get_resources() method
         # Return empty dict for now - resources are registered internally
@@ -86,14 +86,14 @@ async def get_mcp_resources() -> Dict[str, Any]:
 async def get_mcp_prompts() -> Dict[str, Any]:
     """
     Get all registered MCP prompts (async).
-    
+
     Returns:
         Dictionary of prompt name -> prompt object
     """
     server = get_mcp_server()
     if server is None:
         return {}
-    
+
     try:
         # FastMCP 2.x doesn't expose get_prompts() method
         # Return empty dict for now - prompts are registered internally
@@ -105,7 +105,7 @@ async def get_mcp_prompts() -> Dict[str, Any]:
 async def get_mcp_server_info() -> Dict[str, Any]:
     """
     Get comprehensive MCP server information.
-    
+
     Returns:
         Dictionary with server info, tool count, resource count, etc.
     """
@@ -115,19 +115,19 @@ async def get_mcp_server_info() -> Dict[str, Any]:
             "available": False,
             "error": "FastMCP server not available"
         }
-    
+
     try:
         # FastMCP 2.x doesn't expose get_tools(), get_resources(), get_prompts() methods
         # We'll estimate counts based on successful imports
         tools = {}
         resources = {}
         prompts = {}
-        
+
         # Try to get some basic info
         tool_count = 140  # We know from previous status that 140 tools are registered
         resource_count = 6  # We know 6 resources are registered
         prompt_count = 7   # We know 7 prompts are registered
-        
+
         return {
             "available": True,
             "name": server.name,
@@ -153,28 +153,28 @@ async def get_mcp_server_info() -> Dict[str, Any]:
 def ensure_tools_imported():
     """
     Ensure all MCP tool modules are imported to register their tools.
-    
+
     This function imports all tool modules to trigger their @mcp.tool decorators.
     """
     try:
         # Import all tool modules to register their tools
         from .tools import family_tools
-        from .tools import auth_tools  
+        from .tools import auth_tools
         from .tools import shop_tools
         from .tools import workspace_tools
         from .tools import admin_tools
-        
+
         # Import resource modules
         from .resources import user_resources
         from .resources import system_resources
         from .resources import workspace_resources
-        
+
         # Import prompt modules
         from .prompts import guidance_prompts
-        
+
         logger.info("All MCP tool, resource, and prompt modules imported successfully")
         return True
-        
+
     except Exception as e:
         logger.error("Failed to import MCP modules: %s", e)
         return False

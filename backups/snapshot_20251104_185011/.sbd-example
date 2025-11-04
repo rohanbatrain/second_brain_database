@@ -1,0 +1,47 @@
+# Server Configuration
+HOST=0.0.0.0
+PORT=8000
+DEBUG=false
+
+BASE_URL=dev-app-sbd.rohanbatra.in
+
+# MongoDB Configuration
+MONGODB_URL=mongodb://localhost:27017
+MONGODB_DATABASE=SecondBrainDatabase
+MONGODB_CONNECTION_TIMEOUT=10000
+MONGODB_SERVER_SELECTION_TIMEOUT=5000
+
+# MongoDB Authentication (optional)
+# MONGODB_USERNAME=your_username
+# MONGODB_PASSWORD=your_password
+
+# JWT Configuration
+SECRET_KEY=your-secret-key-change-in-production
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Fernet (symmetric encryption)
+FERNET_KEY=your-fernet-key-change-in-production
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379/0
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_PERIOD_SECONDS=60
+
+# Blacklist
+BLACKLIST_THRESHOLD=10
+BLACKLIST_DURATION=3600
+
+# Password reset repeated violator detection
+REPEATED_VIOLATOR_WINDOW_MINUTES=10
+REPEATED_VIOLATOR_MIN_UNIQUE_IPS=3
+
+# 2FA/Backup code cleanup
+BACKUP_CODES_PENDING_TIME=300
+BACKUP_CODES_CLEANUP_INTERVAL=60
+
+# Cloudflare Turnstile
+TURNSTILE_SITEKEY=
+TURNSTILE_SECRET=

@@ -13,10 +13,10 @@ from second_brain_database.integrations.voice_processor import voice_processor
 def client():
     from second_brain_database.main import app
     from second_brain_database.routes.auth.services.auth.login import get_current_user
-    
+
     # Mock auth for all tests
     app.dependency_overrides[get_current_user] = lambda: {"_id": "user1"}
-    
+
     client = TestClient(app)
     yield client
     # Clean up

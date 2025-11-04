@@ -40,18 +40,18 @@ def mock_settings():
     settings.MCP_DEBUG_MODE = False
     settings.ENV_PREFIX = "test"
     settings.REDIS_URL = "redis://localhost:6379/0"
-    
+
     # Add missing settings for rate limiting
     settings.RATE_LIMIT_ENABLED = True
     settings.RATE_LIMIT_REQUESTS = 100
     settings.RATE_LIMIT_PERIOD = 60
-    
+
     # Add logging settings to prevent validation errors
     settings.LOG_LEVEL = "INFO"
     settings.ENV = "test"
     settings.LOKI_BUFFER_FILE = "test_loki_buffer.log"
     settings.LOKI_VERSION = "1"
-    
+
     # Add documentation settings to prevent validation errors
     settings.docs_should_be_enabled = True
     settings.DEBUG = False
@@ -63,7 +63,7 @@ def mock_settings():
     settings.DOCS_ACCESS_CONTROL = True
     settings.DOCS_CACHE_ENABLED = True
     settings.DOCS_CACHE_TTL = 3600
-    
+
     return settings
 
 @pytest.fixture

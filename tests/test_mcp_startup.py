@@ -18,19 +18,19 @@ async def test_mcp_startup():
     try:
         print("🧪 Testing MCP Server Startup...")
         print("=" * 50)
-        
+
         # Test configuration loading
         print("1. Loading configuration...")
         from second_brain_database.config import settings
         print(f"   ✅ MCP Enabled: {settings.MCP_ENABLED}")
         print(f"   ✅ Server Name: {settings.MCP_SERVER_NAME}")
         print(f"   ✅ Server Port: {settings.MCP_SERVER_PORT}")
-        
+
         # Test MCP server manager import
         print("\n2. Importing MCP server manager...")
         from second_brain_database.integrations.mcp.server import mcp_server_manager
         print("   ✅ MCP server manager imported successfully")
-        
+
         # Test initialization
         print("\n3. Initializing MCP server...")
         await mcp_server_manager.initialize()
@@ -38,25 +38,25 @@ async def test_mcp_startup():
         print(f"   📊 Tools registered: {mcp_server_manager._tool_count}")
         print(f"   📊 Resources registered: {mcp_server_manager._resource_count}")
         print(f"   📊 Prompts registered: {mcp_server_manager._prompt_count}")
-        
+
         # Test server startup (but don't actually bind to port)
         print("\n4. Testing server startup capability...")
         if hasattr(mcp_server_manager.mcp, 'serve'):
             print("   ✅ FastMCP serve method available")
         else:
             print("   ⚠️  FastMCP serve method not available, will use HTTP fallback")
-        
+
         # Test health check
         print("\n5. Testing health check...")
         health = await mcp_server_manager.health_check()
         print(f"   ✅ Health check completed: {health['healthy']}")
-        
+
         for check_name, check_data in health.get('checks', {}).items():
             status = check_data.get('status', 'unknown')
             message = check_data.get('message', 'No message')
             icon = "✅" if status == "pass" else "❌"
             print(f"   {icon} {check_name}: {message}")
-        
+
         print("\n" + "=" * 50)
         if health['healthy']:
             print("🎉 MCP Server startup test PASSED!")
@@ -66,7 +66,7 @@ async def test_mcp_startup():
             print("⚠️  MCP Server startup test completed with warnings.")
             print("   Some components may not be fully healthy, but the server should still start.")
             return 0
-            
+
     except Exception as e:
         print(f"\n❌ MCP Server startup test FAILED: {e}")
         print("\nError details:")

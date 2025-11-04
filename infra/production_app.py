@@ -9,7 +9,7 @@ other ASGI servers.
 Usage:
     uvicorn production_app:app --host 0.0.0.0 --port 8001
     gunicorn production_app:app -w 4 -k uvicorn.workers.UvicornWorker
-    
+
 Environment Variables:
     MCP_AUTH_TOKEN: Bearer token for authentication (required for production)
     MCP_SECURITY_ENABLED: Enable security features (default: true)
@@ -34,7 +34,7 @@ logger = get_logger(prefix="[Production_App]")
 def create_middleware():
     """Create middleware for production deployment."""
     middleware = []
-    
+
     # Add CORS middleware if enabled
     if settings.MCP_HTTP_CORS_ENABLED:
         origins = [origin.strip() for origin in settings.MCP_HTTP_CORS_ORIGINS.split(",")]
@@ -45,14 +45,14 @@ def create_middleware():
             allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
             allow_headers=[
                 "mcp-protocol-version",
-                "mcp-session-id", 
+                "mcp-session-id",
                 "Authorization",
                 "Content-Type",
             ],
             expose_headers=["mcp-session-id"],
         )
         middleware.append(cors_middleware)
-    
+
     return middleware
 
 # Create the production ASGI application

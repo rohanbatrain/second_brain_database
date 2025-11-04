@@ -19,21 +19,21 @@ logger = get_logger(prefix="[MCP_TestTools]")
 mcp_server = get_mcp_server()
 
 if mcp_server is not None:
-    
+
     @mcp_server.tool("test_echo")
     async def test_echo_tool(message: str = "Hello, FastMCP 2.0!") -> str:
         """
         Simple echo tool for testing FastMCP 2.0 integration.
-        
+
         Args:
             message: Message to echo back
-            
+
         Returns:
             The echoed message with timestamp
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="test_echo",
@@ -42,28 +42,28 @@ if mcp_server is not None:
                 resource_id="test_echo",
                 metadata={"message": message}
             )
-            
+
             timestamp = datetime.now(timezone.utc).isoformat()
             response = f"Echo: {message} (at {timestamp})"
-            
+
             logger.info("Test echo tool called by user %s: %s", user_context.user_id, message)
             return response
-            
+
         except Exception as e:
             logger.error("Test echo tool failed: %s", e)
             return f"Error: {str(e)}"
-    
+
     @mcp_server.tool("test_health")
     async def test_health_tool() -> Dict[str, Any]:
         """
         Health check tool for testing FastMCP 2.0 integration.
-        
+
         Returns:
             Health status information
         """
         try:
             user_context = get_mcp_user_context()
-            
+
             # Create audit trail
             await create_mcp_audit_trail(
                 operation="test_health",
@@ -72,7 +72,7 @@ if mcp_server is not None:
                 resource_id="test_health",
                 metadata={"check_type": "health"}
             )
-            
+
             health_info = {
                 "status": "healthy",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -80,10 +80,10 @@ if mcp_server is not None:
                 "user_id": user_context.user_id,
                 "user_role": user_context.role
             }
-            
+
             logger.info("Test health tool called by user %s", user_context.user_id)
             return health_info
-            
+
         except Exception as e:
             logger.error("Test health tool failed: %s", e)
             return {

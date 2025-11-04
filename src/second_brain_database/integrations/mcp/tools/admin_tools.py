@@ -95,19 +95,19 @@ class PerformanceMetrics(BaseModel):
 async def get_system_health() -> Dict[str, Any]:
     """
     Get overall system health status including database, Redis, and application components.
-    
+
     Returns:
         Dictionary containing comprehensive system health information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for system health monitoring")
-    
+
     try:
         start_time = time.time()
         health_status = {
@@ -117,7 +117,7 @@ async def get_system_health() -> Dict[str, Any]:
             "overall_status": "healthy",
             "uptime_seconds": None
         }
-        
+
         # Check database health
         try:
             db_healthy = await db_manager.health_check()
@@ -135,7 +135,7 @@ async def get_system_health() -> Dict[str, Any]:
                 "message": f"Database health check failed: {str(e)}"
             }
             health_status["healthy"] = False
-        
+
         # Check Redis health
         try:
             redis_conn = await redis_manager.get_redis()
@@ -152,7 +152,7 @@ async def get_system_health() -> Dict[str, Any]:
                 "message": f"Redis connection failed: {str(e)}"
             }
             health_status["healthy"] = False
-        
+
         # Check MCP server health
         try:
             from ..server import mcp_server_manager
@@ -169,30 +169,30 @@ async def get_system_health() -> Dict[str, Any]:
                 "healthy": False,
                 "message": f"MCP server health check failed: {str(e)}"
             }
-        
+
         # Check application configuration
         try:
             config_healthy = True
             config_issues = []
-            
+
             # Validate critical settings
             if not settings.SECRET_KEY:
                 config_healthy = False
                 config_issues.append("SECRET_KEY not configured")
-            
+
             if not settings.MONGODB_URL:
                 config_healthy = False
                 config_issues.append("MONGODB_URL not configured")
-            
+
             health_status["components"]["configuration"] = {
                 "status": "healthy" if config_healthy else "unhealthy",
                 "healthy": config_healthy,
                 "message": "Configuration valid" if config_healthy else f"Configuration issues: {', '.join(config_issues)}"
             }
-            
+
             if not config_healthy:
                 health_status["healthy"] = False
-                
+
         except Exception as e:
             health_status["components"]["configuration"] = {
                 "status": "error",
@@ -200,20 +200,20 @@ async def get_system_health() -> Dict[str, Any]:
                 "message": f"Configuration check failed: {str(e)}"
             }
             health_status["healthy"] = False
-        
+
         # Set overall status
         if health_status["healthy"]:
             health_status["overall_status"] = "healthy"
         else:
             unhealthy_components = [
-                name for name, comp in health_status["components"].items() 
+                name for name, comp in health_status["components"].items()
                 if not comp.get("healthy", False)
             ]
             health_status["overall_status"] = f"unhealthy - issues with: {', '.join(unhealthy_components)}"
-        
+
         # Calculate check duration
         health_status["check_duration_ms"] = (time.time() - start_time) * 1000
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_system_health",
@@ -226,12 +226,12 @@ async def get_system_health() -> Dict[str, Any]:
                 "check_duration_ms": health_status["check_duration_ms"]
             }
         )
-        
-        logger.info("System health check completed by user %s - Status: %s", 
+
+        logger.info("System health check completed by user %s - Status: %s",
                    user_context.user_id, health_status["overall_status"])
-        
+
         return health_status
-        
+
     except Exception as e:
         logger.error("Failed to get system health: %s", e)
         raise MCPValidationError(f"Failed to retrieve system health: {str(e)}")
@@ -246,37 +246,37 @@ async def get_system_health() -> Dict[str, Any]:
 async def get_database_stats() -> Dict[str, Any]:
     """
     Get comprehensive database statistics including collection stats and performance metrics.
-    
+
     Returns:
         Dictionary containing database statistics and performance information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for database statistics")
-    
+
     try:
         start_time = time.time()
-        
+
         # Test database connection and measure response time
         ping_start = time.time()
         db_healthy = await db_manager.health_check()
         ping_duration = (time.time() - ping_start) * 1000  # Convert to milliseconds
-        
+
         if not db_healthy:
             raise MCPValidationError("Database is not healthy - cannot retrieve statistics")
-        
+
         # Get database statistics
         db_stats = await db_manager.database.command("dbStats")
-        
+
         # Get collection statistics for key collections
         collections_stats = {}
         key_collections = ["users", "families", "workspaces", "permanent_tokens", "webauthn_credentials"]
-        
+
         for collection_name in key_collections:
             try:
                 collection_stats = await db_manager.database.command("collStats", collection_name)
@@ -291,7 +291,7 @@ async def get_database_stats() -> Dict[str, Any]:
             except Exception as e:
                 logger.warning("Failed to get stats for collection %s: %s", collection_name, e)
                 collections_stats[collection_name] = {"error": str(e)}
-        
+
         # Compile comprehensive database statistics
         database_stats = {
             "connection_status": "connected",
@@ -305,7 +305,7 @@ async def get_database_stats() -> Dict[str, Any]:
             "database_version": None,
             "server_status": {}
         }
-        
+
         # Get server information
         try:
             server_info = await db_manager.client.server_info()
@@ -317,7 +317,7 @@ async def get_database_stats() -> Dict[str, Any]:
             }
         except Exception as e:
             logger.warning("Failed to get server info: %s", e)
-        
+
         # Calculate additional metrics
         total_size = database_stats["data_size_bytes"] + database_stats["index_size_bytes"]
         database_stats["total_size_bytes"] = total_size
@@ -325,10 +325,10 @@ async def get_database_stats() -> Dict[str, Any]:
             (database_stats["index_size_bytes"] / database_stats["data_size_bytes"] * 100)
             if database_stats["data_size_bytes"] > 0 else 0
         )
-        
+
         # Add timing information
         database_stats["stats_collection_duration_ms"] = (time.time() - start_time) * 1000
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_database_stats",
@@ -341,12 +341,12 @@ async def get_database_stats() -> Dict[str, Any]:
                 "total_size_mb": round(total_size / (1024 * 1024), 2)
             }
         )
-        
-        logger.info("Database statistics retrieved by user %s - %d collections, %d documents", 
+
+        logger.info("Database statistics retrieved by user %s - %d collections, %d documents",
                    user_context.user_id, database_stats["collections"], database_stats["total_documents"])
-        
+
         return database_stats
-        
+
     except Exception as e:
         logger.error("Failed to get database statistics: %s", e)
         raise MCPValidationError(f"Failed to retrieve database statistics: {str(e)}")
@@ -361,33 +361,33 @@ async def get_database_stats() -> Dict[str, Any]:
 async def get_redis_stats() -> Dict[str, Any]:
     """
     Get comprehensive Redis statistics including memory usage, hit rates, and performance metrics.
-    
+
     Returns:
         Dictionary containing Redis statistics and performance information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for Redis statistics")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get Redis connection and test it
         redis_conn = await redis_manager.get_redis()
-        
+
         # Test connection with ping
         ping_start = time.time()
         await redis_conn.ping()
         ping_duration = (time.time() - ping_start) * 1000
-        
+
         # Get Redis INFO command output
         redis_info = await redis_conn.info()
-        
+
         # Extract key statistics
         redis_stats = {
             "connection_status": "connected",
@@ -406,14 +406,14 @@ async def get_redis_stats() -> Dict[str, Any]:
             "evicted_keys": redis_info.get("evicted_keys", 0),
             "ping_response_time_ms": round(ping_duration, 2)
         }
-        
+
         # Calculate hit rate
         total_keyspace_ops = redis_stats["keyspace_hits"] + redis_stats["keyspace_misses"]
         redis_stats["hit_rate_percentage"] = (
             (redis_stats["keyspace_hits"] / total_keyspace_ops * 100)
             if total_keyspace_ops > 0 else 0
         )
-        
+
         # Get keyspace information (databases)
         keyspace_info = {}
         for key, value in redis_info.items():
@@ -428,9 +428,9 @@ async def get_redis_stats() -> Dict[str, Any]:
                         except ValueError:
                             db_stats[stat_key] = stat_value
                 keyspace_info[key] = db_stats
-        
+
         redis_stats["keyspace_info"] = keyspace_info
-        
+
         # Get memory usage breakdown
         redis_stats["memory_info"] = {
             "used_memory_human": redis_info.get("used_memory_human", "0B"),
@@ -439,7 +439,7 @@ async def get_redis_stats() -> Dict[str, Any]:
             "used_memory_dataset": redis_info.get("used_memory_dataset", 0),
             "mem_fragmentation_ratio": redis_info.get("mem_fragmentation_ratio", 0)
         }
-        
+
         # Get persistence information
         redis_stats["persistence_info"] = {
             "rdb_changes_since_last_save": redis_info.get("rdb_changes_since_last_save", 0),
@@ -447,10 +447,10 @@ async def get_redis_stats() -> Dict[str, Any]:
             "rdb_last_bgsave_status": redis_info.get("rdb_last_bgsave_status", "unknown"),
             "aof_enabled": redis_info.get("aof_enabled", 0) == 1
         }
-        
+
         # Add timing information
         redis_stats["stats_collection_duration_ms"] = (time.time() - start_time) * 1000
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_redis_stats",
@@ -463,14 +463,14 @@ async def get_redis_stats() -> Dict[str, Any]:
                 "hit_rate_percentage": round(redis_stats["hit_rate_percentage"], 2)
             }
         )
-        
-        logger.info("Redis statistics retrieved by user %s - Memory: %s, Hit rate: %.2f%%", 
-                   user_context.user_id, 
+
+        logger.info("Redis statistics retrieved by user %s - Memory: %s, Hit rate: %.2f%%",
+                   user_context.user_id,
                    redis_stats["memory_info"]["used_memory_human"],
                    redis_stats["hit_rate_percentage"])
-        
+
         return redis_stats
-        
+
     except Exception as e:
         logger.error("Failed to get Redis statistics: %s", e)
         raise MCPValidationError(f"Failed to retrieve Redis statistics: {str(e)}")
@@ -485,25 +485,25 @@ async def get_redis_stats() -> Dict[str, Any]:
 async def get_api_metrics() -> Dict[str, Any]:
     """
     Get API performance metrics including request rates, response times, and error rates.
-    
+
     Returns:
         Dictionary containing API performance metrics and statistics
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for API metrics")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get Redis connection for metrics storage
         redis_conn = await redis_manager.get_redis()
-        
+
         # Initialize metrics structure
         api_metrics = {
             "total_requests": 0,
@@ -516,32 +516,32 @@ async def get_api_metrics() -> Dict[str, Any]:
             "recent_errors": [],
             "performance_summary": {}
         }
-        
+
         # Get metrics from Redis (these would be populated by middleware)
         try:
             # Get total request count
             total_requests = await redis_conn.get(f"{settings.ENV_PREFIX}:metrics:total_requests")
             api_metrics["total_requests"] = int(total_requests) if total_requests else 0
-            
+
             # Get request rate (requests per minute)
             current_minute = int(time.time() // 60)
             minute_key = f"{settings.ENV_PREFIX}:metrics:requests_per_minute:{current_minute}"
             current_minute_requests = await redis_conn.get(minute_key)
             api_metrics["requests_per_minute"] = float(current_minute_requests) if current_minute_requests else 0.0
-            
+
             # Get average response time
             avg_response_time = await redis_conn.get(f"{settings.ENV_PREFIX}:metrics:avg_response_time")
             api_metrics["average_response_time_ms"] = float(avg_response_time) if avg_response_time else 0.0
-            
+
             # Get error rate
             total_errors = await redis_conn.get(f"{settings.ENV_PREFIX}:metrics:total_errors")
             total_errors = int(total_errors) if total_errors else 0
             if api_metrics["total_requests"] > 0:
                 api_metrics["error_rate_percentage"] = (total_errors / api_metrics["total_requests"]) * 100
-            
+
         except Exception as e:
             logger.warning("Failed to retrieve some API metrics from Redis: %s", e)
-        
+
         # Get endpoint-specific statistics
         try:
             endpoint_keys = await redis_conn.keys(f"{settings.ENV_PREFIX}:metrics:endpoint:*")
@@ -557,7 +557,7 @@ async def get_api_metrics() -> Dict[str, Any]:
                     }
         except Exception as e:
             logger.warning("Failed to retrieve endpoint statistics: %s", e)
-        
+
         # Get status code distribution
         try:
             status_keys = await redis_conn.keys(f"{settings.ENV_PREFIX}:metrics:status:*")
@@ -567,30 +567,30 @@ async def get_api_metrics() -> Dict[str, Any]:
                 api_metrics["status_code_distribution"][status_code] = int(count) if count else 0
         except Exception as e:
             logger.warning("Failed to retrieve status code distribution: %s", e)
-        
+
         # Get recent errors (last 10)
         try:
             recent_errors = await redis_conn.lrange(f"{settings.ENV_PREFIX}:metrics:recent_errors", 0, 9)
             api_metrics["recent_errors"] = [error.decode() for error in recent_errors]
         except Exception as e:
             logger.warning("Failed to retrieve recent errors: %s", e)
-        
+
         # Calculate performance summary
         api_metrics["performance_summary"] = {
             "requests_per_second": api_metrics["requests_per_minute"] / 60.0,
-            "error_rate_status": "low" if api_metrics["error_rate_percentage"] < 1.0 else 
+            "error_rate_status": "low" if api_metrics["error_rate_percentage"] < 1.0 else
                                 "medium" if api_metrics["error_rate_percentage"] < 5.0 else "high",
             "response_time_status": "fast" if api_metrics["average_response_time_ms"] < 100 else
                                    "medium" if api_metrics["average_response_time_ms"] < 500 else "slow",
             "total_endpoints": len(api_metrics["endpoint_stats"]),
-            "most_used_endpoint": max(api_metrics["endpoint_stats"].items(), 
-                                    key=lambda x: x[1]["request_count"])[0] 
+            "most_used_endpoint": max(api_metrics["endpoint_stats"].items(),
+                                    key=lambda x: x[1]["request_count"])[0]
                                     if api_metrics["endpoint_stats"] else None
         }
-        
+
         # Add timing information
         api_metrics["metrics_collection_duration_ms"] = (time.time() - start_time) * 1000
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_api_metrics",
@@ -603,15 +603,15 @@ async def get_api_metrics() -> Dict[str, Any]:
                 "avg_response_time_ms": round(api_metrics["average_response_time_ms"], 2)
             }
         )
-        
-        logger.info("API metrics retrieved by user %s - Requests: %d, Error rate: %.2f%%, Avg response: %.2fms", 
-                   user_context.user_id, 
+
+        logger.info("API metrics retrieved by user %s - Requests: %d, Error rate: %.2f%%, Avg response: %.2fms",
+                   user_context.user_id,
                    api_metrics["total_requests"],
                    api_metrics["error_rate_percentage"],
                    api_metrics["average_response_time_ms"])
-        
+
         return api_metrics
-        
+
     except Exception as e:
         logger.error("Failed to get API metrics: %s", e)
         raise MCPValidationError(f"Failed to retrieve API metrics: {str(e)}")
@@ -630,25 +630,25 @@ async def get_error_logs(
 ) -> List[Dict[str, Any]]:
     """
     Get recent error logs with filtering options for system monitoring.
-    
+
     Args:
         limit: Maximum number of log entries to return (default: 50, max: 200)
         level: Log level filter (ERROR, WARNING, CRITICAL)
         since_hours: Number of hours back to search (default: 24, max: 168)
-        
+
     Returns:
         List of error log entries with timestamps and details
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If parameters are invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for error logs")
-    
+
     # Validate parameters
     if limit > 200:
         raise MCPValidationError("Limit cannot exceed 200 entries")
@@ -656,37 +656,37 @@ async def get_error_logs(
         raise MCPValidationError("Cannot retrieve logs older than 1 week")
     if level and level not in ["ERROR", "WARNING", "CRITICAL"]:
         raise MCPValidationError("Level must be ERROR, WARNING, or CRITICAL")
-    
+
     try:
         start_time = time.time()
-        
+
         # Calculate time range
         since_timestamp = datetime.utcnow() - timedelta(hours=since_hours)
-        
+
         # Get Redis connection for log storage
         redis_conn = await redis_manager.get_redis()
-        
+
         error_logs = []
-        
+
         # Get error logs from Redis (these would be populated by logging system)
         try:
             # Get logs from different severity levels
             log_levels = [level] if level else ["ERROR", "WARNING", "CRITICAL"]
-            
+
             for log_level in log_levels:
                 log_key = f"{settings.ENV_PREFIX}:logs:{log_level.lower()}"
-                
+
                 # Get recent logs (Redis list with most recent first)
                 raw_logs = await redis_conn.lrange(log_key, 0, limit - 1)
-                
+
                 for raw_log in raw_logs:
                     try:
                         import json
                         log_entry = json.loads(raw_log.decode())
-                        
+
                         # Parse timestamp
                         log_timestamp = datetime.fromisoformat(log_entry.get("timestamp", ""))
-                        
+
                         # Filter by time range
                         if log_timestamp >= since_timestamp:
                             error_logs.append({
@@ -701,14 +701,14 @@ async def get_error_logs(
                                 "request_id": log_entry.get("request_id"),
                                 "additional_context": log_entry.get("context", {})
                             })
-                            
+
                     except (json.JSONDecodeError, ValueError) as e:
                         logger.warning("Failed to parse log entry: %s", e)
                         continue
-                        
+
         except Exception as e:
             logger.warning("Failed to retrieve error logs from Redis: %s", e)
-            
+
             # Fallback: create sample error logs for demonstration
             error_logs = [
                 {
@@ -736,17 +736,17 @@ async def get_error_logs(
                     "additional_context": {"action": "login", "limit": 5}
                 }
             ]
-        
+
         # Sort by timestamp (most recent first)
         error_logs.sort(key=lambda x: x["timestamp"], reverse=True)
-        
+
         # Limit results
         error_logs = error_logs[:limit]
-        
+
         # Convert timestamps to ISO format for JSON serialization
         for log in error_logs:
             log["timestamp"] = log["timestamp"].isoformat()
-        
+
         # Add summary information
         summary = {
             "total_entries": len(error_logs),
@@ -754,7 +754,7 @@ async def get_error_logs(
             "levels_included": log_levels if 'log_levels' in locals() else [level] if level else ["ERROR", "WARNING", "CRITICAL"],
             "collection_duration_ms": (time.time() - start_time) * 1000
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_error_logs",
@@ -767,15 +767,15 @@ async def get_error_logs(
                 "time_range_hours": since_hours
             }
         )
-        
-        logger.info("Error logs retrieved by user %s - %d entries from last %d hours", 
+
+        logger.info("Error logs retrieved by user %s - %d entries from last %d hours",
                    user_context.user_id, len(error_logs), since_hours)
-        
+
         return {
             "logs": error_logs,
             "summary": summary
         }
-        
+
     except Exception as e:
         logger.error("Failed to get error logs: %s", e)
         raise MCPValidationError(f"Failed to retrieve error logs: {str(e)}")
@@ -790,22 +790,22 @@ async def get_error_logs(
 async def get_performance_metrics() -> Dict[str, Any]:
     """
     Get comprehensive system performance metrics including CPU, memory, and I/O statistics.
-    
+
     Returns:
         Dictionary containing system performance metrics and resource utilization
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin") and not user_context.has_permission("system:monitor"):
         raise MCPAuthorizationError("Admin or system:monitor permission required for performance metrics")
-    
+
     try:
         start_time = time.time()
-        
+
         performance_metrics = {
             "timestamp": datetime.utcnow().isoformat(),
             "system_resources": {},
@@ -814,23 +814,23 @@ async def get_performance_metrics() -> Dict[str, Any]:
             "application_performance": {},
             "network_performance": {}
         }
-        
+
         # Get system resource usage (if psutil is available)
         try:
             import psutil
-            
+
             # CPU metrics
             cpu_percent = psutil.cpu_percent(interval=1)
             cpu_count = psutil.cpu_count()
             load_avg = psutil.getloadavg() if hasattr(psutil, 'getloadavg') else (0, 0, 0)
-            
+
             # Memory metrics
             memory = psutil.virtual_memory()
             swap = psutil.swap_memory()
-            
+
             # Disk metrics
             disk = psutil.disk_usage('/')
-            
+
             performance_metrics["system_resources"] = {
                 "cpu_usage_percentage": cpu_percent,
                 "cpu_count": cpu_count,
@@ -859,7 +859,7 @@ async def get_performance_metrics() -> Dict[str, Any]:
                     "usage_percentage": (disk.used / disk.total * 100) if disk.total > 0 else 0
                 }
             }
-            
+
         except ImportError:
             logger.warning("psutil not available - system resource metrics unavailable")
             performance_metrics["system_resources"] = {
@@ -870,17 +870,17 @@ async def get_performance_metrics() -> Dict[str, Any]:
             performance_metrics["system_resources"] = {
                 "error": f"Failed to collect system metrics: {str(e)}"
             }
-        
+
         # Database performance metrics
         try:
             db_start = time.time()
             db_healthy = await db_manager.health_check()
             db_response_time = (time.time() - db_start) * 1000
-            
+
             # Get database statistics
             if db_healthy:
                 db_stats = await db_manager.database.command("serverStatus")
-                
+
                 performance_metrics["database_performance"] = {
                     "connection_healthy": True,
                     "response_time_ms": round(db_response_time, 2),
@@ -911,48 +911,48 @@ async def get_performance_metrics() -> Dict[str, Any]:
                     "connection_healthy": False,
                     "error": "Database health check failed"
                 }
-                
+
         except Exception as e:
             logger.warning("Failed to get database performance metrics: %s", e)
             performance_metrics["database_performance"] = {
                 "error": f"Failed to collect database metrics: {str(e)}"
             }
-        
+
         # Cache (Redis) performance metrics
         try:
             redis_conn = await redis_manager.get_redis()
             redis_start = time.time()
             await redis_conn.ping()
             redis_response_time = (time.time() - redis_start) * 1000
-            
+
             redis_info = await redis_conn.info()
-            
+
             performance_metrics["cache_performance"] = {
                 "connection_healthy": True,
                 "response_time_ms": round(redis_response_time, 2),
                 "memory_usage_bytes": redis_info.get("used_memory", 0),
                 "memory_peak_bytes": redis_info.get("used_memory_peak", 0),
                 "hit_rate_percentage": (
-                    (redis_info.get("keyspace_hits", 0) / 
+                    (redis_info.get("keyspace_hits", 0) /
                      (redis_info.get("keyspace_hits", 0) + redis_info.get("keyspace_misses", 1)) * 100)
                 ),
                 "operations_per_second": redis_info.get("instantaneous_ops_per_sec", 0),
                 "connected_clients": redis_info.get("connected_clients", 0),
                 "total_commands": redis_info.get("total_commands_processed", 0)
             }
-            
+
         except Exception as e:
             logger.warning("Failed to get cache performance metrics: %s", e)
             performance_metrics["cache_performance"] = {
                 "error": f"Failed to collect cache metrics: {str(e)}"
             }
-        
+
         # Application performance metrics
         try:
             # Get MCP server performance
             from ..server import mcp_server_manager
             mcp_status = await mcp_server_manager.get_server_status()
-            
+
             performance_metrics["application_performance"] = {
                 "mcp_server": {
                     "running": mcp_status.get("running", False),
@@ -968,16 +968,16 @@ async def get_performance_metrics() -> Dict[str, Any]:
                     "request_timeout": settings.MCP_REQUEST_TIMEOUT
                 }
             }
-            
+
         except Exception as e:
             logger.warning("Failed to get application performance metrics: %s", e)
             performance_metrics["application_performance"] = {
                 "error": f"Failed to collect application metrics: {str(e)}"
             }
-        
+
         # Add collection timing
         performance_metrics["collection_duration_ms"] = (time.time() - start_time) * 1000
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_performance_metrics",
@@ -989,12 +989,12 @@ async def get_performance_metrics() -> Dict[str, Any]:
                 "collection_duration_ms": performance_metrics["collection_duration_ms"]
             }
         )
-        
-        logger.info("Performance metrics retrieved by user %s - Collection time: %.2fms", 
+
+        logger.info("Performance metrics retrieved by user %s - Collection time: %.2fms",
                    user_context.user_id, performance_metrics["collection_duration_ms"])
-        
+
         return performance_metrics
-        
+
     except Exception as e:
         logger.error("Failed to get performance metrics: %s", e)
         raise MCPValidationError(f"Failed to retrieve performance metrics: {str(e)}")
@@ -1049,39 +1049,39 @@ async def get_user_list(
 ) -> Dict[str, Any]:
     """
     Get paginated list of users with filtering options for administration.
-    
+
     Args:
         limit: Maximum number of users to return (max 200)
         offset: Number of users to skip for pagination
         search: Search term for username or email
         role_filter: Filter by user role (admin, user, etc.)
         status_filter: Filter by account status (active, suspended, etc.)
-        
+
     Returns:
         Dictionary containing user list and pagination information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If parameters are invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for user management")
-    
+
     # Validate parameters
     if limit > 200:
         raise MCPValidationError("Limit cannot exceed 200 users")
     if offset < 0:
         raise MCPValidationError("Offset cannot be negative")
-    
+
     try:
         start_time = time.time()
-        
+
         # Build query filter
         query_filter = {}
-        
+
         # Add search filter
         if search:
             search_regex = {"$regex": search, "$options": "i"}
@@ -1089,11 +1089,11 @@ async def get_user_list(
                 {"username": search_regex},
                 {"email": search_regex}
             ]
-        
+
         # Add role filter
         if role_filter:
             query_filter["role"] = role_filter
-        
+
         # Add status filter
         if status_filter:
             if status_filter == "active":
@@ -1102,17 +1102,17 @@ async def get_user_list(
                 query_filter["account_status"] = "suspended"
             else:
                 query_filter["account_status"] = status_filter
-        
+
         # Get users collection
         users_collection = db_manager.get_collection("users")
-        
+
         # Get total count for pagination
         total_count = await users_collection.count_documents(query_filter)
-        
+
         # Get users with pagination
         cursor = users_collection.find(query_filter).skip(offset).limit(limit)
         users = await cursor.to_list(length=limit)
-        
+
         # Format user data (remove sensitive information)
         user_list = []
         for user in users:
@@ -1134,11 +1134,11 @@ async def get_user_list(
                 "trusted_user_agent_lockdown": user.get("trusted_user_agent_lockdown", False)
             }
             user_list.append(user_data)
-        
+
         # Calculate pagination info
         has_next = (offset + limit) < total_count
         has_previous = offset > 0
-        
+
         result = {
             "users": user_list,
             "pagination": {
@@ -1157,7 +1157,7 @@ async def get_user_list(
             },
             "query_duration_ms": (time.time() - start_time) * 1000
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_list",
@@ -1171,12 +1171,12 @@ async def get_user_list(
                 "filters": {"role": role_filter, "status": status_filter}
             }
         )
-        
-        logger.info("User list retrieved by admin %s - %d users returned (total: %d)", 
+
+        logger.info("User list retrieved by admin %s - %d users returned (total: %d)",
                    user_context.user_id, len(user_list), total_count)
-        
+
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get user list: %s", e)
         raise MCPValidationError(f"Failed to retrieve user list: {str(e)}")
@@ -1191,33 +1191,33 @@ async def get_user_list(
 async def get_user_details(user_id: str) -> Dict[str, Any]:
     """
     Get comprehensive details about a specific user for administration.
-    
+
     Args:
         user_id: The ID of the user to get details for
-        
+
     Returns:
         Dictionary containing detailed user information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If user not found
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for user details")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get user from database
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Get family memberships with details
         family_memberships = []
         for membership in user.get("family_memberships", []):
@@ -1232,7 +1232,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                     "relationship": membership.get("relationship"),
                     "spending_permissions": membership.get("spending_permissions", {})
                 })
-        
+
         # Get workspace memberships
         workspace_memberships = []
         for workspace in user.get("workspaces", []):
@@ -1242,7 +1242,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                 "role": workspace.get("role"),
                 "joined_at": workspace.get("joined_at")
             })
-        
+
         # Get security information
         security_info = {
             "two_fa_enabled": bool(user.get("two_fa_secret")),
@@ -1259,7 +1259,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             "password_last_changed": user.get("password_last_changed"),
             "account_created_ip": user.get("account_created_ip")
         }
-        
+
         # Get permanent tokens count
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
@@ -1270,7 +1270,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             security_info["permanent_tokens_count"] = token_count
         except Exception as e:
             logger.warning("Failed to get permanent tokens count for user %s: %s", user_id, e)
-        
+
         # Get recent activity (last 10 login attempts)
         recent_activity = []
         for activity in user.get("login_history", [])[-10:]:
@@ -1281,7 +1281,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                 "success": activity.get("success"),
                 "failure_reason": activity.get("failure_reason")
             })
-        
+
         # Compile detailed user information
         user_details = {
             "user_id": str(user["_id"]),
@@ -1308,7 +1308,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             },
             "query_duration_ms": (time.time() - start_time) * 1000
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_details",
@@ -1322,12 +1322,12 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                 "workspace_count": len(workspace_memberships)
             }
         )
-        
-        logger.info("User details retrieved by admin %s for user %s (%s)", 
+
+        logger.info("User details retrieved by admin %s for user %s (%s)",
                    user_context.user_id, user_id, user.get("username"))
-        
+
         return user_details
-        
+
     except Exception as e:
         logger.error("Failed to get user details for %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to retrieve user details: {str(e)}")
@@ -1346,59 +1346,59 @@ async def suspend_user(
 ) -> Dict[str, Any]:
     """
     Suspend a user account for moderation purposes.
-    
+
     Args:
         user_id: The ID of the user to suspend
         reason: Reason for suspension (required for audit trail)
         duration_hours: Suspension duration in hours (permanent if not specified)
-        
+
     Returns:
         Dictionary containing suspension confirmation and details
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If user not found or already suspended
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for user suspension")
-    
+
     # Validate parameters
     if not reason or len(reason.strip()) < 10:
         raise MCPValidationError("Suspension reason must be at least 10 characters")
-    
+
     if duration_hours is not None and duration_hours <= 0:
         raise MCPValidationError("Duration must be positive if specified")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get user from database
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Check if user is already suspended
         if user.get("account_status") == "suspended":
             raise MCPValidationError("User is already suspended")
-        
+
         # Prevent self-suspension
         if user_id == user_context.user_id:
             raise MCPAuthorizationError("Cannot suspend your own account")
-        
+
         # Prevent suspending other admins (unless super admin)
         if user.get("role") == "admin" and user_context.role != "super_admin":
             raise MCPAuthorizationError("Cannot suspend other admin users")
-        
+
         # Calculate suspension end time
         suspension_end = None
         if duration_hours:
             suspension_end = datetime.utcnow() + timedelta(hours=duration_hours)
-        
+
         # Update user account
         suspension_data = {
             "account_status": "suspended",
@@ -1413,15 +1413,15 @@ async def suspend_user(
             },
             "updated_at": datetime.utcnow()
         }
-        
+
         result = await users_collection.update_one(
             {"_id": user_id},
             {"$set": suspension_data}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update user suspension status")
-        
+
         # Revoke all active sessions (permanent tokens remain but are effectively disabled)
         try:
             # Clear Redis sessions
@@ -1429,17 +1429,17 @@ async def suspend_user(
             session_keys = await redis_conn.keys(f"{settings.ENV_PREFIX}:session:{user_id}:*")
             if session_keys:
                 await redis_conn.delete(*session_keys)
-                
+
             # Mark permanent tokens as suspended (don't revoke, just disable)
             tokens_collection = db_manager.get_collection("permanent_tokens")
             await tokens_collection.update_many(
                 {"user_id": user_id, "is_revoked": False},
                 {"$set": {"suspended_at": datetime.utcnow(), "suspended_by": user_context.user_id}}
             )
-            
+
         except Exception as e:
             logger.warning("Failed to revoke sessions for suspended user %s: %s", user_id, e)
-        
+
         # Create comprehensive audit trail
         await create_mcp_audit_trail(
             operation="suspend_user",
@@ -1458,7 +1458,7 @@ async def suspend_user(
                 "suspension_end": suspension_end.isoformat() if suspension_end else None
             }
         )
-        
+
         # Prepare response
         suspension_result = {
             "user_id": user_id,
@@ -1475,13 +1475,13 @@ async def suspend_user(
             "sessions_revoked": True,
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("User %s (%s) suspended by admin %s - Reason: %s, Duration: %s hours", 
-                   user_id, user.get("username"), user_context.user_id, reason, 
+
+        logger.info("User %s (%s) suspended by admin %s - Reason: %s, Duration: %s hours",
+                   user_id, user.get("username"), user_context.user_id, reason,
                    duration_hours or "permanent")
-        
+
         return suspension_result
-        
+
     except Exception as e:
         logger.error("Failed to suspend user %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to suspend user: {str(e)}")
@@ -1496,41 +1496,41 @@ async def suspend_user(
 async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
     """
     Remove suspension from a user account.
-    
+
     Args:
         user_id: The ID of the user to unsuspend
         reason: Reason for removing suspension
-        
+
     Returns:
         Dictionary containing unsuspension confirmation
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If user not found or not suspended
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for user unsuspension")
-    
+
     if not reason or len(reason.strip()) < 5:
         raise MCPValidationError("Unsuspension reason must be at least 5 characters")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get user from database
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Check if user is suspended
         if user.get("account_status") != "suspended":
             raise MCPValidationError("User is not currently suspended")
-        
+
         # Update user account
         unsuspension_data = {
             "account_status": "active",
@@ -1542,7 +1542,7 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
             },
             "updated_at": datetime.utcnow()
         }
-        
+
         # Keep suspension history but mark as resolved
         if "suspension_info" in user:
             unsuspension_data["suspension_history"] = user.get("suspension_history", [])
@@ -1552,7 +1552,7 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
                 "resolved_by": user_context.user_id,
                 "resolution_reason": reason.strip()
             })
-        
+
         result = await users_collection.update_one(
             {"_id": user_id},
             {
@@ -1560,10 +1560,10 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
                 "$unset": {"suspension_info": ""}
             }
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update user suspension status")
-        
+
         # Re-enable permanent tokens
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
@@ -1573,7 +1573,7 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
             )
         except Exception as e:
             logger.warning("Failed to re-enable tokens for unsuspended user %s: %s", user_id, e)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="unsuspend_user",
@@ -1589,7 +1589,7 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
                 "target_role": user.get("role")
             }
         )
-        
+
         unsuspension_result = {
             "user_id": user_id,
             "username": user.get("username"),
@@ -1602,12 +1602,12 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
             "tokens_reactivated": True,
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("User %s (%s) unsuspended by admin %s - Reason: %s", 
+
+        logger.info("User %s (%s) unsuspended by admin %s - Reason: %s",
                    user_id, user.get("username"), user_context.user_id, reason)
-        
+
         return unsuspension_result
-        
+
     except Exception as e:
         logger.error("Failed to unsuspend user %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to unsuspend user: {str(e)}")
@@ -1626,46 +1626,46 @@ async def reset_user_password(
 ) -> Dict[str, Any]:
     """
     Reset a user's password for administrative purposes.
-    
+
     Args:
         user_id: The ID of the user to reset password for
         notify_user: Whether to notify user via email
         temporary_password: Temporary password (generated if not provided)
-        
+
     Returns:
         Dictionary containing password reset confirmation
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If user not found
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for password reset")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get user from database
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Generate temporary password if not provided
         if not temporary_password:
             import secrets
             import string
             alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
             temporary_password = ''.join(secrets.choice(alphabet) for _ in range(12))
-        
+
         # Hash the temporary password
         from ....utils.crypto import hash_password
         password_hash = hash_password(temporary_password)
-        
+
         # Update user password and mark as requiring change
         password_reset_data = {
             "password_hash": password_hash,
@@ -1679,15 +1679,15 @@ async def reset_user_password(
             },
             "updated_at": datetime.utcnow()
         }
-        
+
         result = await users_collection.update_one(
             {"_id": user_id},
             {"$set": password_reset_data}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update user password")
-        
+
         # Revoke all existing sessions to force re-login
         try:
             redis_conn = await redis_manager.get_redis()
@@ -1696,7 +1696,7 @@ async def reset_user_password(
                 await redis_conn.delete(*session_keys)
         except Exception as e:
             logger.warning("Failed to revoke sessions for password reset user %s: %s", user_id, e)
-        
+
         # Send notification email if requested
         email_sent = False
         if notify_user and user.get("email"):
@@ -1707,7 +1707,7 @@ async def reset_user_password(
                 email_sent = True
             except Exception as e:
                 logger.warning("Failed to send password reset notification to %s: %s", user.get("email"), e)
-        
+
         # Create audit trail (don't log the actual password)
         await create_mcp_audit_trail(
             operation="reset_user_password",
@@ -1725,7 +1725,7 @@ async def reset_user_password(
                 "notification_sent": email_sent
             }
         )
-        
+
         reset_result = {
             "user_id": user_id,
             "username": user.get("username"),
@@ -1740,12 +1740,12 @@ async def reset_user_password(
             "sessions_revoked": True,
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("Password reset for user %s (%s) by admin %s - Notification sent: %s", 
+
+        logger.info("Password reset for user %s (%s) by admin %s - Notification sent: %s",
                    user_id, user.get("username"), user_context.user_id, email_sent)
-        
+
         return reset_result
-        
+
     except Exception as e:
         logger.error("Failed to reset password for user %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to reset user password: {str(e)}")
@@ -1765,46 +1765,46 @@ async def get_user_activity_log(
 ) -> Dict[str, Any]:
     """
     Get comprehensive activity log for a specific user.
-    
+
     Args:
         user_id: The ID of the user to get activity for
         limit: Maximum number of activity entries to return
         activity_type: Filter by activity type (login, family_action, etc.)
         since_hours: Number of hours back to search
-        
+
     Returns:
         Dictionary containing user activity log and summary
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If user not found or parameters invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for user activity logs")
-    
+
     if limit > 500:
         raise MCPValidationError("Limit cannot exceed 500 entries")
     if since_hours > 720:  # 30 days
         raise MCPValidationError("Cannot retrieve activity older than 30 days")
-    
+
     try:
         start_time = time.time()
-        
+
         # Verify user exists
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Calculate time range
         since_timestamp = datetime.utcnow() - timedelta(hours=since_hours)
-        
+
         activity_log = []
-        
+
         # Get login history
         login_history = user.get("login_history", [])
         for login in login_history:
@@ -1822,7 +1822,7 @@ async def get_user_activity_log(
                             "two_fa_used": login.get("two_fa_used", False)
                         }
                     })
-        
+
         # Get family activity from family admin actions
         try:
             family_actions_collection = db_manager.get_collection("family_admin_actions")
@@ -1833,7 +1833,7 @@ async def get_user_activity_log(
                 ],
                 "created_at": {"$gte": since_timestamp}
             }).limit(limit).to_list(length=limit)
-            
+
             for action in family_actions:
                 if not activity_type or activity_type == "family_action":
                     activity_log.append({
@@ -1850,10 +1850,10 @@ async def get_user_activity_log(
                             "is_target": action.get("target_user_id") == user_id
                         }
                     })
-                    
+
         except Exception as e:
             logger.warning("Failed to get family activity for user %s: %s", user_id, e)
-        
+
         # Get token activity
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
@@ -1861,7 +1861,7 @@ async def get_user_activity_log(
                 "user_id": user_id,
                 "created_at": {"$gte": since_timestamp}
             }).to_list(length=50)
-            
+
             for token in tokens:
                 if not activity_type or activity_type == "token_action":
                     activity_log.append({
@@ -1877,21 +1877,21 @@ async def get_user_activity_log(
                             "is_revoked": token.get("is_revoked", False)
                         }
                     })
-                    
+
         except Exception as e:
             logger.warning("Failed to get token activity for user %s: %s", user_id, e)
-        
+
         # Sort activity by timestamp (most recent first)
         activity_log.sort(key=lambda x: x["timestamp"], reverse=True)
-        
+
         # Limit results
         activity_log = activity_log[:limit]
-        
+
         # Convert timestamps to ISO format
         for activity in activity_log:
             if activity["timestamp"]:
                 activity["timestamp"] = activity["timestamp"].isoformat()
-        
+
         # Generate activity summary
         activity_summary = {
             "total_entries": len(activity_log),
@@ -1901,22 +1901,22 @@ async def get_user_activity_log(
             "unique_ips": set(),
             "most_recent_activity": activity_log[0]["timestamp"] if activity_log else None
         }
-        
+
         # Calculate summary statistics
         successful_activities = 0
         for activity in activity_log:
             activity_type_key = activity["activity_type"]
             activity_summary["activity_types"][activity_type_key] = activity_summary["activity_types"].get(activity_type_key, 0) + 1
-            
+
             if activity.get("success"):
                 successful_activities += 1
-            
+
             if activity.get("ip_address"):
                 activity_summary["unique_ips"].add(activity["ip_address"])
-        
+
         activity_summary["success_rate"] = (successful_activities / len(activity_log) * 100) if activity_log else 0
         activity_summary["unique_ips"] = len(activity_summary["unique_ips"])
-        
+
         result = {
             "user_id": user_id,
             "username": user.get("username"),
@@ -1929,7 +1929,7 @@ async def get_user_activity_log(
             },
             "query_duration_ms": (time.time() - start_time) * 1000
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_activity_log",
@@ -1943,12 +1943,12 @@ async def get_user_activity_log(
                 "activity_type_filter": activity_type
             }
         )
-        
-        logger.info("Activity log retrieved by admin %s for user %s (%s) - %d entries", 
+
+        logger.info("Activity log retrieved by admin %s for user %s (%s) - %d entries",
                    user_context.user_id, user_id, user.get("username"), len(activity_log))
-        
+
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get user activity log for %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to retrieve user activity log: {str(e)}")
@@ -1968,49 +1968,49 @@ async def moderate_user_content(
 ) -> Dict[str, Any]:
     """
     Moderate user-generated content such as profiles, posts, or other user data.
-    
+
     Args:
         user_id: The ID of the user whose content to moderate
         content_type: Type of content (profile, bio, avatar, banner, etc.)
         action: Moderation action (hide, remove, flag, approve)
         reason: Reason for moderation action
-        
+
     Returns:
         Dictionary containing moderation action confirmation
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If parameters are invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for content moderation")
-    
+
     # Validate parameters
     valid_content_types = ["profile", "bio", "avatar", "banner", "display_name"]
     valid_actions = ["hide", "remove", "flag", "approve", "reset"]
-    
+
     if content_type not in valid_content_types:
         raise MCPValidationError(f"Invalid content type. Must be one of: {', '.join(valid_content_types)}")
-    
+
     if action not in valid_actions:
         raise MCPValidationError(f"Invalid action. Must be one of: {', '.join(valid_actions)}")
-    
+
     if not reason or len(reason.strip()) < 5:
         raise MCPValidationError("Moderation reason must be at least 5 characters")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get user from database
         users_collection = db_manager.get_collection("users")
         user = await users_collection.find_one({"_id": user_id})
-        
+
         if not user:
             raise MCPValidationError(f"User not found: {user_id}")
-        
+
         # Prepare moderation data
         moderation_timestamp = datetime.utcnow()
         moderation_info = {
@@ -2021,10 +2021,10 @@ async def moderate_user_content(
             "reason": reason.strip(),
             "original_content": None
         }
-        
+
         # Apply moderation action based on content type
         update_data = {}
-        
+
         if content_type == "profile":
             # Moderate entire profile
             if action == "hide":
@@ -2048,7 +2048,7 @@ async def moderate_user_content(
                 update_data["profile_hidden"] = False
                 update_data["profile_approved"] = True
                 update_data["profile_moderation"] = moderation_info
-        
+
         elif content_type == "bio":
             if action == "remove":
                 moderation_info["original_content"] = user.get("bio")
@@ -2057,7 +2057,7 @@ async def moderate_user_content(
             elif action == "flag":
                 update_data["bio_flagged"] = True
                 update_data["bio_moderation"] = moderation_info
-        
+
         elif content_type == "display_name":
             if action == "remove":
                 moderation_info["original_content"] = user.get("display_name")
@@ -2066,19 +2066,19 @@ async def moderate_user_content(
             elif action == "reset":
                 update_data["display_name"] = user.get("username")  # Reset to username
                 update_data["display_name_moderation"] = moderation_info
-        
+
         elif content_type == "avatar":
             if action == "remove":
                 moderation_info["original_content"] = user.get("avatar_url")
                 update_data["avatar_url"] = None
                 update_data["avatar_moderation"] = moderation_info
-        
+
         elif content_type == "banner":
             if action == "remove":
                 moderation_info["original_content"] = user.get("banner_url")
                 update_data["banner_url"] = None
                 update_data["banner_moderation"] = moderation_info
-        
+
         # Add general moderation tracking
         moderation_history = user.get("moderation_history", [])
         moderation_history.append({
@@ -2089,19 +2089,19 @@ async def moderate_user_content(
             "moderated_by": user_context.user_id,
             "moderated_by_username": user_context.username
         })
-        
+
         update_data["moderation_history"] = moderation_history
         update_data["updated_at"] = moderation_timestamp
-        
+
         # Update user record
         result = await users_collection.update_one(
             {"_id": user_id},
             {"$set": update_data}
         )
-        
+
         if result.modified_count == 0:
             raise MCPValidationError("Failed to apply moderation action")
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="moderate_user_content",
@@ -2120,7 +2120,7 @@ async def moderate_user_content(
                 "has_original_content": moderation_info["original_content"] is not None
             }
         )
-        
+
         moderation_result = {
             "user_id": user_id,
             "username": user.get("username"),
@@ -2133,17 +2133,17 @@ async def moderate_user_content(
                 "moderated_by": user_context.username
             },
             "content_changes": {
-                key: value for key, value in update_data.items() 
+                key: value for key, value in update_data.items()
                 if key not in ["moderation_history", "updated_at"]
             },
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("Content moderation applied by admin %s to user %s (%s) - Type: %s, Action: %s", 
+
+        logger.info("Content moderation applied by admin %s to user %s (%s) - Type: %s, Action: %s",
                    user_context.user_id, user_id, user.get("username"), content_type, action)
-        
+
         return moderation_result
-        
+
     except Exception as e:
         logger.error("Failed to moderate user content for %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to moderate user content: {str(e)}")
@@ -2177,22 +2177,22 @@ class MaintenanceSchedule(BaseModel):
 async def get_system_config() -> Dict[str, Any]:
     """
     Get comprehensive system configuration including settings, feature flags, and environment info.
-    
+
     Returns:
         Dictionary containing system configuration and settings
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for system configuration access")
-    
+
     try:
         start_time = time.time()
-        
+
         # Get current configuration from settings
         system_config = {
             "environment": {
@@ -2253,32 +2253,32 @@ async def get_system_config() -> Dict[str, Any]:
                 "max_file_upload_size_mb": 10
             }
         }
-        
+
         # Get feature flags from Redis (if stored there)
         try:
             redis_conn = await redis_manager.get_redis()
             feature_flags = {}
-            
+
             # Get all feature flag keys
             flag_keys = await redis_conn.keys(f"{settings.ENV_PREFIX}:feature_flag:*")
             for key in flag_keys:
                 flag_name = key.decode().split(":")[-1]
                 flag_value = await redis_conn.get(key)
                 feature_flags[flag_name] = flag_value.decode() == "true" if flag_value else False
-            
+
             system_config["feature_flags"] = feature_flags
-            
+
         except Exception as e:
             logger.warning("Failed to retrieve feature flags: %s", e)
             system_config["feature_flags"] = {
                 "error": "Failed to retrieve feature flags from Redis"
             }
-        
+
         # Get maintenance status
         try:
             redis_conn = await redis_manager.get_redis()
             maintenance_info = await redis_conn.hgetall(f"{settings.ENV_PREFIX}:maintenance")
-            
+
             if maintenance_info:
                 system_config["maintenance"] = {
                     "enabled": maintenance_info.get(b"enabled", b"false").decode() == "true",
@@ -2292,13 +2292,13 @@ async def get_system_config() -> Dict[str, Any]:
                     "enabled": False,
                     "scheduled": False
                 }
-                
+
         except Exception as e:
             logger.warning("Failed to retrieve maintenance status: %s", e)
             system_config["maintenance"] = {
                 "error": "Failed to retrieve maintenance status"
             }
-        
+
         # Add configuration metadata
         system_config["metadata"] = {
             "retrieved_at": datetime.utcnow().isoformat(),
@@ -2306,7 +2306,7 @@ async def get_system_config() -> Dict[str, Any]:
             "config_sections": len(system_config),
             "retrieval_duration_ms": (time.time() - start_time) * 1000
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_system_config",
@@ -2319,12 +2319,12 @@ async def get_system_config() -> Dict[str, Any]:
                 "maintenance_enabled": system_config.get("maintenance", {}).get("enabled", False)
             }
         )
-        
-        logger.info("System configuration retrieved by admin %s - %d sections", 
+
+        logger.info("System configuration retrieved by admin %s - %d sections",
                    user_context.user_id, len(system_config))
-        
+
         return system_config
-        
+
     except Exception as e:
         logger.error("Failed to get system configuration: %s", e)
         raise MCPValidationError(f"Failed to retrieve system configuration: {str(e)}")
@@ -2343,32 +2343,32 @@ async def update_system_settings(
 ) -> Dict[str, Any]:
     """
     Update system configuration settings with audit trail.
-    
+
     Args:
         config_key: Configuration key to update (e.g., "rate_limit.requests_per_minute")
         config_value: New configuration value
         reason: Reason for configuration change
-        
+
     Returns:
         Dictionary containing update confirmation and details
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If configuration key is invalid or update fails
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for system configuration updates")
-    
+
     # Validate parameters
     if not config_key or not config_key.strip():
         raise MCPValidationError("Configuration key cannot be empty")
-    
+
     if not reason or len(reason.strip()) < 10:
         raise MCPValidationError("Reason must be at least 10 characters")
-    
+
     # Define allowed configuration keys for security
     allowed_config_keys = {
         "rate_limit.requests_per_minute": {"type": int, "min": 10, "max": 1000},
@@ -2383,16 +2383,16 @@ async def update_system_settings(
         "features.public_api_access": {"type": bool},
         "maintenance.message": {"type": str, "max_length": 500}
     }
-    
+
     if config_key not in allowed_config_keys:
         raise MCPValidationError(f"Configuration key '{config_key}' is not allowed to be modified")
-    
+
     try:
         start_time = time.time()
-        
+
         # Validate configuration value
         config_spec = allowed_config_keys[config_key]
-        
+
         # Type validation
         if config_spec["type"] == int:
             if not isinstance(config_value, int):
@@ -2400,34 +2400,34 @@ async def update_system_settings(
                     config_value = int(config_value)
                 except (ValueError, TypeError):
                     raise MCPValidationError(f"Configuration value must be an integer")
-            
+
             # Range validation
             if "min" in config_spec and config_value < config_spec["min"]:
                 raise MCPValidationError(f"Value must be at least {config_spec['min']}")
             if "max" in config_spec and config_value > config_spec["max"]:
                 raise MCPValidationError(f"Value must be at most {config_spec['max']}")
-        
+
         elif config_spec["type"] == bool:
             if not isinstance(config_value, bool):
                 if isinstance(config_value, str):
                     config_value = config_value.lower() in ("true", "1", "yes", "on")
                 else:
                     config_value = bool(config_value)
-        
+
         elif config_spec["type"] == str:
             config_value = str(config_value)
             if "max_length" in config_spec and len(config_value) > config_spec["max_length"]:
                 raise MCPValidationError(f"Value must be at most {config_spec['max_length']} characters")
-        
+
         # Get current value for audit trail
         redis_conn = await redis_manager.get_redis()
         config_redis_key = f"{settings.ENV_PREFIX}:config:{config_key}"
         old_value = await redis_conn.get(config_redis_key)
         old_value = old_value.decode() if old_value else None
-        
+
         # Store configuration in Redis
         await redis_conn.set(config_redis_key, str(config_value))
-        
+
         # Create configuration change record
         config_change = {
             "config_key": config_key,
@@ -2440,18 +2440,18 @@ async def update_system_settings(
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent
         }
-        
+
         # Store change history
         change_history_key = f"{settings.ENV_PREFIX}:config_history:{config_key}"
-        await redis_conn.lpush(change_history_key, 
+        await redis_conn.lpush(change_history_key,
                               json.dumps(config_change, default=str))
-        
+
         # Keep only last 50 changes
         await redis_conn.ltrim(change_history_key, 0, 49)
-        
+
         # Set expiration for change history (1 year)
         await redis_conn.expire(change_history_key, 365 * 24 * 60 * 60)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="update_system_settings",
@@ -2469,7 +2469,7 @@ async def update_system_settings(
                 "value_type": type(config_value).__name__
             }
         )
-        
+
         update_result = {
             "config_key": config_key,
             "old_value": old_value,
@@ -2483,12 +2483,12 @@ async def update_system_settings(
             "requires_restart": config_key.startswith("mcp.") or config_key.startswith("database."),
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("System configuration updated by admin %s - Key: %s, Value: %s, Reason: %s", 
+
+        logger.info("System configuration updated by admin %s - Key: %s, Value: %s, Reason: %s",
                    user_context.user_id, config_key, config_value, reason)
-        
+
         return update_result
-        
+
     except Exception as e:
         logger.error("Failed to update system configuration %s: %s", config_key, e)
         raise MCPValidationError(f"Failed to update system configuration: {str(e)}")
@@ -2503,32 +2503,32 @@ async def update_system_settings(
 async def get_feature_flags() -> Dict[str, Any]:
     """
     Get all feature flags and their current states for system management.
-    
+
     Returns:
         Dictionary containing all feature flags and their states
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for feature flag access")
-    
+
     try:
         start_time = time.time()
-        
+
         redis_conn = await redis_manager.get_redis()
-        
+
         # Get all feature flags
         feature_flags = {}
         flag_keys = await redis_conn.keys(f"{settings.ENV_PREFIX}:feature_flag:*")
-        
+
         for key in flag_keys:
             flag_name = key.decode().split(":")[-1]
             flag_data = await redis_conn.hgetall(key)
-            
+
             if flag_data:
                 feature_flags[flag_name] = {
                     "enabled": flag_data.get(b"enabled", b"false").decode() == "true",
@@ -2539,7 +2539,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                     "last_modified_by": flag_data.get(b"last_modified_by", b"").decode(),
                     "category": flag_data.get(b"category", b"general").decode()
                 }
-        
+
         # Add default feature flags if none exist
         if not feature_flags:
             default_flags = {
@@ -2584,7 +2584,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                     "category": "integration"
                 }
             }
-            
+
             # Initialize default flags in Redis
             for flag_name, flag_info in default_flags.items():
                 flag_key = f"{settings.ENV_PREFIX}:feature_flag:{flag_name}"
@@ -2595,7 +2595,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                     "created_at": datetime.utcnow().isoformat(),
                     "created_by": "system"
                 })
-                
+
                 feature_flags[flag_name] = {
                     **flag_info,
                     "created_at": datetime.utcnow().isoformat(),
@@ -2603,7 +2603,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                     "last_modified_at": "",
                     "last_modified_by": ""
                 }
-        
+
         # Group flags by category
         flags_by_category = {}
         for flag_name, flag_data in feature_flags.items():
@@ -2611,11 +2611,11 @@ async def get_feature_flags() -> Dict[str, Any]:
             if category not in flags_by_category:
                 flags_by_category[category] = {}
             flags_by_category[category][flag_name] = flag_data
-        
+
         # Calculate summary statistics
         total_flags = len(feature_flags)
         enabled_flags = sum(1 for flag in feature_flags.values() if flag["enabled"])
-        
+
         result = {
             "feature_flags": feature_flags,
             "flags_by_category": flags_by_category,
@@ -2631,7 +2631,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                 "retrieval_duration_ms": (time.time() - start_time) * 1000
             }
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_feature_flags",
@@ -2644,12 +2644,12 @@ async def get_feature_flags() -> Dict[str, Any]:
                 "categories": len(flags_by_category)
             }
         )
-        
-        logger.info("Feature flags retrieved by admin %s - %d total flags, %d enabled", 
+
+        logger.info("Feature flags retrieved by admin %s - %d total flags, %d enabled",
                    user_context.user_id, total_flags, enabled_flags)
-        
+
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get feature flags: %s", e)
         raise MCPValidationError(f"Failed to retrieve feature flags: {str(e)}")
@@ -2668,56 +2668,56 @@ async def toggle_feature_flag(
 ) -> Dict[str, Any]:
     """
     Enable or disable a feature flag with audit trail.
-    
+
     Args:
         flag_name: Name of the feature flag to toggle
         enabled: Whether to enable (True) or disable (False) the flag
         reason: Reason for the flag change
-        
+
     Returns:
         Dictionary containing flag toggle confirmation
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If flag not found or update fails
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for feature flag management")
-    
+
     # Validate parameters
     if not flag_name or not flag_name.strip():
         raise MCPValidationError("Feature flag name cannot be empty")
-    
+
     if not reason or len(reason.strip()) < 5:
         raise MCPValidationError("Reason must be at least 5 characters")
-    
+
     try:
         start_time = time.time()
-        
+
         redis_conn = await redis_manager.get_redis()
         flag_key = f"{settings.ENV_PREFIX}:feature_flag:{flag_name}"
-        
+
         # Check if flag exists
         flag_exists = await redis_conn.exists(flag_key)
         if not flag_exists:
             raise MCPValidationError(f"Feature flag '{flag_name}' does not exist")
-        
+
         # Get current flag data
         flag_data = await redis_conn.hgetall(flag_key)
         old_enabled = flag_data.get(b"enabled", b"false").decode() == "true"
-        
+
         # Update flag
         update_data = {
             "enabled": str(enabled).lower(),
             "last_modified_at": datetime.utcnow().isoformat(),
             "last_modified_by": user_context.username
         }
-        
+
         await redis_conn.hset(flag_key, mapping=update_data)
-        
+
         # Create flag change history
         change_record = {
             "flag_name": flag_name,
@@ -2729,18 +2729,18 @@ async def toggle_feature_flag(
             "reason": reason.strip(),
             "ip_address": user_context.ip_address
         }
-        
+
         # Store change history
         history_key = f"{settings.ENV_PREFIX}:feature_flag_history:{flag_name}"
-        await redis_conn.lpush(history_key, 
+        await redis_conn.lpush(history_key,
                               json.dumps(change_record, default=str))
-        
+
         # Keep only last 100 changes
         await redis_conn.ltrim(history_key, 0, 99)
-        
+
         # Set expiration for change history (1 year)
         await redis_conn.expire(history_key, 365 * 24 * 60 * 60)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="toggle_feature_flag",
@@ -2758,7 +2758,7 @@ async def toggle_feature_flag(
                 "action": "enabled" if enabled else "disabled"
             }
         )
-        
+
         toggle_result = {
             "flag_name": flag_name,
             "old_enabled": old_enabled,
@@ -2775,13 +2775,13 @@ async def toggle_feature_flag(
             },
             "operation_duration_ms": (time.time() - start_time) * 1000
         }
-        
-        logger.info("Feature flag '%s' %s by admin %s - Reason: %s", 
-                   flag_name, "enabled" if enabled else "disabled", 
+
+        logger.info("Feature flag '%s' %s by admin %s - Reason: %s",
+                   flag_name, "enabled" if enabled else "disabled",
                    user_context.user_id, reason)
-        
+
         return toggle_result
-        
+
     except Exception as e:
         logger.error("Failed to toggle feature flag %s: %s", flag_name, e)
         raise MCPValidationError(f"Failed to toggle feature flag: {str(e)}")
@@ -2796,28 +2796,28 @@ async def toggle_feature_flag(
 async def get_maintenance_status() -> Dict[str, Any]:
     """
     Get current maintenance mode status and any scheduled maintenance.
-    
+
     Returns:
         Dictionary containing maintenance status and schedule information
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for maintenance status")
-    
+
     try:
         start_time = time.time()
-        
+
         redis_conn = await redis_manager.get_redis()
-        
+
         # Get current maintenance status
         maintenance_key = f"{settings.ENV_PREFIX}:maintenance"
         maintenance_data = await redis_conn.hgetall(maintenance_key)
-        
+
         if maintenance_data:
             maintenance_status = {
                 "enabled": maintenance_data.get(b"enabled", b"false").decode() == "true",
@@ -2839,11 +2839,11 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 "scheduled_by": None,
                 "scheduled_at": None
             }
-        
+
         # Get maintenance history
         history_key = f"{settings.ENV_PREFIX}:maintenance_history"
         history_entries = await redis_conn.lrange(history_key, 0, 9)  # Last 10 entries
-        
+
         maintenance_history = []
         for entry in history_entries:
             try:
@@ -2852,7 +2852,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 maintenance_history.append(history_item)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
-        
+
         # Calculate maintenance window info if active
         maintenance_window = None
         if maintenance_status["enabled"] and maintenance_status["start_time"]:
@@ -2860,14 +2860,14 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 start_dt = datetime.fromisoformat(maintenance_status["start_time"])
                 end_dt = datetime.fromisoformat(maintenance_status["end_time"]) if maintenance_status["end_time"] else None
                 now = datetime.utcnow()
-                
+
                 if end_dt:
                     duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
                     remaining_minutes = int((end_dt - now).total_seconds() / 60) if end_dt > now else 0
                 else:
                     duration_minutes = None
                     remaining_minutes = None
-                
+
                 maintenance_window = {
                     "is_active": start_dt <= now <= (end_dt or datetime.max),
                     "duration_minutes": duration_minutes,
@@ -2877,7 +2877,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 }
             except (ValueError, TypeError):
                 maintenance_window = {"error": "Invalid maintenance time format"}
-        
+
         result = {
             "maintenance_status": maintenance_status,
             "maintenance_window": maintenance_window,
@@ -2893,7 +2893,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 "retrieval_duration_ms": (time.time() - start_time) * 1000
             }
         }
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_maintenance_status",
@@ -2906,12 +2906,12 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 "history_entries": len(maintenance_history)
             }
         )
-        
-        logger.info("Maintenance status retrieved by admin %s - Enabled: %s", 
+
+        logger.info("Maintenance status retrieved by admin %s - Enabled: %s",
                    user_context.user_id, maintenance_status["enabled"])
-        
+
         return result
-        
+
     except Exception as e:
         logger.error("Failed to get maintenance status: %s", e)
         raise MCPValidationError(f"Failed to retrieve maintenance status: {str(e)}")
@@ -2931,51 +2931,51 @@ async def schedule_maintenance(
 ) -> Dict[str, Any]:
     """
     Schedule system maintenance with optional user notification.
-    
+
     Args:
         start_time: Maintenance start time (ISO format)
         duration_minutes: Expected maintenance duration in minutes
         description: Description of maintenance work
         notify_users: Whether to notify users about the maintenance
-        
+
     Returns:
         Dictionary containing maintenance scheduling confirmation
-        
+
     Raises:
         MCPAuthorizationError: If user doesn't have admin permissions
         MCPValidationError: If parameters are invalid
     """
     user_context = get_mcp_user_context()
-    
+
     # Verify admin permissions
     if not user_context.has_permission("admin"):
         raise MCPAuthorizationError("Admin permission required for maintenang")
-    
+
     # Validate parameters
     if not description or len(description.strip()) < 10:
         raise MCPValidationError("Maintenance description must be at least 10 characters")
-    
+
     if duration_minutes <= 0 or duration_minutes > 1440:  # Max 24 hours
         raise MCPValidationError("Duration must be between 1 and 1440 minutes")
-    
+
     try:
         # Parse and validate start time
         try:
             start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
         except ValueError:
             raise MCPValidationError("Invalid start time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
-        
+
         # Ensure maintenance is scheduled for the future
         if start_dt <= datetime.utcnow():
             raise MCPValidationError("Maintenance must be scheduled for a future time")
-        
+
         # Calculate end time
         end_dt = start_dt + timedelta(minutes=duration_minutes)
-        
+
         start_time_processing = time.time()
-        
+
         redis_conn = await redis_manager.get_redis()
-        
+
         # Create maintenance record
         maintenance_data = {
             "enabled": "false",  # Not enabled yet, just scheduled
@@ -2987,11 +2987,11 @@ async def schedule_maintenance(
             "scheduled_at": datetime.utcnow().isoformat(),
             "duration_minutes": str(duration_minutes)
         }
-        
+
         # Store maintenance schedule
         maintenance_key = f"{settings.ENV_PREFIX}:maintenance"
         await redis_conn.hset(maintenance_key, mapping=maintenance_data)
-        
+
         # Add to maintenance history
         history_record = {
             "action": "scheduled",
@@ -3003,17 +3003,17 @@ async def schedule_maintenance(
             "scheduled_at": datetime.utcnow().isoformat(),
             "notify_users": notify_users
         }
-        
+
         history_key = f"{settings.ENV_PREFIX}:maintenance_history"
         await redis_conn.lpush(history_key, json.dumps(history_record, default=str))
-        
+
         # Keep only last 50 history entries
         await redis_conn.ltrim(history_key, 0, 49)
-        
+
         # Set up automatic maintenance activation (this would require a background task)
         # For now, we'll just log that it should be implemented
         logger.info("Maintenance scheduled - automatic activation should be implemented via background task")
-        
+
         # Send user notifications if requested
         notifications_sent = 0
         if notify_users:
@@ -3024,7 +3024,7 @@ async def schedule_maintenance(
                 notifications_sent = 100  # Simulated count
             except Exception as e:
                 logger.warning("Failed to send maintenance notifications: %s", e)
-        
+
         # Create audit trail
         await create_mcp_audit_trail(
             operation="schedule_maintenance",
@@ -3043,7 +3043,7 @@ async def schedule_maintenance(
                 "advance_notice_hours": (start_dt - datetime.utcnow()).total_seconds() / 3600
             }
         )
-        
+
         schedule_result = {
             "maintenance_scheduled": True,
             "schedule_details": {
@@ -3064,12 +3064,12 @@ async def schedule_maintenance(
             },
             "operation_duration_ms": (time.time() - start_time_processing) * 1000
         }
-        
-        logger.info("Maintenance scheduled by admin %s - Start: %s, Duration: %d minutes, Notifications: %s", 
+
+        logger.info("Maintenance scheduled by admin %s - Start: %s, Duration: %d minutes, Notifications: %s",
                    user_context.user_id, start_dt.isoformat(), duration_minutes, notify_users)
-        
+
         return schedule_result
-        
+
     except Exception as e:
         logger.error("Failed to schedule maintenance: %s", e)
         raise MCPValidationError(f"Failed to schedule maintenance: {str(e)}")

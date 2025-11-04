@@ -36,13 +36,13 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    
+
     # Task execution
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_time_limit=300,  # 5 minutes hard limit
     task_soft_time_limit=240,  # 4 minutes soft limit
-    
+
     # Result backend
     result_expires=3600,  # 1 hour
     result_backend_transport_options={
@@ -51,18 +51,18 @@ celery_app.conf.update(
             "timeout": 5.0
         }
     },
-    
+
     # Worker settings
     worker_prefetch_multiplier=4,
     worker_max_tasks_per_child=1000,
-    
+
     # Task routes
     task_routes={
         "second_brain_database.tasks.ai_tasks.*": {"queue": "ai"},
         "second_brain_database.tasks.voice_tasks.*": {"queue": "voice"},
         "second_brain_database.tasks.workflow_tasks.*": {"queue": "workflows"},
     },
-    
+
     # Task queues
     task_queues=(
         Queue("default", Exchange("default"), routing_key="default"),
@@ -70,7 +70,7 @@ celery_app.conf.update(
         Queue("voice", Exchange("voice"), routing_key="voice"),
         Queue("workflows", Exchange("workflows"), routing_key="workflows"),
     ),
-    
+
     # Beat schedule for periodic tasks
     beat_schedule={
         "cleanup-expired-sessions": {
