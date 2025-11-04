@@ -1,0 +1,69 @@
+{
+  "total_tests": 6,
+  "passed_tests": 0,
+  "failed_tests": 6,
+  "success_rate": 0.0,
+  "test_results": [
+    {
+      "test_name": "Family Creation with Custom Name",
+      "passed": false,
+      "details": "Exception during family creation: Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.569003+00:00",
+      "data": {
+        "error": "Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+        "type": "TransactionError"
+      }
+    },
+    {
+      "test_name": "Family Creation without Name (Auto-generation)",
+      "passed": false,
+      "details": "Exception during family creation: Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.630211+00:00",
+      "data": {
+        "error": "Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+        "type": "TransactionError"
+      }
+    },
+    {
+      "test_name": "SBD Virtual Account Creation and Integration",
+      "passed": false,
+      "details": "Exception during SBD account validation: Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.686341+00:00",
+      "data": {
+        "error": "Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+        "type": "TransactionError"
+      }
+    },
+    {
+      "test_name": "Family Administrator Assignment and Permissions",
+      "passed": false,
+      "details": "Exception during admin validation: Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.750541+00:00",
+      "data": {
+        "error": "Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+        "type": "TransactionError"
+      }
+    },
+    {
+      "test_name": "Family Limit Validation",
+      "passed": false,
+      "details": "Exception during limit validation: Failed to retrieve user families: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.811092+00:00",
+      "data": {
+        "error": "Failed to retrieve user families: User not found: test_user_1757681520",
+        "type": "FamilyError"
+      }
+    },
+    {
+      "test_name": "Family Deletion and Cleanup",
+      "passed": false,
+      "details": "Exception during deletion testing: Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+      "timestamp": "2025-09-12T12:52:00.878922+00:00",
+      "data": {
+        "error": "Failed to create family: Failed to check family limits: User not found: test_user_1757681520",
+        "type": "TransactionError"
+      }
+    }
+  ],
+  "timestamp": "2025-09-12T12:52:00.879134+00:00"
+}

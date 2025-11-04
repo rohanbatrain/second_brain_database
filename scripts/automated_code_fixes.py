@@ -187,6 +187,8 @@ logs/
 # Environment
 .env.local
 .env.*.local
+.sbd.local
+.sbd.*.local
 
 # Python
 *.pyc
