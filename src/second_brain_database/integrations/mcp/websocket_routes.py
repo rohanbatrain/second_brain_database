@@ -16,7 +16,7 @@ from fastapi.security import HTTPBearer
 from ...config import settings
 from ...managers.logging_manager import get_logger
 from ...managers.security_manager import SecurityManager
-from ..ai_orchestration.event_bus import AIEventBus
+# AIEventBus removed with ai_orchestration system
 from .websocket_integration import MCPWebSocketManager, initialize_mcp_websocket_manager
 
 logger = get_logger(prefix="[MCP_WebSocket_Routes]")
@@ -29,7 +29,7 @@ security = HTTPBearer(auto_error=False)
 
 # Global managers (will be initialized on startup)
 mcp_websocket_manager: Optional[MCPWebSocketManager] = None
-ai_event_bus: Optional[AIEventBus] = None
+# ai_event_bus removed with ai_orchestration system
 security_manager: Optional[SecurityManager] = None
 
 
@@ -49,20 +49,10 @@ async def initialize_managers():
         # Initialize security manager
         security_manager = SecurityManager()
         
-        # Initialize AI event bus (if not already initialized)
-        if ai_event_bus is None:
-            from ..ai_orchestration.event_bus import get_ai_event_bus
-            ai_event_bus = get_ai_event_bus()
-            if ai_event_bus is None:
-                # Create a new AI event bus instance
-                from ...websocket_manager import ConnectionManager
-                connection_manager = ConnectionManager()
-                from ..ai_orchestration.event_bus import AIEventBus
-                ai_event_bus = AIEventBus(connection_manager)
-        
-        # Initialize MCP WebSocket manager
+        # AI event bus removed with ai_orchestration system
+        # Initialize MCP WebSocket manager without AI event bus
         mcp_websocket_manager = await initialize_mcp_websocket_manager(
-            ai_event_bus, security_manager
+            None, security_manager  # Pass None for ai_event_bus
         )
         
         logger.info("MCP WebSocket managers initialized successfully")
@@ -280,7 +270,7 @@ async def mcp_integration_status():
                 "tool_execution_tracking": True,
                 "session_management": True,
                 "event_broadcasting": True,
-                "ai_orchestration_integration": ai_event_bus is not None
+                "ai_orchestration_integration": False  # AI orchestration removed
             }
         }
     except Exception as e:

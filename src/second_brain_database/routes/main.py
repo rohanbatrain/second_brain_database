@@ -1162,38 +1162,12 @@ async def ai_health_check(request: Request):
 
         # Check if AI is enabled
         from second_brain_database.config import settings
-        if not settings.ai_should_be_enabled:
-            logger.info("AI health check requested but AI orchestration is disabled")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="AI orchestration system is disabled"
-            )
-
-        # Import AI monitoring
-        try:
-            from second_brain_database.integrations.ai_orchestration.monitoring import perform_ai_health_check
-        except ImportError as e:
-            logger.error("AI orchestration monitoring not available: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="AI orchestration system is not available"
-            ) from e
-
-        # Perform comprehensive health check
-        health_result = await perform_ai_health_check()
-        
-        if health_result["status"] == "healthy":
-            logger.info("AI orchestration health check passed")
-            return health_result
-        elif health_result["status"] == "degraded":
-            logger.warning("AI orchestration health check shows degraded status: %s", health_result)
-            return health_result  # Return 200 but with degraded status
-        else:
-            logger.warning("AI orchestration health check failed: %s", health_result)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AI orchestration system is not healthy"
-            )
+        # AI system disabled - LangChain removed
+        logger.info("AI health check requested but AI system is disabled")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI system is disabled - LangChain/LangGraph integration removed"
+        )
 
     except HTTPException:
         raise
@@ -1286,28 +1260,12 @@ async def ai_metrics_check(request: Request):
 
         # Check if AI is enabled
         from second_brain_database.config import settings
-        if not settings.ai_should_be_enabled:
-            logger.info("AI metrics requested but AI orchestration is disabled")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="AI orchestration system is disabled"
-            )
-
-        # Import AI monitoring
-        try:
-            from second_brain_database.integrations.ai_orchestration.monitoring import get_ai_metrics
-        except ImportError as e:
-            logger.error("AI orchestration monitoring not available: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="AI orchestration system is not available"
-            ) from e
-
-        # Get AI metrics
-        metrics_result = await get_ai_metrics()
-        
-        logger.info("AI orchestration metrics retrieved successfully")
-        return metrics_result
+        # AI system disabled - LangChain removed
+        logger.info("AI metrics requested but AI system is disabled")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI system is disabled - LangChain/LangGraph integration removed"
+        )
 
     except HTTPException:
         raise

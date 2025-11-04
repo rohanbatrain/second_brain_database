@@ -463,7 +463,7 @@ class FamilyDocument(BaseModel):
     succession_plan: Dict[str, Any]
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "family_id": "fam_abc123def456",
                 "name": "Smith Family",
@@ -527,7 +527,7 @@ class FamilyRelationshipDocument(BaseModel):
         return v
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "relationship_id": "rel_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -574,7 +574,7 @@ class FamilyInvitationDocument(BaseModel):
         return v
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "invitation_id": "inv_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -627,7 +627,7 @@ class FamilyNotificationDocument(BaseModel):
         return v
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "notification_id": "notif_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -685,7 +685,7 @@ class FamilyTokenRequestDocument(BaseModel):
         return v.strip()
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "request_id": "req_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -726,7 +726,7 @@ class PurchaseRequestDocument(BaseModel):
         return v
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "request_id": "pr_abc123def456",
                 "family_id": "fam_abc123def456",
@@ -757,7 +757,7 @@ class FamilyErrorResponse(BaseModel):
     error: Dict[str, Any]
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "error": {
                     "code": "FAMILY_LIMIT_EXCEEDED",
@@ -784,7 +784,7 @@ class ValidationErrorResponse(BaseModel):
     detail: List[Dict[str, Any]]
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "detail": [
                     {

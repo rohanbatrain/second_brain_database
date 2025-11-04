@@ -1,0 +1,289 @@
+"""Thread management endpoints for LangGraph Platform API.
+
+Implements thread lifecycle management compatible with AgentChat UI.
+"""
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, List
+from uuid import uuid4
+from datetime import datetime
+import json
+
+from ...managers.redis_manager import RedisManager
+from ...managers.logging_manager import get_logger
+from ...routes.auth.dependencies import get_current_user_dep
+
+logger = get_logger(prefix="[LangGraphThreads]")
+router = APIRouter(prefix="/threads", tags=["langgraph"])
+
+
+class ThreadMetadata(BaseModel):
+    """Metadata for a conversation thread."""
+    user_id: Optional[str] = None
+    title: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    custom: Dict[str, Any] = Field(default_factory=dict)
+
+
+class Thread(BaseModel):
+    """Conversation thread model."""
+    thread_id: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: ThreadMetadata = Field(default_factory=ThreadMetadata)
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ThreadCreate(BaseModel):
+    """Request model for creating a thread."""
+    metadata: Optional[ThreadMetadata] = None
+
+
+class ThreadUpdate(BaseModel):
+    """Request model for updating a thread."""
+    metadata: ThreadMetadata
+
+
+def get_redis_manager():
+    """Dependency to get Redis manager."""
+    from ...managers.redis_manager import RedisManager
+    return RedisManager()
+
+
+@router.post("", response_model=Thread, status_code=201)
+async def create_thread(
+    thread_data: ThreadCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+):
+    """Create a new conversation thread.
+    
+    This creates a new thread for managing conversation state.
+    Each thread maintains its own message history and state.
+    """
+    try:
+        thread_id = str(uuid4())
+        now = datetime.utcnow()
+        
+        # Initialize metadata with user info
+        metadata = data.metadata or ThreadMetadata()
+        if not metadata.user_id:
+            metadata.user_id = str(current_user.id)
+        
+        thread = Thread(
+            thread_id=thread_id,
+            created_at=now,
+            updated_at=now,
+            metadata=metadata
+        )
+        
+        # Store thread in Redis
+        key = f"thread:{thread_id}"
+        redis.client.setex(
+            key,
+            86400 * 7,  # 7 days TTL
+            json.dumps(thread.dict(), default=str)
+        )
+        
+        logger.info(f"Created thread {thread_id} for user {current_user.id}")
+        return thread
+        
+    except Exception as e:
+        logger.error(f"Error creating thread: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create thread: {str(e)}"
+        )
+
+
+@router.get("/{thread_id}", response_model=Thread)
+async def get_thread(
+    thread_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    redis: RedisManager = Depends(get_redis_manager)
+):
+    """Get thread by ID.
+    
+    Retrieves the thread metadata and configuration.
+    """
+    try:
+        key = f"thread:{thread_id}"
+        data = redis.client.get(key)
+        
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Thread {thread_id} not found"
+            )
+        
+        thread_dict = json.loads(data)
+        thread = Thread(**thread_dict)
+        
+        # Verify ownership
+        if thread.metadata.user_id != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this thread"
+            )
+        
+        logger.debug(f"Retrieved thread {thread_id}")
+        return thread
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving thread: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve thread: {str(e)}"
+        )
+
+
+@router.patch("/{thread_id}", response_model=Thread)
+async def update_thread(
+    thread_id: str,
+    thread_update: ThreadUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+):
+    """Update thread metadata.
+    
+    Allows updating thread metadata like title, tags, etc.
+    """
+    try:
+        # Get existing thread
+        key = f"thread:{thread_id}"
+        data = redis.client.get(key)
+        
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Thread {thread_id} not found"
+            )
+        
+        thread_dict = json.loads(data)
+        thread = Thread(**thread_dict)
+        
+        # Verify ownership
+        if thread.metadata.user_id != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this thread"
+            )
+        
+        # Update metadata
+        thread.metadata = update_data.metadata
+        thread.updated_at = datetime.utcnow()
+        
+        # Save updated thread
+        redis.client.setex(
+            key,
+            86400 * 7,  # 7 days TTL
+            json.dumps(thread.dict(), default=str)
+        )
+        
+        logger.info(f"Updated thread {thread_id}")
+        return thread
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating thread: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update thread: {str(e)}"
+        )
+
+
+@router.delete("/{thread_id}", status_code=200)
+async def delete_thread(
+    thread_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+):
+    """Delete a thread and all its associated data.
+    
+    This removes the thread, its messages, and checkpoints.
+    """
+    try:
+        # Get thread to verify ownership
+        key = f"thread:{thread_id}"
+        data = redis.client.get(key)
+        
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Thread {thread_id} not found"
+            )
+        
+        thread_dict = json.loads(data)
+        thread = Thread(**thread_dict)
+        
+        # Verify ownership
+        if thread.metadata.user_id != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this thread"
+            )
+        
+        # Delete thread
+        redis.client.delete(key)
+        
+        # Delete checkpoints
+        checkpoint_pattern = f"langgraph:checkpoint:{thread_id}:*"
+        for checkpoint_key in redis.client.scan_iter(match=checkpoint_pattern):
+            redis.client.delete(checkpoint_key)
+        
+        logger.info(f"Deleted thread {thread_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting thread: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete thread: {str(e)}"
+        )
+
+
+@router.get("", response_model=List[Thread])
+async def list_threads(
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    redis: RedisManager = Depends(get_redis_manager),
+    limit: int = 20,
+    offset: int = 0
+):
+    """List all threads for the current user.
+    
+    Returns threads with pagination support.
+    """
+    try:
+        threads = []
+        pattern = "thread:*"
+        
+        for key in redis.client.scan_iter(match=pattern):
+            data = redis.client.get(key)
+            if data:
+                thread_dict = json.loads(data)
+                thread = Thread(**thread_dict)
+                
+                # Filter by user
+                if thread.metadata.user_id == str(current_user.id):
+                    threads.append(thread)
+        
+        # Sort by updated_at descending
+        threads.sort(key=lambda x: x.updated_at, reverse=True)
+        
+        # Apply pagination
+        paginated_threads = threads[offset:offset + limit]
+        
+        logger.debug(f"Listed {len(paginated_threads)} threads for user {current_user.id}")
+        return paginated_threads
+        
+    except Exception as e:
+        logger.error(f"Error listing threads: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list threads: {str(e)}"
+        )

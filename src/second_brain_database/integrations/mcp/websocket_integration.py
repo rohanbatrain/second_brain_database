@@ -25,11 +25,8 @@ from pydantic import BaseModel
 from ...config import settings
 from ...managers.logging_manager import get_logger
 from ...managers.security_manager import SecurityManager
-from ...managers.ai_session_manager import ai_session_manager, AgentType, MessageType, MessageRole
-from ...utils.ai_metrics import ai_metrics_collector, track_ai_operation
-from ..ai_orchestration.event_bus import AIEventBus
-from ..ai_orchestration.models.events import EventType, create_event
-from ..ai_orchestration.models.session import SessionContext
+# AI session manager and metrics removed with ai_orchestration system
+# AI orchestration imports removed
 from .modern_server import mcp
 
 logger = get_logger(prefix="[MCP_WebSocket]")
@@ -59,8 +56,8 @@ class MCPWebSocketManager:
     with the existing AI orchestration system for unified real-time communication.
     """
     
-    def __init__(self, ai_event_bus: AIEventBus, security_manager: SecurityManager):
-        self.ai_event_bus = ai_event_bus
+    def __init__(self, security_manager: SecurityManager):
+        # ai_event_bus removed with ai_orchestration system
         self.security_manager = security_manager
         self.active_sessions: Dict[str, MCPWebSocketSession] = {}
         self.websocket_to_session: Dict[WebSocket, str] = {}
@@ -251,15 +248,7 @@ class MCPWebSocketManager:
         
         await session.websocket.send_json(response)
         
-        # Emit session start event to AI event bus
-        await self.ai_event_bus.emit_event(
-            session.session_id,
-            create_event(
-                EventType.SESSION_START,
-                {"client_info": client_info, "protocol": "mcp"},
-                session.session_id
-            )
-        )
+        # AI event bus removed - session start event no longer emitted
     
     async def _handle_tools_list(self, session: MCPWebSocketSession, message: Dict[str, Any]):
         """Handle tools/list request."""
@@ -712,6 +701,6 @@ async def initialize_mcp_websocket_manager(security_manager: SecurityManager):
     
     if mcp_websocket_manager is None:
         mcp_websocket_manager = MCPWebSocketManager(security_manager)
-        logger.info("MCP WebSocket manager initialized with AI support")
+        logger.info("MCP WebSocket manager initialized (AI orchestration removed)")
     
     return mcp_websocket_manager

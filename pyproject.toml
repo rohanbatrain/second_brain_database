@@ -51,6 +51,8 @@ dependencies = [
     "numpy>=1.26.4",
     "sounddevice>=0.5.3",
     "websockets[speedups]>=12.0",
+    "livekit>=1.0.17",
+    "livekit-agents[openai]>=1.2.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

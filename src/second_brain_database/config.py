@@ -40,7 +40,7 @@ For more details, see the README and the comments in this file.
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
 from pydantic import SecretStr, field_validator
@@ -231,22 +231,44 @@ class Settings(BaseSettings):
     DOCS_CORS_METHODS: str = "GET"  # Allowed methods for docs CORS
     DOCS_CORS_HEADERS: str = "Content-Type,Authorization"  # Allowed headers for docs CORS
     DOCS_CORS_MAX_AGE: int = 3600  # CORS preflight cache duration
+    
+    # General CORS configuration for API
+    CORS_ENABLED: bool = True  # Enable CORS for the entire API
+    CORS_ORIGINS: str = "http://localhost:3000,https://agentchat.vercel.app"  # Comma-separated allowed origins
 
     # --- Voice agent integrations ---
     # Ollama local LLM host (include scheme), default to local Ollama HTTP server
     OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "gemma3:1b"  # default model name to use with Ollama
+    OLLAMA_MODEL: str = "llama3.2:latest"  # default model name to use with Ollama (using full model)
     
     # Multiple model support - comma-separated list of available models
-    OLLAMA_AVAILABLE_MODELS: str = "gemma3:1b,deepseek-r1:1.5b"  # Available models for selection
+    OLLAMA_AVAILABLE_MODELS: str = "llama3.2:latest,gemma3:1b,deepseek-r1:1.5b"  # Available models for selection
     OLLAMA_REASONING_MODEL: str = "deepseek-r1:1.5b"  # Specialized reasoning model
-    OLLAMA_FAST_MODEL: str = "gemma3:1b"  # Fast response model for simple queries
+    OLLAMA_FAST_MODEL: str = "llama3.2:latest"  # Fast response model with tool support
     OLLAMA_AUTO_MODEL_SELECTION: bool = True  # Enable automatic model selection based on query type
-
-    # LiveKit server configuration (for generating tokens / admin operations)
-    LIVEKIT_API_KEY: Optional[str] = None
-    LIVEKIT_API_SECRET: Optional[SecretStr] = None
-    LIVEKIT_URL: Optional[str] = None  # e.g. https://your-livekit-host:7880
+    
+    # Celery Settings
+    CELERY_BROKER_URL: str = ""  # Defaults to REDIS_URL
+    CELERY_RESULT_BACKEND: str = ""  # Defaults to REDIS_URL
+    CELERY_TASK_SERIALIZER: str = "json"
+    CELERY_ACCEPT_CONTENT: List[str] = ["json"]
+    CELERY_TIMEZONE: str = "UTC"
+    CELERY_ENABLE_UTC: bool = True
+    
+    # LangSmith Observability
+    LANGSMITH_API_KEY: Optional[str] = None
+    LANGSMITH_PROJECT: str = "SecondBrainDatabase"
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGSMITH_TRACING: bool = False
+    
+    # AI Agent Configuration
+    AI_MODEL_POOL_SIZE: int = 5  # Number of model instances in pool
+    AI_MAX_CONCURRENT_SESSIONS: int = 100  # Max concurrent AI sessions
+    AI_SESSION_TIMEOUT: int = 3600  # Session timeout in seconds (1 hour)
+    AI_MODEL_RESPONSE_TIMEOUT: int = 120  # Model response timeout in seconds
+    AI_WORKFLOW_TIMEOUT: int = 600  # Workflow timeout in seconds (10 minutes)
+    AI_MODEL_TEMPERATURE: float = 0.7  # Model temperature (0.0-2.0)
+    AI_DEFAULT_AGENT: str = "personal"  # Default agent type
 
     # Voice processing configuration
     VOICE_SAMPLE_RATE: int = 16000  # Audio sample rate for processing
@@ -321,82 +343,18 @@ class Settings(BaseSettings):
     MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)
     MCP_CONTEXT_CACHE_TTL: int = 60  # User context cache TTL in seconds
 
-    # --- AI Agent Orchestration Configuration ---
-    # AI System basic configuration
-    AI_ENABLED: bool = True  # Enable/disable AI agent orchestration system
-    AI_DEBUG_MODE: bool = False  # Enable debug mode for AI agents
-    AI_MAX_CONCURRENT_SESSIONS: int = 100  # Maximum concurrent AI sessions
-    AI_SESSION_TIMEOUT: int = 3600  # AI session timeout in seconds (1 hour)
-    AI_SESSION_CLEANUP_INTERVAL: int = 300  # Session cleanup interval in seconds
-    
-    # AI Agent configuration
-    AI_AGENTS_ENABLED: bool = True  # Enable AI agents
-    AI_FAMILY_AGENT_ENABLED: bool = True  # Enable family assistant agent
-    AI_PERSONAL_AGENT_ENABLED: bool = True  # Enable personal assistant agent
-    AI_WORKSPACE_AGENT_ENABLED: bool = True  # Enable workspace collaboration agent
-    AI_COMMERCE_AGENT_ENABLED: bool = True  # Enable commerce agent
-    AI_SECURITY_AGENT_ENABLED: bool = True  # Enable security agent
-    AI_VOICE_AGENT_ENABLED: bool = True  # Enable voice agent
-    
-    # AI Model configuration (Ollama integration)
-    AI_MODEL_POOL_SIZE: int = 3  # Number of Ollama client instances in pool
-    AI_MODEL_WARMUP_ENABLED: bool = True  # Enable model warming for faster responses
-    AI_MODEL_RESPONSE_TIMEOUT: int = 30  # Model response timeout in seconds
-    AI_MODEL_MAX_TOKENS: int = 2048  # Maximum tokens per model response
-    AI_MODEL_TEMPERATURE: float = 0.7  # Default model temperature
-    AI_MODEL_STREAMING_ENABLED: bool = True  # Enable streaming responses
-    
-    # AI Performance configuration
-    AI_RESPONSE_TARGET_LATENCY: int = 300  # Target response latency in milliseconds
-    AI_CACHE_ENABLED: bool = True  # Enable AI response caching
-    AI_CACHE_TTL: int = 1800  # AI cache TTL in seconds (30 minutes)
-    AI_CONVERSATION_CACHE_TTL: int = 86400  # Conversation cache TTL in seconds (24 hours)
-    AI_CONTEXT_PRELOAD_ENABLED: bool = True  # Enable context preloading for performance
-    
-    # AI Rate limiting configuration
-    AI_RATE_LIMIT_ENABLED: bool = True  # Enable rate limiting for AI operations
-    AI_RATE_LIMIT_REQUESTS: int = 60  # Max AI requests per period per user
-    AI_RATE_LIMIT_PERIOD: int = 60  # Rate limit period in seconds
-    AI_RATE_LIMIT_BURST: int = 10  # Burst limit for AI requests
-    
-    # AI Security configuration
-    AI_SECURITY_ENABLED: bool = True  # Enable security for AI operations
-    AI_AUDIT_ENABLED: bool = True  # Enable audit logging for AI operations
-    AI_PRIVACY_MODE_ENABLED: bool = True  # Enable privacy modes for conversations
-    AI_CONVERSATION_ENCRYPTION: bool = False  # Enable conversation encryption
-    AI_USAGE_QUOTAS_ENABLED: bool = True  # Enable AI usage quotas
-    
-    # AI Agent routing configuration
-    AI_AGENT_ROUTING_ENABLED: bool = True  # Enable intelligent agent routing
-    AI_AGENT_HANDOFF_ENABLED: bool = True  # Enable agent-to-agent handoffs
-    AI_AGENT_CONTEXT_SHARING: bool = True  # Enable context sharing between agents
-    AI_DEFAULT_AGENT: str = "personal"  # Default agent type (personal, family, workspace, commerce, security, voice)
-    
-    # AI Workflow configuration
-    AI_WORKFLOWS_ENABLED: bool = True  # Enable pre-built agent workflows
-    AI_WORKFLOW_TIMEOUT: int = 120  # Workflow execution timeout in seconds
-    AI_WORKFLOW_MAX_STEPS: int = 20  # Maximum steps per workflow
-    AI_WORKFLOW_PARALLEL_ENABLED: bool = True  # Enable parallel workflow execution
-    
-    # AI Memory and Context configuration
-    AI_MEMORY_ENABLED: bool = True  # Enable AI memory and context management
-    AI_MEMORY_MAX_CONTEXT_LENGTH: int = 8192  # Maximum context length in tokens
-    AI_MEMORY_CONVERSATION_HISTORY: int = 50  # Number of conversation turns to remember
-    AI_MEMORY_SEMANTIC_SEARCH: bool = False  # Enable semantic search (requires vector DB)
-    AI_MEMORY_KNOWLEDGE_INTEGRATION: bool = True  # Enable knowledge base integration
-    
-    # AI Voice integration configuration
-    AI_VOICE_ENABLED: bool = True  # Enable voice integration
-    AI_VOICE_STT_ENABLED: bool = True  # Enable speech-to-text
-    AI_VOICE_TTS_ENABLED: bool = True  # Enable text-to-speech
-    AI_VOICE_REALTIME_ENABLED: bool = True  # Enable real-time voice processing
-    AI_VOICE_COMMAND_ENABLED: bool = True  # Enable voice commands for system features
-    
-    # AI Monitoring configuration
-    AI_METRICS_ENABLED: bool = True  # Enable AI metrics collection
-    AI_PERFORMANCE_MONITORING: bool = True  # Enable AI performance monitoring
-    AI_HEALTH_CHECK_ENABLED: bool = True  # Enable AI health check endpoints
-    AI_ERROR_TRACKING_ENABLED: bool = True  # Enable AI error tracking and recovery
+    # --- LangChain/LangGraph AI Configuration (DISABLED) ---
+    # LANGCHAIN_ENABLED: bool = True  # Enable/disable LangChain agents
+    # LANGCHAIN_MODEL_PROVIDER: str = "ollama"  # openai, ollama, anthropic
+    # LANGCHAIN_DEFAULT_MODEL: str = "llama3.2:1b"  # Default model for agents (llama3.2 supports tool calling)
+    # LANGCHAIN_TEMPERATURE: float = 0.7  # Temperature for LLM responses
+    # LANGCHAIN_MAX_TOKENS: int = 2048  # Max tokens per response
+    # LANGCHAIN_MEMORY_TTL: int = 3600  # Memory TTL in seconds (1 hour)
+    # LANGCHAIN_CONVERSATION_HISTORY_LIMIT: int = 50  # Max messages in history
+    # LANGCHAIN_RATE_LIMIT_REQUESTS: int = 100  # Max AI requests per period
+    # LANGCHAIN_MAX_CONCURRENT_SESSIONS: int = 1000  # Max concurrent AI sessions
+    # LANGCHAIN_TRACING_V2: str = "false"  # LangSmith tracing (set to API key to enable)
+    # LANGCHAIN_PROJECT: str = "SecondBrainDatabase"  # LangSmith project name
 
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
@@ -516,10 +474,7 @@ class Settings(BaseSettings):
             return []
         return [ip.strip() for ip in self.MCP_IP_WHITELIST.split(",") if ip.strip()]
 
-    @property
-    def ai_should_be_enabled(self) -> bool:
-        """Determine if AI orchestration should be enabled based on configuration."""
-        return self.AI_ENABLED and not (self.is_production and not self.AI_SECURITY_ENABLED)
+    # ai_should_be_enabled method removed with AI orchestration system
 
     @property
     def ai_enabled_agents(self) -> list:

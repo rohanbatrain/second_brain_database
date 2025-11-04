@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""
+Comprehensive LangChain Testing Script for Second Brain Database
+
+This script provides multiple ways to test LangChain integrations:
+1. Direct orchestrator testing
+2. API endpoint testing
+3. Workflow testing
+4. Memory testing
+"""
+
+import asyncio
+import sys
+import os
+import json
+import requests
+from pathlib import Path
+from typing import Dict, Any
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from second_brain_database.config import Settings
+from second_brain_database.managers.redis_manager import RedisManager
+from second_brain_database.integrations.langchain.orchestrator import LangChainOrchestrator
+from second_brain_database.integrations.langchain.memory.redis_memory import MCPIntegratedMemory
+from second_brain_database.integrations.langchain.workflows import MultiStepWorkflow, ShoppingWorkflow
+from second_brain_database.integrations.mcp.context import MCPUserContext
+
+class LangChainTester:
+    """Comprehensive LangChain testing suite."""
+
+    def __init__(self):
+        """Initialize test environment."""
+        self.settings = Settings()
+        self.redis_manager = RedisManager()
+        self.orchestrator = LangChainOrchestrator(self.settings, self.redis_manager)
+
+    async def setup(self):
+        """Initialize orchestrator."""
+        print("🔧 Setting up LangChain orchestrator...")
+        print("✅ Orchestrator initialized successfully\n")
+
+    def create_test_user_context(self) -> MCPUserContext:
+        """Create test user context."""
+        return MCPUserContext(
+            user_id="test_user_123",
+            username="testuser",
+            email="test@example.com",
+            role="user",
+            permissions=["family:read", "family:create", "shop:read"],
+            family_memberships=[],
+            workspaces=[],
+            ip_address="127.0.0.1",
+            user_agent="LangChain-Test"
+        )
+
+    async def test_direct_orchestrator(self):
+        """Test orchestrator directly."""
+        print("\n🧪 Testing Direct Orchestrator")
+        print("=" * 40)
+
+        if not self.orchestrator:
+            print("❌ Orchestrator not initialized")
+            return
+
+        user_context = self.create_test_user_context()
+
+        # Test basic chat
+        test_messages = [
+            "Hello, can you help me?",
+            "What tools do you have access to?",
+            "Can you check if I'm in any families?"
+        ]
+
+        for message in test_messages:
+            print(f"\n💬 User: {message}")
+            try:
+                response = await self.orchestrator.chat(
+                    session_id="test_session_123",
+                    user_id="test_user_123",
+                    message=message,
+                    user_context=user_context
+                )
+                print(f"🤖 Agent: {response.get('response', response)}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+    async def test_workflows(self):
+        """Test LangGraph workflows."""
+        print("\n🧪 Testing Workflows")
+        print("=" * 40)
+
+        if not self.orchestrator:
+            print("❌ Orchestrator not initialized")
+            return
+
+        user_context = self.create_test_user_context()
+
+        # Test MultiStepWorkflow
+        print("\n🔄 Testing Multi-Step Workflow")
+        try:
+            workflow = MultiStepWorkflow(self.orchestrator)
+            result = await workflow.run(
+                user_message="Create a family and invite a member",
+                user_context=user_context
+            )
+            print(f"✅ Multi-step result: {result}")
+        except Exception as e:
+            print(f"❌ Multi-step workflow error: {e}")
+
+        # Test ShoppingWorkflow
+        print("\n🛒 Testing Shopping Workflow")
+        try:
+            shopping_workflow = ShoppingWorkflow(self.orchestrator)
+            result = await shopping_workflow.run(
+                user_message="Find and purchase an avatar",
+                user_context=user_context
+            )
+            print(f"✅ Shopping result: {result}")
+        except Exception as e:
+            print(f"❌ Shopping workflow error: {e}")
+
+    def test_api_endpoints(self):
+        """Test API endpoints."""
+        print("\n🧪 Testing API Endpoints")
+        print("=" * 40)
+
+        # Test health endpoint
+        print("\n🏥 Testing Health Endpoint")
+        try:
+            response = requests.get(f"{self.base_url}/ai/health", timeout=10)
+            if response.status_code == 200:
+                print(f"✅ Health check: {response.json()}")
+            else:
+                print(f"❌ Health check failed: {response.status_code} - {response.text}")
+        except Exception as e:
+            print(f"❌ Health check error: {e}")
+
+        # Note: Other endpoints require authentication
+        print("\n🔐 Note: Chat endpoints require authentication")
+        print("   Use: POST /ai/sessions -> POST /ai/chat")
+
+    async def test_memory(self):
+        """Test memory functionality."""
+        print("\n🧪 Testing Memory")
+        print("=" * 40)
+
+        if not self.orchestrator:
+            print("❌ Orchestrator not initialized")
+            return
+
+        user_context = self.create_test_user_context()
+        session_id = "memory_test_session"
+        user_id = "test_user_123"
+
+        # Add some conversation history
+        messages = [
+            "My name is John",
+            "I like programming",
+            "What's my name and what do I like?"
+        ]
+
+        print("💾 Testing conversation memory...")
+        for message in messages:
+            print(f"\n💬 User: {message}")
+            try:
+                response = await self.orchestrator.chat(
+                    session_id=session_id,
+                    user_id=user_id,
+                    message=message,
+                    user_context=user_context
+                )
+                print(f"🤖 Agent: {response.get('response', response)}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+    async def run_all_tests(self):
+        """Run all tests."""
+        print("🚀 LangChain Testing Suite")
+        print("=" * 50)
+
+        # Setup
+        if not await self.setup():
+            return
+
+        # Run tests
+        await self.test_direct_orchestrator()
+        await self.test_workflows()
+        await self.test_memory()
+        self.test_api_endpoints()
+
+        print("\n" + "=" * 50)
+        print("✅ Testing completed!")
+
+def print_usage_guide():
+    """Print usage guide."""
+    print("""
+📚 LangChain Testing Guide
+==========================
+
+1. 🔧 DIRECT PYTHON TESTING (Recommended for development):
+   python3 test_langchain.py
+
+2. 🌐 API ENDPOINT TESTING:
+   # Health check
+   curl http://localhost:8000/ai/health
+
+   # Create session (requires auth)
+   curl -X POST http://localhost:8000/ai/sessions \\
+        -H "Authorization: Bearer YOUR_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"agent_type": "general"}'
+
+   # Chat (requires auth)
+   curl -X POST http://localhost:8000/ai/chat \\
+        -H "Authorization: Bearer YOUR_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"content": "Hello!", "session_id": "your_session_id"}'
+
+3. 🔄 WORKFLOW TESTING:
+   # Multi-step tasks
+   curl -X POST http://localhost:8000/ai/workflows/multi-step \\
+        -H "Authorization: Bearer YOUR_TOKEN" \\
+        -d '{"task": "Create family and invite member"}'
+
+   # Shopping workflow
+   curl -X POST http://localhost:8000/ai/workflows/shopping \\
+        -H "Authorization: Bearer YOUR_TOKEN" \\
+        -d '{"task": "Buy an avatar"}'
+
+4. 📝 EXAMPLE SCRIPT:
+   python3 example_langgraph_usage.py
+
+5. 🧪 UNIT TESTS (when available):
+   pytest tests/test_langchain/
+
+🔧 TROUBLESHOOTING:
+- Ensure Ollama is running: ollama serve
+- Check model: ollama pull gemma3:1b
+- Verify Redis: redis-cli ping
+- Check logs: tail -f logs/*.log
+
+⚙️  CONFIGURATION:
+- Model: gemma3:1b (via Ollama)
+- Provider: Ollama
+- Memory: Redis-backed
+- Tools: Family, Shop, Auth, Workspace
+
+🎯 WHAT TO TEST:
+- Basic chat responses
+- Tool usage (family management, shopping)
+- Memory persistence across conversations
+- Workflow execution
+- Error handling
+- Rate limiting
+""")
+
+async def main():
+    """Main test runner."""
+    if len(sys.argv) > 1 and sys.argv[1] == "--help":
+        print_usage_guide()
+        return
+
+    tester = LangChainTester()
+    await tester.run_all_tests()
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -24,8 +24,9 @@ from .exceptions import (
 # Import modules to register tools, resources, and prompts
 # This follows FastMCP 2.x patterns where decorators are executed on import
 from . import tools_registration
-from . import resources_registration
-from . import prompts_registration
+# DEPRECATED: Old registration files replaced by organized modules in prompts/ and resources/
+# from . import resources_registration  # Replaced by resources/user_resources.py, resources/system_resources.py
+# from . import prompts_registration    # Replaced by prompts/guidance_prompts.py
 
 __all__ = [
     "mcp",

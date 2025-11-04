@@ -1,0 +1,422 @@
+# LangGraph Deployment Plan for Second Brain Database
+
+## Executive Summary
+
+This document outlines the plan to transform the Second Brain Database API into a **LangGraph-compatible application** that works seamlessly with AgentChat UI. The current implementation uses FastAPI with LangChain, but AgentChat UI requires specific LangGraph Platform API endpoints (`/threads`, `/runs`, `/assistants`).
+
+## Current Architecture Analysis
+
+### ✅ What We Have
+- **FastAPI Server** on port 8000 with custom `/ai/*` endpoints
+- **LangChain Integration** with Ollama (llama3.2:1b)
+- **FastMCP Server** with MCP tools for family, shop, auth, workspace
+- **Basic LangGraph Usage** in `orchestrator.py` (create_react_agent) and `workflows.py` (StateGraph)
+- **Redis-backed Memory** for session management
+- **MongoDB** for data persistence
+- **JWT Authentication** system
+
+### ❌ What's Missing for AgentChat UI
+- **LangGraph Server API Endpoints**: `/threads`, `/runs`, `/assistants`
+- **Proper StateGraph Definitions**: Following LangGraph Platform patterns
+- **Checkpointing System**: State persistence across runs
+- **langgraph.json**: Graph configuration file
+- **Streaming Support**: Server-Sent Events (SSE) for real-time updates
+- **Thread Management**: Conversation thread lifecycle
+
+## Implementation Phases
+
+### Phase 1: Core LangGraph Infrastructure ✨
+
+#### 1.1 Create Proper Graph Definitions
+
+**File**: `src/second_brain_database/integrations/langgraph/graphs/sbd_agent.py`
+
+```python
+"""Second Brain Database LangGraph Agent."""
+from typing import Annotated, Sequence
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langchain_core.messages import BaseMessage, AIMessage
+from langchain_ollama import ChatOllama
+
+class AgentState(TypedDict):
+    """State for SBD Agent."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+def create_sbd_agent(tools, llm_config):
+    """Create Second Brain Database agent graph."""
+    
+    # Initialize LLM with tools
+    llm = ChatOllama(
+        model=llm_config["model"],
+        base_url=llm_config["base_url"],
+        temperature=llm_config["temperature"],
+    )
+    llm_with_tools = llm.bind_tools(tools)
+    
+    def should_continue(state: AgentState):
+        messages = state["messages"]
+        last_message = messages[-1]
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            return "tools"
+        return END
+    
+    def call_model(state: AgentState):
+        messages = state["messages"]
+        response = llm_with_tools.invoke(messages)
+        return {"messages": [response]}
+    
+    # Build graph
+    workflow = StateGraph(AgentState)
+    workflow.add_node("agent", call_model)
+    workflow.add_node("tools", ToolNode(tools))
+    
+    workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges("agent", should_continue, ["tools", END])
+    workflow.add_edge("tools", "agent")
+    
+    return workflow
+```
+
+#### 1.2 Create Graph Configuration
+
+**File**: `langgraph.json`
+
+```json
+{
+  "python_version": "3.11",
+  "dependencies": ["."],
+  "graphs": {
+    "sbd_agent": "src.second_brain_database.integrations.langgraph.graphs.sbd_agent:graph",
+    "family_agent": "src.second_brain_database.integrations.langgraph.graphs.family_agent:graph",
+    "shop_agent": "src.second_brain_database.integrations.langgraph.graphs.shop_agent:graph"
+  },
+  "env": ".env"
+}
+```
+
+#### 1.3 Implement Checkpointing
+
+**File**: `src/second_brain_database/integrations/langgraph/checkpointer.py`
+
+```python
+"""Redis-based checkpointer for LangGraph."""
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import MemorySaver
+from typing import Optional
+import pickle
+import redis
+
+class RedisCheckpointSaver(BaseCheckpointSaver):
+    """Save checkpoints to Redis."""
+    
+    def __init__(self, redis_client):
+        self.redis = redis_client
+        self.ttl = 3600 * 24  # 24 hours
+    
+    def put(self, config, checkpoint, metadata):
+        """Save checkpoint to Redis."""
+        thread_id = config["configurable"]["thread_id"]
+        key = f"checkpoint:{thread_id}"
+        data = pickle.dumps({"checkpoint": checkpoint, "metadata": metadata})
+        self.redis.setex(key, self.ttl, data)
+    
+    def get(self, config):
+        """Load checkpoint from Redis."""
+        thread_id = config["configurable"]["thread_id"]
+        key = f"checkpoint:{thread_id}"
+        data = self.redis.get(key)
+        if data:
+            return pickle.loads(data)
+        return None
+```
+
+### Phase 2: LangGraph Server API Endpoints 🚀
+
+#### 2.1 Thread Management
+
+**File**: `src/second_brain_database/routes/langgraph/threads.py`
+
+```python
+"""LangGraph thread management endpoints."""
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Dict, Any, Optional
+from uuid import uuid4
+from datetime import datetime
+
+router = APIRouter(prefix="/threads", tags=["langgraph"])
+
+class Thread(BaseModel):
+    thread_id: str
+    created_at: datetime
+    metadata: Dict[str, Any] = {}
+
+class ThreadCreate(BaseModel):
+    metadata: Optional[Dict[str, Any]] = None
+
+@router.post("", response_model=Thread)
+async def create_thread(data: ThreadCreate):
+    """Create a new conversation thread."""
+    thread_id = str(uuid4())
+    thread = Thread(
+        thread_id=thread_id,
+        created_at=datetime.utcnow(),
+        metadata=data.metadata or {}
+    )
+    # Store in Redis/MongoDB
+    return thread
+
+@router.get("/{thread_id}", response_model=Thread)
+async def get_thread(thread_id: str):
+    """Get thread by ID."""
+    # Retrieve from storage
+    pass
+
+@router.patch("/{thread_id}", response_model=Thread)
+async def update_thread(thread_id: str, metadata: Dict[str, Any]):
+    """Update thread metadata."""
+    pass
+
+@router.delete("/{thread_id}")
+async def delete_thread(thread_id: str):
+    """Delete a thread."""
+    pass
+```
+
+#### 2.2 Run Management (Streaming)
+
+**File**: `src/second_brain_database/routes/langgraph/runs.py`
+
+```python
+"""LangGraph run management with streaming."""
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+from langchain_core.messages import HumanMessage
+import json
+
+router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["langgraph"])
+
+class RunCreate(BaseModel):
+    assistant_id: str
+    input: Dict[str, Any]
+    stream: bool = True
+    metadata: Optional[Dict[str, Any]] = None
+
+@router.post("", response_class=StreamingResponse)
+async def create_run(thread_id: str, data: RunCreate):
+    """Create and execute a run (streaming by default)."""
+    
+    async def event_generator():
+        """Generate SSE events for streaming."""
+        # Get graph from assistant_id
+        graph = get_graph(data.assistant_id)
+        
+        # Get checkpointer
+        checkpointer = get_checkpointer()
+        
+        # Compile graph with checkpointer
+        app = graph.compile(checkpointer=checkpointer)
+        
+        # Stream events
+        config = {"configurable": {"thread_id": thread_id}}
+        
+        async for event in app.astream_events(
+            {"messages": [HumanMessage(content=data.input["messages"][-1]["content"])]},
+            config=config,
+            version="v1"
+        ):
+            yield f"event: {event['event']}\n"
+            yield f"data: {json.dumps(event)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+@router.get("/{run_id}")
+async def get_run(thread_id: str, run_id: str):
+    """Get run status."""
+    pass
+```
+
+#### 2.3 Assistant Management
+
+**File**: `src/second_brain_database/routes/langgraph/assistants.py`
+
+```python
+"""LangGraph assistant management."""
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import List, Dict, Any
+
+router = APIRouter(prefix="/assistants", tags=["langgraph"])
+
+class Assistant(BaseModel):
+    assistant_id: str
+    name: str
+    graph_id: str
+    description: str
+    config: Dict[str, Any] = {}
+
+@router.get("", response_model=List[Assistant])
+async def list_assistants():
+    """List available assistants."""
+    return [
+        Assistant(
+            assistant_id="sbd_agent",
+            name="Second Brain Database Agent",
+            graph_id="sbd_agent",
+            description="General purpose AI assistant with access to all SBD tools",
+            config={}
+        ),
+        Assistant(
+            assistant_id="family_agent",
+            name="Family Management Agent",
+            graph_id="family_agent",
+            description="Specialized in family group management and shared expenses",
+            config={}
+        ),
+        Assistant(
+            assistant_id="shop_agent",
+            name="Shop Assistant",
+            graph_id="shop_agent",
+            description="Helps with browsing and purchasing items from the shop",
+            config={}
+        )
+    ]
+
+@router.get("/{assistant_id}", response_model=Assistant)
+async def get_assistant(assistant_id: str):
+    """Get assistant details."""
+    pass
+```
+
+### Phase 3: Integration & Configuration ⚙️
+
+#### 3.1 Update Main Application
+
+**File**: `src/second_brain_database/main.py` (additions)
+
+```python
+from .routes.langgraph import threads, runs, assistants
+
+# Add LangGraph routes
+app.include_router(threads.router, prefix="/api/v1")
+app.include_router(runs.router, prefix="/api/v1")
+app.include_router(assistants.router, prefix="/api/v1")
+```
+
+#### 3.2 Environment Configuration
+
+**File**: `.sbd` (additions)
+
+```ini
+# LangGraph Configuration
+LANGGRAPH_ENABLED=true
+LANGGRAPH_API_URL=http://localhost:8000/api/v1
+LANGGRAPH_CHECKPOINTER=redis
+LANGGRAPH_CHECKPOINT_TTL=86400
+
+# Graph Configurations
+LANGGRAPH_DEFAULT_GRAPH=sbd_agent
+LANGGRAPH_MAX_ITERATIONS=25
+LANGGRAPH_TIMEOUT=120
+```
+
+#### 3.3 Update Requirements
+
+Add to `requirements.txt`:
+```
+langgraph>=0.2.62
+langgraph-checkpoint>=0.0.1
+langchain-core>=0.3.40
+langchain-ollama>=0.2.10
+```
+
+### Phase 4: Cleanup Stale Files 🧹
+
+Files to remove:
+1. `src/second_brain_database/integrations/langchain/workflows.py` - Replace with proper LangGraph graphs
+2. Old backup files if any
+3. Deprecated route handlers
+4. Unused configuration files
+
+### Phase 5: Testing & Deployment 🧪
+
+#### 5.1 Local Testing
+```bash
+# Start services
+docker-compose up -d redis mongodb
+
+# Run FastAPI server with LangGraph
+uvicorn src.second_brain_database.main:app --reload --port 8000
+
+# Test endpoints
+curl http://localhost:8000/api/v1/assistants
+curl -X POST http://localhost:8000/api/v1/threads
+```
+
+#### 5.2 AgentChat UI Configuration
+
+Update AgentChat UI to point to:
+```env
+LANGGRAPH_API_URL=http://localhost:8000/api/v1
+LANGSMITH_API_KEY=your_langsmith_key
+```
+
+## Migration Strategy
+
+### Option A: Gradual Migration (Recommended)
+1. Keep existing `/ai/*` endpoints working
+2. Add new `/threads`, `/runs`, `/assistants` endpoints alongside
+3. Gradually migrate clients to LangGraph API
+4. Deprecate old endpoints after migration complete
+
+### Option B: Clean Break
+1. Implement all LangGraph endpoints
+2. Update all clients at once
+3. Remove old `/ai/*` endpoints
+
+## Benefits of This Approach
+
+✅ **AgentChat UI Compatible** - Works out of the box with AgentChat UI
+✅ **Standardized API** - Follows LangGraph Platform conventions
+✅ **Better State Management** - Proper checkpointing and thread management
+✅ **Streaming Support** - Real-time response streaming via SSE
+✅ **Multi-Agent Support** - Easy to add specialized agents
+✅ **Tool Integration** - Seamless FastMCP tool access
+✅ **Production Ready** - Built on LangGraph's robust framework
+
+## Timeline Estimate
+
+- **Phase 1**: 2-3 days (Core infrastructure)
+- **Phase 2**: 2-3 days (API endpoints)
+- **Phase 3**: 1 day (Integration)
+- **Phase 4**: 1 day (Cleanup)
+- **Phase 5**: 1-2 days (Testing)
+
+**Total**: ~1.5 weeks for full implementation
+
+## Next Steps
+
+1. ✅ Review this plan
+2. ⬜ Implement Phase 1 (Core LangGraph graphs)
+3. ⬜ Implement Phase 2 (API endpoints)
+4. ⬜ Test with AgentChat UI
+5. ⬜ Deploy to production
+
+## References
+
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraphjs/)
+- [FastMCP Documentation](https://gofastmcp.com)
+- [AgentChat UI GitHub](https://github.com/langchain-ai/agent-chat-ui)
+- [LangGraph Platform API](https://langchain-ai.github.io/langgraph/cloud/reference/api/)

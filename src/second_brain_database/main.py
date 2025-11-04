@@ -41,8 +41,7 @@ from second_brain_database.routes.profile.routes import router as profile_router
 from second_brain_database.routes.family.routes import router as family_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
 from second_brain_database.routes.websockets import router as websockets_router
-from second_brain_database.routes.voice import router as voice_router
-from second_brain_database.routes.ai.routes import router as ai_router
+from second_brain_database.routes.documents import router as documents_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -139,80 +138,10 @@ async def lifespan(_app: FastAPI):
         log_error_with_context(e, {"operation": "application_startup", "phase": "database_connection"})
         raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
 
-    # Initialize AI analytics manager
-    try:
-        analytics_init_start = time.time()
-        logger.info("Initializing AI analytics manager...")
-        
-        from second_brain_database.managers.ai_analytics_manager import ai_analytics_manager
-        await ai_analytics_manager.initialize()
-        
-        analytics_init_duration = time.time() - analytics_init_start
-        log_application_lifecycle(
-            "ai_analytics_ready",
-            {"analytics_init_duration": f"{analytics_init_duration:.3f}s"}
-        )
-        
-    except Exception as analytics_error:
-        analytics_init_duration = time.time() - analytics_init_start if 'analytics_init_start' in locals() else 0
-        logger.warning(
-            "Failed to initialize AI analytics manager: %s (duration: %.3fs)",
-            analytics_error, analytics_init_duration
-        )
-        log_application_lifecycle(
-            "ai_analytics_failed",
-            {
-                "error": str(analytics_error),
-                "analytics_init_duration": f"{analytics_init_duration:.3f}s"
-            }
-        )
-        # Continue startup even if analytics fails
+    # AI analytics manager removed - see AI_ORCHESTRATION_REMOVAL_SUMMARY.md
 
-    # Initialize AI orchestration system if enabled
-    ai_orchestrator = None
-    if settings.ai_should_be_enabled:
-        try:
-            ai_init_start = time.time()
-            logger.info("Initializing AI orchestration system...")
-            
-            from second_brain_database.integrations.ai_orchestration.orchestrator import AgentOrchestrator, set_global_orchestrator
-            ai_orchestrator = AgentOrchestrator()
-            
-            # Set as global instance for health checks and monitoring
-            set_global_orchestrator(ai_orchestrator)
-            
-            # Start background tasks for AI system
-            await ai_orchestrator.start_background_tasks()
-            
-            ai_init_duration = time.time() - ai_init_start
-            log_application_lifecycle(
-                "ai_orchestration_ready",
-                {
-                    "ai_init_duration": f"{ai_init_duration:.3f}s",
-                    "agents_count": len(ai_orchestrator.agents),
-                    "enabled_agents": getattr(settings, 'ai_enabled_agents', [])
-                }
-            )
-            
-            # Store reference for cleanup
-            _app.state.ai_orchestrator = ai_orchestrator
-            
-        except Exception as ai_error:
-            ai_init_duration = time.time() - ai_init_start if 'ai_init_start' in locals() else 0
-            logger.warning(
-                "Failed to initialize AI orchestration system: %s (duration: %.3fs)",
-                ai_error, ai_init_duration
-            )
-            log_application_lifecycle(
-                "ai_orchestration_failed",
-                {
-                    "error": str(ai_error),
-                    "ai_init_duration": f"{ai_init_duration:.3f}s"
-                }
-            )
-            # Continue startup even if AI system fails
-    else:
-        logger.info("AI orchestration system disabled in configuration")
+    # AI orchestration system has been removed
+    logger.info("AI orchestration system disabled (removed)")
 
     # Initialize and start MCP server if enabled
     mcp_server = None
@@ -383,23 +312,7 @@ async def lifespan(_app: FastAPI):
             logger.error("Error during MCP server cleanup: %s", e)
             log_error_with_context(e, {"operation": "mcp_server_cleanup"})
 
-    # AI orchestration system cleanup
-    if hasattr(_app.state, 'ai_orchestrator') and _app.state.ai_orchestrator:
-        ai_cleanup_start = time.time()
-        try:
-            logger.info("Shutting down AI orchestration system...")
-            await _app.state.ai_orchestrator.stop_background_tasks()
-            ai_cleanup_duration = time.time() - ai_cleanup_start
-            
-            log_application_lifecycle(
-                "ai_orchestration_shutdown",
-                {"ai_cleanup_duration": f"{ai_cleanup_duration:.3f}s"}
-            )
-            
-        except Exception as e:
-            ai_cleanup_duration = time.time() - ai_cleanup_start
-            logger.error("Error during AI orchestration cleanup: %s", e)
-            log_error_with_context(e, {"operation": "ai_orchestration_cleanup"})
+    # AI orchestration system cleanup (removed)
 
     # Database disconnection with logging
     db_disconnect_start = time.time()
@@ -809,11 +722,38 @@ def custom_openapi():
 # Set custom OpenAPI schema with logging
 app.openapi = custom_openapi
 
+# Add CORS middleware for AgentChat UI and other frontends
+from starlette.middleware.cors import CORSMiddleware
+
+# Configure CORS for production
+cors_origins = [
+    "http://localhost:3000",  # Local development
+    "http://localhost:8000",  # Same origin
+    "https://agentchat.vercel.app",  # AgentChat UI hosted version
+]
+
+# Add any additional origins from environment
+if hasattr(settings, 'CORS_ORIGINS') and settings.CORS_ORIGINS:
+    additional_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+    cors_origins.extend(additional_origins)
+
+logger.info(f"Configuring CORS with origins: {cors_origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
+)
+
 # Add comprehensive request logging middleware
 logger.info("Adding request logging middleware...")
 app.add_middleware(RequestLoggingMiddleware)
 log_application_lifecycle(
-    "middleware_configured", {"middleware": ["RequestLoggingMiddleware", "DocumentationMiddleware"]}
+    "middleware_configured", {"middleware": ["CORSMiddleware", "RequestLoggingMiddleware", "DocumentationMiddleware"], "cors_origins": cors_origins}
 )
 
 # Configure documentation middleware
@@ -832,8 +772,7 @@ routers_config = [
     ("family", family_router, "Family management and relationship endpoints"),
     ("workspaces", workspaces_router, "Team and workspace management endpoints"),
     ("websockets", websockets_router, "WebSocket communication endpoints"),
-    ("voice", voice_router, "Voice integration endpoints"),
-    ("ai", ai_router, "AI agent orchestration and real-time communication endpoints"),
+    ("documents", documents_router, "Document processing and upload endpoints"),
 ]
 
 logger.info("Including API routers...")

@@ -1,0 +1,33 @@
+INFO:langgraph_api.cli:
+
+        Welcome to
+
+╦  ┌─┐┌┐┌┌─┐╔═╗┬─┐┌─┐┌─┐┬ ┬
+║  ├─┤││││ ┬║ ╦├┬┘├─┤├─┘├─┤
+╩═╝┴ ┴┘└┘└─┘╚═╝┴└─┴ ┴┴  ┴ ┴
+
+- 🚀 API: [36mhttp://127.0.0.1:2024[0m
+- 🎨 Studio UI: [36mhttps://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024[0m
+- 📚 API Docs: [36mhttp://127.0.0.1:2024/docs[0m
+
+This in-memory server is designed for development and testing.
+For production use, please use LangSmith Deployment.
+
+
+[2m2025-11-03T16:25:56.890186Z[0m [[31m[1merror    [0m] [1m[Errno 48] Address already in use[0m [[0m[1m[34muvicorn.error[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mthread_name[0m=[35mMainThread[0m
+[version] A newer version of langgraph-api is available: 0.4.48 → 0.5.0  (pip install -U langgraph-api)
+[2m2025-11-03T16:25:57.352733Z[0m [[32m[1minfo     [0m] [1m[version] A newer version of langgraph-api is available: 0.4.48 → 0.5.0  (pip install -U langgraph-api)[0m [[0m[1m[34mversion_check[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mmessage[0m=[35m'[version] A newer version of langgraph-api is available: 0.4.48 → 0.5.0  (pip install -U langgraph-api)'[0m [36mthread_name[0m=[35m'Thread-4 (_check_newer_version)'[0m
+⚠️ [support] langgraph-api 0.4.48 is in Critical support.
+Only critical security and installation fixes are provided.
+You are one minor version behind the latest (0.5.x).
+Please plan an upgrade soon. See changelog: https://docs.langchain.com/langgraph-platform/langgraph-server-changelog
+[2m2025-11-03T16:25:57.354145Z[0m [[32m[1minfo     [0m] [1m⚠️ [support] langgraph-api 0.4.48 is in Critical support.
+Only critical security and installation fixes are provided.
+You are one minor version behind the latest (0.5.x).
+Please plan an upgrade soon. See changelog: https://docs.langchain.com/langgraph-platform/langgraph-server-changelog[0m [[0m[1m[34mversion_check[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mmessage[0m=[35m'⚠️ [support] langgraph-api 0.4.48 is in Critical support.\nOnly critical security and installation fixes are provided.\nYou are one minor version behind the latest (0.5.x).\nPlease plan an upgrade soon. See changelog: https://docs.langchain.com/langgraph-platform/langgraph-server-changelog'[0m [36mthread_name[0m=[35m'Thread-4 (_check_newer_version)'[0m
+Server started in 0.88s
+[2m2025-11-03T16:25:57.622093Z[0m [[32m[1minfo     [0m] [1mServer started in 0.88s       [0m [[0m[1m[34mbrowser_opener[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mmessage[0m=[35m'Server started in 0.88s'[0m [36mthread_name[0m=[35m'Thread-3 (_open_browser)'[0m
+🎨 Opening Studio in your browser...
+[2m2025-11-03T16:25:57.622343Z[0m [[32m[1minfo     [0m] [1m🎨 Opening Studio in your browser...[0m [[0m[1m[34mbrowser_opener[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mmessage[0m=[35m'🎨 Opening Studio in your browser...'[0m [36mthread_name[0m=[35m'Thread-3 (_open_browser)'[0m
+URL: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024&organizationId=0411fdc6-3d42-4459-bcb8-f3ebf50b8473
+[2m2025-11-03T16:25:57.622431Z[0m [[32m[1minfo     [0m] [1mURL: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024&organizationId=0411fdc6-3d42-4459-bcb8-f3ebf50b8473[0m [[0m[1m[34mbrowser_opener[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.4.48[0m [36mmessage[0m=[35m'URL: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024&organizationId=0411fdc6-3d42-4459-bcb8-f3ebf50b8473'[0m [36mthread_name[0m=[35m'Thread-3 (_open_browser)'[0m

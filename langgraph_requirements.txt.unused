@@ -1,0 +1,13 @@
+# LangGraph Integration Dependencies
+# Add these to your main requirements or install with: uv add <package>
+
+langgraph>=0.0.40
+langchain-core>=0.1.0
+langchain-openai>=0.0.8
+langchain-community>=0.0.20
+
+# Optional: For local model support
+# langchain-ollama>=0.0.1
+
+# Optional: For advanced state management
+# redis>=4.5.0  # If using Redis state backend

@@ -40,7 +40,7 @@ MCP_HEALTH_CHECK_ENABLED=true
 
 # AI Integration Settings
 AI_ENABLED=true
-AI_ORCHESTRATION_ENABLED=true
+AI_ORCHESTRATION_ENABLED=false
 
 # Database Settings (Production)
 MONGODB_URL=mongodb://your-production-mongodb:27017

@@ -4,3 +4,6 @@
 [submodule "submodules/emotion_tracker"]
 	path = submodules/emotion_tracker
 	url = git@github.com:rohanbatrain/emotion_tracker.git
+[submodule "submodules/second-brain-database-chat"]
+	path = submodules/second-brain-database-chat
+	url = git@github.com:rohanbatrain/second-brain-database-chat.git

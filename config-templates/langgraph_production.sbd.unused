@@ -1,0 +1,44 @@
+{
+  "profile": "production",
+  "description": "Production configuration for LangGraph + Ollama Second Brain Agent",
+  "langgraph": {
+    "workers": 6,
+    "port": 2024,
+    "log_level": "INFO"
+  },
+  "ollama": {
+    "num_ctx": 4096,
+    "num_predict": 512,
+    "num_gpu": 1,
+    "num_thread": 4,
+    "repeat_penalty": 1.1,
+    "request_timeout": 120.0
+  },
+  "platform": {
+    "batch_size": 8,
+    "max_concurrent_requests": 6,
+    "enable_neural_engine": false
+  },
+  "models": {
+    "agent": "llama3.2:latest",
+    "embeddings": "llama3.2:latest",
+    "fallback": "llama3.2:latest"
+  },
+  "performance": {
+    "streaming": true,
+    "cache_enabled": true,
+    "preload_models": false
+  },
+  "security": {
+    "rate_limit_enabled": true,
+    "max_requests_per_minute": 100,
+    "max_errors_per_session": 3,
+    "max_tool_calls_per_request": 20
+  },
+  "monitoring": {
+    "enabled": true,
+    "log_tool_calls": true,
+    "log_errors": true,
+    "metrics_enabled": true
+  }
+}

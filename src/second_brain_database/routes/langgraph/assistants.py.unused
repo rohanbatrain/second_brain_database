@@ -1,0 +1,221 @@
+"""Assistant management endpoints for LangGraph Platform API.
+
+Lists available agent graphs and their configurations.
+"""
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+
+from ...managers.logging_manager import get_logger
+from ...routes.auth.dependencies import get_current_user_dep
+
+logger = get_logger(prefix="[LangGraphAssistants]")
+router = APIRouter(tags=["langgraph"])
+
+
+class Assistant(BaseModel):
+    """Assistant/Agent definition."""
+    id: str
+    name: str
+    description: str
+    graph_id: str
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssistantList(BaseModel):
+    """List of assistants."""
+    assistants: List[Assistant]
+    total: int
+
+
+# Predefined assistants/agents
+ASSISTANTS = {
+    "sbd_agent": Assistant(
+        id="sbd_agent",
+        name="Second Brain Agent",
+        description="General-purpose agent with access to family management, shopping, "
+                    "workspace tools, and admin capabilities. Adapts to user permissions.",
+        graph_id="sbd_agent",
+        metadata={
+            "tools": ["family", "shop", "workspace", "admin"],
+            "capabilities": [
+                "Family management and invitations",
+                "Shopping and product search",
+                "Workspace operations",
+                "Administrative tasks (for authorized users)"
+            ],
+            "model": "llama3.2:1b",
+            "checkpointing": True,
+            "streaming": True
+        },
+        created_at=datetime(2024, 1, 1),
+        updated_at=datetime(2024, 1, 1)
+    ),
+    "family_agent": Assistant(
+        id="family_agent",
+        name="Family Manager Agent",
+        description="Specialized agent for family account management, invitations, "
+                    "permissions, and family-related operations.",
+        graph_id="sbd_agent",  # Uses same graph, filtered tools
+        metadata={
+            "tools": ["family"],
+            "capabilities": [
+                "Create and manage family accounts",
+                "Send and manage invitations",
+                "Configure family permissions",
+                "Monitor family activity"
+            ],
+            "model": "llama3.2:1b",
+            "checkpointing": True,
+            "streaming": True
+        },
+        created_at=datetime(2024, 1, 1),
+        updated_at=datetime(2024, 1, 1)
+    ),
+    "shop_agent": Assistant(
+        id="shop_agent",
+        name="Shopping Agent",
+        description="Specialized agent for e-commerce operations including product search, "
+                    "recommendations, cart management, and order processing.",
+        graph_id="sbd_agent",  # Uses same graph, filtered tools
+        metadata={
+            "tools": ["shop"],
+            "capabilities": [
+                "Search and discover products",
+                "Manage shopping cart",
+                "Process orders",
+                "Track purchases",
+                "Product recommendations"
+            ],
+            "model": "llama3.2:1b",
+            "checkpointing": True,
+            "streaming": True
+        },
+        created_at=datetime(2024, 1, 1),
+        updated_at=datetime(2024, 1, 1)
+    ),
+    "workspace_agent": Assistant(
+        id="workspace_agent",
+        name="Workspace Agent",
+        description="Specialized agent for workspace operations including document management, "
+                    "collaboration, and productivity tools.",
+        graph_id="sbd_agent",  # Uses same graph, filtered tools
+        metadata={
+            "tools": ["workspace"],
+            "capabilities": [
+                "Document management",
+                "Collaboration tools",
+                "Task tracking",
+                "Workspace organization"
+            ],
+            "model": "llama3.2:1b",
+            "checkpointing": True,
+            "streaming": True
+        },
+        created_at=datetime(2024, 1, 1),
+        updated_at=datetime(2024, 1, 1)
+    )
+}
+
+
+@router.get("/assistants", response_model=AssistantList)
+async def list_assistants(
+    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+):
+    """List all available assistants/agents.
+    
+    Returns all agent configurations available to the user.
+    Note: Tool access is filtered based on user permissions at runtime.
+    """
+    try:
+        assistants = list(ASSISTANTS.values())
+        
+        logger.info(f"Listed {len(assistants)} assistants for user {current_user.id}")
+        
+        return AssistantList(
+            assistants=assistants,
+            total=len(assistants)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error listing assistants: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list assistants: {str(e)}"
+        )
+
+
+@router.get("/assistants/{assistant_id}", response_model=Assistant)
+async def get_assistant(
+    assistant_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+):
+    """Get details of a specific assistant/agent.
+    
+    Returns configuration and metadata for the requested assistant.
+    """
+    try:
+        if assistant_id not in ASSISTANTS:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Assistant {assistant_id} not found"
+            )
+        
+        assistant = ASSISTANTS[assistant_id]
+        
+        logger.info(f"Retrieved assistant {assistant_id} for user {current_user.id}")
+        
+        return assistant
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving assistant: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve assistant: {str(e)}"
+        )
+
+
+@router.get("/assistants/{assistant_id}/tools")
+async def get_assistant_tools(
+    assistant_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+):
+    """Get available tools for a specific assistant.
+    
+    Returns list of MCP tools available to this assistant,
+    filtered by user permissions.
+    """
+    try:
+        if assistant_id not in ASSISTANTS:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Assistant {assistant_id} not found"
+            )
+        
+        assistant = ASSISTANTS[assistant_id]
+        available_tools = assistant.metadata.get("tools", [])
+        
+        # Note: Actual tool filtering happens at graph initialization
+        # based on user permissions. This just returns the categories.
+        
+        logger.info(f"Retrieved tools for assistant {assistant_id}")
+        
+        return {
+            "assistant_id": assistant_id,
+            "tool_categories": available_tools,
+            "note": "Actual tool access filtered by user permissions at runtime"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving assistant tools: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve assistant tools: {str(e)}"
+        )

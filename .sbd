@@ -71,6 +71,20 @@ MCP_CONTEXT_CACHE_TTL=60
 AI_ENABLED=true
 AI_ORCHESTRATION_ENABLED=true
 
+# LiveKit Voice Agent Configuration
+# WARNING: Replace dev credentials with real ones for production!
+# Get credentials from: https://cloud.livekit.io/ or self-hosted setup
+LIVEKIT_ENABLED=true
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+LIVEKIT_URL=ws://localhost:7880
+LIVEKIT_ROOM_TIMEOUT=600
+
+# Deepgram Configuration (for Voice Transcription)
+# Get API key from: https://deepgram.com/
+# Required for voice-to-text functionality
+DEEPGRAM_API_KEY=
+
 # Database Settings (required for MCP tools)
 MONGODB_URL=mongodb://localhost:27017
 MONGODB_DATABASE=second_brain_database
@@ -84,10 +98,35 @@ FERNET_KEY=BSPPI22K4-nK7qMAXsBefcpEaTl_AjfIV8vk1bDfpR8=
 TURNSTILE_SITEKEY=your-turnstile-site-key
 TURNSTILE_SECRET=your-turnstile-secret-key
 
+# LangChain / LangSmith Observability Settings
+LANGCHAIN_ENABLED=true
+LANGCHAIN_MODEL_PROVIDER=ollama
+LANGCHAIN_DEFAULT_MODEL=llama3.2:1b
+LANGCHAIN_TEMPERATURE=0.7
+LANGCHAIN_MAX_TOKENS=2048
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=
+LANGCHAIN_PROJECT=SecondBrainDatabase
+
+# Ollama Configuration
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_BASE_URL=http://localhost:11434
+
+# LangGraph Platform API Settings
+LANGGRAPH_ENABLED=true
+LANGGRAPH_API_URL=http://localhost:8000/api/v1
+LANGGRAPH_CHECKPOINTER={"class": "langgraph.checkpoint.memory.MemorySaver"}
+LANGGRAPH_DEFAULT_GRAPH=sbd_agent
+LANGGRAPH_CHECKPOINT_TTL=86400
+
 # FastAPI Server Settings
 HOST=0.0.0.0
 PORT=8000
 DEBUG=false
+
+# CORS Settings for AgentChat UI
+CORS_ENABLED=true
+CORS_ORIGINS=http://localhost:3000,https://agentchat.vercel.app,http://localhost:8000
 
 # Production Settings
 ENVIRONMENT=production

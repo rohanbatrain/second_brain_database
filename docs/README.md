@@ -1,109 +1,129 @@
 # Second Brain Database
 
-A FastAPI-based database service for managing personal knowledge and information.
+A comprehensive FastAPI application for managing your second brain database - a knowledge management system designed to store, organize, and retrieve information efficiently.
 
-## Quick Start
+## Features
+
+- **User Authentication & Authorization**: Secure JWT-based authentication with 2FA support
+- **Permanent API Tokens**: Long-lived tokens for API access and integrations
+- **Knowledge Management**: Store and organize your personal knowledge base
+- **Themes & Customization**: Personalize your experience with custom themes
+- **Shop Integration**: Manage digital assets and purchases
+- **Avatar & Banner Management**: Customize your profile appearance
+- **Family Management**: Shared resources and relationships
+- **Voice Agent**: LiveKit + Ollama integration for voice conversations
+
+## Voice Agent Setup
+
+The voice agent enables real-time voice conversations using LiveKit for WebRTC and Ollama for local LLM processing.
 
 ### Prerequisites
 
-- Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/) package manager
+1. **Ollama**: Install and run Ollama locally
+   ```bash
+   # Install Ollama
+   curl -fsSL https://ollama.ai/install.sh | sh
 
-### Installing uv
+   # Pull a model (e.g., llama2)
+   ollama pull llama2
 
-If you don't have uv installed:
+   # Start Ollama server
+   ollama serve
+   ```
 
-```bash
-# On macOS and Linux:
-curl -LsSf https://astral.sh/uv/install.sh | sh
+2. **LiveKit Server**: Set up a LiveKit server or use LiveKit Cloud
+   - Get API key and secret from your LiveKit deployment
 
-# On Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+### Configuration
 
-### Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd second_brain_database
-
-# Install dependencies
-uv sync
-
-# Run the application
-uv run uvicorn src.second_brain_database.main:app --reload
-```
-
-## Development
-
-For development setup and detailed instructions, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
-### Quick Development Setup
+Set the following environment variables:
 
 ```bash
-# Install development dependencies
-uv sync --extra dev
+# Ollama configuration
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_MODEL=gemma3b
 
-# Run development tools
-make setup-dev
+# LiveKit configuration
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+LIVEKIT_URL=https://your-livekit-server:7880
+
+# Voice processing
+VOICE_TTS_VOICE=en
 ```
 
-## Dependency Management
+### Voice Endpoints
 
-This project uses [uv](https://docs.astral.sh/uv/) for modern Python dependency management.
+- `POST /voice/token`: Generate LiveKit access token
+- `POST /voice/ollama`: Send text prompt to Ollama
+- `POST /voice/stt`: Speech-to-text (upload audio file)
+- `POST /voice/tts`: Text-to-speech
+- `POST /voice/agent`: Full voice pipeline (STT -> LLM -> TTS)
 
-For comprehensive dependency management guidelines, see [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
+### Example Usage
 
-### Quick Reference
+```python
+import requests
 
-#### Adding Dependencies
-```bash
-# Production dependency
-uv add "package-name>=version"
+# Get LiveKit token
+token_resp = requests.post("http://localhost:8000/voice/token",
+                          json={"room": "voice-room", "identity": "user1"})
+token = token_resp.json()["token"]
 
-# Development dependency
-uv add --group dev "package-name>=version"
+# Process voice
+with open("audio.wav", "rb") as f:
+    files = {"file": ("audio.wav", f, "audio/wav")}
+    resp = requests.post("http://localhost:8000/voice/agent", files=files)
+    result = resp.json()
+    print(f"Input: {result['input_text']}")
+    print(f"Response: {result['output_text']}")
 ```
 
-#### Updating Dependencies
-```bash
-# Update all dependencies
-uv sync --upgrade
+## Installation
 
-# Update lock file
-uv lock --upgrade
-```
-
-#### Installing Dependencies
-```bash
-# Production only
-uv sync
-
-# With development tools
-uv sync --extra dev
-
-# All optional dependencies
-uv sync --all-extras
-```
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   uv sync --extra voice
+   ```
+3. Set up environment variables (see Configuration)
+4. Run the application:
+   ```bash
+   uv run uvicorn src.second_brain_database.main:app --reload
+   ```
 
 ## Docker
 
-```bash
-# Build image
-docker build -t second-brain-database .
+Build and run with Docker:
 
-# Run container
-docker run -p 8000:8000 second-brain-database
+```bash
+docker build -t second-brain-db .
+docker run -p 8000:8000 -e LIVEKIT_API_KEY=... -e LIVEKIT_API_SECRET=... second-brain-db
+```
+
+## API Documentation
+
+Access the interactive API documentation at `http://localhost:8000/docs` when running locally.
+
+## Security
+
+- JWT token authentication
+- Rate limiting and abuse protection
+- Redis-based session management
+- Comprehensive audit logging
+
+## Development
+
+Run tests:
+```bash
+uv run pytest
+```
+
+Lint code:
+```bash
+uv run pylint src/
 ```
 
 ## License
 
-[Add your license information here]
-
-## Redis Configuration
-
-This service uses Redis for short-lived session/state and abuse tracking.
-See `docs/REDIS.md` for details on local-first vs cloud Redis fallback and an
-example `.env.production.example` showing how to provide `REDIS_STORAGE_URI` for
-managed Redis providers.
+MIT License

@@ -41,7 +41,7 @@ async def get_system_health_resource() -> str:
                 "database": {"status": "healthy", "response_time_ms": 15},
                 "redis": {"status": "healthy", "response_time_ms": 5},
                 "mcp_server": {"status": "healthy", "response_time_ms": 10},
-                "ai_orchestration": {"status": "healthy", "response_time_ms": 25}
+                "ai_orchestration": {"status": "removed", "response_time_ms": 0}
             },
             "metrics": {
                 "uptime_seconds": 86400,

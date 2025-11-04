@@ -27,7 +27,7 @@ MCP_HEALTH_CHECK_ENABLED=true
 
 # AI Integration Settings
 AI_ENABLED=true
-AI_ORCHESTRATION_ENABLED=true
+AI_ORCHESTRATION_ENABLED=false
 
 # Database Settings (required for MCP tools)
 MONGODB_URL=mongodb://localhost:27017
