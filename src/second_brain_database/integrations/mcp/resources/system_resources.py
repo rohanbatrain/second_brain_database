@@ -7,7 +7,7 @@ Provides system information, health status, and performance metrics through MCP 
 
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ....managers.logging_manager import get_logger
 from ....config import settings
@@ -36,7 +36,7 @@ async def get_system_health_resource() -> str:
         # Mock system health data - replace with actual health monitoring
         health_status = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "components": {
                 "database": {"status": "healthy", "response_time_ms": 15},
                 "redis": {"status": "healthy", "response_time_ms": 5},
@@ -54,7 +54,7 @@ async def get_system_health_resource() -> str:
         result = {
             "health": health_status,
             "resource_type": "system_health",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         await create_mcp_audit_trail(
@@ -114,7 +114,7 @@ async def get_system_metrics_resource() -> str:
         result = {
             "metrics": metrics,
             "resource_type": "system_metrics",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         await create_mcp_audit_trail(

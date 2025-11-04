@@ -306,8 +306,9 @@ class StructureValidator:
 
     def generate_report(self) -> Dict:
         """Generate validation report"""
+        from datetime import datetime
         report = {
-            'timestamp': os.popen('date').read().strip(),
+            'timestamp': datetime.now().isoformat(),
             'total_issues': len(self.issues),
             'by_severity': {
                 'error': 0,

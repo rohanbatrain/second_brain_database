@@ -7,7 +7,7 @@ Provides family information, member lists, and statistics through MCP resources.
 
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ....managers.family_manager import FamilyManager
 from ....managers.logging_manager import get_logger
@@ -76,7 +76,7 @@ async def get_family_info_resource(family_id: str) -> str:
             "limits": family_details.get("limits", {}),
             "settings": family_details.get("settings", {}),
             "resource_type": "family_info",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         # Create audit trail
@@ -147,7 +147,7 @@ async def get_family_members_resource(family_id: str) -> str:
             "members": member_list,
             "total_members": len(member_list),
             "resource_type": "family_members",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         # Create audit trail
@@ -202,7 +202,7 @@ async def get_family_statistics_resource(family_id: str) -> str:
             "family_id": family_id,
             "statistics": stats,
             "resource_type": "family_statistics",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         # Create audit trail

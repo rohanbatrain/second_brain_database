@@ -138,11 +138,7 @@ async def lifespan(_app: FastAPI):
         log_error_with_context(e, {"operation": "application_startup", "phase": "database_connection"})
         raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
 
-    # AI analytics manager removed - see AI_ORCHESTRATION_REMOVAL_SUMMARY.md
-
-    # AI orchestration system has been removed
-    logger.info("AI orchestration system disabled (removed)")
-
+    
     # Initialize and start MCP server if enabled
     mcp_server = None
     if settings.MCP_ENABLED:

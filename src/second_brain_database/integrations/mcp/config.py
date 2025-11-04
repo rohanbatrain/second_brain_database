@@ -88,7 +88,7 @@ class MCPServerConfig(BaseModel):
     )
     server_version: str = Field(
         default="1.0.0",
-        regex=r"^\d+\.\d+\.\d+$",
+        pattern=r"^\d+\.\d+\.\d+$",
         description="MCP server version (semantic versioning)"
     )
     description: str = Field(

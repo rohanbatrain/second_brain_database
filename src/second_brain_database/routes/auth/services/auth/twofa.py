@@ -7,7 +7,7 @@ fully instrumented with production-grade logging and error handling.
 """
 
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 import secrets
 from typing import Any, Dict
@@ -192,7 +192,7 @@ async def setup_2fa(current_user: Dict[str, Any], request: TwoFASetupRequest) ->
             "$set": {
                 "two_fa_enabled": False,
                 "two_fa_pending": True,
-                "two_fa_pending_since": datetime.utcnow().isoformat(),
+                "two_fa_pending_since": datetime.now(timezone.utc).isoformat(),
                 "totp_secret": encrypted_secret,
                 "two_fa_methods": ["totp"],
                 "backup_codes": hashed_backup_codes,
@@ -529,7 +529,7 @@ async def clear_2fa_pending_if_expired(user: Dict[str, Any]) -> bool:
     """
     if user.get("two_fa_pending", False):
         pending_since = user.get("two_fa_pending_since")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if not pending_since:
             pending_since = user.get("updatedAt") or user.get("created_at") or now
         else:

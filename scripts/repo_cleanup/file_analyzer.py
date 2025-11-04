@@ -41,7 +41,7 @@ class FileAnalyzer:
         'integration_docs': [
             r'MCP_.*\.md$',
             r'FAMILY_.*\.md$',
-            r'LANGGRAPH.*\.md$',
+
             r'VOICE.*\.md$',
         ],
         'planning_docs': [

@@ -825,7 +825,7 @@ async def get_team_audit_trail(
 async def generate_compliance_report(
     request: Request,
     workspace_id: str,
-    report_type: str = Query("json", regex="^(json|csv|pdf)$"),
+    report_type: str = Query("json", pattern="^(json|csv|pdf)$"),
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     current_user: dict = Depends(get_current_user_dep)

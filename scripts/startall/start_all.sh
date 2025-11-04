@@ -110,24 +110,7 @@ cleanup_on_failure() {
                     rm -f "$PID_DIR/ollama.pid"
                 fi
                 ;;
-            "livekit")
-                if [ -f "$PID_DIR/livekit.pid" ]; then
-                    kill $(cat "$PID_DIR/livekit.pid") 2>/dev/null || true
-                    rm -f "$PID_DIR/livekit.pid"
-                fi
-                ;;
-            "chat_ui")
-                if [ -f "$PID_DIR/chat_ui.pid" ]; then
-                    kill $(cat "$PID_DIR/chat_ui.pid") 2>/dev/null || true
-                    rm -f "$PID_DIR/chat_ui.pid"
-                fi
-                ;;
-            "fastapi"|"voice_worker"|"celery_worker"|"celery_beat"|"flower")
-                if [ -f "$PID_DIR/${service}.pid" ]; then
-                    kill $(cat "$PID_DIR/${service}.pid") 2>/dev/null || true
-                    rm -f "$PID_DIR/${service}.pid"
-                fi
-                ;;
+
         esac
     done
     
@@ -198,8 +181,6 @@ cleanup_all_ports() {
     cleanup_port 6379 "Redis" "redis-server" || return 1
     cleanup_port 27017 "MongoDB" "mongod|com.docke|docker" || return 1
     cleanup_port 11434 "Ollama" "ollama" || return 1
-    cleanup_port 7880 "LiveKit" "livekit-server" || return 1
-    cleanup_port 7881 "LiveKit WebRTC" "livekit-server" || return 1
     cleanup_port 8000 "FastAPI" "uvicorn" || return 1
     # cleanup_port 8081 "Voice Worker" "start_voice_worker|python.*voice_worker" || return 1  # Managed by Python
     cleanup_port 5555 "Flower" "flower" || return 1
@@ -363,249 +344,6 @@ start_ollama() {
     fi
 }
 
-start_livekit() {
-    log_info "Starting LiveKit Server..."
-    
-    if pgrep -x "livekit-server" > /dev/null; then
-        log_warning "LiveKit already running"
-        STARTED_SERVICES+=("livekit")
-        return 0
-    fi
-    
-    # Check if port is already in use
-    if lsof -i :7880 > /dev/null 2>&1; then
-        log_success "LiveKit server already listening on port 7880"
-        STARTED_SERVICES+=("livekit")
-        return 0
-    fi
-    
-    if command_exists livekit-server; then
-        livekit-server --dev > "$PROJECT_ROOT/logs/livekit.log" 2>&1 &
-        local pid=$!
-        echo $pid > "$PID_DIR/livekit.pid"
-        
-        # Wait for LiveKit to start
-        if wait_for_port 7880 "LiveKit" 10; then
-            log_success "LiveKit started on ws://localhost:7880 (PID: $pid)"
-            STARTED_SERVICES+=("livekit")
-            return 0
-        else
-            log_error "LiveKit server started but not responding on port 7880"
-            log_info "Last 10 lines of log:"
-            tail -10 "$PROJECT_ROOT/logs/livekit.log"
-            cleanup_on_failure
-        fi
-    else
-        log_error "LiveKit server not installed - required for voice features"
-        log_error ""
-        log_error "Install LiveKit server:"
-        log_error "  - macOS: brew install livekit-server"
-        log_error "  - Linux: Download from https://github.com/livekit/livekit/releases"
-        log_error "  - Docker: docker run -p 7880:7880 -p 7881:7881 livekit/livekit-server --dev"
-        log_error ""
-        log_error "Or disable voice features by removing start_livekit and start_voice_worker from startup"
-        cleanup_on_failure
-    fi
-}
-
-start_chat_ui() {
-    log_info "Starting Chat UI (optional)"
-
-    # Default dev port for Next.js
-    local chat_port=3000
-
-    # If port already in use, skip starting chat UI
-    if lsof -ti:$chat_port >/dev/null 2>&1; then
-        log_warning "Port $chat_port already in use - assuming Chat UI is running elsewhere. Skipping start."
-        return 0
-    fi
-
-    # Start chat UI in submodule if present
-    local chat_dir="$PROJECT_ROOT/submodules/second-brain-database-chat"
-    local web_dir="$chat_dir/apps/web"
-    if [ -d "$web_dir" ]; then
-        log_info "Preparing Chat UI in $web_dir"
-
-        # If direnv is available and .envrc exists, allow it (non-fatal)
-        if command_exists direnv && [ -f "$chat_dir/.envrc" ]; then
-            log_info "Running 'direnv allow' in $chat_dir"
-            (cd "$chat_dir" && direnv allow) >/dev/null 2>&1 || log_warning "direnv allow failed or was denied"
-        fi
-
-        # Install dependencies if node_modules is missing
-        if [ ! -d "$web_dir/node_modules" ]; then
-            log_info "node_modules not found in Chat UI - installing dependencies (this may take a while)."
-            if command_exists pnpm; then
-                (cd "$web_dir" && pnpm install) > "$PROJECT_ROOT/logs/chat_ui_install.log" 2>&1 || log_warning "pnpm install failed (see logs/chat_ui_install.log)"
-            elif command_exists npm; then
-                (cd "$web_dir" && npm install) > "$PROJECT_ROOT/logs/chat_ui_install.log" 2>&1 || log_warning "npm install failed (see logs/chat_ui_install.log)"
-            else
-                log_warning "pnpm or npm not found - cannot install Chat UI dependencies"
-            fi
-        else
-            log_info "Chat UI dependencies already installed"
-        fi
-
-        # Determine start command
-        if command_exists pnpm; then
-            CMD=(pnpm dev)
-        elif command_exists npm; then
-            CMD=(npm run dev)
-        else
-            log_warning "pnpm or npm not found - cannot start Chat UI. This is optional, continuing startup."
-            return 0
-        fi
-
-        log_info "Launching Chat UI from $web_dir"
-        (cd "$web_dir" && "${CMD[@]}" > "$PROJECT_ROOT/logs/chat_ui.log" 2>&1 &) || true
-        local pid=$!
-        if [ -n "$pid" ]; then
-            echo $pid > "$PID_DIR/chat_ui.pid"
-        fi
-
-        # Wait for the dev server to bind to port, but do not fail startup if it doesn't
-        if wait_for_port $chat_port "Chat UI" 20; then
-            log_success "Chat UI started on http://localhost:$chat_port (PID: $(cat $PID_DIR/chat_ui.pid 2>/dev/null || echo '?'))"
-            STARTED_SERVICES+=("chat_ui")
-        else
-            log_warning "Chat UI did not become available on port $chat_port within timeout. Check logs: tail -f logs/chat_ui.log"
-            # Do not call cleanup_on_failure - chat UI is optional
-        fi
-    else
-        log_warning "Chat UI submodule not found at submodules/second-brain-database-chat/apps/web - skipping"
-    fi
-}
-
-start_fastapi() {
-    log_info "Starting FastAPI Server..."
-    
-    if [ -f "$PID_DIR/fastapi.pid" ] && kill -0 $(cat "$PID_DIR/fastapi.pid") 2>/dev/null; then
-        log_warning "FastAPI already running"
-        return 0
-    fi
-    
-    # Clear old PID file
-    rm -f "$PID_DIR/fastapi.pid"
-    
-    # Test imports before starting
-    log_debug "Testing FastAPI imports..."
-    if ! $PYTHON_CMD -c "from src.second_brain_database.main import app" 2>"$PROJECT_ROOT/logs/fastapi_import_test.log"; then
-        log_error "FastAPI import test failed - missing dependencies or code errors"
-        log_error "Check: cat logs/fastapi_import_test.log"
-        cat "$PROJECT_ROOT/logs/fastapi_import_test.log" | tail -10
-        cleanup_on_failure
-    fi
-    
-    $PYTHON_CMD scripts/manual/start_fastapi_server.py > "$PROJECT_ROOT/logs/fastapi.log" 2>&1 &
-    local pid=$!
-    echo $pid > "$PID_DIR/fastapi.pid"
-    
-    # Wait for FastAPI to be ready
-    if wait_for_port 8000 "FastAPI" 30; then
-        log_success "FastAPI started on http://localhost:8000 (PID: $pid)"
-        STARTED_SERVICES+=("fastapi")
-        return 0
-    else
-        log_error "FastAPI failed to start. Check logs: tail -f logs/fastapi.log"
-        log_info "Last 10 lines of log:"
-        tail -10 "$PROJECT_ROOT/logs/fastapi.log"
-        cleanup_on_failure
-    fi
-}
-
-start_voice_worker() {
-    log_info "Starting LiveKit Voice Worker..."
-    
-    if [ -f "$PID_DIR/voice_worker.pid" ] && kill -0 $(cat "$PID_DIR/voice_worker.pid") 2>/dev/null; then
-        log_warning "Voice Worker already running"
-        STARTED_SERVICES+=("voice_worker")
-        return 0
-    fi
-    
-    rm -f "$PID_DIR/voice_worker.pid"
-    
-    # Test voice worker imports (skip if LiveKit not installed)
-    log_debug "Testing Voice Worker imports..."
-    if ! $PYTHON_CMD -c "import livekit" 2>/dev/null; then
-        log_error "LiveKit SDK not installed - voice worker is required"
-        log_error "Install with: uv pip install livekit livekit-agents livekit-plugins-deepgram livekit-plugins-silero"
-        cleanup_on_failure
-    fi
-    
-    # Check if LiveKit server is running on port 7880
-    if ! lsof -i :7880 > /dev/null 2>&1; then
-        log_error "LiveKit server is NOT running on port 7880"
-        log_error "Voice worker cannot start without LiveKit server"
-        log_error ""
-        log_error "Install and start LiveKit server:"
-        log_error "  - macOS: brew install livekit-server && livekit-server --dev"
-        log_error "  - Docker: docker run -p 7880:7880 -p 7881:7881 livekit/livekit-server --dev"
-        log_error "  - Download: https://docs.livekit.io/home/self-hosting/local/"
-        log_error ""
-        cleanup_on_failure
-    fi
-    
-    log_success "✓ LiveKit server detected on port 7880"
-    
-    # Check if port 8081 is already in use by voice worker
-    if lsof -i :8081 > /dev/null 2>&1; then
-        local port_pid=$(lsof -ti:8081 2>/dev/null | head -1)
-        if [ -n "$port_pid" ]; then
-            local process_info=$(ps -p $port_pid -o comm=,args= 2>/dev/null || echo "")
-            if echo "$process_info" | grep -qE "start_voice_worker|voice_worker\.py"; then
-                log_success "✓ Voice Worker already running on port 8081 (PID: $port_pid)"
-                echo $port_pid > "$PID_DIR/voice_worker.pid"
-                STARTED_SERVICES+=("voice_worker")
-                return 0
-            else
-                log_error "Port 8081 is in use by another process (PID: $port_pid): $process_info"
-                log_error "Voice worker needs port 8081. Kill the conflicting process or change voice worker port."
-                cleanup_on_failure
-            fi
-        fi
-    fi
-    
-    # Check for real credentials (not dev placeholders)
-    if grep -q "LIVEKIT_API_KEY=devkey" .sbd 2>/dev/null; then
-        log_warning "Using dev credentials (LIVEKIT_API_KEY=devkey)"
-        log_warning "For production, set real LiveKit credentials in .sbd file"
-        log_warning "Get credentials from LiveKit Cloud or generate for self-hosted server"
-    fi
-    
-    $PYTHON_CMD scripts/manual/start_voice_worker.py > "$PROJECT_ROOT/logs/voice_worker.log" 2>&1 &
-    local pid=$!
-    echo $pid > "$PID_DIR/voice_worker.pid"
-    sleep 5
-    
-    # Check if process is still alive and not crashing
-    if ! kill -0 $pid 2>/dev/null; then
-        log_error "Voice Worker crashed immediately after start"
-        log_error "Check logs: tail -f logs/voice_worker.log"
-        log_info "Last 20 lines of log:"
-        tail -20 "$PROJECT_ROOT/logs/voice_worker.log"
-        cleanup_on_failure
-    fi
-    
-    # Check for thread spawn errors in logs
-    if grep -q "can't start new thread" "$PROJECT_ROOT/logs/voice_worker.log" 2>/dev/null; then
-        log_error "Voice Worker failed - thread spawn error detected"
-        log_error "LiveKit server may be unresponsive or resource limits reached"
-        log_info "Last 20 lines of log:"
-        tail -20 "$PROJECT_ROOT/logs/voice_worker.log"
-        cleanup_on_failure
-    fi
-    
-    if check_process_health "$PID_DIR/voice_worker.pid" "voice_worker"; then
-        log_success "Voice Worker started (PID: $pid)"
-        STARTED_SERVICES+=("voice_worker")
-        return 0
-    else
-        log_error "Voice Worker failed health check. Check logs: tail -f logs/voice_worker.log"
-        log_info "Last 10 lines of log:"
-        tail -10 "$PROJECT_ROOT/logs/voice_worker.log"
-        cleanup_on_failure
-    fi
-}
 
 start_celery_worker() {
     log_info "Starting Celery Worker..."
@@ -742,7 +480,6 @@ main() {
     start_mongodb
     start_redis
     start_ollama
-    start_livekit
     echo ""
     
     # Start application services
@@ -751,8 +488,6 @@ main() {
     log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     start_fastapi
     # start_chat_ui  # Disabled: start manually if needed with 'cd submodules/second-brain-database-chat/apps/web && pnpm dev'
-    # start_voice_worker  # Disabled: voice worker is started separately by your Python code
-    start_celery_worker
     start_celery_beat
     start_flower
     echo ""
@@ -767,7 +502,6 @@ main() {
     log_info "  - FastAPI:        http://localhost:8000"
     log_info "  - API Docs:       http://localhost:8000/docs"
     log_info "  - Flower:         http://localhost:5555"
-    log_info "  - LiveKit:        ws://localhost:7880"
     log_info "  - Ollama:         http://localhost:11434"
     echo ""
     log_info "${MAGENTA}Log Monitoring:${NC}"

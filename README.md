@@ -4,7 +4,6 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
-[![LangChain](https://img.shields.io/badge/LangChain-0.3.20-purple.svg)](https://langchain.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -13,13 +12,11 @@
 
 ### 🤖 **AI-Powered Intelligence**
 - **6 Specialized AI Agents**: Personal, Family, Workspace, Commerce, Security, Voice
-- **LangChain/LangGraph Integration**: Advanced multi-step workflows
 - **Local LLM Support**: Ollama (Gemma3, DeepSeek-R1)
 - **Conversation Memory**: Redis-backed chat history
 - **Streaming Responses**: Real-time token-level streaming
 
 ### 🎙️ **Voice & Real-Time Communication**
-- **LiveKit Integration**: WebRTC voice streaming
 - **Deepgram STT/TTS**: Production-grade speech processing
 - **Voice Agents**: Natural language voice commands
 - **Real-time Transcription**: Async voice processing
@@ -75,7 +72,6 @@
 - **Redis Broker**: High-performance message queue
 
 ### 📊 **Monitoring & Observability**
-- **LangSmith**: AI agent tracing and debugging
 - **Loki Integration**: Centralized logging
 - **Performance Metrics**: Response times, resource usage
 - **Health Checks**: Service availability monitoring
@@ -157,89 +153,7 @@ The `./start.sh` script automatically handles all services with production-ready
 
 ---
 
-## 🎙️ Voice Features Setup (Optional)
 
-Voice features require **LiveKit server** and **Deepgram API**. The startup script will **fail gracefully** if these are not configured.
-
-### Option 1: Skip Voice Features
-
-To run without voice features, comment out these lines in `scripts/startall/start_all.sh`:
-
-```bash
-# start_livekit           # Comment this out
-# start_voice_worker      # Comment this out
-```
-
-Then run `./start.sh` normally.
-
-### Option 2: Enable Voice Features
-
-#### 1. Install LiveKit Server
-
-**macOS (Homebrew):**
-```bash
-brew install livekit-server
-```
-
-**Linux:**
-```bash
-# Download from GitHub releases
-wget https://github.com/livekit/livekit/releases/latest/download/livekit-server-linux-amd64
-chmod +x livekit-server-linux-amd64
-sudo mv livekit-server-linux-amd64 /usr/local/bin/livekit-server
-```
-
-**Docker:**
-```bash
-docker run -d -p 7880:7880 -p 7881:7881 \
-  --name livekit-server \
-  livekit/livekit-server --dev
-```
-
-#### 2. Get API Credentials
-
-**For Development (Local Server):**
-- LiveKit dev mode uses `devkey` / `secret` (already in `.sbd`)
-- Start server with: `livekit-server --dev`
-
-**For Production (LiveKit Cloud):**
-1. Sign up at https://cloud.livekit.io/
-2. Create a project
-3. Get API Key and Secret from dashboard
-4. Update `.sbd` file:
-   ```bash
-   LIVEKIT_API_KEY=your_real_api_key_here
-   LIVEKIT_API_SECRET=your_real_api_secret_here
-   LIVEKIT_URL=wss://your-project.livekit.cloud
-   ```
-
-#### 3. Get Deepgram API Key
-
-1. Sign up at https://deepgram.com/
-2. Create a new project
-3. Generate API key
-4. Add to `.sbd`:
-   ```bash
-   DEEPGRAM_API_KEY=your_deepgram_api_key_here
-   ```
-
-#### 4. Install Python Dependencies
-
-```bash
-uv pip install livekit livekit-agents livekit-plugins-deepgram livekit-plugins-silero
-```
-
-#### 5. Start Services
-
-Now run `./start.sh` and all voice features will be enabled!
-
-**Validation Checks:**
-- ✅ LiveKit server must be running on port 7880
-- ✅ Real API credentials required (not `devkey`/`secret`)
-- ✅ Deepgram API key required for transcription
-- ✅ Voice worker will gracefully exit with clear error messages if requirements not met
-
----
 
 ### Stop All Services
 
@@ -294,9 +208,6 @@ redis-server --daemonize yes --logfile logs/redis.log
 
 # Ollama (optional - for AI features)
 ollama serve > logs/ollama.log 2>&1 &
-
-# LiveKit (optional - for voice features)
-livekit-server --dev > logs/livekit.log 2>&1 &
 ```
 
 ### 2. Start Application Services
@@ -313,9 +224,6 @@ uv run python scripts/manual/start_celery_beat.py > logs/celery_beat.log 2>&1 &
 
 # Flower (task monitoring dashboard)
 uv run python scripts/manual/start_flower.py > logs/flower.log 2>&1 &
-
-# Voice Worker (optional - requires LiveKit)
-uv run python scripts/manual/start_voice_worker.py > logs/voice_worker.log 2>&1 &
 ```
 
 ### 3. Stop Services Manually
@@ -543,7 +451,6 @@ This prevents partial deployments where some services run while others fail.
 | **MongoDB** | 27017 | Primary database |
 | **Redis** | 6379 | Cache and message broker |
 | **Ollama** | 11434 | Local LLM inference |
-| **LiveKit** | 7880 | WebRTC voice server |
 
 ---
 
@@ -567,7 +474,7 @@ This prevents partial deployments where some services run while others fail.
 │  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐    │
 │  │   FastAPI     │  │    Celery     │  │    Voice     │    │
 │  │   Server      │  │   Workers     │  │   Worker     │    │
-│  │  (REST/WS)    │  │  (4 Queues)   │  │  (LiveKit)   │    │
+│  │  (REST/WS)    │  │  (4 Queues)   │  │              │    │
 │  └───────┬───────┘  └───────┬───────┘  └──────┬───────┘    │
 │          │                  │                  │             │
 │  ┌───────▼──────────────────▼──────────────────▼───────┐   │
@@ -583,7 +490,7 @@ This prevents partial deployments where some services run while others fail.
 │  └─────────────────────────────────────────────────────┘   │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │   AI Agents (LangChain/LangGraph)                   │   │
+│  │   AI Agents                                         │   │
 │  │   • Personal  • Family  • Workspace                 │   │
 │  │   • Commerce  • Security  • Voice                   │   │
 │  └─────────────────────────────────────────────────────┘   │
@@ -596,13 +503,13 @@ This prevents partial deployments where some services run while others fail.
 |----------|-------------|
 | **Backend** | FastAPI, Python 3.11, Pydantic |
 | **Database** | MongoDB, Redis |
-| **AI/ML** | LangChain, LangGraph, Ollama, LangSmith |
-| **Voice** | LiveKit, Deepgram (STT/TTS) |
+| **AI/ML** | Ollama |
+| **Voice** | Deepgram (STT/TTS) |
 | **Documents** | Docling, PyPDF, OCR |
 | **Tasks** | Celery, Celery Beat, Flower |
 | **Protocol** | FastMCP 2.x, WebSocket, REST |
 | **Security** | JWT, Fernet, 2FA, Rate Limiting |
-| **Monitoring** | Loki, LangSmith, Prometheus |
+| **Monitoring** | Loki, Prometheus |
 
 ---
 
@@ -817,10 +724,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- **[LangChain](https://langchain.com)** - AI agent framework
 - **[FastAPI](https://fastapi.tiangolo.com)** - Modern web framework
 - **[Ollama](https://ollama.ai)** - Local LLM runtime
-- **[LiveKit](https://livekit.io)** - Real-time communication
 - **[Deepgram](https://deepgram.com)** - Speech processing
 - **[FastMCP](https://github.com/jlowin/fastmcp)** - MCP implementation
 

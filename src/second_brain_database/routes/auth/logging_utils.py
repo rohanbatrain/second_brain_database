@@ -5,7 +5,7 @@ This module provides specialized logging utilities for authentication operations
 building on the comprehensive logging infrastructure in utils.logging_utils.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Request
@@ -43,7 +43,7 @@ class AuthLogger:
             "username": username,
             "email": email,
             "user_agent": user_agent[:100] if user_agent else "",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         if reason:
@@ -68,7 +68,7 @@ class AuthLogger:
             "identifier": identifier,
             "user_agent": user_agent[:100] if user_agent else "",
             "mfa_required": mfa_required,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         if reason:
@@ -83,7 +83,7 @@ class AuthLogger:
         self, user_id: str, ip_address: str = "", success: bool = True, reason: Optional[str] = None
     ):
         """Log user logout attempts."""
-        details = {"timestamp": datetime.utcnow().isoformat()}
+        details = {"timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -97,7 +97,7 @@ class AuthLogger:
         self, user_id: str, ip_address: str = "", success: bool = True, reason: Optional[str] = None
     ):
         """Log password change attempts."""
-        details = {"timestamp": datetime.utcnow().isoformat()}
+        details = {"timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -117,7 +117,7 @@ class AuthLogger:
         abuse_reasons: Optional[list] = None,
     ):
         """Log password reset requests."""
-        details = {"email": email, "suspicious": suspicious, "timestamp": datetime.utcnow().isoformat()}
+        details = {"email": email, "suspicious": suspicious, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -138,7 +138,7 @@ class AuthLogger:
         self, user_id: str, email: str, ip_address: str = "", success: bool = True, reason: Optional[str] = None
     ):
         """Log email verification attempts."""
-        details = {"email": email, "timestamp": datetime.utcnow().isoformat()}
+        details = {"email": email, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -150,7 +150,7 @@ class AuthLogger:
 
     def log_2fa_setup(self, user_id: str, ip_address: str = "", success: bool = True, reason: Optional[str] = None):
         """Log 2FA setup attempts."""
-        details = {"timestamp": datetime.utcnow().isoformat()}
+        details = {"timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -164,7 +164,7 @@ class AuthLogger:
         self, user_id: str, method: str, ip_address: str = "", success: bool = True, reason: Optional[str] = None
     ):
         """Log 2FA verification attempts."""
-        details = {"method": method, "timestamp": datetime.utcnow().isoformat()}
+        details = {"method": method, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -184,7 +184,7 @@ class AuthLogger:
         reason: Optional[str] = None,
     ):
         """Log token operations (refresh, revoke, etc.)."""
-        details = {"operation": operation, "token_type": token_type, "timestamp": datetime.utcnow().isoformat()}
+        details = {"operation": operation, "token_type": token_type, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         if reason:
             details["reason"] = reason
@@ -196,7 +196,7 @@ class AuthLogger:
 
     def log_rate_limit_exceeded(self, endpoint: str, ip_address: str = "", user_id: Optional[str] = None):
         """Log rate limit violations."""
-        details = {"endpoint": endpoint, "timestamp": datetime.utcnow().isoformat()}
+        details = {"endpoint": endpoint, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         log_security_event(event_type="rate_limit_exceeded", details=details, user_id=user_id, ip_address=ip_address)
 
@@ -204,7 +204,7 @@ class AuthLogger:
         self, activity_type: str, details: Dict[str, Any], user_id: Optional[str] = None, ip_address: str = ""
     ):
         """Log suspicious security activities."""
-        enhanced_details = {**details, "timestamp": datetime.utcnow().isoformat()}
+        enhanced_details = {**details, "timestamp": datetime.now(timezone.utc).isoformat()}
 
         log_security_event(
             event_type=f"suspicious_{activity_type}", details=enhanced_details, user_id=user_id, ip_address=ip_address

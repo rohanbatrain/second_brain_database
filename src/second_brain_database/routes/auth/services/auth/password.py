@@ -5,7 +5,7 @@ This module provides async functions for changing user passwords, sending passwo
 and enforcing stricter rate limits and abuse detection for password reset flows.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 from typing import Any, Dict, Optional
@@ -125,7 +125,7 @@ async def send_password_reset_email(
             return None  # Do not reveal user existence
         reset_token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(reset_token.encode()).hexdigest()
-        expiry = datetime.utcnow() + timedelta(minutes=30)
+        expiry = datetime.now(timezone.utc) + timedelta(minutes=30)
         await db_manager.get_collection("users").update_one(
             {"_id": user["_id"]},
             {"$set": {"password_reset_token": token_hash, "password_reset_token_expiry": expiry.isoformat()}},
@@ -175,7 +175,7 @@ async def send_password_reset_email(
                             "$set": {
                                 "is_active": False,
                                 "abuse_suspended": True,
-                                "abuse_suspended_at": datetime.utcnow(),
+                                "abuse_suspended_at": datetime.now(timezone.utc),
                             }
                         },
                     )
@@ -355,7 +355,7 @@ async def send_blocked_ip_notification(
     )
 
     subject = "Blocked Access Attempt: IP Lockdown Active"
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     html_content = render_blocked_ip_notification_email(
         attempted_ip=attempted_ip,
         trusted_ips=trusted_ips,
@@ -440,7 +440,7 @@ async def send_blocked_user_agent_notification(
     )
 
     subject = "Blocked Access Attempt: User Agent Lockdown Active"
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     html_content = render_blocked_user_agent_notification_email(
         attempted_user_agent=attempted_user_agent,
         trusted_user_agents=trusted_user_agents,

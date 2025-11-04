@@ -5,7 +5,7 @@ Contextual guidance prompts for various operations including family management,
 shop navigation, workspace operations, security setup, and troubleshooting.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from ....managers.logging_manager import get_logger
@@ -145,7 +145,7 @@ You are helping **{user_context.username}** manage family accounts in the Second
 Remember: Family management requires careful balance of accessibility and security. Always prioritize member safety and financial responsibility.
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 """
 
             logger.info("Provided family management guidance prompt to user %s", user_context.user_id)
@@ -302,7 +302,7 @@ Welcome **{user_context.username}** to the Second Brain Database Digital Shop!
 Remember: The digital shop is designed to enhance your Second Brain Database experience. Shop responsibly within your means and enjoy personalizing your digital presence!
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 *Current SBD Balance: {current_balance} tokens*
 """
 
@@ -477,7 +477,7 @@ You are helping **{user_context.username}** manage team workspaces in the Second
 Remember: Effective workspace management requires balancing team autonomy with appropriate oversight. Focus on clear communication, proper permissions, and regular monitoring for successful team collaboration.
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 """
 
             logger.info("Provided workspace management guidance prompt to user %s", user_context.user_id)
@@ -662,7 +662,7 @@ Welcome **{user_context.username}**! Let's secure your Second Brain Database acc
 Remember: Security is an ongoing process, not a one-time setup. Regular reviews and updates are essential for maintaining account protection.
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 *Security Level: {"High" if two_fa_enabled and (ip_lockdown or ua_lockdown) else "Medium" if two_fa_enabled else "Basic"}*
 """
 
@@ -895,7 +895,7 @@ Hello **{user_context.username}**! I'm here to help you resolve issues with the 
 Remember: Most issues can be resolved through systematic troubleshooting. Start with simple solutions and escalate to support when needed.
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 *Need immediate help? Check system status first, then contact support if issues persist.*
 """
 
@@ -929,7 +929,7 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
 
             account_age_days = 0
             if user_data and user_data.get("created_at"):
-                account_age_days = (datetime.utcnow() - user_data.get("created_at")).days
+                account_age_days = (datetime.now(timezone.utc) - user_data.get("created_at")).days
 
             is_new_user = account_age_days < 7
             email_verified = user_data.get("email_verified", False) if user_data else False
@@ -1117,7 +1117,7 @@ Second Brain Database is your personal knowledge management system that helps yo
 Remember: Learning a new system takes time. Be patient with yourself, explore at your own pace, and don't hesitate to use the help resources available to you.
 
 ---
-*Generated at {datetime.utcnow().isoformat()} for user {user_context.username}*
+*Generated at {datetime.now(timezone.utc).isoformat()} for user {user_context.username}*
 *Account created: {account_age_days} days ago*
 """
 
@@ -1385,7 +1385,7 @@ Migration Guides: Upgrading between API versions
 Newsletter: Developer-focused updates and announcements
 Beta Programs: Early access to new features
 Remember: Good API integration requires proper error handling, security practices, and respect for rate limits. Start with small implementations and gradually build more complex integrations.
-Generated at {datetime.utcnow().isoformat()} for developer {user_context.username}
+Generated at {datetime.now(timezone.utc).isoformat()} for developer {user_context.username}
 API Documentation: /docs | MCP Server: {settings.MCP_SERVER_NAME}
 """
             logger.info("Provided API usage guidance prompt to user %s", user_context.user_id)

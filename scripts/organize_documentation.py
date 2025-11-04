@@ -53,21 +53,7 @@ class DocumentationOrganizer:
         print("📄 Implementation & Status Reports:")
         self.move_doc("INTEGRATION_SUCCESS.md", "docs/implementation", 
                       "Integration success report")
-        self.move_doc("LANGGRAPH_PRODUCTION_STATUS.md", "docs/implementation",
-                      "LangGraph production status")
-        self.move_doc("LANGGRAPH_ISSUES_AND_FIXES.md", "docs/implementation",
-                      "LangGraph issues and fixes")
-        self.move_doc("REPO_CLEANUP_IMPLEMENTATION.md", "docs/implementation",
-                      "Repository cleanup implementation")
-        self.move_doc("AGENTCHAT_UI_SETUP.md", "docs/implementation",
-                      "Agent chat UI setup guide")
-        
-        # Integration Guides
-        print("\n🔌 Integration Guides:")
-        self.move_doc("LANGCHAIN_MCP_FULL_COVERAGE.md", "docs/integrations",
-                      "LangChain MCP full coverage guide")
-        self.move_doc("LANGCHAIN_TESTING.md", "docs/integrations",
-                      "LangChain testing documentation")
+
         self.move_doc("VOICE_AGENT_TEST_README.md", "docs/integrations",
                       "Voice agent testing guide")
         self.move_doc("VOICE_WORKER_FIX_SUMMARY.md", "docs/integrations",
@@ -114,34 +100,7 @@ Location: `docs/implementation/`
 
 """
         
-        impl_docs = [
-            ("INTEGRATION_SUCCESS.md", "Integration success report"),
-            ("LANGGRAPH_PRODUCTION_STATUS.md", "LangGraph production status"),
-            ("LANGGRAPH_ISSUES_AND_FIXES.md", "LangGraph issues and fixes"),
-            ("REPO_CLEANUP_IMPLEMENTATION.md", "Repository cleanup implementation"),
-            ("AGENTCHAT_UI_SETUP.md", "Agent chat UI setup guide"),
-        ]
-        
-        for doc, desc in impl_docs:
-            index_content += f"- **[{doc}](implementation/{doc})** - {desc}\n"
-        
-        index_content += """
-### 🔌 Integrations
-Integration guides for external services and APIs.
 
-Location: `docs/integrations/`
-
-"""
-        
-        integration_docs = [
-            ("LANGCHAIN_MCP_FULL_COVERAGE.md", "LangChain MCP full coverage"),
-            ("LANGCHAIN_TESTING.md", "LangChain testing documentation"),
-            ("VOICE_AGENT_TEST_README.md", "Voice agent testing guide"),
-            ("VOICE_WORKER_FIX_SUMMARY.md", "Voice worker fix summary"),
-        ]
-        
-        for doc, desc in integration_docs:
-            index_content += f"- **[{doc}](integrations/{doc})** - {desc}\n"
         
         index_content += """
 ### 🧹 Maintenance & Quality

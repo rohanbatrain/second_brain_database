@@ -258,7 +258,6 @@ class Settings(BaseSettings):
     # LangSmith Observability
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "SecondBrainDatabase"
-    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = False
 
     # AI Agent Configuration
@@ -343,18 +342,7 @@ class Settings(BaseSettings):
     MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)
     MCP_CONTEXT_CACHE_TTL: int = 60  # User context cache TTL in seconds
 
-    # --- LangChain/LangGraph AI Configuration (DISABLED) ---
-    # LANGCHAIN_ENABLED: bool = True  # Enable/disable LangChain agents
-    # LANGCHAIN_MODEL_PROVIDER: str = "ollama"  # openai, ollama, anthropic
-    # LANGCHAIN_DEFAULT_MODEL: str = "llama3.2:1b"  # Default model for agents (llama3.2 supports tool calling)
-    # LANGCHAIN_TEMPERATURE: float = 0.7  # Temperature for LLM responses
-    # LANGCHAIN_MAX_TOKENS: int = 2048  # Max tokens per response
-    # LANGCHAIN_MEMORY_TTL: int = 3600  # Memory TTL in seconds (1 hour)
-    # LANGCHAIN_CONVERSATION_HISTORY_LIMIT: int = 50  # Max messages in history
-    # LANGCHAIN_RATE_LIMIT_REQUESTS: int = 100  # Max AI requests per period
-    # LANGCHAIN_MAX_CONCURRENT_SESSIONS: int = 1000  # Max concurrent AI sessions
-    # LANGCHAIN_TRACING_V2: str = "false"  # LangSmith tracing (set to API key to enable)
-    # LANGCHAIN_PROJECT: str = "SecondBrainDatabase"  # LangSmith project name
+
 
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"

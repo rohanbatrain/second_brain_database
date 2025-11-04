@@ -1,6 +1,6 @@
 """Family management models for user relationships and shared resources."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from enum import Enum
 
@@ -103,7 +103,7 @@ class CreateFamilyRequest(BaseDocumentedModel):
         min_length=FAMILY_NAME_MIN_LENGTH,
         max_length=FAMILY_NAME_MAX_LENGTH,
         description="Optional custom family name. If not provided, will be auto-generated.",
-        example="Smith Family"
+        json_schema_extra={"example": "Smith Family"}
     )
 
     model_config = {
@@ -124,12 +124,12 @@ class InviteMemberRequest(BaseDocumentedModel):
     email: EmailStr = Field(
         ...,
         description="Email address of the user to invite to the family",
-        example="john.doe@example.com"
+        json_schema_extra={"example": "john.doe@example.com"}
     )
     relationship_type: str = Field(
         ...,
         description="Relationship type from inviter's perspective (e.g., 'child', 'parent', 'sibling')",
-        example="child"
+        json_schema_extra={"example": "child"}
     )
 
     model_config = {
@@ -158,7 +158,7 @@ class RespondToInvitationRequest(BaseDocumentedModel):
     action: str = Field(
         ...,
         description="Action to take on the invitation: 'accept' or 'decline'",
-        example="accept"
+        json_schema_extra={"example": "accept"}
     )
 
     model_config = {
@@ -186,12 +186,12 @@ class UpdateRelationshipRequest(BaseDocumentedModel):
     relationship_type_a_to_b: str = Field(
         ...,
         description="Relationship type from user A to user B",
-        example="parent"
+        json_schema_extra={"example": "parent"}
     )
     relationship_type_b_to_a: str = Field(
         ...,
         description="Relationship type from user B to user A",
-        example="child"
+        json_schema_extra={"example": "child"}
     )
 
     model_config = {
@@ -211,17 +211,17 @@ class UpdateSpendingPermissionsRequest(BaseDocumentedModel):
     user_id: str = Field(
         ...,
         description="User ID of the family member to update permissions for",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     spending_limit: int = Field(
         ...,
         description="Spending limit in SBD tokens. Use -1 for unlimited spending.",
-        example=1000
+        json_schema_extra={"example": 1000}
     )
     can_spend: bool = Field(
         ...,
         description="Whether the user can spend from the family account",
-        example=True
+        json_schema_extra={"example": True}
     )
 
     model_config = {
@@ -242,13 +242,13 @@ class FreezeAccountRequest(BaseDocumentedModel):
     action: str = Field(
         ...,
         description="Action to take: 'freeze' or 'unfreeze'",
-        example="freeze"
+        json_schema_extra={"example": "freeze"}
     )
     reason: Optional[str] = Field(
         None,
         max_length=RELATIONSHIP_DESCRIPTION_MAX_LENGTH,
         description="Optional reason for the freeze action",
-        example="Suspicious activity detected"
+        json_schema_extra={"example": "Suspicious activity detected"}
     )
 
     model_config = {
@@ -278,13 +278,13 @@ class CreateTokenRequestRequest(BaseDocumentedModel):
         ...,
         gt=0,
         description="Amount of SBD tokens to request",
-        example=500
+        json_schema_extra={"example": 500}
     )
     reason: str = Field(
         ...,
         max_length=TOKEN_REQUEST_REASON_MAX_LENGTH,
         description="Reason for the token request",
-        example="Need tokens for school supplies"
+        json_schema_extra={"example": "Need tokens for school supplies"}
     )
 
     model_config = {
@@ -304,13 +304,13 @@ class ReviewTokenRequestRequest(BaseDocumentedModel):
     action: str = Field(
         ...,
         description="Action to take: 'approve' or 'deny'",
-        example="approve"
+        json_schema_extra={"example": "approve"}
     )
     comments: Optional[str] = Field(
         None,
         max_length=TOKEN_REQUEST_REASON_MAX_LENGTH,
         description="Optional comments from the admin",
-        example="Approved for educational expenses"
+        json_schema_extra={"example": "Approved for educational expenses"}
     )
 
     model_config = {
@@ -339,7 +339,7 @@ class AdminActionRequest(BaseDocumentedModel):
     action: str = Field(
         ...,
         description="Action to take: 'promote' or 'demote'",
-        example="promote"
+        json_schema_extra={"example": "promote"}
     )
 
     model_config = {
@@ -368,7 +368,7 @@ class BackupAdminRequest(BaseDocumentedModel):
     action: str = Field(
         ...,
         description="Action to take: 'designate' or 'remove'",
-        example="designate"
+        json_schema_extra={"example": "designate"}
     )
 
     model_config = {
@@ -399,13 +399,13 @@ class AdminActionsLogRequest(BaseDocumentedModel):
         ge=1,
         le=100,
         description="Maximum number of records to return",
-        example=50
+        json_schema_extra={"example": 50}
     )
     offset: int = Field(
         0,
         ge=0,
         description="Number of records to skip",
-        example=0
+        json_schema_extra={"example": 0}
     )
 
     model_config = {
@@ -427,7 +427,7 @@ class InitiateRecoveryRequest(BaseDocumentedModel):
         ...,
         max_length=500,
         description="Reason for initiating account recovery",
-        example="All admin accounts have been compromised"
+        json_schema_extra={"example": "All admin accounts have been compromised"}
     )
 
     model_config = {
@@ -449,7 +449,7 @@ class VerifyRecoveryRequest(BaseDocumentedModel):
         min_length=6,
         max_length=20,
         description="Verification code received via email or other method",
-        example="ABC123"
+        json_schema_extra={"example": "ABC123"}
     )
 
     model_config = {
@@ -472,51 +472,51 @@ class FamilyResponse(BaseDocumentedModel):
     family_id: str = Field(
         ...,
         description="Unique family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     name: str = Field(
         ...,
         description="Family name",
-        example="Smith Family"
+        json_schema_extra={"example": "Smith Family"}
     )
     admin_user_ids: List[str] = Field(
         ...,
         description="List of user IDs who are family administrators",
-        example=["507f1f77bcf86cd799439011"]
+        json_schema_extra={"example": ["507f1f77bcf86cd799439011"]}
     )
     member_count: int = Field(
         ...,
         description="Total number of family members",
-        example=4
+        json_schema_extra={"example": 4}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when the family was created",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     is_admin: bool = Field(
         ...,
         description="Whether the current user is an admin of this family",
-        example=True
+        json_schema_extra={"example": True}
     )
     sbd_account: Dict[str, Any] = Field(
         ...,
         description="Family SBD account information including balance and permissions",
-        example={
+        json_schema_extra={"example": {
             "account_username": "family_smith",
             "balance": 5000,
             "is_frozen": False,
             "spending_permissions": {}
-        }
+        }}
     )
     usage_stats: Dict[str, Any] = Field(
         ...,
         description="Family usage statistics and limits",
-        example={
+        json_schema_extra={"example": {
             "current_members": 4,
             "max_members_allowed": 10,
             "can_add_members": True
-        }
+        }}
     )
 
     model_config = {
@@ -553,22 +553,22 @@ class MemberPermissionsResponse(BaseDocumentedModel):
     can_spend: bool = Field(
         ...,
         description="Whether the member can spend from the family account",
-        example=True
+        json_schema_extra={"example": True}
     )
     spending_limit: int = Field(
         ...,
         description="Spending limit in SBD tokens. Use -1 for unlimited spending.",
-        example=1000
+        json_schema_extra={"example": 1000}
     )
     last_updated: datetime = Field(
         ...,
         description="UTC timestamp when permissions were last updated",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     updated_by: str = Field(
         ...,
         description="Username of the admin who last updated permissions",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
 
     model_config = {
@@ -590,47 +590,47 @@ class InvitationResponse(BaseDocumentedModel):
     invitation_id: str = Field(
         ...,
         description="Unique invitation identifier",
-        example="inv_1234567890abcdef"
+        json_schema_extra={"example": "inv_1234567890abcdef"}
     )
     family_name: str = Field(
         ...,
         description="Name of the family the user is invited to",
-        example="Smith Family"
+        json_schema_extra={"example": "Smith Family"}
     )
     inviter_username: str = Field(
         ...,
         description="Username of the person who sent the invitation",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
     invitee_email: Optional[str] = Field(
         None,
         description="Email of the invited user (if available)",
-        example="john.doe@example.com"
+        json_schema_extra={"example": "john.doe@example.com"}
     )
     invitee_username: Optional[str] = Field(
         None,
         description="Username of the invited user (if available)",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     relationship_type: str = Field(
         ...,
         description="Proposed relationship type",
-        example="child"
+        json_schema_extra={"example": "child"}
     )
     status: InvitationStatus = Field(
         ...,
         description="Current status of the invitation",
-        example=InvitationStatus.PENDING
+        json_schema_extra={"example": InvitationStatus.PENDING}
     )
     expires_at: datetime = Field(
         ...,
         description="UTC timestamp when the invitation expires",
-        example="2024-01-08T12:00:00Z"
+        json_schema_extra={"example": "2024-01-08T12:00:00Z"}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when the invitation was created",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
 
     model_config = {
@@ -661,52 +661,52 @@ class ReceivedInvitationResponse(BaseDocumentedModel):
     invitation_id: str = Field(
         ...,
         description="Unique invitation identifier",
-        example="inv_abc123xyz789"
+        json_schema_extra={"example": "inv_abc123xyz789"}
     )
     family_id: str = Field(
         ...,
         description="ID of the family the user is invited to join",
-        example="fam_def456uvw012"
+        json_schema_extra={"example": "fam_def456uvw012"}
     )
     family_name: str = Field(
         ...,
         description="Name of the family",
-        example="Johnson Family"
+        json_schema_extra={"example": "Johnson Family"}
     )
     inviter_user_id: str = Field(
         ...,
         description="User ID of the person who sent the invitation",
-        example="user_123abc"
+        json_schema_extra={"example": "user_123abc"}
     )
     inviter_username: str = Field(
         ...,
         description="Username of the inviter",
-        example="john_johnson"
+        json_schema_extra={"example": "john_johnson"}
     )
     relationship_type: str = Field(
         ...,
         description="Proposed relationship type for the invitee",
-        example="child"
+        json_schema_extra={"example": "child"}
     )
     status: InvitationStatus = Field(
         ...,
         description="Current invitation status",
-        example=InvitationStatus.PENDING
+        json_schema_extra={"example": InvitationStatus.PENDING}
     )
     expires_at: datetime = Field(
         ...,
         description="UTC timestamp when invitation expires",
-        example="2025-10-28T14:30:00Z"
+        json_schema_extra={"example": "2025-10-28T14:30:00Z"}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when invitation was created",
-        example="2025-10-21T14:30:00Z"
+        json_schema_extra={"example": "2025-10-21T14:30:00Z"}
     )
     invitation_token: Optional[str] = Field(
         None,
         description="Optional token for email-based invitation acceptance",
-        example="tok_xyz789abc123"
+        json_schema_extra={"example": "tok_xyz789abc123"}
     )
 
     model_config = {
@@ -734,39 +734,39 @@ class SBDAccountResponse(BaseDocumentedModel):
     account_username: str = Field(
         ...,
         description="Virtual account username for the family",
-        example="family_smith"
+        json_schema_extra={"example": "family_smith"}
     )
     balance: int = Field(
         ...,
         description="Current SBD token balance",
-        example=5000
+        json_schema_extra={"example": 5000}
     )
     is_frozen: bool = Field(
         ...,
         description="Whether the account is currently frozen",
-        example=False
+        json_schema_extra={"example": False}
     )
     frozen_by: Optional[str] = Field(
         None,
         description="Username of admin who froze the account",
-        example=None
+        json_schema_extra={"example": None}
     )
     member_permissions: Dict[str, Any] = Field(
         ...,
         description="Spending permissions for all family members",
-        example={
+        json_schema_extra={"example": {
             "507f1f77bcf86cd799439011": {
                 "can_spend": True,
                 "spending_limit": 1000,
                 "updated_by": "jane_smith",
                 "updated_at": "2024-01-01T12:00:00Z"
             }
-        }
+        }}
     )
     recent_transactions: List[Dict[str, Any]] = Field(
         ...,
         description="Recent SBD token transactions",
-        example=[
+        json_schema_extra={"example": [
             {
                 "type": "spend",
                 "amount": 100,
@@ -775,7 +775,7 @@ class SBDAccountResponse(BaseDocumentedModel):
                 "timestamp": "2024-01-01T15:00:00Z",
                 "transaction_id": "txn_1234567890"
             }
-        ]
+        ]}
     )
 
     model_config = {
@@ -815,57 +815,57 @@ class TokenRequestResponse(BaseDocumentedModel):
     request_id: str = Field(
         ...,
         description="Unique token request identifier",
-        example="req_1234567890abcdef"
+        json_schema_extra={"example": "req_1234567890abcdef"}
     )
     requester_username: str = Field(
         ...,
         description="Username of the person who made the request",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     from_user_id: Optional[str] = Field(
         None,
         description="Canonical 'from' user id (same as requester_user_id for token requests)",
-        example="68f3c68604839468a2f226f0"
+        json_schema_extra={"example": "68f3c68604839468a2f226f0"}
     )
     from_username: Optional[str] = Field(
         None,
         description="Canonical 'from' username (same as requester_username for token requests)",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     amount: int = Field(
         ...,
         description="Amount of SBD tokens requested",
-        example=500
+        json_schema_extra={"example": 500}
     )
     reason: str = Field(
         ...,
         description="Reason provided for the token request",
-        example="Need tokens for school supplies"
+        json_schema_extra={"example": "Need tokens for school supplies"}
     )
     status: TokenRequestStatus = Field(
         ...,
         description="Current status of the request",
-        example=TokenRequestStatus.PENDING
+        json_schema_extra={"example": TokenRequestStatus.PENDING}
     )
     auto_approved: bool = Field(
         ...,
         description="Whether the request was automatically approved",
-        example=False
+        json_schema_extra={"example": False}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when the request was created",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     expires_at: datetime = Field(
         ...,
         description="UTC timestamp when the request expires",
-        example="2024-01-08T12:00:00Z"
+        json_schema_extra={"example": "2024-01-08T12:00:00Z"}
     )
     admin_comments: Optional[str] = Field(
         None,
         description="Comments from the admin who reviewed the request",
-        example="Approved for educational expenses"
+        json_schema_extra={"example": "Approved for educational expenses"}
     )
 
     model_config = {
@@ -892,47 +892,47 @@ class NotificationResponse(BaseDocumentedModel):
     notification_id: str = Field(
         ...,
         description="Unique notification identifier",
-        example="not_1234567890abcdef"
+        json_schema_extra={"example": "not_1234567890abcdef"}
     )
     type: NotificationType = Field(
         ...,
         description="Type of notification",
-        example=NotificationType.SBD_SPEND
+        json_schema_extra={"example": NotificationType.SBD_SPEND}
     )
     title: str = Field(
         ...,
         description="Notification title",
-        example="SBD Token Spending"
+        json_schema_extra={"example": "SBD Token Spending"}
     )
     message: str = Field(
         ...,
         description="Notification message content",
-        example="John spent 100 SBD tokens at the shop"
+        json_schema_extra={"example": "John spent 100 SBD tokens at the shop"}
     )
     data: Dict[str, Any] = Field(
         ...,
         description="Additional notification data",
-        example={
+        json_schema_extra={"example": {
             "transaction_id": "txn_1234567890",
             "amount": 100,
             "from_user": "john_doe",
             "to_user": "shop_system"
-        }
+        }}
     )
     status: NotificationStatus = Field(
         ...,
         description="Current notification status",
-        example=NotificationStatus.SENT
+        json_schema_extra={"example": NotificationStatus.SENT}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when the notification was created",
-        example="2024-01-01T15:00:00Z"
+        json_schema_extra={"example": "2024-01-01T15:00:00Z"}
     )
     is_read: bool = Field(
         ...,
         description="Whether the current user has read this notification",
-        example=False
+        json_schema_extra={"example": False}
     )
 
     model_config = {
@@ -963,52 +963,52 @@ class AdminActionResponse(BaseDocumentedModel):
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     target_user_id: str = Field(
         ...,
         description="User ID of the target user",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     target_username: str = Field(
         ...,
         description="Username of the target user",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     action: str = Field(
         ...,
         description="Action performed: 'promoted' or 'demoted'",
-        example="promoted"
+        json_schema_extra={"example": "promoted"}
     )
     new_role: str = Field(
         ...,
         description="New role of the user: 'admin' or 'member'",
-        example="admin"
+        json_schema_extra={"example": "admin"}
     )
     performed_by: str = Field(
         ...,
         description="User ID of the admin who performed the action",
-        example="507f1f77bcf86cd799439012"
+        json_schema_extra={"example": "507f1f77bcf86cd799439012"}
     )
     performed_by_username: str = Field(
         ...,
         description="Username of the admin who performed the action",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
     performed_at: datetime = Field(
         ...,
         description="UTC timestamp when the action was performed",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     message: str = Field(
         ...,
         description="Success message",
-        example="User successfully promoted to family administrator"
+        json_schema_extra={"example": "User successfully promoted to family administrator"}
     )
     transaction_safe: bool = Field(
         True,
         description="Whether the operation was performed with transaction safety",
-        example=True
+        json_schema_extra={"example": True}
     )
 
     model_config = {
@@ -1037,52 +1037,52 @@ class BackupAdminResponse(BaseDocumentedModel):
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     backup_user_id: str = Field(
         ...,
         description="User ID of the backup admin",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     backup_username: str = Field(
         ...,
         description="Username of the backup admin",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     action: str = Field(
         ...,
         description="Action performed: 'designated' or 'removed'",
-        example="designated"
+        json_schema_extra={"example": "designated"}
     )
     role: str = Field(
         ...,
         description="Role designation: 'backup_admin'",
-        example="backup_admin"
+        json_schema_extra={"example": "backup_admin"}
     )
     performed_by: str = Field(
         ...,
         description="User ID of the admin who performed the action",
-        example="507f1f77bcf86cd799439012"
+        json_schema_extra={"example": "507f1f77bcf86cd799439012"}
     )
     performed_by_username: str = Field(
         ...,
         description="Username of the admin who performed the action",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
     performed_at: datetime = Field(
         ...,
         description="UTC timestamp when the action was performed",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     message: str = Field(
         ...,
         description="Success message",
-        example="User successfully designated as backup administrator"
+        json_schema_extra={"example": "User successfully designated as backup administrator"}
     )
     transaction_safe: bool = Field(
         True,
         description="Whether the operation was performed with transaction safety",
-        example=True
+        json_schema_extra={"example": True}
     )
 
     model_config = {
@@ -1111,57 +1111,57 @@ class AdminActionLogEntry(BaseDocumentedModel):
     action_id: str = Field(
         ...,
         description="Unique action identifier",
-        example="act_1234567890abcdef"
+        json_schema_extra={"example": "act_1234567890abcdef"}
     )
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     admin_user_id: str = Field(
         ...,
         description="User ID of the admin who performed the action",
-        example="507f1f77bcf86cd799439012"
+        json_schema_extra={"example": "507f1f77bcf86cd799439012"}
     )
     admin_username: str = Field(
         ...,
         description="Username of the admin who performed the action",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
     target_user_id: str = Field(
         ...,
         description="User ID of the target user",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     target_username: str = Field(
         ...,
         description="Username of the target user",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     action_type: str = Field(
         ...,
         description="Type of action performed",
-        example="promote_to_admin"
+        json_schema_extra={"example": "promote_to_admin"}
     )
     details: Dict[str, Any] = Field(
         ...,
         description="Additional action details",
-        example={"previous_role": "member", "new_role": "admin"}
+        json_schema_extra={"example": {"previous_role": "member", "new_role": "admin"}}
     )
     created_at: datetime = Field(
         ...,
         description="UTC timestamp when the action was performed",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     ip_address: Optional[str] = Field(
         None,
         description="IP address from which the action was performed",
-        example="192.168.1.100"
+        json_schema_extra={"example": "192.168.1.100"}
     )
     user_agent: Optional[str] = Field(
         None,
         description="User agent string from the request",
-        example="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        json_schema_extra={"example": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     )
 
     model_config = {
@@ -1191,22 +1191,22 @@ class AdminActionsLogResponse(BaseDocumentedModel):
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     actions: List[AdminActionLogEntry] = Field(
         ...,
         description="List of admin actions",
-        example=[]
+        json_schema_extra={"example": []}
     )
     pagination: Dict[str, Any] = Field(
         ...,
         description="Pagination information",
-        example={
+        json_schema_extra={"example": {
             "total_count": 25,
             "limit": 50,
             "offset": 0,
             "has_more": False
-        }
+        }}
     )
 
     model_config = {
@@ -1288,22 +1288,22 @@ class FamilyLimitsResponse(BaseDocumentedModel):
     max_families_allowed: int = Field(
         ...,
         description="Maximum number of families the user can create or join",
-        example=1
+        json_schema_extra={"example": 1}
     )
     max_members_per_family: int = Field(
         ...,
         description="Maximum number of members per family for families where user is admin",
-        example=5
+        json_schema_extra={"example": 5}
     )
     current_families: int = Field(
         ...,
         description="Current number of families the user belongs to",
-        example=1
+        json_schema_extra={"example": 1}}
     )
     families_usage: List[FamilyUsageStats] = Field(
         ...,
         description="Detailed usage statistics for each family",
-        example=[
+        json_schema_extra={"example": [
             {
                 "family_id": "fam_1234567890abcdef",
                 "name": "Smith Family",
@@ -1315,22 +1315,22 @@ class FamilyLimitsResponse(BaseDocumentedModel):
                 "created_at": "2024-01-01T00:00:00Z",
                 "last_activity": "2024-01-15T12:00:00Z"
             }
-        ]
+        ]}
     )
     can_create_family: bool = Field(
         ...,
         description="Whether the user can create a new family",
-        example=False
+        json_schema_extra={"example": False}}
     )
     upgrade_required: bool = Field(
         ...,
         description="Whether an upgrade is required to increase limits",
-        example=True
+        json_schema_extra={"example": True}
     )
     limit_status: List[FamilyLimitStatus] = Field(
         ...,
         description="Detailed status for each type of limit",
-        example=[
+        json_schema_extra={"example": [
             {
                 "limit_type": "families",
                 "current_usage": 1,
@@ -1341,7 +1341,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
                 "grace_period_expires": None,
                 "upgrade_required": True
             }
-        ]
+        ]}
     )
     billing_metrics: Optional[BillingUsageMetrics] = Field(
         None,
@@ -1350,7 +1350,7 @@ class FamilyLimitsResponse(BaseDocumentedModel):
     upgrade_messaging: Dict[str, Any] = Field(
         ...,
         description="Messaging and recommendations for upgrades",
-        example={
+        json_schema_extra={"example": {
             "primary_message": "You've reached your family limit",
             "upgrade_benefits": ["Create unlimited families", "Add up to 20 members per family"],
             "call_to_action": "Upgrade to Pro to unlock more families",
@@ -1552,12 +1552,12 @@ class FamilyMembership(BaseModel):
 
     family_id: str = Field(..., description="Family identifier")
     role: str = Field(..., description="Role in family: admin or member")
-    joined_at: datetime = Field(default_factory=datetime.utcnow, description="Join timestamp")
+    joined_at: datetime = Field(default_factory=datetime.now(timezone.utc), description="Join timestamp")
     spending_permissions: Dict[str, Any] = Field(
         default_factory=lambda: {
             "can_spend": False,
             "spending_limit": 0,
-            "last_updated": datetime.utcnow()
+            "last_updated": datetime.now(timezone.utc)
         },
         description="SBD spending permissions"
     )
@@ -1584,7 +1584,7 @@ class MarkNotificationsReadRequest(BaseModel):
     notification_ids: List[str] = Field(
         ...,
         description="List of notification IDs to mark as read",
-        example=["notif_1234567890abcdef", "notif_fedcba0987654321"]
+        json_schema_extra={"example": ["notif_1234567890abcdef", "notif_fedcba0987654321"],}
     )
 
 
@@ -1594,7 +1594,7 @@ class UpdateNotificationPreferencesRequest(BaseModel):
     preferences: Dict[str, bool] = Field(
         ...,
         description="Notification preference settings",
-        example={
+        json_schema_extra={"example": {
             "email_notifications": True,
             "push_notifications": False,
             "sms_notifications": False
@@ -1612,22 +1612,22 @@ class NotificationListResponse(BaseDocumentedModel):
     total_count: int = Field(
         ...,
         description="Total number of notifications",
-        example=25
+        json_schema_extra={"example": 25}}
     )
     unread_count: int = Field(
         ...,
         description="Number of unread notifications",
-        example=5
+        json_schema_extra={"example": 5}}
     )
     has_more: bool = Field(
         ...,
         description="Whether there are more notifications available",
-        example=True
+        json_schema_extra={"example": True}
     )
     pagination: Dict[str, Any] = Field(
         ...,
         description="Pagination information",
-        example={
+        json_schema_extra={"example": {
             "limit": 20,
             "offset": 0,
             "next_offset": 20
@@ -1641,7 +1641,7 @@ class NotificationPreferencesResponse(BaseDocumentedModel):
     preferences: Dict[str, bool] = Field(
         ...,
         description="Current notification preferences",
-        example={
+        json_schema_extra={"example": {
             "email_notifications": True,
             "push_notifications": True,
             "sms_notifications": False
@@ -1650,12 +1650,12 @@ class NotificationPreferencesResponse(BaseDocumentedModel):
     unread_count: int = Field(
         ...,
         description="Current unread notification count",
-        example=3
+        json_schema_extra={"example": 3}}
     )
     last_checked: Optional[datetime] = Field(
         None,
         description="Last time notifications were checked",
-        example="2024-01-01T15:00:00Z"
+        json_schema_extra={"example": "2024-01-01T15:00:00Z"}
     )
 
 
@@ -1671,17 +1671,17 @@ class InviteMemberRequest(BaseDocumentedModel):
     identifier: str = Field(
         ...,
         description="Email address or username of the user to invite",
-        example="john.doe@example.com"
+        json_schema_extra={"example": "john.doe@example.com"}
     )
     relationship_type: str = Field(
         ...,
         description="Relationship type from inviter's perspective",
-        example="child"
+        json_schema_extra={"example": "child"}
     )
     identifier_type: str = Field(
         "email",
         description="Type of identifier: 'email' or 'username'",
-        example="email"
+        json_schema_extra={"example": "email"}
     )
 
     model_config = {
@@ -1721,7 +1721,7 @@ class MarkNotificationsReadRequest(BaseDocumentedModel):
     notification_ids: List[str] = Field(
         ...,
         description="List of notification IDs to mark as read",
-        example=["not_1234567890abcdef", "not_abcdef1234567890"]
+        json_schema_extra={"example": ["not_1234567890abcdef", "not_abcdef1234567890"],}
     )
 
     model_config = {
@@ -1741,17 +1741,17 @@ class UpdateNotificationPreferencesRequest(BaseDocumentedModel):
     email_notifications: Optional[bool] = Field(
         None,
         description="Enable/disable email notifications",
-        example=True
+        json_schema_extra={"example": True}
     )
     push_notifications: Optional[bool] = Field(
         None,
         description="Enable/disable push notifications",
-        example=True
+        json_schema_extra={"example": True}
     )
     sms_notifications: Optional[bool] = Field(
         None,
         description="Enable/disable SMS notifications",
-        example=False
+        json_schema_extra={"example": False}}
     )
 
     model_config = {
@@ -1775,12 +1775,12 @@ class NotificationListResponse(BaseDocumentedModel):
     notifications: List[NotificationResponse] = Field(
         ...,
         description="List of notifications",
-        example=[]
+        json_schema_extra={"example": []}
     )
     pagination: Dict[str, Any] = Field(
         ...,
         description="Pagination information",
-        example={
+        json_schema_extra={"example": {
             "limit": 50,
             "offset": 0,
             "total_count": 150,
@@ -1790,7 +1790,7 @@ class NotificationListResponse(BaseDocumentedModel):
     unread_count: int = Field(
         ...,
         description="Total unread notification count",
-        example=5
+        json_schema_extra={"example": 5}}
     )
 
     model_config = {
@@ -1817,39 +1817,39 @@ class FamilyLimitsResponse(BaseDocumentedModel):
     max_families_allowed: int = Field(
         ...,
         description="Maximum number of families user can create/join",
-        example=3
+        json_schema_extra={"example": 3}}
     )
     max_members_per_family: int = Field(
         ...,
         description="Maximum members per family for user's families",
-        example=10
+        json_schema_extra={"example": 10}
     )
     current_families: int = Field(
         ...,
         description="Current number of families user belongs to",
-        example=2
+        json_schema_extra={"example": 2}}
     )
     families_usage: List[Dict[str, Any]] = Field(
         ...,
         description="Usage details for each family",
-        example=[
+        json_schema_extra={"example": [
             {
                 "family_id": "fam_1234567890abcdef",
                 "name": "Smith Family",
                 "member_count": 4,
                 "is_admin": True
             }
-        ]
+        ]}
     )
     can_create_family: bool = Field(
         ...,
         description="Whether user can create another family",
-        example=True
+        json_schema_extra={"example": True}
     )
     upgrade_required: bool = Field(
         ...,
         description="Whether upgrade is needed for more families",
-        example=False
+        json_schema_extra={"example": False}}
     )
 
     model_config = {
@@ -1880,37 +1880,37 @@ class RecoveryInitiationResponse(BaseDocumentedModel):
     recovery_id: str = Field(
         ...,
         description="Unique recovery request identifier",
-        example="rec_1234567890abcdef"
+        json_schema_extra={"example": "rec_1234567890abcdef"}
     )
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     status: str = Field(
         ...,
         description="Recovery status",
-        example="pending_verification"
+        json_schema_extra={"example": "pending_verification"}
     )
     required_verifications: int = Field(
         ...,
         description="Number of verifications required to complete recovery",
-        example=2
+        json_schema_extra={"example": 2}}
     )
     expires_at: datetime = Field(
         ...,
         description="UTC timestamp when the recovery request expires",
-        example="2024-01-04T12:00:00Z"
+        json_schema_extra={"example": "2024-01-04T12:00:00Z"}
     )
     message: str = Field(
         ...,
         description="Status message",
-        example="Account recovery initiated. Multi-member verification required."
+        json_schema_extra={"example": "Account recovery initiated. Multi-member verification required."}
     )
     transaction_safe: bool = Field(
         True,
         description="Whether the operation was performed with transaction safety",
-        example=True
+        json_schema_extra={"example": True}
     )
 
     model_config = {
@@ -1936,47 +1936,47 @@ class RecoveryVerificationResponse(BaseDocumentedModel):
     recovery_id: str = Field(
         ...,
         description="Recovery request identifier",
-        example="rec_1234567890abcdef"
+        json_schema_extra={"example": "rec_1234567890abcdef"}
     )
     verification_accepted: bool = Field(
         ...,
         description="Whether the verification was accepted",
-        example=True
+        json_schema_extra={"example": True}
     )
     current_verifications: int = Field(
         ...,
         description="Current number of verifications received",
-        example=1
+        json_schema_extra={"example": 1}}
     )
     required_verifications: int = Field(
         ...,
         description="Total number of verifications required",
-        example=2
+        json_schema_extra={"example": 2}}
     )
     recovery_complete: bool = Field(
         ...,
         description="Whether the recovery process is complete",
-        example=False
+        json_schema_extra={"example": False}}
     )
     promoted_user_id: Optional[str] = Field(
         None,
         description="User ID of promoted admin (if recovery complete)",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     promoted_username: Optional[str] = Field(
         None,
         description="Username of promoted admin (if recovery complete)",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     message: str = Field(
         ...,
         description="Status message",
-        example="Verification accepted. 1 more verification needed."
+        json_schema_extra={"example": "Verification accepted. 1 more verification needed."}
     )
     transaction_safe: bool = Field(
         True,
         description="Whether the operation was performed with transaction safety",
-        example=True
+        json_schema_extra={"example": True}
     )
 
     model_config = {
@@ -2597,24 +2597,24 @@ class DirectTransferRequest(BaseDocumentedModel):
     recipient_identifier: str = Field(
         ...,
         description="Username or user ID of the recipient",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     amount: int = Field(
         ...,
         gt=0,
         description="Amount of SBD tokens to transfer",
-        example=500
+        json_schema_extra={"example": 500}
     )
     reason: str = Field(
         ...,
         max_length=TOKEN_REQUEST_REASON_MAX_LENGTH,
         description="Reason for the direct transfer",
-        example="Emergency funds for school supplies"
+        json_schema_extra={"example": "Emergency funds for school supplies"}
     )
     recipient_type: str = Field(
         "user",
         description="Type of recipient: 'user' for internal users, 'external' for external accounts",
-        example="user"
+        json_schema_extra={"example": "user"}
     )
 
     model_config = {
@@ -2646,52 +2646,52 @@ class DirectTransferResponse(BaseDocumentedModel):
     transfer_id: str = Field(
         ...,
         description="Unique transfer identifier",
-        example="xfer_1234567890abcdef"
+        json_schema_extra={"example": "xfer_1234567890abcdef"}
     )
     family_id: str = Field(
         ...,
         description="Family identifier",
-        example="fam_1234567890abcdef"
+        json_schema_extra={"example": "fam_1234567890abcdef"}
     )
     recipient_identifier: str = Field(
         ...,
         description="Recipient username or ID",
-        example="john_doe"
+        json_schema_extra={"example": "john_doe"}
     )
     amount: int = Field(
         ...,
         description="Amount transferred",
-        example=500
+        json_schema_extra={"example": 500}
     )
     reason: str = Field(
         ...,
         description="Transfer reason",
-        example="Emergency funds for school supplies"
+        json_schema_extra={"example": "Emergency funds for school supplies"}
     )
     transferred_by: str = Field(
         ...,
         description="User ID of admin who performed transfer",
-        example="507f1f77bcf86cd799439011"
+        json_schema_extra={"example": "507f1f77bcf86cd799439011"}
     )
     transferred_by_username: str = Field(
         ...,
         description="Username of admin who performed transfer",
-        example="jane_smith"
+        json_schema_extra={"example": "jane_smith"}
     )
     transferred_at: datetime = Field(
         ...,
         description="UTC timestamp when transfer was completed",
-        example="2024-01-01T12:00:00Z"
+        json_schema_extra={"example": "2024-01-01T12:00:00Z"}
     )
     transaction_id: Optional[str] = Field(
         None,
         description="Blockchain transaction ID",
-        example="txn_abcdef1234567890"
+        json_schema_extra={"example": "txn_abcdef1234567890"}
     )
     message: str = Field(
         ...,
         description="Success message",
-        example="Direct transfer completed successfully"
+        json_schema_extra={"example": "Direct transfer completed successfully"}
     )
 
     model_config = {

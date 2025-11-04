@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from second_brain_database.database import db_manager
@@ -18,7 +18,7 @@ logger = get_logger(prefix="[PROFILE]")
 
 @router.post("/update", tags=["User Profile"], summary="Update user profile fields")
 async def update_profile(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
-    request_id = str(datetime.utcnow().timestamp()).replace('.', '')[-8:]
+    request_id = str(datetime.now(timezone.utc).timestamp()).replace('.', '')[-8:]
     client_ip = security_manager.get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
     username = current_user["username"]
@@ -68,7 +68,7 @@ async def update_profile(request: Request, data: dict = Body(...), current_user:
 
 @router.get("/info", tags=["User Profile"], summary="Get current user profile information")
 async def get_profile_info(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
-    request_id = str(datetime.utcnow().timestamp()).replace('.', '')[-8:]
+    request_id = str(datetime.now(timezone.utc).timestamp()).replace('.', '')[-8:]
     client_ip = security_manager.get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
     username = current_user["username"]

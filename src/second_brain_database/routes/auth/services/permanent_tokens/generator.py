@@ -6,7 +6,7 @@ for API access. Tokens are hashed using SHA-256 for secure storage and include
 proper metadata tracking.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import secrets
 from typing import Any, Dict, Optional
@@ -110,7 +110,7 @@ async def create_permanent_token(
             "is_verified": is_verified,
             "token_type": "permanent",
             "token_id": token_id,
-            "iat": datetime.utcnow(),
+            "iat": datetime.now(timezone.utc),
         }
 
         # Log security event for token creation attempt
@@ -151,7 +151,7 @@ async def create_permanent_token(
         logger.debug("Token hash generated for secure storage: %s", token_hash[:16] + "...")
 
         # Create database document
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
         token_doc = PermanentTokenDocument(
             user_id=user_id,
             token_id=token_id,
@@ -315,7 +315,7 @@ async def update_last_used(token_hash: str) -> bool:
 
     try:
         collection = db_manager.get_collection("permanent_tokens")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = await collection.update_one(
             {"token_hash": token_hash, "is_revoked": False}, {"$set": {"last_used_at": now}}
         )

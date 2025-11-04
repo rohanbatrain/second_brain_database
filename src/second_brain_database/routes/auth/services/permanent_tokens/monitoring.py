@@ -9,7 +9,7 @@ and health checks.
 import asyncio
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -171,7 +171,7 @@ class CachePerformanceMonitor:
                 operations_per_second=0.0,
                 error_count=0,
                 error_rate=0.0,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
         # Count operations by type
@@ -218,7 +218,7 @@ class CachePerformanceMonitor:
             operations_per_second=round(ops_per_second, 2),
             error_count=error_count,
             error_rate=round(error_rate, 2),
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
     async def perform_health_check(self) -> Dict[str, Any]:
@@ -230,7 +230,7 @@ class CachePerformanceMonitor:
         """
         health_check_start = time.time()
         health_status = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_status": "healthy",
             "checks": {},
             "alerts": [],
@@ -311,7 +311,7 @@ class CachePerformanceMonitor:
         total_time = (time.time() - health_check_start) * 1000
         health_status["health_check_duration_ms"] = round(total_time, 2)
 
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
         self.health_status = health_status
 
         # Log health check results
@@ -330,7 +330,7 @@ class CachePerformanceMonitor:
             Dict[str, Any]: Performance summary with multiple time windows
         """
         summary = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "metrics": {
                 "last_15_minutes": asdict(self.get_current_metrics(15)),
                 "last_hour": asdict(self.get_current_metrics(60)),
@@ -386,7 +386,7 @@ async def get_cache_performance_metrics(window_minutes: int = 60) -> Dict[str, A
         return asdict(metrics)
     except Exception as e:
         logger.error("Error getting cache performance metrics: %s", e)
-        return {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 async def perform_cache_health_check() -> Dict[str, Any]:
@@ -400,7 +400,7 @@ async def perform_cache_health_check() -> Dict[str, Any]:
         return await cache_monitor.perform_health_check()
     except Exception as e:
         logger.error("Error performing cache health check: %s", e)
-        return {"timestamp": datetime.utcnow().isoformat(), "overall_status": "unhealthy", "error": str(e)}
+        return {"timestamp": datetime.now(timezone.utc).isoformat(), "overall_status": "unhealthy", "error": str(e)}
 
 
 def record_cache_hit(response_time_ms: float, token_hash: str = ""):

@@ -82,18 +82,7 @@ MIGRATION_MAP = {
     "archive/root_docs/": [
         "LOG_MONITORING_GUIDE.md",
         "VOICE_WORKER_FIX_SUMMARY.md",
-        "LANGCHAIN_TESTING.md",
-        "LANGGRAPH_PRODUCTION_STATUS.md",
-        "VOICE_AGENT_TEST_README.md",
-        "AGENTCHAT_UI_SETUP.md",
-        "LANGCHAIN_MCP_FULL_COVERAGE.md",
-        "LANGGRAPH_ISSUES_AND_FIXES.md",
-        "INTEGRATION_SUCCESS.md"
-    ],
-    "archive/test_scripts/": [
-        "test_agent_chat.py",
-        "test_voice_agent_mcp.py"
-    ]
+
 }
 
 def create_cleanup_log(moves_made):

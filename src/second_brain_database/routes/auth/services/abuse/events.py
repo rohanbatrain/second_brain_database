@@ -6,7 +6,7 @@ related to password reset and authentication abuse. Events are stored in MongoDB
 and support admin review, filtering, and resolution workflows.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypedDict
 
 from bson import ObjectId
@@ -95,7 +95,7 @@ async def log_reset_abuse_event(
             "action_taken": action_taken,
             "resolved_by_admin": resolved_by_admin,
             "notes": notes,
-            "timestamp": (timestamp or datetime.utcnow()).isoformat(),
+            "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
         }
         await collection.insert_one(doc)
         logger.info("Abuse event logged for email=%s, ip=%s, type=%s", email, ip, event_type)

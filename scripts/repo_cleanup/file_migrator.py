@@ -55,7 +55,7 @@ class FileMigrator:
         # Integration documentation - MCP
         "docs/integrations/mcp/": [
             "MCP_PRODUCTION_DEPLOYMENT_MODERN.md",
-            "LANGCHAIN_MCP_FULL_COVERAGE.md",
+
             "kiro_mcp_config.json",
             "vscode_mcp_config.json",
         ],
@@ -75,63 +75,7 @@ class FileMigrator:
             "voice_agent_test.html",
         ],
 
-        # Integration documentation - LangGraph
-        "docs/integrations/langgraph/": [
-            "LANGGRAPH_PRODUCTION_STATUS.md",
-            "LANGGRAPH_ISSUES_AND_FIXES.md",
-            "LOG_MONITORING_GUIDE.md",
-        ],
 
-        # Integration documentation - LangChain
-        "docs/integrations/langchain/": [
-            "LANGCHAIN_TESTING.md",
-        ],
-
-        # Integration documentation - Agent Chat
-        "docs/integrations/agent_chat/": [
-            "AGENTCHAT_UI_SETUP.md",
-            "INTEGRATION_SUCCESS.md",
-            "chat_ui.html",
-        ],
-
-        # Planning and TODOs
-        "docs/plans/": [
-            # TODOS directory will be moved as a whole
-        ],
-
-        # Automation
-        "automation/workflows/": [
-            # n8n_workflows directory stays
-        ],
-
-        # Legacy/Archive - Root level docs
-        "archive/root_docs/": [
-            "QUICKSTART.md",  # Will be replaced with new README section
-        ],
-
-        # Legacy/Archive - Test scripts
-        "archive/test_scripts/": [
-            "test_agent_chat.py",
-            "test_voice_agent_mcp.py",
-        ],
-
-        # Legacy/Archive - Unused files
-        "archive/unused/": [
-            "example_langgraph_usage.py.unused",
-            "final_coverage_test.py.unused",
-            "langgraph_requirements.txt.unused",
-            "langgraph.json.unused",
-            "test_langchain_full_coverage.py.unused",
-            "test_langchain.py.unused",
-            "test_langgraph_platform.py.unused",
-        ],
-
-        # Legacy/Archive - Log files
-        "archive/logs/": [
-            "langgraph_dev.log.unused",
-            "langgraph_fixed.log.unused",
-            "langgraph_minimal.log.unused",
-        ],
 
         # Legacy/Archive - Database files
         "archive/db_files/": [

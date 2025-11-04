@@ -22,7 +22,13 @@ def run_command(command, description):
     """Run a shell command and return the result."""
     print(f"🔄 {description}...")
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        # Split command if it's a string, otherwise use as-is
+        if isinstance(command, str):
+            cmd_args = command.split()
+        else:
+            cmd_args = command
+
+        result = subprocess.run(cmd_args, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"✅ {description} completed successfully")
             if result.stdout.strip():
@@ -80,8 +86,8 @@ def main():
     run_command("ollama list", "Listing installed models")
 
     # Check if DeepSeek-R1 is already installed
-    result = subprocess.run("ollama list | grep deepseek-r1", shell=True, capture_output=True, text=True)
-    if result.returncode == 0:
+    result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+    if result.returncode == 0 and "deepseek-r1" in result.stdout:
         print("✅ DeepSeek-R1 is already installed!")
     else:
         print("\n3️⃣ Installing DeepSeek-R1:1.5b...")

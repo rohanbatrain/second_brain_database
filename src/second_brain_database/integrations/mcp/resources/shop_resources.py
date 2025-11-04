@@ -7,7 +7,7 @@ Provides shop information, asset listings, and purchase data through MCP resourc
 
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ....managers.logging_manager import get_logger
 from ....config import settings
@@ -51,7 +51,7 @@ async def get_shop_avatars_resource() -> str:
             "avatars": avatars,
             "total_count": len(avatars),
             "resource_type": "shop_avatars",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         await create_mcp_audit_trail(
@@ -102,7 +102,7 @@ async def get_shop_themes_resource() -> str:
             "themes": themes,
             "total_count": len(themes),
             "resource_type": "shop_themes",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
 
         await create_mcp_audit_trail(

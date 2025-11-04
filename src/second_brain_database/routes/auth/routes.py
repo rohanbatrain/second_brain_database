@@ -15,7 +15,7 @@ Defines API endpoints for user registration, login, email verification, token ma
 password change, and password reset. All business logic is delegated to the service layer.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 from typing import Any, Dict, List, Optional
@@ -326,7 +326,7 @@ async def register(user: UserIn, request: Request) -> JSONResponse:
     """
     await security_manager.check_rate_limit(request, "register")
     reg_log = RegistrationLog(
-        timestamp=datetime.utcnow().replace(microsecond=0),
+        timestamp=datetime.now(timezone.utc).replace(microsecond=0),
         ip_address=security_manager.get_client_ip(request) if request else None,
         user_agent=request.headers.get("user-agent") if request else None,
         username=user.username,
@@ -340,7 +340,7 @@ async def register(user: UserIn, request: Request) -> JSONResponse:
         user_doc, verification_token = await register_user(user)
         verification_link = f"{request.base_url}auth/verify-email?token={verification_token}"
         await send_verification_email(user.email, verification_link, username=user.username)
-        issued_at = int(datetime.utcnow().timestamp())
+        issued_at = int(datetime.now(timezone.utc).timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = await create_access_token({"sub": user_doc["username"]})
         email_verified = user_doc.get("is_verified", False)
@@ -650,7 +650,7 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     else:
         raise HTTPException(status_code=400, detail="Unsupported login format")
     login_log = LoginLog(
-        timestamp=datetime.utcnow().replace(microsecond=0),
+        timestamp=datetime.now(timezone.utc).replace(microsecond=0),
         ip_address=security_manager.get_client_ip(request) if request else None,
         user_agent=request.headers.get("user-agent") if request else None,
         username=username or "",
@@ -677,7 +677,7 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
         if request_ip and token_ctx is not None:
             login_service.request_ip_ctx.reset(token_ctx)
     try:
-        issued_at = int(datetime.utcnow().timestamp())
+        issued_at = int(datetime.now(timezone.utc).timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         token = await create_access_token({"sub": user["username"]})
         login_log.username = user.get("username", login_log.username)
@@ -924,11 +924,11 @@ async def forgot_password(request: Request, payload: Optional[Dict[str, Any]] = 
     try:
         ip = request.client.host
         user_agent = request.headers.get("user-agent")
-        request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        request_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         redis_conn = await security_manager.get_redis()
         resend_key = f"forgotpw:last:{email}"
         last_ts = await redis_conn.get(resend_key)
-        now_ts = int(datetime.utcnow().timestamp())
+        now_ts = int(datetime.now(timezone.utc).timestamp())
         if last_ts and now_ts - int(last_ts) < RESEND_RESET_EMAIL_INTERVAL:
             logger.info("Password reset email resend blocked for %s (rate limit)", email)
             raise HTTPException(
@@ -1047,7 +1047,7 @@ async def resend_verification_email(request: Request):
     # --- Abuse detection and logging (self-abuse protection) ---
     ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
-    request_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    request_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     # Prefer email for abuse tracking, fallback to username
     abuse_id = email or username
     if abuse_id:
@@ -1326,7 +1326,7 @@ async def reset_password(payload: dict = Body(...)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired token.")
     expiry = user.get("password_reset_token_expiry")
-    if not expiry or datetime.utcnow() > datetime.fromisoformat(expiry):
+    if not expiry or datetime.now(timezone.utc) > datetime.fromisoformat(expiry):
         raise HTTPException(status_code=400, detail="Token has expired.")
     # Validate password strength
     if not validate_password_strength(new_password):
@@ -1546,7 +1546,7 @@ async def trusted_ips_lockdown_request(
         logger.info("No trusted_ips provided for lockdown by user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="trusted_ips must be a non-empty list.")
     code = secrets.token_urlsafe(8)
-    expiry = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
     await db_manager.get_collection("users").update_one(
         {"_id": current_user["_id"]},
         {
@@ -1612,7 +1612,7 @@ async def trusted_ips_lockdown_confirm(
     if not stored_code or not expiry or not action or not allowed_ips:
         logger.info("No lockdown code or allowed IPs found for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="No pending lockdown action.")
-    if datetime.utcnow() > datetime.fromisoformat(expiry):
+    if datetime.now(timezone.utc) > datetime.fromisoformat(expiry):
         logger.info("Expired lockdown code for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="Code expired.")
     if code != stored_code:
@@ -1672,7 +1672,7 @@ async def trusted_ips_lockdown_confirm(
             "confirmed_from_ip": request_ip,
             "endpoint": f"{request.method} {request.url.path}",
             "user_agent": request.headers.get("user-agent", ""),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 
@@ -1751,7 +1751,7 @@ async def trusted_user_agents_lockdown_request(
 
     # Generate confirmation code
     code = secrets.token_urlsafe(8)
-    expiry = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
 
     # Store confirmation code in user document
     await db_manager.get_collection("users").update_one(
@@ -1849,7 +1849,7 @@ async def trusted_user_agents_lockdown_confirm(
 
     # Check if code has expired
     expiry = matching_code.get("expires_at")
-    if not expiry or datetime.utcnow() > datetime.fromisoformat(expiry):
+    if not expiry or datetime.now(timezone.utc) > datetime.fromisoformat(expiry):
         logger.info("Expired User Agent lockdown code for user %s", current_user.get("username"))
         raise HTTPException(status_code=400, detail="Code expired.")
 
@@ -1922,7 +1922,7 @@ async def trusted_user_agents_lockdown_confirm(
             "confirmed_from_user_agent": request_user_agent,
             "endpoint": f"{request.method} {request.url.path}",
             "user_agent": request_user_agent,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 

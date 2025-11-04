@@ -9,7 +9,7 @@ or add IPs/User Agents to their trusted list via email action buttons.
 import hashlib
 import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
 from second_brain_database.database import db_manager
@@ -116,7 +116,7 @@ async def generate_temporary_ip_access_token(
     else:
         raise ValueError(f"Invalid action type: {action}")
 
-    expires_at = datetime.utcnow() + timedelta(minutes=expiration_minutes)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiration_minutes)
 
     # Create token data
     token_data = {
@@ -124,7 +124,7 @@ async def generate_temporary_ip_access_token(
         "ip_address": ip_address,
         "action": action,
         "endpoint": endpoint,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": expires_at.isoformat()
     }
 
@@ -222,8 +222,8 @@ async def execute_allow_once_ip_access(token_data: Dict[str, Any]) -> bool:
 
     bypass_entry = {
         "ip_address": ip_address,
-        "created_at": datetime.utcnow().isoformat(),
-        "expires_at": (datetime.utcnow() + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
         "reason": "allow_once_token"
     }
 
@@ -345,7 +345,7 @@ async def generate_temporary_user_agent_access_token(
     else:
         raise ValueError(f"Invalid action type: {action}")
 
-    expires_at = datetime.utcnow() + timedelta(minutes=expiration_minutes)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiration_minutes)
 
     # Create token data
     token_data = {
@@ -353,7 +353,7 @@ async def generate_temporary_user_agent_access_token(
         "user_agent": user_agent,
         "action": action,
         "endpoint": endpoint,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": expires_at.isoformat()
     }
 
@@ -448,8 +448,8 @@ async def execute_allow_once_user_agent_access(token_data: Dict[str, Any]) -> bo
     # Create a temporary bypass entry
     bypass_entry = {
         "user_agent": user_agent,
-        "created_at": datetime.utcnow().isoformat(),
-        "expires_at": (datetime.utcnow() + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
         "reason": "allow_once_token"
     }
 

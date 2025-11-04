@@ -109,18 +109,6 @@ class VoiceSessionConfig(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class LangGraphWorkflowConfig(BaseModel):
-    """LangGraph workflow configuration."""
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    workflow_name: str = Field(description="Workflow name")
-    nodes: List[str] = Field(description="Workflow nodes")
-    edges: Dict[str, List[str]] = Field(description="Node connections")
-    entry_point: str = Field(description="Entry node")
-    max_iterations: int = Field(default=10)
-    timeout: int = Field(default=60, description="Timeout in seconds")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
 
 class StreamingChunk(BaseModel):
     """Streaming response chunk."""
