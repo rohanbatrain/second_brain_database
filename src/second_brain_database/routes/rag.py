@@ -46,7 +46,7 @@ from ..tasks.rag_tasks import (
     process_document_for_rag,
     warm_rag_cache,
 )
-from .auth.services.auth.login import get_current_user
+from .auth.dependencies import get_current_user_dep as get_current_user
 
 router = APIRouter(prefix="/rag", tags=["RAG System"])
 logger = get_logger(prefix="[RAGRoutes]")
