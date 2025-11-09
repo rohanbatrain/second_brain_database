@@ -29,11 +29,34 @@ class WebRTCCompleteTest:
         self.ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
         self.test_users = []
         self.tokens = {}
+    
+    def get_user_id(self, user_index: int = 0) -> str:
+        """Get user ID from test user."""
+        user = self.test_users[user_index]
+        return user.get("user_id") or user.get("_id") or user.get("id") or user.get("username", "unknown")
         
     async def create_test_user(self, username: str, email: str, password: str = "TestPass123!") -> dict:
         """Create a test user and get auth token."""
         async with httpx.AsyncClient() as client:
-            # Register user
+            # Try to login first (user may already exist)
+            login_response = await client.post(
+                f"{self.base_url}/auth/login",
+                data={  # OAuth2PasswordRequestForm expects form data
+                    "username": email,
+                    "password": password
+                }
+            )
+            
+            if login_response.status_code == 200:
+                data = login_response.json()
+                token = data.get("access_token") or data.get("token")
+                # Fetch user details from /users/me or similar endpoint
+                user_data = await self._fetch_user_details(client, token, username, email)
+                self.test_users.append(user_data)
+                self.tokens[username] = token
+                return user_data
+            
+            # If login failed, try to register
             register_response = await client.post(
                 f"{self.base_url}/auth/register",
                 json={
@@ -46,27 +69,42 @@ class WebRTCCompleteTest:
             if register_response.status_code == 201:
                 data = register_response.json()
                 token = data.get("access_token") or data.get("token")
-                user_data = data.get("user", {})
-                user_data["token"] = token
+                # Fetch user details
+                user_data = await self._fetch_user_details(client, token, username, email)
                 self.test_users.append(user_data)
                 self.tokens[username] = token
                 return user_data
-            else:
-                # Try to login if user exists
-                login_response = await client.post(
-                    f"{self.base_url}/auth/login",
-                    json={
-                        "email": email,
-                        "password": password
-                    }
+            
+            raise Exception(f"Failed to create/login user: {register_response.text}")
+    
+    async def _fetch_user_details(self, client: httpx.AsyncClient, token: str, username: str, email: str) -> dict:
+        """Fetch user details to get the MongoDB _id."""
+        # Try various endpoints to get user ID
+        endpoints = ["/users/me", "/auth/user", "/user/profile"]
+        
+        for endpoint in endpoints:
+            try:
+                response = await client.get(
+                    f"{self.base_url}{endpoint}",
+                    headers={"Authorization": f"Bearer {token}"}
                 )
-                data = login_response.json()
-                token = data.get("access_token") or data.get("token")
-                user_data = data.get("user", {})
-                user_data["token"] = token
-                self.test_users.append(user_data)
-                self.tokens[username] = token
-                return user_data
+                if response.status_code == 200:
+                    user_data = response.json()
+                    user_data["token"] = token
+                    # Ensure we have a user_id field
+                    if "_id" in user_data:
+                        user_data["user_id"] = user_data["_id"]
+                    return user_data
+            except:
+                continue
+        
+        # Fallback: create minimal user data with username
+        return {
+            "username": username,
+            "email": email,
+            "token": token,
+            "user_id": username  # Use username as fallback ID
+        }
     
     async def test_server_health(self):
         """Test 1: Server health check."""
@@ -142,7 +180,7 @@ class WebRTCCompleteTest:
                 }
                 
                 # Set host role first
-                user_id = self.test_users[0].get("_id") or self.test_users[0].get("id")
+                user_id = self.test_users[0].get("user_id") or self.test_users[0].get("_id") or self.test_users[0].get("id")
                 await client.post(
                     f"{self.base_url}/webrtc/rooms/{room_id}/roles/{user_id}",
                     params={"role": "host"},
