@@ -101,7 +101,7 @@ class UserIn(BaseDocumentedModel):
         example="SecurePassword123!",
     )
     plan: Optional[str] = Field(
-        default="free", description="User subscription plan. Defaults to 'free' for new registrations.", example="free"
+        default="free", description="User subscription plan. Only 'free' plan allowed for new registrations.", example="free"
     )
     team: Optional[List[str]] = Field(
         default_factory=list,
@@ -167,6 +167,33 @@ class UserIn(BaseDocumentedModel):
             str: The validated email in lowercase.
         """
         return v.lower()
+
+    @field_validator("plan")
+    @classmethod
+    def validate_plan(cls, v: Optional[str]) -> str:
+        """
+        Validate and enforce plan restrictions for new user registrations.
+        
+        Only allows 'free' plan for new registrations. This prevents users from
+        self-assigning premium plans during signup, ensuring proper subscription controls.
+        
+        Args:
+            v (Optional[str]): The plan value to validate.
+        Returns:
+            str: Always returns 'free' for new registrations.
+        Raises:
+            ValueError: If user attempts to register with non-free plan.
+        Side-effects:
+            Logs security events for attempted premium plan registrations.
+        """
+        if v is None:
+            return "free"
+        
+        if v.lower() != "free":
+            logger.warning("Attempted registration with non-free plan: %s", v)
+            raise ValueError("Only 'free' plan is allowed for new user registrations. Premium plans must be upgraded after account creation.")
+        
+        return "free"
 
 
 class UserOut(BaseDocumentedModel):

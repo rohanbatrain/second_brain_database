@@ -155,7 +155,7 @@ class RAGSystem:
                     "id": str(document.id),
                     "filename": document.filename,
                     "chunks": len(document.chunks),
-                    "status": document.status.value,
+                    "status": str(document.status),
                 },
                 "processing": {
                     "chunks_created": len(document.chunks),

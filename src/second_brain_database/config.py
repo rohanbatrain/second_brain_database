@@ -414,6 +414,24 @@ class Settings(BaseSettings):
     RAG_MAX_CONTEXT_LENGTH: int = 8000  # Maximum context length in chars
     RAG_ENABLE_RERANKING: bool = False  # Enable reranking (future enhancement)
 
+    # --- WebRTC Configuration ---
+    # STUN servers (comma-separated list of URLs)
+    WEBRTC_STUN_URLS: str = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+    
+    # TURN servers (optional, comma-separated list of URLs)
+    WEBRTC_TURN_URLS: Optional[str] = None  # e.g., "turn:turn.example.com:3478"
+    WEBRTC_TURN_USERNAME: Optional[str] = None  # TURN server username
+    WEBRTC_TURN_CREDENTIAL: Optional[SecretStr] = None  # TURN server password
+    
+    # WebRTC policies
+    WEBRTC_ICE_TRANSPORT_POLICY: str = "all"  # all, relay (force TURN)
+    WEBRTC_BUNDLE_POLICY: str = "balanced"  # balanced, max-compat, max-bundle
+    WEBRTC_RTCP_MUX_POLICY: str = "require"  # require, negotiate
+    
+    # Room and presence configuration
+    WEBRTC_ROOM_PRESENCE_TTL: int = 30  # Heartbeat timeout in seconds
+    WEBRTC_MAX_PARTICIPANTS_PER_ROOM: int = 50  # Maximum participants per room
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"

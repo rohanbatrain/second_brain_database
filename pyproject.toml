@@ -286,4 +286,6 @@ asyncio_mode = "auto"
 dev = [
     "pytest>=7.4.4",
     "pytest-asyncio>=0.23.8",
+    "python-docx>=1.2.0",
+    "reportlab>=4.4.4",
 ]

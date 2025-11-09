@@ -44,6 +44,7 @@ from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.websockets import router as websockets_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
+from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
     log_application_lifecycle,
@@ -777,6 +778,7 @@ routers_config = [
     ("family", family_router, "Family management and relationship endpoints"),
     ("workspaces", workspaces_router, "Team and workspace management endpoints"),
     ("websockets", websockets_router, "WebSocket communication endpoints"),
+    ("webrtc", webrtc_router, "WebRTC signaling and real-time communication endpoints"),
     ("documents", documents_router, "Document processing and upload endpoints"),
     ("rag", rag_router, "RAG and AI-powered document search endpoints"),
 ]

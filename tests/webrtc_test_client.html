@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Quick Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .config-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        
+        input, button {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #5568d3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .video-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .video-box {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .video-box h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        video {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .controls button {
+            flex: 1;
+        }
+        
+        .logs {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .logs h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .log-entry {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .log-info { background: #e3f2fd; color: #1976d2; }
+        .log-success { background: #e8f5e9; color: #388e3c; }
+        .log-warning { background: #fff3e0; color: #f57c00; }
+        .log-error { background: #ffebee; color: #d32f2f; }
+        
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        
+        .status.connected { background: #e8f5e9; color: #388e3c; }
+        .status.disconnected { background: #ffebee; color: #d32f2f; }
+        .status.connecting { background: #fff3e0; color: #f57c00; }
+        
+        @media (max-width: 768px) {
+            .video-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 WebRTC Quick Test Client</h1>
+            <p>Test your WebRTC signaling server in seconds</p>
+        </div>
+        
+        <div class="config-panel">
+            <h3>Configuration</h3>
+            <div class="input-group">
+                <label>Server URL</label>
+                <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+            <div class="input-group">
+                <label>JWT Token</label>
+                <input type="text" id="token" placeholder="Paste your JWT token here">
+            </div>
+            <div class="input-group">
+                <label>Room ID</label>
+                <input type="text" id="roomId" value="test-room" placeholder="test-room">
+            </div>
+            <button id="connectBtn">Connect to Room</button>
+            <div id="status" class="status disconnected" style="margin-top: 15px;">
+                Status: Disconnected
+            </div>
+        </div>
+        
+        <div class="video-container">
+            <div class="video-box">
+                <h3>Local Video</h3>
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div class="controls">
+                    <button id="toggleAudio">🎤 Mute</button>
+                    <button id="toggleVideo">📹 Stop Video</button>
+                </div>
+            </div>
+            
+            <div class="video-box">
+                <h3>Remote Video</h3>
+                <video id="remoteVideo" autoplay playsinline></video>
+                <div class="controls">
+                    <button id="createOffer">📞 Call</button>
+                    <button id="hangup" disabled>📵 Hang Up</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="logs">
+            <h3>Connection Logs</h3>
+            <div id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let ws = null;
+        let pc = null;
+        let localStream = null;
+        let remoteStream = null;
+        let config = null;
+        let isAudioEnabled = true;
+        let isVideoEnabled = true;
+
+        // DOM elements
+        const serverUrlInput = document.getElementById('serverUrl');
+        const tokenInput = document.getElementById('token');
+        const roomIdInput = document.getElementById('roomId');
+        const connectBtn = document.getElementById('connectBtn');
+        const statusDiv = document.getElementById('status');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const toggleAudioBtn = document.getElementById('toggleAudio');
+        const toggleVideoBtn = document.getElementById('toggleVideo');
+        const createOfferBtn = document.getElementById('createOffer');
+        const hangupBtn = document.getElementById('hangup');
+        const logContainer = document.getElementById('logContainer');
+
+        // Logging functions
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.insertBefore(entry, logContainer.firstChild);
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function setStatus(text, state) {
+            statusDiv.textContent = `Status: ${text}`;
+            statusDiv.className = `status ${state}`;
+        }
+
+        // Get WebRTC configuration from server
+        async function getWebRtcConfig() {
+            const serverUrl = serverUrlInput.value;
+            const token = tokenInput.value;
+
+            try {
+                log('Fetching WebRTC configuration...', 'info');
+                const response = await fetch(`${serverUrl}/webrtc/config`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to get config: ${response.status}`);
+                }
+
+                config = await response.json();
+                log(`Got ICE servers: ${config.ice_servers.length} servers`, 'success');
+                return config;
+            } catch (error) {
+                log(`Failed to get config: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // Initialize local media stream
+        async function initLocalStream() {
+            try {
+                log('Requesting camera and microphone access...', 'info');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 1280, height: 720 },
+                    audio: true
+                });
+                
+                localVideo.srcObject = localStream;
+                log('Local stream initialized', 'success');
+                return localStream;
+            } catch (error) {
+                log(`Failed to get local stream: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // Create peer connection
+        async function createPeerConnection() {
+            if (!config) {
+                await getWebRtcConfig();
+            }
+
+            const configuration = {
+                iceServers: config.ice_servers,
+                iceTransportPolicy: config.ice_transport_policy,
+                bundlePolicy: config.bundle_policy,
+                rtcpMuxPolicy: config.rtcp_mux_policy
+            };
+
+            pc = new RTCPeerConnection(configuration);
+            log('Peer connection created', 'success');
+
+            // Add local stream tracks
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+                log(`Added ${track.kind} track`, 'info');
+            });
+
+            // Handle ICE candidates
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    log(`New ICE candidate`, 'info');
+                    sendMessage({
+                        type: 'ice_candidate',
+                        payload: {
+                            candidate: event.candidate.candidate,
+                            sdp_mid: event.candidate.sdpMid,
+                            sdp_m_line_index: event.candidate.sdpMLineIndex
+                        },
+                        room_id: roomIdInput.value,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            };
+
+            // Handle remote tracks
+            pc.ontrack = (event) => {
+                log('Received remote track', 'success');
+                if (!remoteStream) {
+                    remoteStream = new MediaStream();
+                    remoteVideo.srcObject = remoteStream;
+                }
+                remoteStream.addTrack(event.track);
+            };
+
+            // Connection state changes
+            pc.onconnectionstatechange = () => {
+                log(`Connection state: ${pc.connectionState}`, 'info');
+                if (pc.connectionState === 'connected') {
+                    setStatus('Connected', 'connected');
+                    hangupBtn.disabled = false;
+                }
+            };
+
+            // ICE connection state
+            pc.oniceconnectionstatechange = () => {
+                log(`ICE connection state: ${pc.iceConnectionState}`, 'info');
+            };
+
+            return pc;
+        }
+
+        // Connect to WebSocket signaling server
+        async function connectToRoom() {
+            const serverUrl = serverUrlInput.value.replace('http', 'ws');
+            const token = tokenInput.value;
+            const roomId = roomIdInput.value;
+
+            if (!token) {
+                alert('Please enter your JWT token');
+                return;
+            }
+
+            try {
+                setStatus('Connecting...', 'connecting');
+                connectBtn.disabled = true;
+
+                // Initialize local stream first
+                await initLocalStream();
+
+                // Get WebRTC config
+                await getWebRtcConfig();
+
+                // Connect WebSocket
+                const wsUrl = `${serverUrl}/webrtc/ws/${roomId}?token=${token}`;
+                log(`Connecting to ${wsUrl}`, 'info');
+                
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    log('WebSocket connected', 'success');
+                    setStatus('Connected to room', 'connected');
+                    createOfferBtn.disabled = false;
+                };
+
+                ws.onmessage = async (event) => {
+                    const message = JSON.parse(event.data);
+                    await handleSignalingMessage(message);
+                };
+
+                ws.onerror = (error) => {
+                    log(`WebSocket error: ${error}`, 'error');
+                    setStatus('Connection error', 'disconnected');
+                };
+
+                ws.onclose = () => {
+                    log('WebSocket closed', 'warning');
+                    setStatus('Disconnected', 'disconnected');
+                    connectBtn.disabled = false;
+                    createOfferBtn.disabled = true;
+                    hangupBtn.disabled = true;
+                };
+
+            } catch (error) {
+                log(`Connection failed: ${error.message}`, 'error');
+                setStatus('Connection failed', 'disconnected');
+                connectBtn.disabled = false;
+            }
+        }
+
+        // Handle signaling messages
+        async function handleSignalingMessage(message) {
+            const { type, payload } = message;
+            log(`Received ${type}`, 'info');
+
+            switch (type) {
+                case 'room_state':
+                    const participants = payload.participants || [];
+                    log(`Room has ${participants.length} participant(s)`, 'success');
+                    break;
+
+                case 'user_joined':
+                    const username = payload.username || payload.user_id;
+                    log(`User joined: ${username}`, 'success');
+                    break;
+
+                case 'user_left':
+                    const leftUser = payload.username || payload.user_id;
+                    log(`User left: ${leftUser}`, 'warning');
+                    break;
+
+                case 'offer':
+                    await handleOffer(payload);
+                    break;
+
+                case 'answer':
+                    await handleAnswer(payload);
+                    break;
+
+                case 'ice_candidate':
+                    await handleIceCandidate(payload);
+                    break;
+
+                case 'error':
+                    log(`Server error: ${payload.message}`, 'error');
+                    break;
+            }
+        }
+
+        // Create and send offer
+        async function createOffer() {
+            try {
+                if (!pc) {
+                    await createPeerConnection();
+                }
+
+                log('Creating offer...', 'info');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                log('Offer created', 'success');
+
+                sendMessage({
+                    type: 'offer',
+                    payload: {
+                        type: offer.type,
+                        sdp: offer.sdp
+                    },
+                    room_id: roomIdInput.value,
+                    timestamp: new Date().toISOString()
+                });
+
+                createOfferBtn.disabled = true;
+            } catch (error) {
+                log(`Failed to create offer: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle incoming offer
+        async function handleOffer(payload) {
+            try {
+                if (!pc) {
+                    await createPeerConnection();
+                }
+
+                log('Setting remote description...', 'info');
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: payload.type,
+                    sdp: payload.sdp
+                }));
+
+                log('Creating answer...', 'info');
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                log('Answer created', 'success');
+
+                sendMessage({
+                    type: 'answer',
+                    payload: {
+                        type: answer.type,
+                        sdp: answer.sdp
+                    },
+                    room_id: roomIdInput.value,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                log(`Failed to handle offer: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle incoming answer
+        async function handleAnswer(payload) {
+            try {
+                log('Setting remote description from answer...', 'info');
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: payload.type,
+                    sdp: payload.sdp
+                }));
+                log('Remote description set', 'success');
+            } catch (error) {
+                log(`Failed to handle answer: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle ICE candidate
+        async function handleIceCandidate(payload) {
+            try {
+                const candidate = new RTCIceCandidate({
+                    candidate: payload.candidate,
+                    sdpMid: payload.sdp_mid,
+                    sdpMLineIndex: payload.sdp_m_line_index
+                });
+
+                await pc.addIceCandidate(candidate);
+                log('ICE candidate added', 'success');
+            } catch (error) {
+                log(`Failed to add ICE candidate: ${error.message}`, 'error');
+            }
+        }
+
+        // Send message through WebSocket
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+                log(`Sent ${message.type}`, 'info');
+            } else {
+                log('WebSocket not connected', 'error');
+            }
+        }
+
+        // Toggle audio
+        function toggleAudio() {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                audioTrack.enabled = !audioTrack.enabled;
+                isAudioEnabled = audioTrack.enabled;
+                toggleAudioBtn.textContent = isAudioEnabled ? '🎤 Mute' : '🔇 Unmute';
+                log(`Audio ${isAudioEnabled ? 'enabled' : 'disabled'}`, 'info');
+            }
+        }
+
+        // Toggle video
+        function toggleVideo() {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                videoTrack.enabled = !videoTrack.enabled;
+                isVideoEnabled = videoTrack.enabled;
+                toggleVideoBtn.textContent = isVideoEnabled ? '📹 Stop Video' : '📹 Start Video';
+                log(`Video ${isVideoEnabled ? 'enabled' : 'disabled'}`, 'info');
+            }
+        }
+
+        // Hang up
+        function hangup() {
+            if (pc) {
+                pc.close();
+                pc = null;
+                log('Peer connection closed', 'info');
+            }
+
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+                remoteVideo.srcObject = null;
+            }
+
+            createOfferBtn.disabled = false;
+            hangupBtn.disabled = true;
+            log('Call ended', 'warning');
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connectToRoom);
+        toggleAudioBtn.addEventListener('click', toggleAudio);
+        toggleVideoBtn.addEventListener('click', toggleVideo);
+        createOfferBtn.addEventListener('click', createOffer);
+        hangupBtn.addEventListener('click', hangup);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            if (ws) {
+                ws.close();
+            }
+            if (pc) {
+                pc.close();
+            }
+        });
+
+        // Initial log
+        log('WebRTC test client ready', 'success');
+        log('Enter your JWT token and click Connect to start', 'info');
+    </script>
+</body>
+</html>

@@ -24,7 +24,7 @@ import time
 from typing import Any, Dict, List, Optional, Union
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, status, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -337,6 +337,124 @@ async def upload_document(
             detail=f"Document upload failed: {str(e)}"
         )
 
+
+@router.post("/upload", response_model=DocumentUploadResponse, summary="Upload File (Multipart Form)",
+description="""
+Upload a file using multipart/form-data. This endpoint is designed for file uploads from web forms and Streamlit apps.
+
+**Accepts:**
+- Binary file data via multipart/form-data
+- Form field: `file` (the uploaded file)
+- Form field: `async_processing` (optional, default: true)
+
+**Features:**
+- Supports PDF, DOCX, PPTX, TXT, MD, and image files
+- Automatic content extraction
+- Async or sync processing
+- Progress tracking via task_id
+"""
+)
+async def upload_file(
+    file: UploadFile = File(...),
+    async_processing: bool = True,
+    current_user: dict = Depends(get_current_user),
+    rag_system = Depends(get_rag_system)
+):
+    """
+    Upload a file for RAG processing via multipart/form-data.
+    
+    This endpoint accepts file uploads and converts them for processing.
+    It's designed to work with web forms and Streamlit file uploaders.
+    
+    **Example Usage (curl):**
+    ```bash
+    curl -X POST "/rag/upload" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@document.pdf" \\
+      -F "async_processing=true"
+    ```
+    """
+    try:
+        start_time = time.time()
+        document_id = f"doc_{uuid.uuid4().hex[:8]}"
+        user_id = str(current_user["_id"])
+        
+        # Read file content
+        file_content = await file.read()
+        filename = file.filename or "uploaded_file"
+        content_type = file.content_type or "application/octet-stream"
+        
+        logger.info(
+            f"File upload via multipart: {filename}",
+            extra={
+                "document_id": document_id,
+                "user_id": user_id,
+                "uploaded_file": filename,
+                "size_bytes": len(file_content),
+                "content_type": content_type,
+                "async": async_processing
+            }
+        )
+        
+        # Process the uploaded file using the RAG system
+        try:
+            import io
+            file_data = io.BytesIO(file_content)
+            file_data.name = filename
+            
+            # Use RAG system to handle the upload
+            result = await rag_system.process_and_index_document(
+                file_data=file_data,
+                filename=filename,
+                user_id=user_id,
+                content_type=content_type
+            )
+            
+            processing_time = time.time() - start_time
+            
+            logger.info(
+                f"Upload successful: {filename}",
+                extra={
+                    "document_id": result.get("document", {}).get("id"),
+                    "chunks": result.get("document", {}).get("chunks"),
+                    "processing_time": processing_time
+                }
+            )
+            
+            return DocumentUploadResponse(
+                document_id=result.get("document", {}).get("id", document_id),
+                status="completed",
+                task_id=None,
+                chunks_created=result.get("document", {}).get("chunks", 0),
+                processing_time=processing_time,
+                message=f"File '{filename}' processed and indexed successfully"
+            )
+            
+        except Exception as e:
+            logger.error(
+                f"File processing failed: {e}",
+                exc_info=True,
+                extra={"uploaded_file": filename, "user_id": user_id}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to process file '{filename}': {str(e)}"
+            )
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"File upload failed: {e}",
+            exc_info=True,
+            extra={"uploaded_file": filename, "user_id": user_id}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"File upload failed: {str(e)}"
+        )
+
+
 @router.post("/query", response_model=RAGQueryResponse, summary="Query Documents with AI",
 description="""
 The core endpoint for interacting with the RAG system. 
@@ -429,32 +547,39 @@ async def query_documents(
         processing_time = (time.time() - start_time) * 1000
         
         # Convert chunks to proper format
+        # RAG system returns "context_chunks", not "chunks"
+        context_chunks = result.get("context_chunks", [])
         chunks = [
             DocumentChunk(
-                text=chunk["text"],
-                score=chunk["score"], 
-                metadata=chunk.get("metadata", {})
+                text=chunk.get("text", chunk.get("content", "")),
+                score=chunk.get("score", 0.0), 
+                metadata=chunk.get("metadata", chunk.get("document_metadata", {}))
             )
-            for chunk in result["chunks"]
+            for chunk in context_chunks
         ]
+        
+        # Get timestamp from result or generate new one
+        timestamp = result.get("timestamp", datetime.now().isoformat())
         
         response = RAGQueryResponse(
             query=result["query"],
             answer=result.get("answer"),
             chunks=chunks,
-            sources=result["sources"],
-            chunk_count=result["chunk_count"],
-            timestamp=result["timestamp"],
+            sources=result.get("sources", []),
+            chunk_count=len(chunks),
+            timestamp=timestamp,
             processing_time_ms=processing_time
         )
         
         logger.info(
-            f"RAG query completed: {result['chunk_count']} chunks, {processing_time:.1f}ms",
+            f"RAG query completed: {len(chunks)} chunks, {processing_time:.1f}ms",
             extra={
                 "user_id": user_id,
-                "chunk_count": result["chunk_count"],
+                "chunk_count": len(chunks),
                 "processing_time_ms": processing_time,
-                "has_answer": bool(result.get("answer"))
+                "has_answer": bool(result.get("answer")),
+                "confidence": result.get("confidence", 0.0),
+                "model_used": result.get("model_used", "unknown")
             }
         )
         
@@ -884,21 +1009,22 @@ async def vector_search(
         )
         
         # Convert chunks to proper format
+        context_chunks = result.get("context_chunks", [])
         chunks = [
             DocumentChunk(
-                text=chunk["text"],
-                score=chunk["score"],
-                metadata=chunk.get("metadata", {})
+                text=chunk.get("text", chunk.get("content", "")),
+                score=chunk.get("score", 0.0),
+                metadata=chunk.get("metadata", chunk.get("document_metadata", {}))
             )
-            for chunk in result["context_chunks"]
+            for chunk in context_chunks
         ]
         
         return RAGQueryResponse(
             query=result["query"],
             answer=None,  # No LLM answer for vector search
             chunks=chunks,
-            sources=result["sources"],
-            chunk_count=result["context_chunks"] if isinstance(result.get("context_chunks"), int) else len(result.get("context_chunks", [])),
+            sources=result.get("sources", []),
+            chunk_count=len(chunks),
             timestamp=datetime.now().isoformat()
         )
         

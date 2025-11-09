@@ -61,6 +61,21 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         },
     )
 
+    # Additional security logging for plan validation bypass attempts
+    if user.plan and user.plan.lower() != "free":
+        logger.warning("Plan validation bypass attempt detected: user=%s requested plan=%s", user.username, user.plan)
+        log_security_event(
+            event_type="registration_plan_bypass_attempt",
+            user_id=user.username,
+            success=False,
+            details={
+                "username": user.username,
+                "email": user.email,
+                "attempted_plan": user.plan,
+                "allowed_plan": "free",
+            },
+        )
+
     # Validate username format and reserved prefixes using comprehensive validation
     from second_brain_database.managers.family_manager import family_manager
 

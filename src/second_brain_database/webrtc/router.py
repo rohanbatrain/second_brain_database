@@ -742,3 +742,667 @@ async def get_active_recordings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve recordings"
         )
+
+
+# ============================================================================
+# Immediate Features: Participant List Enhancements
+# ============================================================================
+
+@router.get("/rooms/{room_id}/participants/enhanced")
+async def get_enhanced_participants(
+    room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get enhanced participant information including media states.
+    
+    **Authentication**: Requires valid JWT token.
+    """
+    try:
+        room_id = validate_room_id(room_id)
+        participants = await webrtc_manager.get_participants(room_id)
+        
+        # Enhance with additional info
+        enhanced_participants = []
+        for participant in participants:
+            user_id = participant.get("user_id")
+            if user_id:
+                info = await webrtc_manager.get_participant_info(room_id, user_id)
+                enhanced_participants.append({**participant, **info})
+            else:
+                enhanced_participants.append(participant)
+        
+        return {
+            "room_id": room_id,
+            "participants": enhanced_participants,
+            "participant_count": len(enhanced_participants)
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to get enhanced participants: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve enhanced participants"
+        )
+
+
+@router.post("/rooms/{room_id}/participants/{user_id}/info")
+async def update_participant_info(
+    room_id: str,
+    user_id: str,
+    info: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update participant information."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Only user can update their own info
+        if current_user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Can only update own participant info"
+            )
+        
+        await webrtc_manager.update_participant_info(room_id, user_id, info)
+        
+        # Notify room
+        from second_brain_database.webrtc.schemas import ParticipantInfo
+        participant = ParticipantInfo(**info)
+        participant_message = WebRtcMessage.create_participant_update(
+            participant=participant,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, participant_message)
+        
+        return {"success": True, "user_id": user_id, "info": info}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to update participant info: {e}",
+            extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update participant info"
+        )
+
+
+# ============================================================================
+# Immediate Features: Room Settings
+# ============================================================================
+
+@router.get("/rooms/{room_id}/settings")
+async def get_room_settings(
+    room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get room settings."""
+    try:
+        room_id = validate_room_id(room_id)
+        settings = await webrtc_manager.get_room_settings(room_id)
+        
+        return {"room_id": room_id, "settings": settings}
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to get room settings: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve room settings"
+        )
+
+
+@router.post("/rooms/{room_id}/settings")
+async def update_room_settings(
+    room_id: str,
+    settings: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update room settings."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to update room settings"
+            )
+        
+        await webrtc_manager.set_room_settings(room_id, settings)
+        
+        # Notify room
+        from second_brain_database.webrtc.schemas import RoomSettings
+        settings_obj = RoomSettings(**settings)
+        settings_message = WebRtcMessage.create_room_settings_update(
+            settings=settings_obj,
+            updated_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, settings_message)
+        
+        return {"success": True, "room_id": room_id, "settings": settings}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to update room settings: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update room settings"
+        )
+
+
+# ============================================================================
+# Immediate Features: Hand Raise Queue
+# ============================================================================
+
+@router.post("/rooms/{room_id}/hand-raise")
+async def raise_hand(
+    room_id: str,
+    raised: bool = True,
+    current_user: dict = Depends(get_current_user)
+):
+    """Raise or lower hand."""
+    try:
+        room_id = validate_room_id(room_id)
+        user_id = str(current_user["_id"])
+        username = current_user.get("username") or current_user.get("email")
+        timestamp = datetime.now(timezone.utc).isoformat()
+        
+        if raised:
+            position = await webrtc_manager.add_to_hand_raise_queue(room_id, user_id, username, timestamp)
+        else:
+            await webrtc_manager.remove_from_hand_raise_queue(room_id, user_id)
+            position = None
+        
+        # Notify room
+        hand_raise_message = WebRtcMessage.create_hand_raise(
+            user_id=user_id,
+            username=username,
+            raised=raised,
+            room_id=room_id,
+            timestamp=timestamp
+        )
+        await webrtc_manager.publish_to_room(room_id, hand_raise_message)
+        
+        # Send updated queue
+        queue = await webrtc_manager.get_hand_raise_queue(room_id)
+        from second_brain_database.webrtc.schemas import HandRaiseQueueEntry
+        queue_entries = [HandRaiseQueueEntry(**entry) for entry in queue]
+        queue_message = WebRtcMessage.create_hand_raise_queue(
+            queue=queue_entries,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, queue_message)
+        
+        return {"success": True, "raised": raised, "position": position}
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to raise/lower hand: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to raise/lower hand"
+        )
+
+
+@router.get("/rooms/{room_id}/hand-raise/queue")
+async def get_hand_raise_queue_endpoint(
+    room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get hand raise queue."""
+    try:
+        room_id = validate_room_id(room_id)
+        queue = await webrtc_manager.get_hand_raise_queue(room_id)
+        
+        return {"room_id": room_id, "queue": queue, "count": len(queue)}
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to get hand raise queue: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve hand raise queue"
+        )
+
+
+# ============================================================================
+# Short Term: Waiting Room
+# ============================================================================
+
+@router.get("/rooms/{room_id}/waiting-room")
+async def get_waiting_room(
+    room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get waiting room participants."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to view waiting room"
+            )
+        
+        participants = await webrtc_manager.get_waiting_room_participants(room_id)
+        
+        return {
+            "room_id": room_id,
+            "participants": participants,
+            "count": len(participants)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to get waiting room: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve waiting room"
+        )
+
+
+@router.post("/rooms/{room_id}/waiting-room/{user_id}/admit")
+async def admit_from_waiting_room(
+    room_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Admit user from waiting room."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to admit from waiting room"
+            )
+        
+        await webrtc_manager.remove_from_waiting_room(room_id, user_id)
+        
+        # Notify room
+        admit_message = WebRtcMessage.create_waiting_room_admit(
+            user_id=user_id,
+            actioned_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, admit_message)
+        
+        return {"success": True, "user_id": user_id, "action": "admitted"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to admit from waiting room: {e}",
+            extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to admit from waiting room"
+        )
+
+
+@router.post("/rooms/{room_id}/waiting-room/{user_id}/reject")
+async def reject_from_waiting_room(
+    room_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Reject user from waiting room."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to reject from waiting room"
+            )
+        
+        await webrtc_manager.remove_from_waiting_room(room_id, user_id)
+        
+        # Notify room
+        reject_message = WebRtcMessage.create_waiting_room_reject(
+            user_id=user_id,
+            actioned_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, reject_message)
+        
+        return {"success": True, "user_id": user_id, "action": "rejected"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to reject from waiting room: {e}",
+            extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reject from waiting room"
+        )
+
+
+# ============================================================================
+# Medium Term: Breakout Rooms
+# ============================================================================
+
+@router.post("/rooms/{room_id}/breakout-rooms")
+async def create_breakout_room(
+    room_id: str,
+    config: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a breakout room."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to create breakout rooms"
+            )
+        
+        breakout_room_id = config.get("breakout_room_id")
+        await webrtc_manager.create_breakout_room(room_id, breakout_room_id, config)
+        
+        # Notify room
+        from second_brain_database.webrtc.schemas import BreakoutRoomConfig
+        breakout_config = BreakoutRoomConfig(**config)
+        breakout_message = WebRtcMessage.create_breakout_room_create(
+            config=breakout_config,
+            created_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, breakout_message)
+        
+        return {"success": True, "breakout_room_id": breakout_room_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to create breakout room: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create breakout room"
+        )
+
+
+@router.post("/rooms/{room_id}/breakout-rooms/{breakout_room_id}/assign/{user_id}")
+async def assign_to_breakout_room(
+    room_id: str,
+    breakout_room_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Assign user to breakout room."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to assign to breakout rooms"
+            )
+        
+        await webrtc_manager.assign_to_breakout_room(room_id, user_id, breakout_room_id)
+        
+        # Notify room
+        assign_message = WebRtcMessage.create_breakout_room_assign(
+            user_id=user_id,
+            breakout_room_id=breakout_room_id,
+            assigned_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, assign_message)
+        
+        return {"success": True, "user_id": user_id, "breakout_room_id": breakout_room_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to assign to breakout room: {e}",
+            extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to assign to breakout room"
+        )
+
+
+@router.delete("/rooms/{room_id}/breakout-rooms/{breakout_room_id}")
+async def close_breakout_room_endpoint(
+    room_id: str,
+    breakout_room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Close a breakout room."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to close breakout rooms"
+            )
+        
+        await webrtc_manager.close_breakout_room(room_id, breakout_room_id)
+        
+        # Notify room
+        close_message = WebRtcMessage.create_breakout_room_close(
+            breakout_room_id=breakout_room_id,
+            closed_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, close_message)
+        
+        return {"success": True, "breakout_room_id": breakout_room_id, "status": "closed"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to close breakout room: {e}",
+            extra={"room_id": room_id, "breakout_room_id": breakout_room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to close breakout room"
+        )
+
+
+# ============================================================================
+# Medium Term: Live Streaming
+# ============================================================================
+
+@router.post("/rooms/{room_id}/live-streams/start")
+async def start_live_stream_endpoint(
+    room_id: str,
+    config: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Start a live stream."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to start live stream"
+            )
+        
+        stream_id = config.get("stream_id")
+        await webrtc_manager.start_live_stream(room_id, stream_id, config)
+        
+        # Notify room
+        from second_brain_database.webrtc.schemas import LiveStreamConfig
+        stream_config = LiveStreamConfig(**config)
+        stream_message = WebRtcMessage.create_live_stream_start(
+            config=stream_config,
+            started_by=current_user_id,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, stream_message)
+        
+        return {"success": True, "stream_id": stream_id, "status": "streaming"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to start live stream: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start live stream"
+        )
+
+
+@router.post("/rooms/{room_id}/live-streams/{stream_id}/stop")
+async def stop_live_stream_endpoint(
+    room_id: str,
+    stream_id: str,
+    duration_seconds: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Stop a live stream."""
+    try:
+        room_id = validate_room_id(room_id)
+        current_user_id = str(current_user["_id"])
+        
+        # Check permissions
+        role = await webrtc_manager.get_user_role(room_id, current_user_id)
+        if role not in ["host", "moderator"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to stop live stream"
+            )
+        
+        await webrtc_manager.stop_live_stream(room_id, stream_id)
+        
+        # Notify room
+        stop_message = WebRtcMessage.create_live_stream_stop(
+            stream_id=stream_id,
+            stopped_by=current_user_id,
+            duration_seconds=duration_seconds,
+            room_id=room_id,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        await webrtc_manager.publish_to_room(room_id, stop_message)
+        
+        return {"success": True, "stream_id": stream_id, "status": "stopped"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to stop live stream: {e}",
+            extra={"room_id": room_id, "stream_id": stream_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to stop live stream"
+        )
+
+
+@router.get("/rooms/{room_id}/live-streams")
+async def get_active_live_streams_endpoint(
+    room_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get active live streams."""
+    try:
+        room_id = validate_room_id(room_id)
+        streams = await webrtc_manager.get_active_live_streams(room_id)
+        
+        return {
+            "room_id": room_id,
+            "active_streams": streams,
+            "count": len(streams)
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to get live streams: {e}",
+            extra={"room_id": room_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve live streams"
+        )
+

@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 
 from ..config import settings
@@ -44,14 +44,25 @@ class DocumentProcessor:
         # Configure pipeline options for all supported formats
         format_options = {}
 
-        # PDF with advanced OCR and layout analysis
+        # PDF with basic processing
+        # Disable OCR and table structure to avoid PyTorch model loading issues
+        # According to Docling docs: https://docling-project.github.io/docling/usage/advanced_options/
         if settings.DOCLING_ENABLED:
-            pdf_pipeline = PdfPipelineOptions()
-            pdf_pipeline.do_ocr = settings.DOCLING_OCR_ENABLED
-            pdf_pipeline.do_table_structure = settings.DOCLING_TABLE_EXTRACTION
-            pdf_pipeline.table_structure_options.do_cell_matching = True
+            # Use accelerator options to ensure CPU-only processing
+            accelerator_options = AcceleratorOptions(
+                num_threads=4,  # Limit CPU threads
+                device="cpu"     # Force CPU to avoid GPU/model loading issues
+            )
+            
+            pdf_pipeline = PdfPipelineOptions(
+                do_ocr=False,  # Disable OCR to avoid EasyOCR model loading
+                do_table_structure=False,  # Disable TableFormer to avoid model loading
+                accelerator_options=accelerator_options
+            )
+            
             format_options[InputFormat.PDF] = PdfFormatOption(
-                pipeline_options=pdf_pipeline, backend=PyPdfiumDocumentBackend
+                pipeline_options=pdf_pipeline, 
+                backend=PyPdfiumDocumentBackend
             )
 
         # Initialize converter with all supported formats
@@ -125,12 +136,26 @@ class DocumentProcessor:
                 content = result.document.export_to_text()
 
             # Extract enhanced metadata
+            # Handle both page objects and page counts
+            page_count = len(result.document.pages) if hasattr(result.document.pages, '__len__') else 1
+            
+            # Safely check for tables and images
+            has_tables = False
+            has_images = False
+            try:
+                if hasattr(result.document.pages, '__iter__'):
+                    has_tables = any(hasattr(page, 'tables') and page.tables for page in result.document.pages)
+                    has_images = any(hasattr(page, 'images') and page.images for page in result.document.pages)
+            except (TypeError, AttributeError):
+                # Pages might be a simple count, not iterable objects
+                pass
+            
             metadata = {
                 "filename": filename,
                 "file_size": len(file_data),
-                "page_count": len(result.document.pages),
-                "has_tables": any(page.tables for page in result.document.pages),
-                "has_images": any(page.images for page in result.document.pages),
+                "page_count": page_count,
+                "has_tables": has_tables,
+                "has_images": has_images,
                 "format": suffix[1:] if suffix else "unknown",
                 "processing_options": {
                     "ocr_enabled": settings.DOCLING_OCR_ENABLED,
@@ -142,16 +167,22 @@ class DocumentProcessor:
             # Extract images if requested
             images = []
             if extract_images:
-                for page_idx, page in enumerate(result.document.pages):
-                    for img_idx, image in enumerate(page.images):
-                        images.append(
-                            {
-                                "page": page_idx + 1,
-                                "index": img_idx,
-                                "bbox": image.bbox if hasattr(image, "bbox") else None,
-                                "size": image.size if hasattr(image, "size") else None,
-                            }
-                        )
+                try:
+                    if hasattr(result.document.pages, '__iter__'):
+                        for page_idx, page in enumerate(result.document.pages):
+                            if hasattr(page, 'images') and page.images:
+                                for img_idx, image in enumerate(page.images):
+                                    images.append(
+                                        {
+                                            "page": page_idx + 1,
+                                            "index": img_idx,
+                                            "bbox": image.bbox if hasattr(image, "bbox") else None,
+                                            "size": image.size if hasattr(image, "size") else None,
+                                        }
+                                    )
+                except (TypeError, AttributeError) as e:
+                    logger.warning(f"Could not extract images from {filename}: {e}")
+                    images = []
 
             # Store in MongoDB
             doc_id = await self._store_document(

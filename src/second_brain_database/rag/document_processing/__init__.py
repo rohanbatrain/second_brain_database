@@ -7,6 +7,7 @@ The existing DocumentProcessor already handles all major formats with comprehens
 
 from pathlib import Path
 import time
+import uuid
 from typing import Any, BinaryIO, Dict, List, Optional
 
 from second_brain_database.integrations.docling_processor import DocumentProcessor
@@ -169,11 +170,15 @@ class RAGDocumentService:
             "processed_at": processor_result.get("processed_at"),
         })
         
-        # Create document chunks
-        chunks = self._create_chunks(content, metadata_dict)
+        # Generate document ID (use the one from processor or create new)
+        document_id = processor_result.get("document_id") or f"doc_{uuid.uuid4().hex[:8]}"
+        
+        # Create document chunks with document_id
+        chunks = self._create_chunks(content, metadata_dict, document_id)
         
         # Create RAG document
         document = Document(
+            id=document_id,
             filename=filename,
             user_id=user_id,
             content=content if isinstance(content, str) else str(content),
@@ -187,7 +192,8 @@ class RAGDocumentService:
     def _create_chunks(
         self,
         content: Any,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        document_id: str = None
     ) -> List[DocumentChunk]:
         """
         Create document chunks from processed content.
@@ -195,6 +201,7 @@ class RAGDocumentService:
         Args:
             content: Processed document content
             metadata: Document metadata
+            document_id: Document ID for the chunks
             
         Returns:
             List of document chunks
@@ -206,19 +213,24 @@ class RAGDocumentService:
         if not content.strip():
             return []
         
+        # Generate document_id if not provided
+        if not document_id:
+            document_id = metadata.get("document_id", f"doc_{uuid.uuid4().hex[:8]}")
+        
         # Use configured chunking strategy
         if self.config.chunk_strategy == "fixed":
-            return self._create_fixed_chunks(content, metadata)
+            return self._create_fixed_chunks(content, metadata, document_id)
         elif self.config.chunk_strategy == "recursive":
-            return self._create_recursive_chunks(content, metadata)
+            return self._create_recursive_chunks(content, metadata, document_id)
         else:
             # Default to fixed chunking
-            return self._create_fixed_chunks(content, metadata)
+            return self._create_fixed_chunks(content, metadata, document_id)
     
     def _create_fixed_chunks(
         self,
         content: str,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        document_id: str
     ) -> List[DocumentChunk]:
         """Create fixed-size chunks."""
         chunks = []
@@ -242,13 +254,14 @@ class RAGDocumentService:
                     chunk_text = content[start:end]
             
             chunk = DocumentChunk(
-                index=chunk_index,
+                document_id=document_id,
+                chunk_index=chunk_index,
                 content=chunk_text.strip(),
                 start_char=start,
                 end_char=end,
-                token_count=len(chunk_text.split()),
                 metadata={
                     "chunk_type": "fixed",
+                    "token_count": len(chunk_text.split()),
                     "page_numbers": self._estimate_page_numbers(start, end, content, metadata),
                 }
             )
@@ -268,7 +281,8 @@ class RAGDocumentService:
     def _create_recursive_chunks(
         self,
         content: str,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        document_id: str
     ) -> List[DocumentChunk]:
         """Create recursive chunks that respect document structure."""
         chunks = []
@@ -288,13 +302,14 @@ class RAGDocumentService:
             if current_chunk and len(current_chunk) + len(paragraph) > self.config.chunk_size:
                 # Create chunk from current content
                 chunk = DocumentChunk(
-                    index=chunk_index,
+                    document_id=document_id,
+                    chunk_index=chunk_index,
                     content=current_chunk.strip(),
                     start_char=start_char,
                     end_char=start_char + len(current_chunk),
-                    token_count=len(current_chunk.split()),
                     metadata={
                         "chunk_type": "recursive",
+                        "token_count": len(current_chunk.split()),
                         "page_numbers": self._estimate_page_numbers(
                             start_char, 
                             start_char + len(current_chunk), 
@@ -324,13 +339,14 @@ class RAGDocumentService:
         # Add final chunk if there's remaining content
         if current_chunk.strip():
             chunk = DocumentChunk(
-                index=chunk_index,
+                document_id=document_id,
+                chunk_index=chunk_index,
                 content=current_chunk.strip(),
                 start_char=start_char,
                 end_char=start_char + len(current_chunk),
-                token_count=len(current_chunk.split()),
                 metadata={
                     "chunk_type": "recursive",
+                    "token_count": len(current_chunk.split()),
                     "page_numbers": self._estimate_page_numbers(
                         start_char,
                         start_char + len(current_chunk),

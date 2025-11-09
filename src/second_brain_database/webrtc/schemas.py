@@ -49,6 +49,30 @@ class MessageType(str, Enum):
     
     # Phase 2: Analytics
     ANALYTICS_EVENT = "analytics-event"
+    
+    # Immediate Features (This Week)
+    PARTICIPANT_UPDATE = "participant-update"  # Enhanced participant info
+    ROOM_SETTINGS_UPDATE = "room-settings-update"  # Room settings changes
+    HAND_RAISE = "hand-raise"  # Raise/lower hand
+    HAND_RAISE_QUEUE = "hand-raise-queue"  # Hand raise queue update
+    
+    # Short Term (This Month)
+    WAITING_ROOM_JOIN = "waiting-room-join"  # User joins waiting room
+    WAITING_ROOM_ADMIT = "waiting-room-admit"  # Admit from waiting room
+    WAITING_ROOM_REJECT = "waiting-room-reject"  # Reject from waiting room
+    REACTION = "reaction"  # User reaction/emoji
+    
+    # Medium Term (Next Quarter)
+    BREAKOUT_ROOM_CREATE = "breakout-room-create"  # Create breakout room
+    BREAKOUT_ROOM_ASSIGN = "breakout-room-assign"  # Assign user to breakout
+    BREAKOUT_ROOM_CLOSE = "breakout-room-close"  # Close breakout room
+    VIRTUAL_BACKGROUND_UPDATE = "virtual-background-update"  # Background change
+    LIVE_STREAM_START = "live-stream-start"  # Start live stream
+    LIVE_STREAM_STOP = "live-stream-stop"  # Stop live stream
+    
+    # Long Term (6+ Months)
+    E2EE_KEY_EXCHANGE = "e2ee-key-exchange"  # End-to-end encryption keys
+    E2EE_RATCHET_UPDATE = "e2ee-ratchet-update"  # E2EE ratchet update
 
 
 class SdpPayload(BaseModel):
@@ -274,6 +298,256 @@ class AnalyticsEventPayload(BaseModel):
     event_type: str = Field(..., description="Event type: connection, media_change, error, etc.")
     user_id: str = Field(..., description="User ID")
     data: Dict[str, Any] = Field(..., description="Event-specific data")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Immediate Features (This Week): Participant List Enhancements
+# ============================================================================
+
+class ParticipantInfo(BaseModel):
+    """Enhanced participant information."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    role: RoomRole = Field(default=RoomRole.PARTICIPANT, description="User role")
+    audio_enabled: bool = Field(default=True, description="Audio enabled")
+    video_enabled: bool = Field(default=True, description="Video enabled")
+    screen_sharing: bool = Field(default=False, description="Screen sharing active")
+    hand_raised: bool = Field(default=False, description="Hand raised")
+    hand_raised_at: Optional[str] = Field(None, description="When hand was raised")
+    joined_at: str = Field(..., description="Join timestamp")
+    connection_quality: str = Field(default="good", description="Connection quality")
+    is_speaking: bool = Field(default=False, description="Currently speaking")
+
+
+class ParticipantUpdatePayload(BaseModel):
+    """Participant state update payload."""
+    participant: ParticipantInfo = Field(..., description="Updated participant info")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Immediate Features (This Week): Room Settings
+# ============================================================================
+
+class RoomSettings(BaseModel):
+    """Room configuration settings."""
+    lock_room: bool = Field(default=False, description="Room is locked (no new joins)")
+    enable_waiting_room: bool = Field(default=False, description="Enable waiting room")
+    mute_on_entry: bool = Field(default=False, description="Mute participants on entry")
+    disable_video_on_entry: bool = Field(default=False, description="Disable video on entry")
+    enable_chat: bool = Field(default=True, description="Enable chat")
+    enable_screen_share: bool = Field(default=True, description="Enable screen sharing")
+    enable_reactions: bool = Field(default=True, description="Enable reactions")
+    enable_file_sharing: bool = Field(default=True, description="Enable file sharing")
+    enable_recording: bool = Field(default=True, description="Enable recording")
+    max_participants: Optional[int] = Field(None, description="Maximum participants allowed")
+    require_host_to_start: bool = Field(default=False, description="Require host to start meeting")
+    allow_participants_rename: bool = Field(default=True, description="Allow participants to rename themselves")
+    allow_participants_unmute: bool = Field(default=True, description="Allow participants to unmute themselves")
+
+
+class RoomSettingsUpdatePayload(BaseModel):
+    """Room settings update payload."""
+    settings: RoomSettings = Field(..., description="Updated room settings")
+    updated_by: str = Field(..., description="User who updated settings")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Immediate Features (This Week): Hand Raise Queue
+# ============================================================================
+
+class HandRaisePayload(BaseModel):
+    """Hand raise/lower payload."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    raised: bool = Field(..., description="True if raising, False if lowering")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class HandRaiseQueueEntry(BaseModel):
+    """Entry in hand raise queue."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    raised_at: str = Field(..., description="When hand was raised")
+    position: int = Field(..., description="Position in queue")
+
+
+class HandRaiseQueuePayload(BaseModel):
+    """Hand raise queue state payload."""
+    queue: list[HandRaiseQueueEntry] = Field(..., description="Ordered queue of raised hands")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Short Term (This Month): Waiting Room
+# ============================================================================
+
+class WaitingRoomParticipant(BaseModel):
+    """Participant in waiting room."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    joined_at: str = Field(..., description="Join timestamp")
+
+
+class WaitingRoomJoinPayload(BaseModel):
+    """User joins waiting room payload."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class WaitingRoomResponsePayload(BaseModel):
+    """Admit/reject from waiting room payload."""
+    user_id: str = Field(..., description="User ID being admitted/rejected")
+    actioned_by: str = Field(..., description="User who admitted/rejected")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Short Term (This Month): Reactions
+# ============================================================================
+
+class ReactionType(str, Enum):
+    """Reaction types."""
+    THUMBS_UP = "thumbs_up"
+    THUMBS_DOWN = "thumbs_down"
+    CLAP = "clap"
+    HEART = "heart"
+    LAUGH = "laugh"
+    SURPRISED = "surprised"
+    THINKING = "thinking"
+    CELEBRATE = "celebrate"
+
+
+class ReactionPayload(BaseModel):
+    """User reaction payload."""
+    user_id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    reaction_type: ReactionType = Field(..., description="Type of reaction")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Medium Term (Next Quarter): Breakout Rooms
+# ============================================================================
+
+class BreakoutRoomConfig(BaseModel):
+    """Breakout room configuration."""
+    breakout_room_id: str = Field(..., description="Breakout room ID")
+    name: str = Field(..., description="Breakout room name")
+    max_participants: Optional[int] = Field(None, description="Max participants")
+    auto_move_back: bool = Field(default=True, description="Auto move back to main room when closed")
+    duration_minutes: Optional[int] = Field(None, description="Auto-close after duration")
+
+
+class BreakoutRoomCreatePayload(BaseModel):
+    """Create breakout room payload."""
+    config: BreakoutRoomConfig = Field(..., description="Breakout room config")
+    created_by: str = Field(..., description="User who created the breakout room")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class BreakoutRoomAssignPayload(BaseModel):
+    """Assign user to breakout room payload."""
+    user_id: str = Field(..., description="User being assigned")
+    breakout_room_id: str = Field(..., description="Breakout room ID")
+    assigned_by: str = Field(..., description="User who assigned")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class BreakoutRoomClosePayload(BaseModel):
+    """Close breakout room payload."""
+    breakout_room_id: str = Field(..., description="Breakout room ID")
+    closed_by: str = Field(..., description="User who closed the room")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Medium Term (Next Quarter): Virtual Backgrounds & Live Streaming
+# ============================================================================
+
+class VirtualBackgroundType(str, Enum):
+    """Virtual background types."""
+    NONE = "none"
+    BLUR = "blur"
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class VirtualBackgroundUpdatePayload(BaseModel):
+    """Virtual background update payload."""
+    user_id: str = Field(..., description="User ID")
+    background_type: VirtualBackgroundType = Field(..., description="Background type")
+    background_url: Optional[str] = Field(None, description="URL for image/video background")
+    blur_intensity: Optional[int] = Field(None, description="Blur intensity 0-100")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class LiveStreamPlatform(str, Enum):
+    """Live streaming platforms."""
+    YOUTUBE = "youtube"
+    FACEBOOK = "facebook"
+    TWITCH = "twitch"
+    CUSTOM_RTMP = "custom_rtmp"
+
+
+class LiveStreamConfig(BaseModel):
+    """Live stream configuration."""
+    stream_id: str = Field(..., description="Stream ID")
+    platform: LiveStreamPlatform = Field(..., description="Streaming platform")
+    stream_url: str = Field(..., description="RTMP URL")
+    stream_key: str = Field(..., description="Stream key")
+    title: str = Field(..., description="Stream title")
+    description: Optional[str] = Field(None, description="Stream description")
+
+
+class LiveStreamStartPayload(BaseModel):
+    """Start live stream payload."""
+    config: LiveStreamConfig = Field(..., description="Stream configuration")
+    started_by: str = Field(..., description="User who started stream")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class LiveStreamStopPayload(BaseModel):
+    """Stop live stream payload."""
+    stream_id: str = Field(..., description="Stream ID")
+    stopped_by: str = Field(..., description="User who stopped stream")
+    duration_seconds: int = Field(..., description="Stream duration")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+# ============================================================================
+# Long Term (6+ Months): End-to-End Encryption
+# ============================================================================
+
+class E2EEKeyType(str, Enum):
+    """E2EE key types."""
+    IDENTITY_KEY = "identity_key"
+    SIGNED_PRE_KEY = "signed_pre_key"
+    ONE_TIME_PRE_KEY = "one_time_pre_key"
+    RATCHET_KEY = "ratchet_key"
+
+
+class E2EEKeyExchangePayload(BaseModel):
+    """E2EE key exchange payload."""
+    sender_user_id: str = Field(..., description="Sender user ID")
+    recipient_user_id: str = Field(..., description="Recipient user ID")
+    key_type: E2EEKeyType = Field(..., description="Type of key")
+    public_key: str = Field(..., description="Base64 encoded public key")
+    key_id: str = Field(..., description="Unique key ID")
+    signature: Optional[str] = Field(None, description="Key signature")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+
+
+class E2EERatchetUpdatePayload(BaseModel):
+    """E2EE ratchet update payload."""
+    sender_user_id: str = Field(..., description="Sender user ID")
+    recipient_user_id: str = Field(..., description="Recipient user ID")
+    chain_key: str = Field(..., description="Base64 encoded chain key")
+    message_number: int = Field(..., description="Message number in chain")
+    previous_chain_length: int = Field(..., description="Previous chain length")
     timestamp: str = Field(..., description="ISO 8601 timestamp")
 
 
@@ -733,6 +1007,379 @@ class WebRtcMessage(BaseModel):
                 timestamp=timestamp
             ).model_dump(),
             sender_id=user_id,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Immediate Features: Participant List Enhancements
+    # ========================================================================
+    
+    @classmethod
+    def create_participant_update(
+        cls,
+        participant: ParticipantInfo,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a participant update message."""
+        return cls(
+            type=MessageType.PARTICIPANT_UPDATE,
+            payload=ParticipantUpdatePayload(
+                participant=participant,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=participant.user_id,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Immediate Features: Room Settings
+    # ========================================================================
+    
+    @classmethod
+    def create_room_settings_update(
+        cls,
+        settings: RoomSettings,
+        updated_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a room settings update message."""
+        return cls(
+            type=MessageType.ROOM_SETTINGS_UPDATE,
+            payload=RoomSettingsUpdatePayload(
+                settings=settings,
+                updated_by=updated_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=updated_by,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Immediate Features: Hand Raise Queue
+    # ========================================================================
+    
+    @classmethod
+    def create_hand_raise(
+        cls,
+        user_id: str,
+        username: str,
+        raised: bool,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a hand raise/lower message."""
+        return cls(
+            type=MessageType.HAND_RAISE,
+            payload=HandRaisePayload(
+                user_id=user_id,
+                username=username,
+                raised=raised,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=user_id,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_hand_raise_queue(
+        cls,
+        queue: list[HandRaiseQueueEntry],
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a hand raise queue update message."""
+        return cls(
+            type=MessageType.HAND_RAISE_QUEUE,
+            payload=HandRaiseQueuePayload(
+                queue=queue,
+                timestamp=timestamp
+            ).model_dump(),
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Short Term: Waiting Room
+    # ========================================================================
+    
+    @classmethod
+    def create_waiting_room_join(
+        cls,
+        user_id: str,
+        username: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a waiting room join message."""
+        return cls(
+            type=MessageType.WAITING_ROOM_JOIN,
+            payload=WaitingRoomJoinPayload(
+                user_id=user_id,
+                username=username,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=user_id,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_waiting_room_admit(
+        cls,
+        user_id: str,
+        actioned_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a waiting room admit message."""
+        return cls(
+            type=MessageType.WAITING_ROOM_ADMIT,
+            payload=WaitingRoomResponsePayload(
+                user_id=user_id,
+                actioned_by=actioned_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=actioned_by,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_waiting_room_reject(
+        cls,
+        user_id: str,
+        actioned_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a waiting room reject message."""
+        return cls(
+            type=MessageType.WAITING_ROOM_REJECT,
+            payload=WaitingRoomResponsePayload(
+                user_id=user_id,
+                actioned_by=actioned_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=actioned_by,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Short Term: Reactions
+    # ========================================================================
+    
+    @classmethod
+    def create_reaction(
+        cls,
+        user_id: str,
+        username: str,
+        reaction_type: ReactionType,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a reaction message."""
+        return cls(
+            type=MessageType.REACTION,
+            payload=ReactionPayload(
+                user_id=user_id,
+                username=username,
+                reaction_type=reaction_type,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=user_id,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Medium Term: Breakout Rooms
+    # ========================================================================
+    
+    @classmethod
+    def create_breakout_room_create(
+        cls,
+        config: BreakoutRoomConfig,
+        created_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a breakout room creation message."""
+        return cls(
+            type=MessageType.BREAKOUT_ROOM_CREATE,
+            payload=BreakoutRoomCreatePayload(
+                config=config,
+                created_by=created_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=created_by,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_breakout_room_assign(
+        cls,
+        user_id: str,
+        breakout_room_id: str,
+        assigned_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a breakout room assignment message."""
+        return cls(
+            type=MessageType.BREAKOUT_ROOM_ASSIGN,
+            payload=BreakoutRoomAssignPayload(
+                user_id=user_id,
+                breakout_room_id=breakout_room_id,
+                assigned_by=assigned_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=assigned_by,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_breakout_room_close(
+        cls,
+        breakout_room_id: str,
+        closed_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a breakout room close message."""
+        return cls(
+            type=MessageType.BREAKOUT_ROOM_CLOSE,
+            payload=BreakoutRoomClosePayload(
+                breakout_room_id=breakout_room_id,
+                closed_by=closed_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=closed_by,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Medium Term: Virtual Backgrounds & Live Streaming
+    # ========================================================================
+    
+    @classmethod
+    def create_virtual_background_update(
+        cls,
+        user_id: str,
+        background_type: VirtualBackgroundType,
+        room_id: str,
+        timestamp: str,
+        background_url: Optional[str] = None,
+        blur_intensity: Optional[int] = None
+    ) -> "WebRtcMessage":
+        """Create a virtual background update message."""
+        return cls(
+            type=MessageType.VIRTUAL_BACKGROUND_UPDATE,
+            payload=VirtualBackgroundUpdatePayload(
+                user_id=user_id,
+                background_type=background_type,
+                background_url=background_url,
+                blur_intensity=blur_intensity,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=user_id,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_live_stream_start(
+        cls,
+        config: LiveStreamConfig,
+        started_by: str,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a live stream start message."""
+        return cls(
+            type=MessageType.LIVE_STREAM_START,
+            payload=LiveStreamStartPayload(
+                config=config,
+                started_by=started_by,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=started_by,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_live_stream_stop(
+        cls,
+        stream_id: str,
+        stopped_by: str,
+        duration_seconds: int,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create a live stream stop message."""
+        return cls(
+            type=MessageType.LIVE_STREAM_STOP,
+            payload=LiveStreamStopPayload(
+                stream_id=stream_id,
+                stopped_by=stopped_by,
+                duration_seconds=duration_seconds,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=stopped_by,
+            room_id=room_id
+        )
+    
+    # ========================================================================
+    # Long Term: End-to-End Encryption
+    # ========================================================================
+    
+    @classmethod
+    def create_e2ee_key_exchange(
+        cls,
+        sender_user_id: str,
+        recipient_user_id: str,
+        key_type: E2EEKeyType,
+        public_key: str,
+        key_id: str,
+        room_id: str,
+        timestamp: str,
+        signature: Optional[str] = None
+    ) -> "WebRtcMessage":
+        """Create an E2EE key exchange message."""
+        return cls(
+            type=MessageType.E2EE_KEY_EXCHANGE,
+            payload=E2EEKeyExchangePayload(
+                sender_user_id=sender_user_id,
+                recipient_user_id=recipient_user_id,
+                key_type=key_type,
+                public_key=public_key,
+                key_id=key_id,
+                signature=signature,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=sender_user_id,
+            room_id=room_id
+        )
+    
+    @classmethod
+    def create_e2ee_ratchet_update(
+        cls,
+        sender_user_id: str,
+        recipient_user_id: str,
+        chain_key: str,
+        message_number: int,
+        previous_chain_length: int,
+        room_id: str,
+        timestamp: str
+    ) -> "WebRtcMessage":
+        """Create an E2EE ratchet update message."""
+        return cls(
+            type=MessageType.E2EE_RATCHET_UPDATE,
+            payload=E2EERatchetUpdatePayload(
+                sender_user_id=sender_user_id,
+                recipient_user_id=recipient_user_id,
+                chain_key=chain_key,
+                message_number=message_number,
+                previous_chain_length=previous_chain_length,
+                timestamp=timestamp
+            ).model_dump(),
+            sender_id=sender_user_id,
             room_id=room_id
         )
 

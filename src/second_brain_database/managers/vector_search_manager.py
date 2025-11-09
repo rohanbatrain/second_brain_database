@@ -105,9 +105,11 @@ class VectorSearchManager:
                 self._model_loading = True
                 logger.info(f"Loading embedding model '{settings.EMBEDDING_MODEL}' in background...")
 
+                # Explicitly set device to 'cpu' to avoid meta tensor issues
                 self.embedding_model = SentenceTransformer(
                     model_name_or_path=settings.EMBEDDING_MODEL,
                     cache_folder=settings.EMBEDDING_CACHE_DIR,
+                    device='cpu'  # Explicitly use CPU to avoid PyTorch meta tensor issues
                 )
 
                 load_time = time.time() - start_time
@@ -140,9 +142,12 @@ class VectorSearchManager:
             logger.warning("Background model loading failed or not available, loading synchronously...")
             try:
                 start_time = time.time()
+                # Explicitly set device to 'cpu' to avoid meta tensor issues
+                # See: https://github.com/UKPLab/sentence-transformers/issues/1318
                 self.embedding_model = SentenceTransformer(
                     model_name_or_path=settings.EMBEDDING_MODEL,
                     cache_folder=settings.EMBEDDING_CACHE_DIR,
+                    device='cpu'  # Explicitly use CPU to avoid PyTorch meta tensor issues
                 )
                 load_time = time.time() - start_time
                 logger.info(f"Embedding model loaded synchronously in {load_time:.2f}s")
