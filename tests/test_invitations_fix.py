@@ -4,15 +4,16 @@ Simple test to verify get_family_invitations fix
 """
 
 import asyncio
-import sys
 from datetime import datetime, timezone
+import sys
 import uuid
 
 # Add the src directory to the path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.family_manager import family_manager
+
 
 async def test_get_family_invitations():
     """Test that get_family_invitations returns invitations with proper enrichment."""
@@ -67,15 +68,19 @@ async def test_get_family_invitations():
             return False
 
         print("✓ PASS: All required fields present and valid")
-        print(f"Invitation details: inviter_username={found_invitation['inviter_username']}, family_name={found_invitation['family_name']}")
+        print(
+            f"Invitation details: inviter_username={found_invitation['inviter_username']}, family_name={found_invitation['family_name']}"
+        )
 
         return True
 
     except Exception as e:
         print(f"❌ FAIL: Exception during test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def main():
     """Main test function."""
@@ -95,11 +100,13 @@ async def main():
     except Exception as e:
         print(f"ERROR: Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:
         print("Closing database connection...")
         await db_manager.close()
+
 
 if __name__ == "__main__":
     success = asyncio.run(main())

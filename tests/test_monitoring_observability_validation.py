@@ -21,19 +21,21 @@ Requirements tested:
 """
 
 import asyncio
-import pytest
-import time
-import json
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any, List
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+import json
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 # Mock classes to simulate the monitoring system
 class MockFamilyOperationType(Enum):
     """Mock family operation types for testing."""
+
     FAMILY_CREATE = "family_create"
     FAMILY_DELETE = "family_delete"
     MEMBER_INVITE = "member_invite"
@@ -46,6 +48,7 @@ class MockFamilyOperationType(Enum):
 
 class MockAlertSeverity(Enum):
     """Mock alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -55,6 +58,7 @@ class MockAlertSeverity(Enum):
 @dataclass
 class MockFamilyOperationContext:
     """Mock context for family operations monitoring."""
+
     operation_type: MockFamilyOperationType
     family_id: str = None
     user_id: str = None
@@ -75,6 +79,7 @@ class MockFamilyOperationContext:
 @dataclass
 class MockFamilyHealthStatus:
     """Mock health status for family system components."""
+
     component: str
     healthy: bool
     response_time: float = None
@@ -90,6 +95,7 @@ class MockFamilyHealthStatus:
 @dataclass
 class MockFamilyMetrics:
     """Mock family system metrics for monitoring."""
+
     timestamp: str
     total_families: int
     active_families: int
@@ -142,24 +148,25 @@ class MockFamilyMonitor:
         if context.duration and context.duration > self.slow_threshold:
             await self._check_performance_alerts(context)
 
-    async def log_family_performance(self, operation_type: MockFamilyOperationType,
-                                   duration: float, success: bool = True) -> None:
+    async def log_family_performance(
+        self, operation_type: MockFamilyOperationType, duration: float, success: bool = True
+    ) -> None:
         """Log performance metrics for family operations."""
         op_key = operation_type.value
         if op_key not in self.performance_data:
             self.performance_data[op_key] = []
 
-        self.performance_data[op_key].append({
-            "duration": duration,
-            "success": success,
-            "timestamp": time.time()
-        })
+        self.performance_data[op_key].append({"duration": duration, "success": success, "timestamp": time.time()})
 
     async def check_family_system_health(self) -> Dict[str, MockFamilyHealthStatus]:
         """Perform health checks on family system components."""
         components = [
-            "database", "redis", "family_collections",
-            "sbd_integration", "email_system", "notification_system"
+            "database",
+            "redis",
+            "family_collections",
+            "sbd_integration",
+            "email_system",
+            "notification_system",
         ]
 
         health_results = {}
@@ -169,9 +176,7 @@ class MockFamilyMonitor:
             response_time = 0.1 + (hash(component) % 100) / 1000  # Deterministic but varied
 
             health_results[component] = MockFamilyHealthStatus(
-                component=component,
-                healthy=healthy,
-                response_time=response_time
+                component=component, healthy=healthy, response_time=response_time
             )
 
         self.health_status_cache = health_results
@@ -205,7 +210,7 @@ class MockFamilyMonitor:
                 performance_metrics[op_type] = {
                     "avg_duration": sum(durations) / len(durations),
                     "max_duration": max(durations),
-                    "min_duration": min(durations)
+                    "min_duration": min(durations),
                 }
 
         return MockFamilyMetrics(
@@ -219,15 +224,12 @@ class MockFamilyMonitor:
             operations_per_minute=operations_per_minute,
             error_rates=error_rates,
             performance_metrics=performance_metrics,
-            sbd_metrics={
-                "total_virtual_accounts": 85,
-                "total_balance": 50000,
-                "frozen_accounts": 2
-            }
+            sbd_metrics={"total_virtual_accounts": 85, "total_balance": 50000, "frozen_accounts": 2},
         )
 
-    async def send_alert(self, severity: MockAlertSeverity, title: str,
-                        message: str, metadata: Dict[str, Any] = None) -> None:
+    async def send_alert(
+        self, severity: MockAlertSeverity, title: str, message: str, metadata: Dict[str, Any] = None
+    ) -> None:
         """Send an alert for family system issues."""
         alert_key = f"{severity.value}_{title}"
         current_time = time.time()
@@ -242,7 +244,7 @@ class MockFamilyMonitor:
             "title": title,
             "message": message,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         self.alert_logs.append(alert_entry)
@@ -261,8 +263,8 @@ class MockFamilyMonitor:
                 {
                     "operation_type": context.operation_type.value,
                     "duration": context.duration,
-                    "family_id": context.family_id
-                }
+                    "family_id": context.family_id,
+                },
             )
         elif context.duration > self.slow_threshold:
             await self.send_alert(
@@ -272,8 +274,8 @@ class MockFamilyMonitor:
                 {
                     "operation_type": context.operation_type.value,
                     "duration": context.duration,
-                    "family_id": context.family_id
-                }
+                    "family_id": context.family_id,
+                },
             )
 
 
@@ -286,9 +288,9 @@ class MockFamilyAuditManager:
         self.admin_action_logs = []
         self.flagged_activities = []
 
-    async def log_family_audit_event(self, operation_type: str, family_id: str,
-                                   user_id: str, details: Dict[str, Any],
-                                   **kwargs) -> None:
+    async def log_family_audit_event(
+        self, operation_type: str, family_id: str, user_id: str, details: Dict[str, Any], **kwargs
+    ) -> None:
         """Log a comprehensive audit event."""
         audit_record = {
             "audit_id": f"audit_{len(self.audit_logs) + 1:06d}",
@@ -299,14 +301,14 @@ class MockFamilyAuditManager:
             "details": details,
             "ip_address": kwargs.get("ip_address"),
             "user_agent": kwargs.get("user_agent"),
-            "security_level": "standard"
+            "security_level": "standard",
         }
 
         self.audit_logs.append(audit_record)
 
-    async def log_sensitive_data_access(self, data_type: str, family_id: str,
-                                      user_id: str, accessed_data: Dict[str, Any],
-                                      access_reason: str, **kwargs) -> None:
+    async def log_sensitive_data_access(
+        self, data_type: str, family_id: str, user_id: str, accessed_data: Dict[str, Any], access_reason: str, **kwargs
+    ) -> None:
         """Log sensitive data access with proper attribution."""
         access_record = {
             "audit_id": f"audit_sensitive_{len(self.sensitive_access_logs) + 1:06d}",
@@ -320,14 +322,14 @@ class MockFamilyAuditManager:
             "security_level": "sensitive",
             "data_classification": "confidential",
             "ip_address": kwargs.get("ip_address"),
-            "user_agent": kwargs.get("user_agent")
+            "user_agent": kwargs.get("user_agent"),
         }
 
         self.sensitive_access_logs.append(access_record)
 
-    async def log_admin_action(self, action_type: str, family_id: str, admin_id: str,
-                             context: Dict[str, Any], impact: Dict[str, Any],
-                             **kwargs) -> None:
+    async def log_admin_action(
+        self, action_type: str, family_id: str, admin_id: str, context: Dict[str, Any], impact: Dict[str, Any], **kwargs
+    ) -> None:
         """Log comprehensive admin action with context."""
         admin_record = {
             "audit_id": f"audit_admin_{len(self.admin_action_logs) + 1:06d}",
@@ -341,18 +343,20 @@ class MockFamilyAuditManager:
             "security_level": "admin",
             "admin_verification": True,
             "ip_address": kwargs.get("ip_address"),
-            "user_agent": kwargs.get("user_agent")
+            "user_agent": kwargs.get("user_agent"),
         }
 
         self.admin_action_logs.append(admin_record)
 
-    async def generate_compliance_report(self, family_id: str, start_date: str,
-                                       end_date: str, **kwargs) -> Dict[str, Any]:
+    async def generate_compliance_report(
+        self, family_id: str, start_date: str, end_date: str, **kwargs
+    ) -> Dict[str, Any]:
         """Generate comprehensive compliance report."""
         # Filter audit events by date range and family
         all_events = self.audit_logs + self.sensitive_access_logs + self.admin_action_logs
         filtered_events = [
-            event for event in all_events
+            event
+            for event in all_events
             if event["family_id"] == family_id
             # Note: In real implementation, would filter by date range
             # For testing, we include all events for the family
@@ -378,24 +382,19 @@ class MockFamilyAuditManager:
         return {
             "report_id": f"compliance_report_{int(time.time())}",
             "generation_timestamp": datetime.now(timezone.utc).isoformat(),
-            "report_parameters": {
-                "family_id": family_id,
-                "start_date": start_date,
-                "end_date": end_date,
-                **kwargs
-            },
+            "report_parameters": {"family_id": family_id, "start_date": start_date, "end_date": end_date, **kwargs},
             "summary": {
                 "total_events": len(filtered_events),
                 "events_by_type": events_by_type,
                 "events_by_security_level": events_by_security_level,
-                "unique_users": len(unique_users)
+                "unique_users": len(unique_users),
             },
             "audit_events": filtered_events,
             "compliance_metrics": {
                 "data_access_compliance": len(self.sensitive_access_logs) / max(len(all_events), 1),
                 "admin_action_compliance": len(self.admin_action_logs) / max(len(all_events), 1),
-                "audit_trail_completeness": 0.95  # Mock completeness score
-            }
+                "audit_trail_completeness": 0.95,  # Mock completeness score
+            },
         }
 
     async def analyze_for_suspicious_activity(self, operation_type: str, **kwargs) -> None:
@@ -409,7 +408,7 @@ class MockFamilyAuditManager:
 
         # Check for off-hours activity (between 2 AM and 6 AM)
         if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
         if 2 <= timestamp.hour <= 6:
             flags.append("off_hours_activity")
@@ -417,10 +416,10 @@ class MockFamilyAuditManager:
         # Check for rapid admin actions
         if operation_type == "admin_action" and admin_id:
             recent_admin_actions = [
-                log for log in self.admin_action_logs
-                if log["admin_id"] == admin_id and
-                datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00')) >
-                timestamp - timedelta(minutes=5)
+                log
+                for log in self.admin_action_logs
+                if log["admin_id"] == admin_id
+                and datetime.fromisoformat(log["timestamp"].replace("Z", "+00:00")) > timestamp - timedelta(minutes=5)
             ]
             if len(recent_admin_actions) >= 3:
                 flags.append("rapid_admin_actions")
@@ -430,31 +429,35 @@ class MockFamilyAuditManager:
         if ip_address and user_id:
             recent_user_ips = set()
             for log in self.audit_logs + self.sensitive_access_logs:
-                if (log.get("user_id") == user_id and
-                    log.get("ip_address") and
-                    datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00')) >
-                    timestamp - timedelta(hours=1)):
+                if (
+                    log.get("user_id") == user_id
+                    and log.get("ip_address")
+                    and datetime.fromisoformat(log["timestamp"].replace("Z", "+00:00")) > timestamp - timedelta(hours=1)
+                ):
                     recent_user_ips.add(log["ip_address"])
 
             if len(recent_user_ips) > 2:  # Multiple IPs in short time
                 flags.append("ip_address_anomaly")
 
         if flags:
-            self.flagged_activities.append({
-                "operation_type": operation_type,
-                "user_id": user_id or admin_id,
-                "timestamp": timestamp.isoformat(),
-                "flags": flags,
-                "metadata": kwargs
-            })
+            self.flagged_activities.append(
+                {
+                    "operation_type": operation_type,
+                    "user_id": user_id or admin_id,
+                    "timestamp": timestamp.isoformat(),
+                    "flags": flags,
+                    "metadata": kwargs,
+                }
+            )
 
     async def get_flagged_activities(self, family_id: str, time_window_hours: int = 24) -> List[Dict[str, Any]]:
         """Get flagged suspicious activities."""
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
         return [
-            activity for activity in self.flagged_activities
-            if datetime.fromisoformat(activity["timestamp"].replace('Z', '+00:00')) > cutoff_time
+            activity
+            for activity in self.flagged_activities
+            if datetime.fromisoformat(activity["timestamp"].replace("Z", "+00:00")) > cutoff_time
         ]
 
 
@@ -480,7 +483,7 @@ class TestFamilyMonitoringObservability:
             family_id="fam_test123",
             user_id="user_test456",
             duration=1.0,
-            success=True
+            success=True,
         )
         await family_monitor.log_family_operation(context_normal)
 
@@ -493,7 +496,7 @@ class TestFamilyMonitoringObservability:
             family_id="fam_test123",
             user_id="user_test456",
             duration=3.0,  # Above slow threshold (2.0)
-            success=True
+            success=True,
         )
         await family_monitor.log_family_operation(context_slow)
 
@@ -508,7 +511,7 @@ class TestFamilyMonitoringObservability:
             family_id="fam_test123",
             user_id="user_test456",
             duration=6.0,  # Above very slow threshold (5.0)
-            success=True
+            success=True,
         )
         await family_monitor.log_family_operation(context_very_slow)
 
@@ -563,8 +566,12 @@ class TestFamilyMonitoringObservability:
 
         # Verify all expected components are checked
         expected_components = [
-            "database", "redis", "family_collections",
-            "sbd_integration", "email_system", "notification_system"
+            "database",
+            "redis",
+            "family_collections",
+            "sbd_integration",
+            "email_system",
+            "notification_system",
         ]
 
         for component in expected_components:
@@ -589,7 +596,7 @@ class TestFamilyMonitoringObservability:
             success=True,
             metadata={"test": "data"},
             request_id="req_123",
-            ip_address="192.168.1.1"
+            ip_address="192.168.1.1",
         )
 
         await family_monitor.log_family_operation(context)
@@ -600,8 +607,17 @@ class TestFamilyMonitoringObservability:
 
         # Verify required fields are present
         required_fields = [
-            "event", "operation_type", "timestamp", "family_id", "user_id",
-            "target_user_id", "duration", "success", "request_id", "ip_address", "metadata"
+            "event",
+            "operation_type",
+            "timestamp",
+            "family_id",
+            "user_id",
+            "target_user_id",
+            "duration",
+            "success",
+            "request_id",
+            "ip_address",
+            "metadata",
         ]
 
         for field in required_fields:
@@ -623,21 +639,13 @@ class TestFamilyMonitoringObservability:
     async def test_alert_cooldown_mechanism(self, family_monitor):
         """Test alert cooldown to prevent spam."""
         # Send first alert
-        await family_monitor.send_alert(
-            MockAlertSeverity.WARNING,
-            "Test Alert",
-            "Test message"
-        )
+        await family_monitor.send_alert(MockAlertSeverity.WARNING, "Test Alert", "Test message")
 
         # Verify alert was logged
         assert len(family_monitor.alert_logs) == 1
 
         # Try to send same alert immediately (should be blocked by cooldown)
-        await family_monitor.send_alert(
-            MockAlertSeverity.WARNING,
-            "Test Alert",
-            "Test message"
-        )
+        await family_monitor.send_alert(MockAlertSeverity.WARNING, "Test Alert", "Test message")
 
         # Should still be only one alert (cooldown active)
         assert len(family_monitor.alert_logs) == 1
@@ -647,11 +655,7 @@ class TestFamilyMonitoringObservability:
         family_monitor.last_alert_times[alert_key] = time.time() - 1801  # 30+ minutes ago
 
         # Send alert after cooldown period
-        await family_monitor.send_alert(
-            MockAlertSeverity.WARNING,
-            "Test Alert",
-            "Test message after cooldown"
-        )
+        await family_monitor.send_alert(MockAlertSeverity.WARNING, "Test Alert", "Test message after cooldown")
 
         # Should now have two alerts
         assert len(family_monitor.alert_logs) == 2
@@ -665,20 +669,20 @@ class TestFamilyMonitoringObservability:
                 "operation_type": "family_create",
                 "family_id": "fam_test123",
                 "user_id": "user_test456",
-                "details": {"family_name": "Test Family", "initial_balance": 1000}
+                "details": {"family_name": "Test Family", "initial_balance": 1000},
             },
             {
                 "operation_type": "member_invite",
                 "family_id": "fam_test123",
                 "user_id": "admin_test789",
-                "details": {"target_user": "user_invited123", "relationship_type": "child"}
+                "details": {"target_user": "user_invited123", "relationship_type": "child"},
             },
             {
                 "operation_type": "sbd_spend",
                 "family_id": "fam_test123",
                 "user_id": "user_test456",
-                "details": {"amount": 50, "recipient": "user_recipient789"}
-            }
+                "details": {"amount": 50, "recipient": "user_recipient789"},
+            },
         ]
 
         for operation in operations_to_test:
@@ -688,7 +692,7 @@ class TestFamilyMonitoringObservability:
                 user_id=operation["user_id"],
                 details=operation["details"],
                 ip_address="192.168.1.1",
-                user_agent="TestAgent/1.0"
+                user_agent="TestAgent/1.0",
             )
 
         # Verify audit records were created
@@ -713,14 +717,10 @@ class TestFamilyMonitoringObservability:
             data_type="family_financial_data",
             family_id="fam_test123",
             user_id="admin_test789",
-            accessed_data={
-                "sbd_balance": 5000,
-                "transaction_history": "accessed",
-                "spending_limits": "viewed"
-            },
+            accessed_data={"sbd_balance": 5000, "transaction_history": "accessed", "spending_limits": "viewed"},
             access_reason="admin_review",
             ip_address="192.168.1.1",
-            user_agent="AdminPanel/1.0"
+            user_agent="AdminPanel/1.0",
         )
 
         # Verify sensitive access log was created
@@ -745,15 +745,11 @@ class TestFamilyMonitoringObservability:
             context={
                 "removal_reason": "policy_violation",
                 "violation_details": "inappropriate_spending",
-                "prior_warnings": 2
+                "prior_warnings": 2,
             },
-            impact={
-                "relationships_affected": 3,
-                "pending_transactions": 1,
-                "sbd_balance_transferred": 25
-            },
+            impact={"relationships_affected": 3, "pending_transactions": 1, "sbd_balance_transferred": 25},
             ip_address="192.168.1.100",
-            user_agent="AdminDashboard/2.0"
+            user_agent="AdminDashboard/2.0",
         )
 
         # Verify admin action log was created
@@ -777,7 +773,7 @@ class TestFamilyMonitoringObservability:
             operation_type="family_create",
             family_id="fam_test123",
             user_id="user_test456",
-            details={"family_name": "Test Family"}
+            details={"family_name": "Test Family"},
         )
 
         await family_audit_manager.log_sensitive_data_access(
@@ -785,7 +781,7 @@ class TestFamilyMonitoringObservability:
             family_id="fam_test123",
             user_id="admin_test789",
             accessed_data={"balance": "viewed"},
-            access_reason="audit"
+            access_reason="audit",
         )
 
         await family_audit_manager.log_admin_action(
@@ -793,7 +789,7 @@ class TestFamilyMonitoringObservability:
             family_id="fam_test123",
             admin_id="admin_test789",
             context={"change_type": "spending_limit"},
-            impact={"users_affected": 1}
+            impact={"users_affected": 1},
         )
 
         # Generate compliance report
@@ -802,7 +798,7 @@ class TestFamilyMonitoringObservability:
             start_date="2024-01-01T00:00:00Z",
             end_date="2024-12-31T23:59:59Z",
             include_sensitive=True,
-            include_admin_actions=True
+            include_admin_actions=True,
         )
 
         # Verify report structure
@@ -832,10 +828,7 @@ class TestFamilyMonitoringObservability:
         # Test off-hours activity detection
         off_hours_time = datetime.now(timezone.utc).replace(hour=3, minute=30)  # 3:30 AM
         await family_audit_manager.analyze_for_suspicious_activity(
-            operation_type="sbd_spend",
-            user_id="user_night_owl789",
-            timestamp=off_hours_time,
-            amount=500
+            operation_type="sbd_spend", user_id="user_night_owl789", timestamp=off_hours_time, amount=500
         )
 
         # Test rapid admin actions
@@ -848,13 +841,11 @@ class TestFamilyMonitoringObservability:
                 family_id="fam_test123",
                 admin_id=admin_id,
                 context={"action_number": i},
-                impact={"test": True}
+                impact={"test": True},
             )
 
             await family_audit_manager.analyze_for_suspicious_activity(
-                operation_type="admin_action",
-                admin_id=admin_id,
-                timestamp=base_time + timedelta(minutes=i)
+                operation_type="admin_action", admin_id=admin_id, timestamp=base_time + timedelta(minutes=i)
             )
 
         # Test IP address anomaly
@@ -865,20 +856,19 @@ class TestFamilyMonitoringObservability:
                 family_id="fam_test123",
                 user_id=user_id,
                 details={"data_accessed": "financial"},
-                ip_address=ip
+                ip_address=ip,
             )
 
             await family_audit_manager.analyze_for_suspicious_activity(
                 operation_type="sensitive_data_access",
                 user_id=user_id,
                 ip_address=ip,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc),
             )
 
         # Get flagged activities
         flagged_activities = await family_audit_manager.get_flagged_activities(
-            family_id="fam_test123",
-            time_window_hours=24
+            family_id="fam_test123", time_window_hours=24
         )
 
         # Verify suspicious activities were detected
@@ -899,22 +889,16 @@ class TestFamilyMonitoringObservability:
         # Generate mixed operational and audit data
 
         # Add performance data
-        await family_monitor.log_family_performance(
-            MockFamilyOperationType.FAMILY_CREATE, 1.2, True
-        )
-        await family_monitor.log_family_performance(
-            MockFamilyOperationType.MEMBER_INVITE, 2.8, True
-        )
-        await family_monitor.log_family_performance(
-            MockFamilyOperationType.SBD_SPEND, 0.5, False
-        )
+        await family_monitor.log_family_performance(MockFamilyOperationType.FAMILY_CREATE, 1.2, True)
+        await family_monitor.log_family_performance(MockFamilyOperationType.MEMBER_INVITE, 2.8, True)
+        await family_monitor.log_family_performance(MockFamilyOperationType.SBD_SPEND, 0.5, False)
 
         # Add audit data
         await family_audit_manager.log_family_audit_event(
             operation_type="family_create",
             family_id="fam_dashboard123",
             user_id="user_dashboard456",
-            details={"dashboard_test": True}
+            details={"dashboard_test": True},
         )
 
         # Add admin action
@@ -923,15 +907,13 @@ class TestFamilyMonitoringObservability:
             family_id="fam_dashboard123",
             admin_id="admin_dashboard789",
             context={"access_type": "metrics_view"},
-            impact={"data_accessed": "performance_metrics"}
+            impact={"data_accessed": "performance_metrics"},
         )
 
         # Collect comprehensive metrics
         performance_metrics = await family_monitor.collect_family_metrics()
         compliance_report = await family_audit_manager.generate_compliance_report(
-            family_id="fam_dashboard123",
-            start_date="2024-01-01T00:00:00Z",
-            end_date="2024-12-31T23:59:59Z"
+            family_id="fam_dashboard123", start_date="2024-01-01T00:00:00Z", end_date="2024-12-31T23:59:59Z"
         )
         health_status = await family_monitor.check_family_system_health()
 
@@ -942,24 +924,23 @@ class TestFamilyMonitoringObservability:
                 "active_families": performance_metrics.active_families,
                 "avg_family_size": performance_metrics.avg_family_size,
                 "performance_metrics": performance_metrics.performance_metrics,
-                "error_rates": performance_metrics.error_rates
+                "error_rates": performance_metrics.error_rates,
             },
             "compliance": {
                 "total_audit_events": compliance_report["summary"]["total_events"],
                 "events_by_type": compliance_report["summary"]["events_by_type"],
-                "compliance_score": compliance_report["compliance_metrics"]["audit_trail_completeness"]
+                "compliance_score": compliance_report["compliance_metrics"]["audit_trail_completeness"],
             },
             "health": {
                 "overall_healthy": all(status.healthy for status in health_status.values()),
                 "component_count": len(health_status),
-                "avg_response_time": sum(
-                    status.response_time for status in health_status.values()
-                ) / len(health_status)
+                "avg_response_time": sum(status.response_time for status in health_status.values())
+                / len(health_status),
             },
             "alerts": {
                 "total_alerts": len(family_monitor.alert_logs),
-                "alert_severities": [alert["severity"] for alert in family_monitor.alert_logs]
-            }
+                "alert_severities": [alert["severity"] for alert in family_monitor.alert_logs],
+            },
         }
 
         # Verify dashboard data completeness

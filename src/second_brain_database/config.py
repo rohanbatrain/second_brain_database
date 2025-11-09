@@ -40,7 +40,7 @@ For more details, see the README and the comments in this file.
 
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from pydantic import SecretStr, field_validator
@@ -236,17 +236,6 @@ class Settings(BaseSettings):
     CORS_ENABLED: bool = True  # Enable CORS for the entire API
     CORS_ORIGINS: str = "http://localhost:3000,https://agentchat.vercel.app"  # Comma-separated allowed origins
 
-    # --- Voice agent integrations ---
-    # Ollama local LLM host (include scheme), default to local Ollama HTTP server
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "llama3.2:latest"  # default model name to use with Ollama (using full model)
-
-    # Multiple model support - comma-separated list of available models
-    OLLAMA_AVAILABLE_MODELS: str = "llama3.2:latest,gemma3:1b,deepseek-r1:1.5b"  # Available models for selection
-    OLLAMA_REASONING_MODEL: str = "deepseek-r1:1.5b"  # Specialized reasoning model
-    OLLAMA_FAST_MODEL: str = "llama3.2:latest"  # Fast response model with tool support
-    OLLAMA_AUTO_MODEL_SELECTION: bool = True  # Enable automatic model selection based on query type
-
     # Celery Settings
     CELERY_BROKER_URL: str = ""  # Defaults to REDIS_URL
     CELERY_RESULT_BACKEND: str = ""  # Defaults to REDIS_URL
@@ -259,21 +248,6 @@ class Settings(BaseSettings):
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "SecondBrainDatabase"
     LANGSMITH_TRACING: bool = False
-
-    # AI Agent Configuration
-    AI_MODEL_POOL_SIZE: int = 5  # Number of model instances in pool
-    AI_MAX_CONCURRENT_SESSIONS: int = 100  # Max concurrent AI sessions
-    AI_SESSION_TIMEOUT: int = 3600  # Session timeout in seconds (1 hour)
-    AI_MODEL_RESPONSE_TIMEOUT: int = 120  # Model response timeout in seconds
-    AI_WORKFLOW_TIMEOUT: int = 600  # Workflow timeout in seconds (10 minutes)
-    AI_MODEL_TEMPERATURE: float = 0.7  # Model temperature (0.0-2.0)
-    AI_DEFAULT_AGENT: str = "personal"  # Default agent type
-
-    # Voice processing configuration
-    VOICE_SAMPLE_RATE: int = 16000  # Audio sample rate for processing
-    VOICE_CHUNK_SIZE: int = 1024  # Audio chunk size for streaming
-    VOICE_MAX_AUDIO_LENGTH: int = 30  # Max audio length in seconds for STT
-    VOICE_TTS_VOICE: str = "en"  # TTS voice/language
 
     # --- FastMCP Server Configuration ---
     # MCP Server basic configuration
@@ -342,7 +316,103 @@ class Settings(BaseSettings):
     MCP_CACHE_TTL: int = 300  # Cache TTL in seconds (5 minutes)
     MCP_CONTEXT_CACHE_TTL: int = 60  # User context cache TTL in seconds
 
+    # --- Qdrant Vector Database Configuration ---
+    # Qdrant basic configuration
+    QDRANT_ENABLED: bool = True  # Enable/disable Qdrant integration
+    QDRANT_HOST: str = "127.0.0.1"  # Qdrant server host
+    QDRANT_PORT: int = 6333  # Qdrant server port
+    QDRANT_HTTPS: bool = False  # Use HTTPS for Qdrant connection
+    QDRANT_API_KEY: Optional[SecretStr] = None  # API key for Qdrant (if required)
+    QDRANT_TIMEOUT: int = 30  # Connection timeout in seconds
+    QDRANT_RETRIES: int = 3  # Number of retries for failed operations
 
+    # Qdrant collection configuration
+    QDRANT_DOCUMENT_COLLECTION: str = "documents"  # Collection name for document chunks
+    QDRANT_VECTOR_SIZE: int = 384  # Vector dimension (384 for all-MiniLM-L6-v2)
+    QDRANT_DISTANCE_METRIC: str = "Cosine"  # Distance metric: Cosine, Euclidean, Dot
+    QDRANT_OPTIMIZATION_THRESHOLD: int = 1000  # Threshold for collection optimization
+    QDRANT_INDEXING_THRESHOLD: int = 20000  # Threshold for indexing operations
+
+    # Embedding model configuration
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # Sentence transformer model name
+    EMBEDDING_CACHE_DIR: Optional[str] = None  # Cache directory for embedding models
+    EMBEDDING_DEVICE: str = "cpu"  # Device for embedding computation (cpu/cuda/auto)
+    EMBEDDING_BATCH_SIZE: int = 32  # Batch size for embedding generation
+    EMBEDDING_MAX_SEQ_LENGTH: int = 512  # Maximum sequence length for embeddings
+    EMBEDDING_MODEL_WARMUP: bool = True  # Warm up model on startup (background loading)
+
+    # Document search configuration
+    SEARCH_HYBRID_ENABLED: bool = True  # Enable hybrid search (keyword + semantic)
+    SEARCH_SEMANTIC_WEIGHT: float = 0.7  # Weight for semantic search (0.0-1.0)
+    SEARCH_KEYWORD_WEIGHT: float = 0.3  # Weight for keyword search (0.0-1.0)
+    SEARCH_MAX_RESULTS: int = 20  # Maximum search results to return
+    SEARCH_SCORE_THRESHOLD: float = 0.0  # Minimum score threshold for results
+    SEARCH_RERANK_ENABLED: bool = True  # Enable result reranking
+    SEARCH_CACHE_ENABLED: bool = True  # Enable search result caching
+    SEARCH_CACHE_TTL: int = 300  # Search cache TTL in seconds
+
+    # Document chunking configuration
+    CHUNK_SIZE: int = 1000  # Target chunk size in characters
+    CHUNK_OVERLAP: int = 200  # Overlap between chunks in characters
+    CHUNK_STRATEGY: str = "semantic"  # Chunking strategy: fixed, semantic, hybrid
+    CHUNK_MIN_SIZE: int = 100  # Minimum chunk size
+    CHUNK_MAX_SIZE: int = 2000  # Maximum chunk size
+
+    # --- Docling Enhanced Configuration ---
+    # Docling basic configuration
+    DOCLING_ENABLED: bool = True  # Enable/disable Docling integration
+    DOCLING_MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB max file size
+    DOCLING_SUPPORTED_FORMATS: str = "pdf,docx,pptx,html,txt,xlsx"  # Supported file formats
+    DOCLING_OCR_ENABLED: bool = True  # Enable OCR for scanned documents
+    DOCLING_TABLE_EXTRACTION: bool = True  # Enable table extraction
+    DOCLING_IMAGE_EXTRACTION: bool = True  # Enable image/figure extraction
+    DOCLING_LAYOUT_ANALYSIS: bool = True  # Enable advanced layout analysis
+
+    # Docling OCR configuration
+    DOCLING_OCR_LANGUAGES: str = "en"  # OCR languages (comma-separated)
+    DOCLING_OCR_ENGINE: str = "tesseract"  # OCR engine: tesseract, easyocr
+    DOCLING_OCR_RESOLUTION: int = 300  # OCR resolution DPI
+    DOCLING_OCR_TIMEOUT: int = 60  # OCR timeout in seconds
+
+    # Docling processing configuration
+    DOCLING_PROCESS_TIMEOUT: int = 300  # Processing timeout in seconds
+    DOCLING_MEMORY_LIMIT: int = 1024  # Memory limit in MB
+    DOCLING_PARALLEL_PROCESSING: bool = True  # Enable parallel processing
+    DOCLING_MAX_WORKERS: int = 4  # Maximum parallel workers
+
+    # Docling export configuration
+    DOCLING_EXPORT_FORMAT: str = "markdown"  # Export format: markdown, json, html
+    DOCLING_EXPORT_IMAGES: bool = True  # Include images in export
+    DOCLING_EXPORT_TABLES: bool = True  # Include tables in export
+    DOCLING_EXPORT_METADATA: bool = True  # Include metadata in export
+
+    # --- Ollama LLM Configuration ---
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"  # Ollama API host
+    OLLAMA_MODEL: str = "llama3.2:latest"  # Default model for generation
+    OLLAMA_CHAT_MODEL: str = "llama3.2:latest"  # Model for chat operations
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text:latest"  # Model for embeddings
+    OLLAMA_TIMEOUT: int = 120  # Request timeout in seconds
+    OLLAMA_CACHE_TTL: int = 3600  # Response cache TTL in seconds
+
+    # --- LlamaIndex & RAG Configuration ---
+    LLAMAINDEX_ENABLED: bool = True  # Enable LlamaIndex integration
+    LLAMAINDEX_EMBED_MODEL: str = "local:BAAI/bge-small-en-v1.5"  # Embedding model for LlamaIndex
+    LLAMAINDEX_CHUNK_SIZE: int = 1024  # Chunk size for indexing
+    LLAMAINDEX_CHUNK_OVERLAP: int = 200  # Chunk overlap
+    LLAMAINDEX_TOP_K: int = 5  # Top-k results for retrieval
+    LLAMAINDEX_SIMILARITY_CUTOFF: float = 0.7  # Similarity threshold
+    LLAMAINDEX_HYBRID_SEARCH_ENABLED: bool = True  # Enable hybrid search (dense + sparse)
+    LLAMAINDEX_SPARSE_TOP_K: int = 12  # Top-k for sparse retrieval
+    LLAMAINDEX_ALPHA: float = 0.5  # Weight for hybrid search (0=sparse, 1=dense)
+
+    # Qdrant sparse vector configuration for hybrid search
+    QDRANT_SPARSE_MODEL: str = "prithvida/Splade_PP_en_v1"  # FastEmbed sparse model
+
+    # RAG service configuration
+    RAG_TOP_K: int = 5  # Default top-k for RAG retrieval
+    RAG_SIMILARITY_THRESHOLD: float = 0.7  # Minimum similarity for RAG
+    RAG_MAX_CONTEXT_LENGTH: int = 8000  # Maximum context length in chars
+    RAG_ENABLE_RERANKING: bool = False  # Enable reranking (future enhancement)
 
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
@@ -392,41 +462,14 @@ class Settings(BaseSettings):
             raise ValueError("MCP_RETRY_BACKOFF_FACTOR must be between 1.0 and 10.0")
         return factor
 
-    @field_validator("AI_MODEL_POOL_SIZE", "AI_MAX_CONCURRENT_SESSIONS", mode="before")
+    @field_validator("MCP_RATE_LIMIT_REQUESTS", "MCP_MAX_CONCURRENT_TOOLS", mode="before")
     @classmethod
-    def validate_ai_positive_integers(cls, v, info):
-        """Validate that AI numeric settings are positive."""
+    def validate_positive_integers(cls, v, info):
+        """Validate that MCP numeric settings are positive."""
         value = int(v)
         if value <= 0:
             raise ValueError(f"{info.field_name} must be a positive integer")
         return value
-
-    @field_validator("AI_SESSION_TIMEOUT", "AI_MODEL_RESPONSE_TIMEOUT", "AI_WORKFLOW_TIMEOUT", mode="before")
-    @classmethod
-    def validate_ai_timeout_values(cls, v, info):
-        """Validate AI timeout values are reasonable."""
-        timeout = int(v)
-        if timeout < 1 or timeout > 7200:  # Max 2 hours
-            raise ValueError(f"{info.field_name} must be between 1 and 7200 seconds")
-        return timeout
-
-    @field_validator("AI_MODEL_TEMPERATURE", mode="before")
-    @classmethod
-    def validate_ai_temperature(cls, v):
-        """Validate AI model temperature is in valid range."""
-        temp = float(v)
-        if temp < 0.0 or temp > 2.0:
-            raise ValueError("AI_MODEL_TEMPERATURE must be between 0.0 and 2.0")
-        return temp
-
-    @field_validator("AI_DEFAULT_AGENT", mode="before")
-    @classmethod
-    def validate_ai_default_agent(cls, v):
-        """Validate AI default agent is a valid agent type."""
-        valid_agents = ["personal", "family", "workspace", "commerce", "security", "voice"]
-        if v not in valid_agents:
-            raise ValueError(f"AI_DEFAULT_AGENT must be one of: {', '.join(valid_agents)}")
-        return v
 
     @property
     def is_production(self) -> bool:
@@ -461,62 +504,6 @@ class Settings(BaseSettings):
         if not self.MCP_IP_WHITELIST:
             return []
         return [ip.strip() for ip in self.MCP_IP_WHITELIST.split(",") if ip.strip()]
-
-    # ai_should_be_enabled method removed with AI orchestration system
-
-    @property
-    def ai_enabled_agents(self) -> list:
-        """Get list of enabled AI agents."""
-        agents = []
-        if self.AI_FAMILY_AGENT_ENABLED:
-            agents.append("family")
-        if self.AI_PERSONAL_AGENT_ENABLED:
-            agents.append("personal")
-        if self.AI_WORKSPACE_AGENT_ENABLED:
-            agents.append("workspace")
-        if self.AI_COMMERCE_AGENT_ENABLED:
-            agents.append("commerce")
-        if self.AI_SECURITY_AGENT_ENABLED:
-            agents.append("security")
-        if self.AI_VOICE_AGENT_ENABLED:
-            agents.append("voice")
-        return agents
-
-    @property
-    def ai_model_config(self) -> dict:
-        """Get AI model configuration for Ollama integration."""
-        return {
-            "host": self.OLLAMA_HOST,
-            "model": self.OLLAMA_MODEL,
-            "pool_size": self.AI_MODEL_POOL_SIZE,
-            "timeout": self.AI_MODEL_RESPONSE_TIMEOUT,
-            "max_tokens": self.AI_MODEL_MAX_TOKENS,
-            "temperature": self.AI_MODEL_TEMPERATURE,
-            "streaming": self.AI_MODEL_STREAMING_ENABLED,
-            "available_models": self.ollama_available_models_list,
-            "reasoning_model": self.OLLAMA_REASONING_MODEL,
-            "fast_model": self.OLLAMA_FAST_MODEL,
-            "auto_selection": self.OLLAMA_AUTO_MODEL_SELECTION
-        }
-
-    @property
-    def ollama_available_models_list(self) -> list:
-        """Get list of available Ollama models."""
-        if not self.OLLAMA_AVAILABLE_MODELS:
-            return [self.OLLAMA_MODEL]
-        return [model.strip() for model in self.OLLAMA_AVAILABLE_MODELS.split(",") if model.strip()]
-
-    @property
-    def ai_performance_config(self) -> dict:
-        """Get AI performance configuration."""
-        return {
-            "target_latency": self.AI_RESPONSE_TARGET_LATENCY,
-            "cache_enabled": self.AI_CACHE_ENABLED,
-            "cache_ttl": self.AI_CACHE_TTL,
-            "conversation_cache_ttl": self.AI_CONVERSATION_CACHE_TTL,
-            "context_preload": self.AI_CONTEXT_PRELOAD_ENABLED,
-            "model_warmup": self.AI_MODEL_WARMUP_ENABLED
-        }
 
 
 # Global settings instance

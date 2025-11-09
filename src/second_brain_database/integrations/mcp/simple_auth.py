@@ -6,20 +6,21 @@ without requiring non-existent auth modules.
 """
 
 import asyncio
-from typing import Optional, Dict, Any
-from fastapi import Request, HTTPException
+from typing import Any, Dict, Optional
 
-from ...managers.logging_manager import get_logger
+from fastapi import HTTPException, Request
+
 from ...config import settings
+from ...managers.logging_manager import get_logger
 from .context import (
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
-    extract_client_info_from_request
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    extract_client_info_from_request,
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
 from .exceptions import MCPAuthenticationError
 
@@ -61,7 +62,7 @@ async def create_development_user_context(request: Optional[Request] = None) -> 
         trusted_user_agents=["MCP-Development-Client"],
         token_type="development",
         token_id="dev-token",
-        authenticated_at=datetime.now(timezone.utc)
+        authenticated_at=datetime.now(timezone.utc),
     )
 
 
@@ -122,10 +123,10 @@ async def authenticate_production_request(request: Request) -> MCPUserContext:
         token = authorization.split(" ")[1]
 
         # Check if it's a static token (for development/testing)
-        if hasattr(settings, 'MCP_AUTH_TOKEN') and settings.MCP_AUTH_TOKEN:
+        if hasattr(settings, "MCP_AUTH_TOKEN") and settings.MCP_AUTH_TOKEN:
             token_value = (
                 settings.MCP_AUTH_TOKEN.get_secret_value()
-                if hasattr(settings.MCP_AUTH_TOKEN, 'get_secret_value')
+                if hasattr(settings.MCP_AUTH_TOKEN, "get_secret_value")
                 else str(settings.MCP_AUTH_TOKEN)
             )
 
@@ -146,7 +147,7 @@ async def authenticate_production_request(request: Request) -> MCPUserContext:
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"],
             token_type="jwt",
-            token_id=None
+            token_id=None,
         )
 
         set_mcp_user_context(user_context)
@@ -190,7 +191,7 @@ async def create_static_token_user_context(request: Request) -> MCPUserContext:
         trusted_user_agents=["MCP-Static-Token-Client"],
         token_type="static-token",
         token_id="static-token",
-        authenticated_at=datetime.now(timezone.utc)
+        authenticated_at=datetime.now(timezone.utc),
     )
 
 

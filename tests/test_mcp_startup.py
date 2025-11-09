@@ -6,12 +6,13 @@ This script tests if the MCP server can initialize and start without errors.
 """
 
 import asyncio
-import sys
 from pathlib import Path
+import sys
 
 # Add the src directory to Python path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
+
 
 async def test_mcp_startup():
     """Test MCP server initialization and startup."""
@@ -22,6 +23,7 @@ async def test_mcp_startup():
         # Test configuration loading
         print("1. Loading configuration...")
         from second_brain_database.config import settings
+
         print(f"   ✅ MCP Enabled: {settings.MCP_ENABLED}")
         print(f"   ✅ Server Name: {settings.MCP_SERVER_NAME}")
         print(f"   ✅ Server Port: {settings.MCP_SERVER_PORT}")
@@ -29,6 +31,7 @@ async def test_mcp_startup():
         # Test MCP server manager import
         print("\n2. Importing MCP server manager...")
         from second_brain_database.integrations.mcp.server import mcp_server_manager
+
         print("   ✅ MCP server manager imported successfully")
 
         # Test initialization
@@ -41,7 +44,7 @@ async def test_mcp_startup():
 
         # Test server startup (but don't actually bind to port)
         print("\n4. Testing server startup capability...")
-        if hasattr(mcp_server_manager.mcp, 'serve'):
+        if hasattr(mcp_server_manager.mcp, "serve"):
             print("   ✅ FastMCP serve method available")
         else:
             print("   ⚠️  FastMCP serve method not available, will use HTTP fallback")
@@ -51,14 +54,14 @@ async def test_mcp_startup():
         health = await mcp_server_manager.health_check()
         print(f"   ✅ Health check completed: {health['healthy']}")
 
-        for check_name, check_data in health.get('checks', {}).items():
-            status = check_data.get('status', 'unknown')
-            message = check_data.get('message', 'No message')
+        for check_name, check_data in health.get("checks", {}).items():
+            status = check_data.get("status", "unknown")
+            message = check_data.get("message", "No message")
             icon = "✅" if status == "pass" else "❌"
             print(f"   {icon} {check_name}: {message}")
 
         print("\n" + "=" * 50)
-        if health['healthy']:
+        if health["healthy"]:
             print("🎉 MCP Server startup test PASSED!")
             print("   The server should start successfully when you run the main application.")
             return 0
@@ -71,8 +74,10 @@ async def test_mcp_startup():
         print(f"\n❌ MCP Server startup test FAILED: {e}")
         print("\nError details:")
         import traceback
+
         traceback.print_exc()
         return 1
+
 
 if __name__ == "__main__":
     try:

@@ -2,7 +2,6 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta" 
 
-
 [project]
 name = "second_brain_database"
 version = "0.0.4"
@@ -51,7 +50,19 @@ dependencies = [
     "numpy>=1.26.4",
     "sounddevice>=0.5.3",
     "websockets[speedups]>=12.0",
-
+    "docling>=2.61.1",
+    "celery>=5.5.3",
+    "qdrant-client>=1.15.1",
+    "sentence-transformers>=5.1.2",
+    # LlamaIndex and Vector Search
+    "llama-index>=0.12.0,<1.0.0",
+    "llama-index-vector-stores-qdrant>=0.5.0,<1.0.0",
+    "llama-index-embeddings-fastembed>=0.4.0,<1.0.0",
+    "llama-index-llms-ollama>=0.4.0,<1.0.0",
+    "fastembed>=0.5.0,<1.0.0",
+    # Ollama Integration
+    "ollama>=0.4.8,<1.0.0",
+    "llama-index-embeddings-huggingface>=0.6.1",
 ]
 
 [project.optional-dependencies]
@@ -100,25 +111,18 @@ test = [
     "jsonschema>=4.0.0,<5.0.0",  # For API response validation in tests
 ]
 
-voice = [
-    # Voice Agent Dependencies
-    "pydub>=0.25.0,<1.0.0",  # Audio processing and manipulation
-    "sounddevice>=0.4.0,<1.0.0",  # Audio I/O for recording/playback
-    "ffmpeg-python>=0.2.0,<1.0.0",  # FFmpeg wrapper for audio transcoding
-    "SpeechRecognition>=3.10.0,<4.0.0",  # Speech recognition
-    "pyttsx3>=2.90,<3.0.0",  # Text-to-speech
-    "numpy>=1.24.0,<2.0.0",  # Numerical computing for audio processing
-]
-
 all = [
     # Include all optional dependencies
-    "second_brain_database[dev,monitoring,docs,test,voice]",
+    "second_brain_database[dev,monitoring,docs,test]",
 ]
 
 
 [project.urls]
 "Homepage" = "https://github.com/rohanbatrain/second_brain_database"
 "Bug Tracker" = "https://github.com/rohanbatrain/second_brain_database/issues"
+
+[tool.setuptools]
+packages = {find = {where = ["src"]}}
 
 # Black configuration for code formatting
 [tool.black]
@@ -136,6 +140,7 @@ extend-exclude = '''
   | dist
   | \.pytest_cache
   | __pycache__
+  | src
 )/
 '''
 
@@ -148,7 +153,7 @@ include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 ensure_newline_before_comments = true
-src_paths = ["src", "tests"]
+src_paths = ["tests"]
 known_first_party = ["second_brain_database"]
 known_third_party = [
     "aiohttp",
@@ -184,6 +189,7 @@ combine_as_imports = true
 
 # mypy configuration for type checking
 [tool.mypy]
+explicit_package_bases = true
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
@@ -217,7 +223,20 @@ module = [
     "pymongo.*",
     "pyotp.*",
     "qrcode.*",
-    "redis.*"
+    "redis.*",
+    "docling.*",
+    "celery.*",
+    "kombu.*",
+    "jsonschema.*",
+    "psutil.*",
+    "requests.*",
+    "second_brain_database.integrations.mcp.server",
+    "second_brain_database.managers.database_manager",
+    "second_brain_database.sbd_tokens",
+    "second_brain_database.utils.tokens",
+    "second_brain_database.utils.redis_utils",
+    "second_brain_database.config.config",
+    "second_brain_database.database.database"
 ]
 ignore_missing_imports = true
 

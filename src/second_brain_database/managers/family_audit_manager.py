@@ -17,14 +17,14 @@ Enterprise Features:
     - Data retention policies for audit compliance
 """
 
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-import uuid
-from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
-from pymongo.errors import PyMongoError
 from pymongo.client_session import ClientSession
+from pymongo.errors import PyMongoError
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
@@ -41,7 +41,7 @@ AUDIT_EVENT_TYPES = {
     "account_freeze": "Account Freeze/Unfreeze",
     "admin_action": "Administrative Action",
     "compliance_export": "Compliance Data Export",
-    "audit_access": "Audit Trail Access"
+    "audit_access": "Audit Trail Access",
 }
 
 # Transaction attribution types
@@ -49,7 +49,7 @@ ATTRIBUTION_TYPES = {
     "family_member": "Family Member Transaction",
     "admin_action": "Administrative Action",
     "system_action": "System Automated Action",
-    "recovery_action": "Account Recovery Action"
+    "recovery_action": "Account Recovery Action",
 }
 
 
@@ -67,21 +67,18 @@ class AuditTrailCorrupted(FamilyAuditError):
     """Audit trail integrity check failed."""
 
     def __init__(self, message: str, audit_id: str = None, expected_hash: str = None, actual_hash: str = None):
-        super().__init__(message, "AUDIT_TRAIL_CORRUPTED", {
-            "audit_id": audit_id,
-            "expected_hash": expected_hash,
-            "actual_hash": actual_hash
-        })
+        super().__init__(
+            message,
+            "AUDIT_TRAIL_CORRUPTED",
+            {"audit_id": audit_id, "expected_hash": expected_hash, "actual_hash": actual_hash},
+        )
 
 
 class ComplianceReportError(FamilyAuditError):
     """Compliance report generation failed."""
 
     def __init__(self, message: str, report_type: str = None, family_id: str = None):
-        super().__init__(message, "COMPLIANCE_REPORT_ERROR", {
-            "report_type": report_type,
-            "family_id": family_id
-        })
+        super().__init__(message, "COMPLIANCE_REPORT_ERROR", {"report_type": report_type, "family_id": family_id})
 
 
 class FamilyAuditManager:
@@ -104,7 +101,7 @@ class FamilyAuditManager:
         Args:
             db_manager: Database manager for data operations
         """
-        self.db_manager = db_manager or globals()['db_manager']
+        self.db_manager = db_manager or globals()["db_manager"]
         self.logger = logger
         self.logger.debug("FamilyAuditManager initialized")
 
@@ -119,7 +116,7 @@ class FamilyAuditManager:
         family_member_id: str,
         family_member_username: str,
         transaction_context: Dict[str, Any] = None,
-        session: ClientSession = None
+        session: ClientSession = None,
     ) -> Dict[str, Any]:
         """
         Log comprehensive audit trail for family SBD transactions.
@@ -146,7 +143,7 @@ class FamilyAuditManager:
             "family_id": family_id,
             "transaction_id": transaction_id,
             "operation": "log_sbd_transaction_audit",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("family_audit_trails", "log_transaction", operation_context)
 
@@ -166,27 +163,27 @@ class FamilyAuditManager:
                     "amount": amount,
                     "from_account": from_account,
                     "to_account": to_account,
-                    "transaction_type": transaction_type
+                    "transaction_type": transaction_type,
                 },
                 "family_member_attribution": {
                     "member_id": family_member_id,
                     "member_username": family_member_username,
                     "attribution_type": ATTRIBUTION_TYPES["family_member"],
-                    "attribution_timestamp": now
+                    "attribution_timestamp": now,
                 },
                 "transaction_context": transaction_context or {},
                 "compliance_metadata": {
                     "retention_until": now + timedelta(days=AUDIT_RETENTION_DAYS),
                     "regulatory_flags": [],
                     "export_eligible": True,
-                    "data_classification": "financial_transaction"
+                    "data_classification": "financial_transaction",
                 },
                 "integrity": {
                     "created_at": now,
                     "created_by": "family_audit_manager",
                     "version": 1,
-                    "hash": None  # Will be calculated below
-                }
+                    "hash": None,  # Will be calculated below
+                },
             }
 
             # Calculate integrity hash
@@ -200,21 +197,22 @@ class FamilyAuditManager:
             await self._update_family_audit_summary(family_id, audit_record, session)
 
             self.db_manager.log_query_success(
-                "family_audit_trails", "log_transaction", start_time, 1,
-                f"Audit trail logged: {audit_id}"
+                "family_audit_trails", "log_transaction", start_time, 1, f"Audit trail logged: {audit_id}"
             )
 
             self.logger.info(
                 "SBD transaction audit trail logged: %s for family %s by member %s",
-                audit_id, family_id, family_member_username,
+                audit_id,
+                family_id,
+                family_member_username,
                 extra={
                     "audit_id": audit_id,
                     "family_id": family_id,
                     "transaction_id": transaction_id,
                     "member_id": family_member_id,
                     "amount": amount,
-                    "transaction_type": transaction_type
-                }
+                    "transaction_type": transaction_type,
+                },
             )
 
             return {
@@ -223,19 +221,17 @@ class FamilyAuditManager:
                 "transaction_id": transaction_id,
                 "timestamp": now,
                 "integrity_hash": audit_record["integrity"]["hash"],
-                "compliance_eligible": True
+                "compliance_eligible": True,
             }
 
         except Exception as e:
             self.db_manager.log_query_error("family_audit_trails", "log_transaction", start_time, e, operation_context)
             self.logger.error(
                 "Failed to log SBD transaction audit for family %s: %s",
-                family_id, e, exc_info=True,
-                extra={
-                    "family_id": family_id,
-                    "transaction_id": transaction_id,
-                    "member_id": family_member_id
-                }
+                family_id,
+                e,
+                exc_info=True,
+                extra={"family_id": family_id, "transaction_id": transaction_id, "member_id": family_member_id},
             )
             raise FamilyAuditError(f"Failed to log transaction audit: {str(e)}")
 
@@ -245,7 +241,7 @@ class FamilyAuditManager:
         family_id: str,
         family_member_id: str,
         family_member_username: str,
-        additional_context: Dict[str, Any] = None
+        additional_context: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """
         Enhance SBD transaction with comprehensive family member attribution.
@@ -269,7 +265,7 @@ class FamilyAuditManager:
                 "family_member_id": family_member_id,
                 "family_member_username": family_member_username,
                 "attribution_timestamp": now,
-                "attribution_type": ATTRIBUTION_TYPES["family_member"]
+                "attribution_type": ATTRIBUTION_TYPES["family_member"],
             }
 
             # Add additional context if provided
@@ -287,38 +283,42 @@ class FamilyAuditManager:
 
             # Create enhanced transaction
             enhanced_transaction = transaction.copy()
-            enhanced_transaction.update({
-                "note": enhanced_note,
-                "family_attribution": family_attribution,
-                "compliance_metadata": {
-                    "family_transaction": True,
-                    "audit_eligible": True,
-                    "attribution_complete": True,
-                    "enhanced_at": now
+            enhanced_transaction.update(
+                {
+                    "note": enhanced_note,
+                    "family_attribution": family_attribution,
+                    "compliance_metadata": {
+                        "family_transaction": True,
+                        "audit_eligible": True,
+                        "attribution_complete": True,
+                        "enhanced_at": now,
+                    },
                 }
-            })
+            )
 
             self.logger.debug(
                 "Transaction enhanced with family attribution: %s for family %s",
-                transaction.get("transaction_id", "unknown"), family_id,
+                transaction.get("transaction_id", "unknown"),
+                family_id,
                 extra={
                     "family_id": family_id,
                     "member_id": family_member_id,
-                    "transaction_id": transaction.get("transaction_id")
-                }
+                    "transaction_id": transaction.get("transaction_id"),
+                },
             )
 
             return enhanced_transaction
 
         except Exception as e:
             self.logger.error(
-                "Failed to enhance transaction with family attribution: %s", e,
+                "Failed to enhance transaction with family attribution: %s",
+                e,
                 exc_info=True,
                 extra={
                     "family_id": family_id,
                     "member_id": family_member_id,
-                    "transaction_id": transaction.get("transaction_id")
-                }
+                    "transaction_id": transaction.get("transaction_id"),
+                },
             )
             # Return original transaction if enhancement fails
             return transaction
@@ -332,7 +332,7 @@ class FamilyAuditManager:
         transaction_types: Optional[List[str]] = None,
         include_audit_trail: bool = True,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """
         Retrieve family transaction history with comprehensive context and audit trails.
@@ -357,7 +357,7 @@ class FamilyAuditManager:
             "family_id": family_id,
             "user_id": user_id,
             "operation": "get_transaction_history_with_context",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("family_audit_trails", "get_history", operation_context)
 
@@ -403,18 +403,15 @@ class FamilyAuditManager:
                     "returned_count": len(audit_records),
                     "limit": limit,
                     "offset": offset,
-                    "has_more": total_count > (offset + limit)
+                    "has_more": total_count > (offset + limit),
                 },
                 "transactions": [],
                 "audit_summary": {
                     "total_audit_records": total_count,
-                    "date_range": {
-                        "earliest": None,
-                        "latest": None
-                    },
+                    "date_range": {"earliest": None, "latest": None},
                     "transaction_types_found": set(),
-                    "family_members_involved": set()
-                }
+                    "family_members_involved": set(),
+                },
             }
 
             # Process audit records and correlate with transactions
@@ -425,7 +422,7 @@ class FamilyAuditManager:
                     "transaction_details": audit_record["transaction_details"],
                     "family_member_attribution": audit_record["family_member_attribution"],
                     "transaction_context": audit_record.get("transaction_context", {}),
-                    "compliance_metadata": audit_record.get("compliance_metadata", {})
+                    "compliance_metadata": audit_record.get("compliance_metadata", {}),
                 }
 
                 # Add audit trail if requested
@@ -433,14 +430,13 @@ class FamilyAuditManager:
                     transaction_data["audit_trail"] = {
                         "integrity_hash": audit_record["integrity"]["hash"],
                         "created_at": audit_record["integrity"]["created_at"],
-                        "version": audit_record["integrity"]["version"]
+                        "version": audit_record["integrity"]["version"],
                     }
 
                 # Find corresponding SBD transaction
                 transaction_id = audit_record["transaction_details"]["transaction_id"]
                 sbd_transaction = next(
-                    (t for t in family_transactions if t.get("transaction_id") == transaction_id),
-                    None
+                    (t for t in family_transactions if t.get("transaction_id") == transaction_id), None
                 )
 
                 if sbd_transaction:
@@ -456,29 +452,44 @@ class FamilyAuditManager:
 
                 # Update date range
                 timestamp = audit_record["timestamp"]
-                if not response["audit_summary"]["date_range"]["earliest"] or timestamp < response["audit_summary"]["date_range"]["earliest"]:
+                if (
+                    not response["audit_summary"]["date_range"]["earliest"]
+                    or timestamp < response["audit_summary"]["date_range"]["earliest"]
+                ):
                     response["audit_summary"]["date_range"]["earliest"] = timestamp
-                if not response["audit_summary"]["date_range"]["latest"] or timestamp > response["audit_summary"]["date_range"]["latest"]:
+                if (
+                    not response["audit_summary"]["date_range"]["latest"]
+                    or timestamp > response["audit_summary"]["date_range"]["latest"]
+                ):
                     response["audit_summary"]["date_range"]["latest"] = timestamp
 
             # Convert sets to lists for JSON serialization
-            response["audit_summary"]["transaction_types_found"] = list(response["audit_summary"]["transaction_types_found"])
-            response["audit_summary"]["family_members_involved"] = list(response["audit_summary"]["family_members_involved"])
+            response["audit_summary"]["transaction_types_found"] = list(
+                response["audit_summary"]["transaction_types_found"]
+            )
+            response["audit_summary"]["family_members_involved"] = list(
+                response["audit_summary"]["family_members_involved"]
+            )
 
             self.db_manager.log_query_success(
-                "family_audit_trails", "get_history", start_time, len(audit_records),
-                f"Transaction history retrieved for family {family_id}"
+                "family_audit_trails",
+                "get_history",
+                start_time,
+                len(audit_records),
+                f"Transaction history retrieved for family {family_id}",
             )
 
             self.logger.info(
                 "Family transaction history retrieved: %d records for family %s by user %s",
-                len(audit_records), family_id, user_id,
+                len(audit_records),
+                family_id,
+                user_id,
                 extra={
                     "family_id": family_id,
                     "user_id": user_id,
                     "record_count": len(audit_records),
-                    "total_count": total_count
-                }
+                    "total_count": total_count,
+                },
             )
 
             return response
@@ -487,19 +498,15 @@ class FamilyAuditManager:
             self.db_manager.log_query_error("family_audit_trails", "get_history", start_time, e, operation_context)
             self.logger.error(
                 "Failed to retrieve family transaction history for family %s: %s",
-                family_id, e, exc_info=True,
-                extra={
-                    "family_id": family_id,
-                    "user_id": user_id
-                }
+                family_id,
+                e,
+                exc_info=True,
+                extra={"family_id": family_id, "user_id": user_id},
             )
             raise FamilyAuditError(f"Failed to retrieve transaction history: {str(e)}")
 
     async def detect_suspicious_activity(
-        self,
-        family_id: str,
-        analysis_period_days: int = 30,
-        include_recommendations: bool = True
+        self, family_id: str, analysis_period_days: int = 30, include_recommendations: bool = True
     ) -> Dict[str, Any]:
         """
         Detect suspicious activity patterns in family transactions and operations.
@@ -519,7 +526,7 @@ class FamilyAuditManager:
             "family_id": family_id,
             "operation": "detect_suspicious_activity",
             "analysis_period_days": analysis_period_days,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("family_audit_trails", "suspicious_activity", operation_context)
 
@@ -529,10 +536,9 @@ class FamilyAuditManager:
 
             # Get audit records for analysis period
             audit_collection = self.db_manager.get_collection("family_audit_trails")
-            audit_records = await audit_collection.find({
-                "family_id": family_id,
-                "timestamp": {"$gte": analysis_start, "$lte": now}
-            }).to_list(length=10000)
+            audit_records = await audit_collection.find(
+                {"family_id": family_id, "timestamp": {"$gte": analysis_start, "$lte": now}}
+            ).to_list(length=10000)
 
             # Initialize suspicious activity analysis
             suspicious_patterns = {
@@ -542,7 +548,7 @@ class FamilyAuditManager:
                 "rapid_permission_changes": [],
                 "multiple_failed_attempts": [],
                 "unusual_access_patterns": [],
-                "account_manipulation": []
+                "account_manipulation": [],
             }
 
             # Analyze transaction frequency patterns
@@ -595,57 +601,72 @@ class FamilyAuditManager:
                     "analysis_period": {
                         "start_date": analysis_start,
                         "end_date": now,
-                        "duration_days": analysis_period_days
+                        "duration_days": analysis_period_days,
                     },
                     "analyzed_records": len(audit_records),
                     "analysis_timestamp": now,
                     "risk_score": risk_score,
-                    "risk_level": self._get_risk_level(risk_score)
+                    "risk_level": self._get_risk_level(risk_score),
                 },
                 "suspicious_patterns": suspicious_patterns,
                 "pattern_summary": {
                     "total_suspicious_patterns": sum(1 for patterns in suspicious_patterns.values() if patterns),
-                    "high_risk_patterns": sum(1 for patterns in suspicious_patterns.values()
-                                            if patterns and any(p.get("risk_level") == "high" for p in patterns)),
-                    "medium_risk_patterns": sum(1 for patterns in suspicious_patterns.values()
-                                              if patterns and any(p.get("risk_level") == "medium" for p in patterns))
+                    "high_risk_patterns": sum(
+                        1
+                        for patterns in suspicious_patterns.values()
+                        if patterns and any(p.get("risk_level") == "high" for p in patterns)
+                    ),
+                    "medium_risk_patterns": sum(
+                        1
+                        for patterns in suspicious_patterns.values()
+                        if patterns and any(p.get("risk_level") == "medium" for p in patterns)
+                    ),
                 },
                 "security_recommendations": recommendations,
                 "compliance_flags": {
                     "requires_investigation": risk_score >= 70,
                     "requires_notification": risk_score >= 50,
                     "requires_monitoring": risk_score >= 30,
-                    "regulatory_reporting_required": risk_score >= 80
-                }
+                    "regulatory_reporting_required": risk_score >= 80,
+                },
             }
 
             # Log suspicious activity detection
             await self._log_suspicious_activity_detection(family_id, analysis_report)
 
             self.db_manager.log_query_success(
-                "family_audit_trails", "suspicious_activity", start_time, len(audit_records),
-                f"Suspicious activity analysis completed for family {family_id}"
+                "family_audit_trails",
+                "suspicious_activity",
+                start_time,
+                len(audit_records),
+                f"Suspicious activity analysis completed for family {family_id}",
             )
 
             self.logger.info(
                 "Suspicious activity analysis completed for family %s: risk_score=%d, patterns=%d",
-                family_id, risk_score, analysis_report["pattern_summary"]["total_suspicious_patterns"],
+                family_id,
+                risk_score,
+                analysis_report["pattern_summary"]["total_suspicious_patterns"],
                 extra={
                     "family_id": family_id,
                     "risk_score": risk_score,
                     "suspicious_patterns": analysis_report["pattern_summary"]["total_suspicious_patterns"],
-                    "analysis_period_days": analysis_period_days
-                }
+                    "analysis_period_days": analysis_period_days,
+                },
             )
 
             return analysis_report
 
         except Exception as e:
-            self.db_manager.log_query_error("family_audit_trails", "suspicious_activity", start_time, e, operation_context)
+            self.db_manager.log_query_error(
+                "family_audit_trails", "suspicious_activity", start_time, e, operation_context
+            )
             self.logger.error(
                 "Failed to detect suspicious activity for family %s: %s",
-                family_id, e, exc_info=True,
-                extra={"family_id": family_id}
+                family_id,
+                e,
+                exc_info=True,
+                extra={"family_id": family_id},
             )
             raise FamilyAuditError(f"Failed to detect suspicious activity: {str(e)}")
 
@@ -658,7 +679,7 @@ class FamilyAuditManager:
         end_date: Optional[datetime] = None,
         export_format: str = "json",
         include_suspicious_activity: bool = True,
-        include_regulatory_analysis: bool = True
+        include_regulatory_analysis: bool = True,
     ) -> Dict[str, Any]:
         """
         Generate enhanced compliance report with suspicious activity detection and regulatory analysis.
@@ -684,9 +705,11 @@ class FamilyAuditManager:
             "user_id": user_id,
             "report_type": report_type,
             "operation": "generate_enhanced_compliance_report",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        start_time = self.db_manager.log_query_start("family_audit_trails", "enhanced_compliance_report", operation_context)
+        start_time = self.db_manager.log_query_start(
+            "family_audit_trails", "enhanced_compliance_report", operation_context
+        )
 
         try:
             # Verify user is family admin
@@ -695,9 +718,7 @@ class FamilyAuditManager:
             # Validate export format
             if export_format not in COMPLIANCE_REPORT_FORMATS:
                 raise ComplianceReportError(
-                    f"Invalid export format: {export_format}",
-                    report_type=report_type,
-                    family_id=family_id
+                    f"Invalid export format: {export_format}", report_type=report_type, family_id=family_id
                 )
 
             now = datetime.now(timezone.utc)
@@ -748,13 +769,13 @@ class FamilyAuditManager:
                     "report_period": {
                         "start_date": start_date,
                         "end_date": end_date,
-                        "duration_days": (end_date - start_date).days
+                        "duration_days": (end_date - start_date).days,
                     },
                     "enhancements": {
                         "suspicious_activity_included": include_suspicious_activity,
                         "regulatory_analysis_included": include_regulatory_analysis,
-                        "enhanced_compliance_features": True
-                    }
+                        "enhanced_compliance_features": True,
+                    },
                 },
                 "family_information": {
                     "family_id": family_id,
@@ -764,7 +785,7 @@ class FamilyAuditManager:
                     "sbd_account_username": family["sbd_account"]["account_username"],
                     "account_status": "frozen" if family["sbd_account"]["is_frozen"] else "active",
                     "creation_date": family.get("created_at"),
-                    "last_activity": family.get("last_activity_at")
+                    "last_activity": family.get("last_activity_at"),
                 },
                 "compliance_statistics": compliance_stats,
                 "transaction_summary": {
@@ -775,16 +796,20 @@ class FamilyAuditManager:
                     "unique_family_members": len(transaction_history["audit_summary"]["family_members_involved"]),
                     "transaction_types": transaction_history["audit_summary"]["transaction_types_found"],
                     "average_transaction_amount": (
-                        sum(t["transaction_details"]["amount"] for t in transaction_history["transactions"]) /
-                        len(transaction_history["transactions"])
-                    ) if transaction_history["transactions"] else 0
+                        (
+                            sum(t["transaction_details"]["amount"] for t in transaction_history["transactions"])
+                            / len(transaction_history["transactions"])
+                        )
+                        if transaction_history["transactions"]
+                        else 0
+                    ),
                 },
                 "audit_integrity": {
                     "total_audit_records": transaction_history["audit_summary"]["total_audit_records"],
                     "integrity_verified": True,  # Will be updated by integrity check
                     "missing_audit_trails": [],
-                    "corrupted_records": []
-                }
+                    "corrupted_records": [],
+                },
             }
 
             # Add suspicious activity analysis if included
@@ -792,7 +817,7 @@ class FamilyAuditManager:
                 enhanced_report["suspicious_activity_analysis"] = suspicious_activity_report
                 enhanced_report["compliance_flags"] = {
                     **enhanced_report.get("compliance_flags", {}),
-                    **suspicious_activity_report["compliance_flags"]
+                    **suspicious_activity_report["compliance_flags"],
                 }
 
             # Add regulatory analysis if included
@@ -812,47 +837,51 @@ class FamilyAuditManager:
             enhanced_report["compliance_score"] = {
                 "overall_score": compliance_score,
                 "score_breakdown": self._get_compliance_score_breakdown(enhanced_report),
-                "compliance_level": self._get_compliance_level(compliance_score)
+                "compliance_level": self._get_compliance_level(compliance_score),
             }
 
             # Log enhanced compliance report generation
             await self._log_compliance_report_generation(report_id, family_id, user_id, f"enhanced_{report_type}")
 
             self.db_manager.log_query_success(
-                "family_audit_trails", "enhanced_compliance_report", start_time, 1,
-                f"Enhanced compliance report generated: {report_id}"
+                "family_audit_trails",
+                "enhanced_compliance_report",
+                start_time,
+                1,
+                f"Enhanced compliance report generated: {report_id}",
             )
 
             self.logger.info(
                 "Enhanced compliance report generated: %s for family %s by user %s (score: %d)",
-                report_id, family_id, user_id, compliance_score,
+                report_id,
+                family_id,
+                user_id,
+                compliance_score,
                 extra={
                     "report_id": report_id,
                     "family_id": family_id,
                     "user_id": user_id,
                     "report_type": report_type,
                     "compliance_score": compliance_score,
-                    "transaction_count": len(transaction_history["transactions"])
-                }
+                    "transaction_count": len(transaction_history["transactions"]),
+                },
             )
 
             return enhanced_report
 
         except Exception as e:
-            self.db_manager.log_query_error("family_audit_trails", "enhanced_compliance_report", start_time, e, operation_context)
+            self.db_manager.log_query_error(
+                "family_audit_trails", "enhanced_compliance_report", start_time, e, operation_context
+            )
             self.logger.error(
                 "Failed to generate enhanced compliance report for family %s: %s",
-                family_id, e, exc_info=True,
-                extra={
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "report_type": report_type
-                }
+                family_id,
+                e,
+                exc_info=True,
+                extra={"family_id": family_id, "user_id": user_id, "report_type": report_type},
             )
             raise ComplianceReportError(
-                f"Failed to generate enhanced compliance report: {str(e)}",
-                report_type=report_type,
-                family_id=family_id
+                f"Failed to generate enhanced compliance report: {str(e)}", report_type=report_type, family_id=family_id
             )
 
     async def generate_compliance_report(
@@ -862,7 +891,7 @@ class FamilyAuditManager:
         report_type: str = "comprehensive",
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        export_format: str = "json"
+        export_format: str = "json",
     ) -> Dict[str, Any]:
         """
         Generate comprehensive compliance report for family SBD transactions.
@@ -886,7 +915,7 @@ class FamilyAuditManager:
             "user_id": user_id,
             "report_type": report_type,
             "operation": "generate_compliance_report",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("family_audit_trails", "compliance_report", operation_context)
 
@@ -897,9 +926,7 @@ class FamilyAuditManager:
             # Validate export format
             if export_format not in COMPLIANCE_REPORT_FORMATS:
                 raise ComplianceReportError(
-                    f"Invalid export format: {export_format}",
-                    report_type=report_type,
-                    family_id=family_id
+                    f"Invalid export format: {export_format}", report_type=report_type, family_id=family_id
                 )
 
             now = datetime.now(timezone.utc)
@@ -935,8 +962,8 @@ class FamilyAuditManager:
                     "report_period": {
                         "start_date": start_date,
                         "end_date": end_date,
-                        "duration_days": (end_date - start_date).days
-                    }
+                        "duration_days": (end_date - start_date).days,
+                    },
                 },
                 "family_information": {
                     "family_id": family_id,
@@ -944,7 +971,7 @@ class FamilyAuditManager:
                     "admin_count": len(family["admin_user_ids"]),
                     "member_count": family["member_count"],
                     "sbd_account_username": family["sbd_account"]["account_username"],
-                    "account_status": "frozen" if family["sbd_account"]["is_frozen"] else "active"
+                    "account_status": "frozen" if family["sbd_account"]["is_frozen"] else "active",
                 },
                 "compliance_statistics": compliance_stats,
                 "transaction_summary": {
@@ -953,14 +980,14 @@ class FamilyAuditManager:
                         t["transaction_details"]["amount"] for t in transaction_history["transactions"]
                     ),
                     "unique_family_members": len(transaction_history["audit_summary"]["family_members_involved"]),
-                    "transaction_types": transaction_history["audit_summary"]["transaction_types_found"]
+                    "transaction_types": transaction_history["audit_summary"]["transaction_types_found"],
                 },
                 "audit_integrity": {
                     "total_audit_records": transaction_history["audit_summary"]["total_audit_records"],
                     "integrity_verified": True,  # Will be updated by integrity check
                     "missing_audit_trails": [],
-                    "corrupted_records": []
-                }
+                    "corrupted_records": [],
+                },
             }
 
             # Include detailed transactions if comprehensive report
@@ -975,39 +1002,38 @@ class FamilyAuditManager:
             await self._log_compliance_report_generation(report_id, family_id, user_id, report_type)
 
             self.db_manager.log_query_success(
-                "family_audit_trails", "compliance_report", start_time, 1,
-                f"Compliance report generated: {report_id}"
+                "family_audit_trails", "compliance_report", start_time, 1, f"Compliance report generated: {report_id}"
             )
 
             self.logger.info(
                 "Compliance report generated: %s for family %s by user %s",
-                report_id, family_id, user_id,
+                report_id,
+                family_id,
+                user_id,
                 extra={
                     "report_id": report_id,
                     "family_id": family_id,
                     "user_id": user_id,
                     "report_type": report_type,
-                    "transaction_count": len(transaction_history["transactions"])
-                }
+                    "transaction_count": len(transaction_history["transactions"]),
+                },
             )
 
             return compliance_report
 
         except Exception as e:
-            self.db_manager.log_query_error("family_audit_trails", "compliance_report", start_time, e, operation_context)
+            self.db_manager.log_query_error(
+                "family_audit_trails", "compliance_report", start_time, e, operation_context
+            )
             self.logger.error(
                 "Failed to generate compliance report for family %s: %s",
-                family_id, e, exc_info=True,
-                extra={
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "report_type": report_type
-                }
+                family_id,
+                e,
+                exc_info=True,
+                extra={"family_id": family_id, "user_id": user_id, "report_type": report_type},
             )
             raise ComplianceReportError(
-                f"Failed to generate compliance report: {str(e)}",
-                report_type=report_type,
-                family_id=family_id
+                f"Failed to generate compliance report: {str(e)}", report_type=report_type, family_id=family_id
             )
 
     def _calculate_audit_hash(self, audit_record: Dict[str, Any]) -> str:
@@ -1031,7 +1057,7 @@ class FamilyAuditManager:
             record_json = json.dumps(record_copy, sort_keys=True, default=str)
 
             # Calculate SHA-256 hash
-            hash_object = hashlib.sha256(record_json.encode('utf-8'))
+            hash_object = hashlib.sha256(record_json.encode("utf-8"))
             return hash_object.hexdigest()
 
         except Exception as e:
@@ -1039,10 +1065,7 @@ class FamilyAuditManager:
             return f"hash_error_{uuid.uuid4().hex[:8]}"
 
     async def _update_family_audit_summary(
-        self,
-        family_id: str,
-        audit_record: Dict[str, Any],
-        session: ClientSession = None
+        self, family_id: str, audit_record: Dict[str, Any], session: ClientSession = None
     ) -> None:
         """
         Update family audit summary with new audit record.
@@ -1058,25 +1081,18 @@ class FamilyAuditManager:
             update_query = {
                 "$inc": {
                     "audit_summary.total_audit_records": 1,
-                    f"audit_summary.event_counts.{audit_record['event_type']}": 1
+                    f"audit_summary.event_counts.{audit_record['event_type']}": 1,
                 },
                 "$set": {
                     "audit_summary.last_audit_at": audit_record["timestamp"],
-                    "audit_summary.last_audit_id": audit_record["audit_id"]
-                }
+                    "audit_summary.last_audit_id": audit_record["audit_id"],
+                },
             }
 
-            await families_collection.update_one(
-                {"family_id": family_id},
-                update_query,
-                session=session
-            )
+            await families_collection.update_one({"family_id": family_id}, update_query, session=session)
 
         except Exception as e:
-            self.logger.warning(
-                "Failed to update family audit summary for %s: %s",
-                family_id, e
-            )
+            self.logger.warning("Failed to update family audit summary for %s: %s", family_id, e)
 
     async def _verify_family_access_permission(self, family_id: str, user_id: str) -> None:
         """
@@ -1105,15 +1121,12 @@ class FamilyAuditManager:
 
             # Check family membership
             family_memberships = user.get("family_memberships", [])
-            is_member = any(
-                membership["family_id"] == family_id
-                for membership in family_memberships
-            )
+            is_member = any(membership["family_id"] == family_id for membership in family_memberships)
 
             if not is_member:
                 raise FamilyAuditError(
                     "User does not have permission to access family audit information",
-                    error_code="INSUFFICIENT_PERMISSIONS"
+                    error_code="INSUFFICIENT_PERMISSIONS",
                 )
 
         except FamilyAuditError:
@@ -1141,8 +1154,7 @@ class FamilyAuditManager:
 
             if user_id not in family["admin_user_ids"]:
                 raise FamilyAuditError(
-                    "User does not have admin permission for family",
-                    error_code="INSUFFICIENT_ADMIN_PERMISSIONS"
+                    "User does not have admin permission for family", error_code="INSUFFICIENT_ADMIN_PERMISSIONS"
                 )
 
         except FamilyAuditError:
@@ -1182,7 +1194,7 @@ class FamilyAuditManager:
         family_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        limit: int = 1000
+        limit: int = 1000,
     ) -> List[Dict[str, Any]]:
         """
         Get family SBD account transactions.
@@ -1203,9 +1215,7 @@ class FamilyAuditManager:
 
             # Get SBD account transactions
             users_collection = self.db_manager.get_collection("users")
-            user_doc = await users_collection.find_one(
-                {"username": sbd_username, "is_virtual_account": True}
-            )
+            user_doc = await users_collection.find_one({"username": sbd_username, "is_virtual_account": True})
 
             if not user_doc:
                 return []
@@ -1216,7 +1226,7 @@ class FamilyAuditManager:
             if start_date or end_date:
                 filtered_transactions = []
                 for txn in transactions:
-                    txn_timestamp = datetime.fromisoformat(txn["timestamp"].replace('Z', '+00:00'))
+                    txn_timestamp = datetime.fromisoformat(txn["timestamp"].replace("Z", "+00:00"))
 
                     if start_date and txn_timestamp < start_date:
                         continue
@@ -1232,18 +1242,11 @@ class FamilyAuditManager:
             return transactions[:limit]
 
         except Exception as e:
-            self.logger.warning(
-                "Failed to get family SBD transactions for %s: %s",
-                family_id, e
-            )
+            self.logger.warning("Failed to get family SBD transactions for %s: %s", family_id, e)
             return []
 
     async def _generate_compliance_statistics(
-        self,
-        family_id: str,
-        start_date: datetime,
-        end_date: datetime,
-        transactions: List[Dict[str, Any]]
+        self, family_id: str, start_date: datetime, end_date: datetime, transactions: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
         Generate compliance statistics for the report period.
@@ -1264,16 +1267,12 @@ class FamilyAuditManager:
                     "total_amount": sum(t["transaction_details"]["amount"] for t in transactions),
                     "average_transaction_amount": 0,
                     "largest_transaction": 0,
-                    "smallest_transaction": float('inf') if transactions else 0
+                    "smallest_transaction": float("inf") if transactions else 0,
                 },
                 "member_activity": {},
-                "transaction_patterns": {
-                    "by_type": {},
-                    "by_day_of_week": {},
-                    "by_hour_of_day": {}
-                },
+                "transaction_patterns": {"by_type": {}, "by_day_of_week": {}, "by_hour_of_day": {}},
                 "compliance_flags": [],
-                "risk_indicators": []
+                "risk_indicators": [],
             }
 
             if not transactions:
@@ -1292,7 +1291,7 @@ class FamilyAuditManager:
                     stats["member_activity"][member_username] = {
                         "transaction_count": 0,
                         "total_amount": 0,
-                        "transaction_types": set()
+                        "transaction_types": set(),
                     }
 
                 stats["member_activity"][member_username]["transaction_count"] += 1
@@ -1308,15 +1307,21 @@ class FamilyAuditManager:
             # Analyze transaction patterns
             for txn in transactions:
                 txn_type = txn["transaction_details"]["transaction_type"]
-                stats["transaction_patterns"]["by_type"][txn_type] = stats["transaction_patterns"]["by_type"].get(txn_type, 0) + 1
+                stats["transaction_patterns"]["by_type"][txn_type] = (
+                    stats["transaction_patterns"]["by_type"].get(txn_type, 0) + 1
+                )
 
                 # Analyze temporal patterns
                 timestamp = txn["timestamp"]
                 day_of_week = timestamp.strftime("%A")
                 hour_of_day = timestamp.hour
 
-                stats["transaction_patterns"]["by_day_of_week"][day_of_week] = stats["transaction_patterns"]["by_day_of_week"].get(day_of_week, 0) + 1
-                stats["transaction_patterns"]["by_hour_of_day"][str(hour_of_day)] = stats["transaction_patterns"]["by_hour_of_day"].get(str(hour_of_day), 0) + 1
+                stats["transaction_patterns"]["by_day_of_week"][day_of_week] = (
+                    stats["transaction_patterns"]["by_day_of_week"].get(day_of_week, 0) + 1
+                )
+                stats["transaction_patterns"]["by_hour_of_day"][str(hour_of_day)] = (
+                    stats["transaction_patterns"]["by_hour_of_day"].get(str(hour_of_day), 0) + 1
+                )
 
             # Check for compliance flags and risk indicators
             if stats["transaction_volume"]["largest_transaction"] > 10000:  # Large transaction threshold
@@ -1328,17 +1333,11 @@ class FamilyAuditManager:
             return stats
 
         except Exception as e:
-            self.logger.warning(
-                "Failed to generate compliance statistics for %s: %s",
-                family_id, e
-            )
+            self.logger.warning("Failed to generate compliance statistics for %s: %s", family_id, e)
             return {"error": f"Failed to generate statistics: {str(e)}"}
 
     async def _verify_audit_trail_integrity(
-        self,
-        family_id: str,
-        start_date: datetime,
-        end_date: datetime
+        self, family_id: str, start_date: datetime, end_date: datetime
     ) -> Dict[str, Any]:
         """
         Verify integrity of audit trail records.
@@ -1354,10 +1353,7 @@ class FamilyAuditManager:
         try:
             audit_collection = self.db_manager.get_collection("family_audit_trails")
 
-            query = {
-                "family_id": family_id,
-                "timestamp": {"$gte": start_date, "$lte": end_date}
-            }
+            query = {"family_id": family_id, "timestamp": {"$gte": start_date, "$lte": end_date}}
 
             audit_records = await audit_collection.find(query).to_list(length=None)
 
@@ -1366,7 +1362,7 @@ class FamilyAuditManager:
                 "integrity_verified": True,
                 "corrupted_records": [],
                 "missing_hashes": [],
-                "verification_timestamp": datetime.now(timezone.utc)
+                "verification_timestamp": datetime.now(timezone.utc),
             }
 
             for record in audit_records:
@@ -1381,33 +1377,24 @@ class FamilyAuditManager:
                 actual_hash = record["integrity"]["hash"]
 
                 if expected_hash != actual_hash:
-                    integrity_results["corrupted_records"].append({
-                        "audit_id": record["audit_id"],
-                        "expected_hash": expected_hash,
-                        "actual_hash": actual_hash
-                    })
+                    integrity_results["corrupted_records"].append(
+                        {"audit_id": record["audit_id"], "expected_hash": expected_hash, "actual_hash": actual_hash}
+                    )
                     integrity_results["integrity_verified"] = False
 
             return integrity_results
 
         except Exception as e:
-            self.logger.warning(
-                "Failed to verify audit trail integrity for %s: %s",
-                family_id, e
-            )
+            self.logger.warning("Failed to verify audit trail integrity for %s: %s", family_id, e)
             return {
                 "total_records_checked": 0,
                 "integrity_verified": False,
                 "error": f"Verification failed: {str(e)}",
-                "verification_timestamp": datetime.now(timezone.utc)
+                "verification_timestamp": datetime.now(timezone.utc),
             }
 
     async def _log_compliance_report_generation(
-        self,
-        report_id: str,
-        family_id: str,
-        user_id: str,
-        report_type: str
+        self, report_id: str, family_id: str, user_id: str, report_type: str
     ) -> None:
         """
         Log compliance report generation for audit purposes.
@@ -1428,34 +1415,32 @@ class FamilyAuditManager:
                 "compliance_export_details": {
                     "report_id": report_id,
                     "report_type": report_type,
-                    "generated_by": user_id
+                    "generated_by": user_id,
                 },
                 "family_member_attribution": {
                     "member_id": user_id,
-                    "attribution_type": ATTRIBUTION_TYPES["admin_action"]
+                    "attribution_type": ATTRIBUTION_TYPES["admin_action"],
                 },
                 "compliance_metadata": {
                     "retention_until": datetime.now(timezone.utc) + timedelta(days=AUDIT_RETENTION_DAYS),
                     "regulatory_flags": ["compliance_report"],
                     "export_eligible": True,
-                    "data_classification": "compliance_report"
-                }
+                    "data_classification": "compliance_report",
+                },
             }
 
             audit_record["integrity"] = {
                 "created_at": audit_record["timestamp"],
                 "created_by": "family_audit_manager",
                 "version": 1,
-                "hash": self._calculate_audit_hash(audit_record)
+                "hash": self._calculate_audit_hash(audit_record),
             }
 
             audit_collection = self.db_manager.get_collection("family_audit_trails")
             await audit_collection.insert_one(audit_record)
 
         except Exception as e:
-            self.logger.warning(
-                "Failed to log compliance report generation: %s", e
-            )
+            self.logger.warning("Failed to log compliance report generation: %s", e)
 
     async def _analyze_transaction_frequency(self, audit_records: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze transaction frequency patterns for suspicious activity."""
@@ -1478,12 +1463,14 @@ class FamilyAuditManager:
             suspicious_periods = []
             for hour, count in hourly_counts.items():
                 if count > threshold:
-                    suspicious_periods.append({
-                        "timestamp": hour,
-                        "transaction_count": count,
-                        "threshold_exceeded": count / avg_count,
-                        "risk_level": "high" if count > threshold * 2 else "medium"
-                    })
+                    suspicious_periods.append(
+                        {
+                            "timestamp": hour,
+                            "transaction_count": count,
+                            "threshold_exceeded": count / avg_count,
+                            "risk_level": "high" if count > threshold * 2 else "medium",
+                        }
+                    )
 
             return {"suspicious_periods": suspicious_periods}
 
@@ -1515,13 +1502,15 @@ class FamilyAuditManager:
                 if record["event_type"] == "sbd_transaction":
                     amount = record["transaction_details"]["amount"]
                     if amount < lower_bound or amount > upper_bound:
-                        outliers.append({
-                            "audit_id": record["audit_id"],
-                            "timestamp": record["timestamp"],
-                            "amount": amount,
-                            "deviation_type": "unusually_high" if amount > upper_bound else "unusually_low",
-                            "risk_level": "high" if amount > upper_bound * 2 else "medium"
-                        })
+                        outliers.append(
+                            {
+                                "audit_id": record["audit_id"],
+                                "timestamp": record["timestamp"],
+                                "amount": amount,
+                                "deviation_type": "unusually_high" if amount > upper_bound else "unusually_low",
+                                "risk_level": "high" if amount > upper_bound * 2 else "medium",
+                            }
+                        )
 
             return {"outliers": outliers}
 
@@ -1540,13 +1529,15 @@ class FamilyAuditManager:
 
                 # Define off-hours as 11 PM to 6 AM
                 if hour >= 23 or hour <= 6:
-                    off_hours_activity.append({
-                        "audit_id": record["audit_id"],
-                        "timestamp": timestamp,
-                        "event_type": record["event_type"],
-                        "hour": hour,
-                        "risk_level": "medium"
-                    })
+                    off_hours_activity.append(
+                        {
+                            "audit_id": record["audit_id"],
+                            "timestamp": timestamp,
+                            "event_type": record["event_type"],
+                            "hour": hour,
+                            "risk_level": "medium",
+                        }
+                    )
 
             return {"off_hours_activity": off_hours_activity}
 
@@ -1563,17 +1554,20 @@ class FamilyAuditManager:
             for i, change in enumerate(permission_changes):
                 # Look for multiple changes within 1 hour
                 recent_changes = [
-                    c for c in permission_changes[i+1:i+6]  # Check next 5 changes
+                    c
+                    for c in permission_changes[i + 1 : i + 6]  # Check next 5 changes
                     if (change["timestamp"] - c["timestamp"]).total_seconds() < 3600
                 ]
 
                 if len(recent_changes) >= 3:
-                    rapid_changes.append({
-                        "initial_change": change["audit_id"],
-                        "timestamp": change["timestamp"],
-                        "rapid_change_count": len(recent_changes) + 1,
-                        "risk_level": "high"
-                    })
+                    rapid_changes.append(
+                        {
+                            "initial_change": change["audit_id"],
+                            "timestamp": change["timestamp"],
+                            "rapid_change_count": len(recent_changes) + 1,
+                            "risk_level": "high",
+                        }
+                    )
 
             return {"rapid_changes": rapid_changes}
 
@@ -1581,7 +1575,9 @@ class FamilyAuditManager:
             self.logger.error("Failed to analyze permission changes: %s", e)
             return {"rapid_changes": []}
 
-    async def _analyze_failed_operations(self, family_id: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def _analyze_failed_operations(
+        self, family_id: str, start_date: datetime, end_date: datetime
+    ) -> Dict[str, Any]:
         """Analyze failed operations for suspicious patterns."""
         try:
             # This would analyze application logs for failed operations
@@ -1613,13 +1609,15 @@ class FamilyAuditManager:
                     window_start = timestamps[i]
                     window_end = timestamps[i + 4]
                     if (window_end - window_start).total_seconds() < 300:  # 5 operations in 5 minutes
-                        unusual_patterns.append({
-                            "member_id": member_id,
-                            "burst_start": window_start,
-                            "burst_end": window_end,
-                            "operation_count": 5,
-                            "risk_level": "medium"
-                        })
+                        unusual_patterns.append(
+                            {
+                                "member_id": member_id,
+                                "burst_start": window_start,
+                                "burst_end": window_end,
+                                "operation_count": 5,
+                                "risk_level": "medium",
+                            }
+                        )
 
             return {"unusual_patterns": unusual_patterns}
 
@@ -1631,20 +1629,21 @@ class FamilyAuditManager:
         """Analyze account manipulation attempts."""
         try:
             manipulation_events = [
-                r for r in audit_records
-                if r["event_type"] in ["account_freeze", "permission_change", "admin_action"]
+                r for r in audit_records if r["event_type"] in ["account_freeze", "permission_change", "admin_action"]
             ]
 
             suspicious_actions = []
             for record in manipulation_events:
                 # Flag rapid account status changes
                 if record["event_type"] == "account_freeze":
-                    suspicious_actions.append({
-                        "audit_id": record["audit_id"],
-                        "timestamp": record["timestamp"],
-                        "action_type": "account_freeze",
-                        "risk_level": "medium"
-                    })
+                    suspicious_actions.append(
+                        {
+                            "audit_id": record["audit_id"],
+                            "timestamp": record["timestamp"],
+                            "action_type": "account_freeze",
+                            "risk_level": "medium",
+                        }
+                    )
 
             return {"suspicious_actions": suspicious_actions}
 
@@ -1665,7 +1664,7 @@ class FamilyAuditManager:
                 "rapid_permission_changes": 25,
                 "multiple_failed_attempts": 20,
                 "unusual_access_patterns": 15,
-                "account_manipulation": 30
+                "account_manipulation": 30,
             }
 
             for pattern_type, patterns in suspicious_patterns.items():
@@ -1732,19 +1731,21 @@ class FamilyAuditManager:
                 "analysis_results": {
                     "risk_score": analysis_report["analysis_metadata"]["risk_score"],
                     "risk_level": analysis_report["analysis_metadata"]["risk_level"],
-                    "pattern_count": analysis_report["pattern_summary"]["total_suspicious_patterns"]
+                    "pattern_count": analysis_report["pattern_summary"]["total_suspicious_patterns"],
                 },
                 "compliance_metadata": {
                     "requires_investigation": analysis_report["compliance_flags"]["requires_investigation"],
-                    "regulatory_reporting_required": analysis_report["compliance_flags"]["regulatory_reporting_required"]
-                }
+                    "regulatory_reporting_required": analysis_report["compliance_flags"][
+                        "regulatory_reporting_required"
+                    ],
+                },
             }
 
             audit_record["integrity"] = {
                 "created_at": audit_record["timestamp"],
                 "created_by": "family_audit_manager",
                 "version": 1,
-                "hash": self._calculate_audit_hash(audit_record)
+                "hash": self._calculate_audit_hash(audit_record),
             }
 
             audit_collection = self.db_manager.get_collection("family_audit_trails")
@@ -1766,18 +1767,14 @@ class FamilyAuditManager:
                     "start_date": start_date,
                     "end_date": end_date,
                     "total_transactions": len(transactions),
-                    "total_amount": total_amount
+                    "total_amount": total_amount,
                 },
                 "regulatory_thresholds": {
                     "large_transaction_count": len(large_transactions),
                     "large_transaction_threshold": 10000,
-                    "requires_reporting": len(large_transactions) > 0 or total_amount > 50000
+                    "requires_reporting": len(large_transactions) > 0 or total_amount > 50000,
                 },
-                "compliance_status": {
-                    "aml_compliant": True,
-                    "kyc_verified": True,
-                    "reporting_complete": True
-                }
+                "compliance_status": {"aml_compliant": True, "kyc_verified": True, "reporting_complete": True},
             }
 
         except Exception as e:
@@ -1811,7 +1808,7 @@ class FamilyAuditManager:
             "audit_integrity": 30,
             "transaction_compliance": 25,
             "security_compliance": 25,
-            "regulatory_compliance": 20
+            "regulatory_compliance": 20,
         }
 
     def _get_compliance_level(self, score: int) -> str:

@@ -13,18 +13,19 @@ Requirements Coverage:
 - Requirements 10.1-10.6 (Performance and Scalability)
 """
 
+from datetime import datetime
 import json
 import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 class ProductionReadinessAssessment:
     """Production readiness assessment for family management system"""
@@ -38,7 +39,7 @@ class ProductionReadinessAssessment:
             "performance_capacity": {},
             "security_compliance": {},
             "deployment_procedures": {},
-            "operational_readiness": {}
+            "operational_readiness": {},
         }
         self.start_time = datetime.now()
 
@@ -85,7 +86,7 @@ class ProductionReadinessAssessment:
             "security_settings": self._check_security_settings(),
             "database_configuration": self._check_database_configuration(),
             "redis_configuration": self._check_redis_configuration(),
-            "logging_configuration": self._check_logging_configuration()
+            "logging_configuration": self._check_logging_configuration(),
         }
 
         self.assessment_results["system_configuration"] = config_validation
@@ -99,7 +100,7 @@ class ProductionReadinessAssessment:
             "REDIS_URL",
             "FERNET_KEY",
             "TURNSTILE_SITEKEY",
-            "TURNSTILE_SECRET"
+            "TURNSTILE_SECRET",
         ]
 
         env_status = {}
@@ -116,7 +117,7 @@ class ProductionReadinessAssessment:
             "all_required_present": len(missing_vars) == 0,
             "env_status": env_status,
             "missing_variables": missing_vars,
-            "production_ready": len(missing_vars) == 0
+            "production_ready": len(missing_vars) == 0,
         }
 
     def _check_configuration_files(self) -> Dict[str, Any]:
@@ -125,20 +126,17 @@ class ProductionReadinessAssessment:
             "pyproject.toml": self.project_root / "pyproject.toml",
             ".env.production.example": self.project_root / ".env.production.example",
             "Dockerfile": self.project_root / "Dockerfile",
-            "requirements.txt": self.project_root / "requirements.txt"
+            "requirements.txt": self.project_root / "requirements.txt",
         }
 
         file_status = {}
         for name, path in config_files.items():
-            file_status[name] = {
-                "exists": path.exists(),
-                "readable": path.exists() and path.is_file()
-            }
+            file_status[name] = {"exists": path.exists(), "readable": path.exists() and path.is_file()}
 
         return {
             "all_files_present": all(status["exists"] for status in file_status.values()),
             "file_status": file_status,
-            "production_ready": all(status["exists"] for status in file_status.values())
+            "production_ready": all(status["exists"] for status in file_status.values()),
         }
 
     def _check_security_settings(self) -> Dict[str, Any]:
@@ -156,13 +154,13 @@ class ProductionReadinessAssessment:
             "secure_cookies": "secure" in content.lower(),
             "cors_configuration": "CORS" in content,
             "rate_limiting": "rate" in content.lower(),
-            "https_enforcement": "https" in content.lower()
+            "https_enforcement": "https" in content.lower(),
         }
 
         return {
             "security_features": security_features,
             "security_score": sum(security_features.values()) / len(security_features) * 100,
-            "production_ready": sum(security_features.values()) >= 4
+            "production_ready": sum(security_features.values()) >= 4,
         }
 
     def _check_database_configuration(self) -> Dict[str, Any]:
@@ -180,13 +178,13 @@ class ProductionReadinessAssessment:
             "retry_logic": "retry" in content,
             "error_handling": "except" in content and "ConnectionError" in content,
             "async_support": "async" in content and "await" in content,
-            "transaction_support": "session" in content or "transaction" in content
+            "transaction_support": "session" in content or "transaction" in content,
         }
 
         return {
             "database_features": db_features,
             "db_readiness_score": sum(db_features.values()) / len(db_features) * 100,
-            "production_ready": sum(db_features.values()) >= 4
+            "production_ready": sum(db_features.values()) >= 4,
         }
 
     def _check_redis_configuration(self) -> Dict[str, Any]:
@@ -204,13 +202,13 @@ class ProductionReadinessAssessment:
             "fallback_handling": "fallback" in content,
             "error_handling": "except" in content and "ConnectionError" in content,
             "async_support": "async" in content,
-            "health_checks": "ping" in content or "health" in content
+            "health_checks": "ping" in content or "health" in content,
         }
 
         return {
             "redis_features": redis_features,
             "redis_readiness_score": sum(redis_features.values()) / len(redis_features) * 100,
-            "production_ready": sum(redis_features.values()) >= 4
+            "production_ready": sum(redis_features.values()) >= 4,
         }
 
     def _check_logging_configuration(self) -> Dict[str, Any]:
@@ -228,13 +226,13 @@ class ProductionReadinessAssessment:
             "log_rotation": "rotation" in content.lower() or "rotate" in content.lower(),
             "external_logging": "loki" in content.lower() or "external" in content.lower(),
             "error_tracking": "error" in content.lower(),
-            "audit_logging": "audit" in content.lower()
+            "audit_logging": "audit" in content.lower(),
         }
 
         return {
             "logging_features": logging_features,
             "logging_readiness_score": sum(logging_features.values()) / len(logging_features) * 100,
-            "production_ready": sum(logging_features.values()) >= 4
+            "production_ready": sum(logging_features.values()) >= 4,
         }
 
     def test_backup_recovery_procedures(self):
@@ -246,7 +244,7 @@ class ProductionReadinessAssessment:
             "backup_scripts": self._check_backup_scripts(),
             "recovery_procedures": self._check_recovery_procedures(),
             "data_retention_policies": self._check_data_retention_policies(),
-            "disaster_recovery_plan": self._check_disaster_recovery_plan()
+            "disaster_recovery_plan": self._check_disaster_recovery_plan(),
         }
 
         self.assessment_results["backup_recovery"] = backup_assessment
@@ -266,14 +264,14 @@ class ProductionReadinessAssessment:
             "retention_policy": "retention" in content.lower(),
             "testing_procedures": "test" in content.lower(),
             "automation": "automat" in content.lower(),
-            "monitoring": "monitor" in content.lower()
+            "monitoring": "monitor" in content.lower(),
         }
 
         return {
             "documented": True,
             "doc_sections": doc_sections,
             "completeness_score": sum(doc_sections.values()) / len(doc_sections) * 100,
-            "production_ready": sum(doc_sections.values()) >= 4
+            "production_ready": sum(doc_sections.values()) >= 4,
         }
 
     def _check_backup_scripts(self) -> Dict[str, Any]:
@@ -291,14 +289,14 @@ class ProductionReadinessAssessment:
             "compression": "compress" in content or "gzip" in content,
             "encryption": "encrypt" in content,
             "verification": "verify" in content or "validate" in content,
-            "scheduling": "schedule" in content or "cron" in content
+            "scheduling": "schedule" in content or "cron" in content,
         }
 
         return {
             "implemented": True,
             "backup_features": backup_features,
             "feature_score": sum(backup_features.values()) / len(backup_features) * 100,
-            "production_ready": sum(backup_features.values()) >= 4
+            "production_ready": sum(backup_features.values()) >= 4,
         }
 
     def _check_recovery_procedures(self) -> Dict[str, Any]:
@@ -311,7 +309,7 @@ class ProductionReadinessAssessment:
             "recovery_testing": True,
             "rto_defined": True,  # Recovery Time Objective
             "rpo_defined": True,  # Recovery Point Objective
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_data_retention_policies(self) -> Dict[str, Any]:
@@ -321,7 +319,7 @@ class ProductionReadinessAssessment:
             "automated_cleanup": True,
             "compliance_requirements": True,
             "audit_trail_retention": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_disaster_recovery_plan(self) -> Dict[str, Any]:
@@ -331,7 +329,7 @@ class ProductionReadinessAssessment:
             "failover_procedures": True,
             "communication_plan": True,
             "testing_schedule": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def verify_monitoring_alerting_integration(self):
@@ -344,7 +342,7 @@ class ProductionReadinessAssessment:
             "metrics_collection": self._check_metrics_collection(),
             "alerting_configuration": self._check_alerting_configuration(),
             "dashboard_setup": self._check_dashboard_setup(),
-            "operational_runbooks": self._check_operational_runbooks()
+            "operational_runbooks": self._check_operational_runbooks(),
         }
 
         self.assessment_results["monitoring_alerting"] = monitoring_assessment
@@ -364,14 +362,14 @@ class ProductionReadinessAssessment:
             "dashboard_setup": "dashboard" in content.lower(),
             "troubleshooting": "troubleshoot" in content.lower(),
             "escalation_procedures": "escalat" in content.lower(),
-            "sla_definitions": "sla" in content.lower() or "slo" in content.lower()
+            "sla_definitions": "sla" in content.lower() or "slo" in content.lower(),
         }
 
         return {
             "documented": True,
             "doc_sections": doc_sections,
             "completeness_score": sum(doc_sections.values()) / len(doc_sections) * 100,
-            "production_ready": sum(doc_sections.values()) >= 4
+            "production_ready": sum(doc_sections.values()) >= 4,
         }
 
     def _check_health_check_endpoints(self) -> Dict[str, Any]:
@@ -389,14 +387,14 @@ class ProductionReadinessAssessment:
             "dependency_checks": "database" in content and "redis" in content,
             "response_format": "json" in content.lower(),
             "status_codes": "200" in content or "503" in content,
-            "metrics_integration": "metrics" in content or "prometheus" in content
+            "metrics_integration": "metrics" in content or "prometheus" in content,
         }
 
         return {
             "implemented": True,
             "health_features": health_features,
             "feature_score": sum(health_features.values()) / len(health_features) * 100,
-            "production_ready": sum(health_features.values()) >= 4
+            "production_ready": sum(health_features.values()) >= 4,
         }
 
     def _check_metrics_collection(self) -> Dict[str, Any]:
@@ -414,14 +412,14 @@ class ProductionReadinessAssessment:
             "business_metrics": "family" in content and "metrics" in content,
             "custom_metrics": "custom" in content or "gauge" in content,
             "prometheus_integration": "prometheus" in content,
-            "metric_labels": "label" in content
+            "metric_labels": "label" in content,
         }
 
         return {
             "implemented": True,
             "metrics_features": metrics_features,
             "feature_score": sum(metrics_features.values()) / len(metrics_features) * 100,
-            "production_ready": sum(metrics_features.values()) >= 4
+            "production_ready": sum(metrics_features.values()) >= 4,
         }
 
     def _check_alerting_configuration(self) -> Dict[str, Any]:
@@ -432,7 +430,7 @@ class ProductionReadinessAssessment:
             "escalation_policies": True,
             "alert_suppression": True,
             "alert_testing": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_dashboard_setup(self) -> Dict[str, Any]:
@@ -442,7 +440,7 @@ class ProductionReadinessAssessment:
             "business_dashboard": True,
             "error_dashboard": True,
             "performance_dashboard": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_operational_runbooks(self) -> Dict[str, Any]:
@@ -460,14 +458,14 @@ class ProductionReadinessAssessment:
             "escalation_procedures": "escalat" in content.lower(),
             "contact_information": "contact" in content.lower(),
             "recovery_procedures": "recovery" in content.lower(),
-            "known_solutions": "solution" in content.lower()
+            "known_solutions": "solution" in content.lower(),
         }
 
         return {
             "documented": True,
             "runbook_sections": runbook_sections,
             "completeness_score": sum(runbook_sections.values()) / len(runbook_sections) * 100,
-            "production_ready": sum(runbook_sections.values()) >= 4
+            "production_ready": sum(runbook_sections.values()) >= 4,
         }
 
     def conduct_performance_capacity_validation(self):
@@ -479,7 +477,7 @@ class ProductionReadinessAssessment:
             "capacity_planning": self._check_capacity_planning(),
             "load_testing_results": self._check_load_testing_results(),
             "scalability_validation": self._check_scalability_validation(),
-            "resource_optimization": self._check_resource_optimization()
+            "resource_optimization": self._check_resource_optimization(),
         }
 
         self.assessment_results["performance_capacity"] = performance_assessment
@@ -495,7 +493,7 @@ class ProductionReadinessAssessment:
             "scalability_tests_exist": len(scalability_test_files) > 0,
             "benchmark_results_available": True,  # Would check for actual results
             "sla_compliance": True,
-            "production_ready": len(perf_test_files) > 0 and len(scalability_test_files) > 0
+            "production_ready": len(perf_test_files) > 0 and len(scalability_test_files) > 0,
         }
 
     def _check_capacity_planning(self) -> Dict[str, Any]:
@@ -505,7 +503,7 @@ class ProductionReadinessAssessment:
             "growth_projections": True,
             "resource_requirements": True,
             "scaling_thresholds": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_load_testing_results(self) -> Dict[str, Any]:
@@ -517,7 +515,7 @@ class ProductionReadinessAssessment:
             "concurrent_user_testing": True,
             "stress_testing": True,
             "endurance_testing": True,
-            "production_ready": load_test_report.exists()
+            "production_ready": load_test_report.exists(),
         }
 
     def _check_scalability_validation(self) -> Dict[str, Any]:
@@ -527,7 +525,7 @@ class ProductionReadinessAssessment:
             "auto_scaling_configured": True,
             "load_balancing_tested": True,
             "database_scaling": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_resource_optimization(self) -> Dict[str, Any]:
@@ -537,7 +535,7 @@ class ProductionReadinessAssessment:
             "cpu_optimization": True,
             "database_optimization": True,
             "cache_optimization": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def validate_security_compliance(self):
@@ -549,7 +547,7 @@ class ProductionReadinessAssessment:
             "compliance_validation": self._check_compliance_validation(),
             "penetration_testing": self._check_penetration_testing(),
             "security_monitoring": self._check_security_monitoring(),
-            "incident_response": self._check_incident_response()
+            "incident_response": self._check_incident_response(),
         }
 
         self.assessment_results["security_compliance"] = security_assessment
@@ -564,7 +562,7 @@ class ProductionReadinessAssessment:
             "authentication_testing": True,
             "authorization_testing": True,
             "input_validation_testing": True,
-            "production_ready": security_report.exists()
+            "production_ready": security_report.exists(),
         }
 
     def _check_compliance_validation(self) -> Dict[str, Any]:
@@ -576,7 +574,7 @@ class ProductionReadinessAssessment:
             "data_protection_compliance": True,
             "access_control_compliance": True,
             "retention_policy_compliance": True,
-            "production_ready": audit_report.exists()
+            "production_ready": audit_report.exists(),
         }
 
     def _check_penetration_testing(self) -> Dict[str, Any]:
@@ -586,7 +584,7 @@ class ProductionReadinessAssessment:
             "external_security_review": True,
             "vulnerability_remediation": True,
             "security_certification": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_security_monitoring(self) -> Dict[str, Any]:
@@ -596,7 +594,7 @@ class ProductionReadinessAssessment:
             "intrusion_detection": True,
             "anomaly_detection": True,
             "security_alerting": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_incident_response(self) -> Dict[str, Any]:
@@ -606,7 +604,7 @@ class ProductionReadinessAssessment:
             "security_team_contacts": True,
             "escalation_procedures": True,
             "communication_templates": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def create_deployment_procedures(self):
@@ -618,7 +616,7 @@ class ProductionReadinessAssessment:
             "ci_cd_pipeline": self._check_ci_cd_pipeline(),
             "rollback_procedures": self._check_rollback_procedures(),
             "environment_management": self._check_environment_management(),
-            "go_live_checklist": self._create_go_live_checklist()
+            "go_live_checklist": self._create_go_live_checklist(),
         }
 
         self.assessment_results["deployment_procedures"] = deployment_assessment
@@ -638,14 +636,14 @@ class ProductionReadinessAssessment:
             "configuration": "config" in content.lower(),
             "verification": "verify" in content.lower() or "test" in content.lower(),
             "rollback_procedures": "rollback" in content.lower(),
-            "troubleshooting": "troubleshoot" in content.lower()
+            "troubleshooting": "troubleshoot" in content.lower(),
         }
 
         return {
             "documented": True,
             "doc_sections": doc_sections,
             "completeness_score": sum(doc_sections.values()) / len(doc_sections) * 100,
-            "production_ready": sum(doc_sections.values()) >= 5
+            "production_ready": sum(doc_sections.values()) >= 5,
         }
 
     def _check_ci_cd_pipeline(self) -> Dict[str, Any]:
@@ -657,7 +655,7 @@ class ProductionReadinessAssessment:
             "automated_deployment": True,
             "environment_promotion": True,
             "quality_gates": True,
-            "production_ready": github_workflows.exists()
+            "production_ready": github_workflows.exists(),
         }
 
     def _check_rollback_procedures(self) -> Dict[str, Any]:
@@ -667,7 +665,7 @@ class ProductionReadinessAssessment:
             "automated_rollback": True,
             "data_rollback_strategy": True,
             "rollback_testing": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_environment_management(self) -> Dict[str, Any]:
@@ -677,7 +675,7 @@ class ProductionReadinessAssessment:
             "configuration_management": True,
             "secrets_management": True,
             "environment_promotion": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _create_go_live_checklist(self) -> Dict[str, Any]:
@@ -692,14 +690,14 @@ class ProductionReadinessAssessment:
             "Rollback procedures tested",
             "Documentation updated",
             "Team training completed",
-            "Support procedures in place"
+            "Support procedures in place",
         ]
 
         return {
             "checklist_created": True,
             "checklist_items": checklist_items,
             "total_items": len(checklist_items),
-            "production_ready": True
+            "production_ready": True,
         }
 
     def assess_operational_readiness(self):
@@ -711,7 +709,7 @@ class ProductionReadinessAssessment:
             "support_procedures": self._check_support_procedures(),
             "maintenance_procedures": self._check_maintenance_procedures(),
             "change_management": self._check_change_management(),
-            "operational_documentation": self._check_operational_documentation()
+            "operational_documentation": self._check_operational_documentation(),
         }
 
         self.assessment_results["operational_readiness"] = operational_assessment
@@ -723,7 +721,7 @@ class ProductionReadinessAssessment:
             "operations_team_trained": True,
             "support_team_trained": True,
             "documentation_available": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_support_procedures(self) -> Dict[str, Any]:
@@ -733,7 +731,7 @@ class ProductionReadinessAssessment:
             "escalation_procedures": True,
             "contact_information": True,
             "sla_definitions": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_maintenance_procedures(self) -> Dict[str, Any]:
@@ -743,7 +741,7 @@ class ProductionReadinessAssessment:
             "update_procedures": True,
             "patching_strategy": True,
             "maintenance_communication": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_change_management(self) -> Dict[str, Any]:
@@ -753,7 +751,7 @@ class ProductionReadinessAssessment:
             "change_documentation": True,
             "change_testing": True,
             "change_rollback": True,
-            "production_ready": True
+            "production_ready": True,
         }
 
     def _check_operational_documentation(self) -> Dict[str, Any]:
@@ -762,7 +760,7 @@ class ProductionReadinessAssessment:
             "monitoring-alerting.md",
             "troubleshooting-runbook.md",
             "backup-recovery.md",
-            "performance-optimization.md"
+            "performance-optimization.md",
         ]
 
         existing_docs = []
@@ -777,7 +775,7 @@ class ProductionReadinessAssessment:
             "required_docs": ops_docs,
             "existing_docs": existing_docs,
             "completeness_percentage": (len(existing_docs) / len(ops_docs)) * 100,
-            "production_ready": len(existing_docs) >= 3
+            "production_ready": len(existing_docs) >= 3,
         }
 
     def generate_production_readiness_report(self) -> Dict[str, Any]:
@@ -810,14 +808,14 @@ class ProductionReadinessAssessment:
                 "passed_assessments": passed_assessments,
                 "readiness_score": readiness_score,
                 "production_ready": readiness_score >= 85,
-                "overall_status": "PRODUCTION_READY" if readiness_score >= 85 else "NEEDS_IMPROVEMENT"
+                "overall_status": "PRODUCTION_READY" if readiness_score >= 85 else "NEEDS_IMPROVEMENT",
             },
             "detailed_results": self.assessment_results,
             "readiness_checklist": self._generate_readiness_checklist(),
             "go_live_plan": self._generate_go_live_plan(),
             "rollback_plan": self._generate_rollback_plan(),
             "recommendations": self._generate_production_recommendations(),
-            "next_steps": self._generate_production_next_steps()
+            "next_steps": self._generate_production_next_steps(),
         }
 
         return report
@@ -844,7 +842,7 @@ class ProductionReadinessAssessment:
             {"item": "Team training completed", "status": "completed", "priority": "medium"},
             {"item": "Support procedures in place", "status": "completed", "priority": "medium"},
             {"item": "Operational documentation complete", "status": "completed", "priority": "medium"},
-            {"item": "Go-live checklist created", "status": "completed", "priority": "low"}
+            {"item": "Go-live checklist created", "status": "completed", "priority": "low"},
         ]
 
         return checklist
@@ -857,29 +855,29 @@ class ProductionReadinessAssessment:
                 "Performance validation",
                 "Backup verification",
                 "Team notification",
-                "Maintenance window scheduling"
+                "Maintenance window scheduling",
             ],
             "deployment": [
                 "Deploy to production environment",
                 "Run smoke tests",
                 "Verify health checks",
                 "Monitor system metrics",
-                "Validate core functionality"
+                "Validate core functionality",
             ],
             "post_deployment": [
                 "Monitor system performance",
                 "Verify all integrations",
                 "Check error rates",
                 "Validate user workflows",
-                "Update documentation"
+                "Update documentation",
             ],
             "rollback_triggers": [
                 "Critical errors detected",
                 "Performance degradation > 50%",
                 "Security vulnerabilities discovered",
                 "Data corruption detected",
-                "Service unavailability > 5 minutes"
-            ]
+                "Service unavailability > 5 minutes",
+            ],
         }
 
     def _generate_rollback_plan(self) -> Dict[str, Any]:
@@ -889,29 +887,29 @@ class ProductionReadinessAssessment:
                 "Stop new deployments",
                 "Assess impact and scope",
                 "Notify stakeholders",
-                "Activate incident response team"
+                "Activate incident response team",
             ],
             "rollback_steps": [
                 "Revert application code",
                 "Restore database if needed",
                 "Clear caches",
                 "Restart services",
-                "Verify system functionality"
+                "Verify system functionality",
             ],
             "verification": [
                 "Run health checks",
                 "Verify core functionality",
                 "Check performance metrics",
                 "Validate user workflows",
-                "Monitor error rates"
+                "Monitor error rates",
             ],
             "communication": [
                 "Notify users of resolution",
                 "Update status page",
                 "Document incident",
                 "Schedule post-mortem",
-                "Update procedures"
-            ]
+                "Update procedures",
+            ],
         }
 
     def _generate_production_recommendations(self) -> List[str]:
@@ -926,7 +924,7 @@ class ProductionReadinessAssessment:
             "Establish change management procedures",
             "Create disaster recovery and business continuity plans",
             "Implement automated testing and deployment pipelines",
-            "Schedule regular security audits and penetration testing"
+            "Schedule regular security audits and penetration testing",
         ]
 
     def _generate_production_next_steps(self) -> List[str]:
@@ -941,7 +939,7 @@ class ProductionReadinessAssessment:
             "7. Schedule go-live deployment window",
             "8. Prepare rollback procedures and test them",
             "9. Set up post-deployment monitoring and validation",
-            "10. Plan post-go-live support and maintenance procedures"
+            "10. Plan post-go-live support and maintenance procedures",
         ]
 
 
@@ -955,7 +953,7 @@ def main():
 
         # Save report to file
         report_filename = f"production_readiness_assessment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_filename, 'w') as f:
+        with open(report_filename, "w") as f:
             json.dump(report, f, indent=2, default=str)
 
         logger.info(f"Assessment report saved to: {report_filename}")

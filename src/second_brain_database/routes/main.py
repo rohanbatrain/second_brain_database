@@ -385,7 +385,65 @@ async def liveness_check(request: Request):
     return {"status": "alive"}
 
 
-@router.get("/rewards/admob-ssv")
+@router.get(
+    "/rewards/admob-ssv",
+    summary="AdMob Server-Side Verification (SSV) Callback",
+    description="""
+    Handles server-to-server callbacks from Google AdMob for rewarded ads.
+
+    **Purpose:**
+    - Securely validate that a user has watched a rewarded ad.
+    - Credit the user with in-app rewards (e.g., SBD tokens, themes, avatars).
+    - Prevent fraud by verifying the request signature and checking for duplicate transactions.
+
+    **Security:**
+    - **Signature Verification:** Verifies the request signature using Google's public keys.
+    - **Transaction Deduplication:** Checks for duplicate `transaction_id` to prevent replay attacks.
+    - **HTTPS Only:** This endpoint should only be called over HTTPS.
+
+    **Rate Limiting:**
+    - 100 requests per 60 seconds per IP address.
+    - This is a server-to-server endpoint, so the rate limit is higher.
+
+    **Use Cases:**
+    - Granting SBD tokens after a user watches a rewarded ad.
+    - Unlocking temporary themes or avatars as a reward.
+    """,
+    responses={
+        200: {
+            "description": "Reward processed successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "reward": {
+                            "ad_network": "admob",
+                            "ad_unit": "ca-app-pub-...",
+                            "reward_amount": 10,
+                            "reward_item": "token",
+                            "timestamp": "1640995200",
+                            "transaction_id": "...",
+                            "user_id": "testuser",
+                        },
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Bad request (e.g., missing parameters).",
+            "model": StandardErrorResponse,
+        },
+        401: {
+            "description": "Unauthorized (e.g., invalid signature, duplicate transaction).",
+            "model": StandardErrorResponse,
+        },
+        500: {
+            "description": "Internal server error.",
+            "model": StandardErrorResponse,
+        },
+    },
+    tags=["System"],
+)
 async def admob_ssv_reward(
     ad_network: str,
     ad_unit: str,
@@ -517,9 +575,7 @@ async def admob_ssv_reward(
                 {"username": user_id},
                 {
                     "$inc": {"sbd_tokens": reward_amount},
-                    "$setOnInsert": {
-                        "sbd_tokens_transactions": []
-                    },
+                    "$setOnInsert": {"sbd_tokens_transactions": []},
                     "$push": {
                         "admob_ssv_transactions": {"transaction_id": txn_id, "timestamp": timestamp},
                         "sbd_tokens_transactions": receive_txn,
@@ -530,7 +586,13 @@ async def admob_ssv_reward(
             if update_result.modified_count:
                 logger.info(f"[SBD TOKENS UPDATED] User: {user_id}, +{reward_amount} tokens, tx={txn_id}")
                 # Log the send transaction for sbd_ads
-                send_txn = {"type": "send", "to": user_id, "amount": reward_amount, "timestamp": now_iso, "transaction_id": txn_id}
+                send_txn = {
+                    "type": "send",
+                    "to": user_id,
+                    "amount": reward_amount,
+                    "timestamp": now_iso,
+                    "transaction_id": txn_id,
+                }
                 if note:
                     send_txn["note"] = note
                 await users_collection.update_one(
@@ -671,6 +733,7 @@ async def admob_ssv_reward(
             logger.warning(f"[USER NOT FOUND] Username: {user_id} (banner reward)")
     return JSONResponse({"status": "success", "reward": reward_info})
 
+
 @router.get(
     "/mcp/health",
     summary="MCP Server Health Check",
@@ -708,9 +771,9 @@ async def admob_ssv_reward(
                         "checks": {
                             "initialized": {"status": "pass", "message": "Server initialized"},
                             "process": {"status": "pass", "message": "Process running (PID: 12345)", "pid": 12345},
-                            "configuration": {"status": "pass", "message": "Configuration valid"}
+                            "configuration": {"status": "pass", "message": "Configuration valid"},
                         },
-                        "timestamp": 1640995200.0
+                        "timestamp": 1640995200.0,
                     }
                 }
             },
@@ -759,22 +822,16 @@ async def mcp_health_check(request: Request):
 
         # Import MCP server manager
         try:
-            from second_brain_database.integrations.mcp.server import mcp_server_manager
             from second_brain_database.config import settings
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
         except ImportError as e:
             logger.error("MCP server not available: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is not available"
-            ) from e
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is not available") from e
 
         # Check if MCP is enabled
         if not settings.MCP_ENABLED:
             logger.info("MCP server health check requested but MCP is disabled")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is disabled"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is disabled")
 
         # Perform comprehensive health check
         health_result = await mcp_server_manager.get_comprehensive_health_status()
@@ -785,10 +842,7 @@ async def mcp_health_check(request: Request):
             return health_result
         else:
             logger.warning("MCP server health check failed: %s", health_result)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="MCP server is not healthy"
-            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MCP server is not healthy")
 
     except HTTPException:
         raise
@@ -797,10 +851,7 @@ async def mcp_health_check(request: Request):
             e, {"operation": "mcp_health_check", "client_ip": getattr(request.client, "host", "unknown")}
         )
         logger.error("MCP health check failed with error: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MCP health check failed"
-        ) from e
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MCP health check failed") from e
 
 
 @router.get(
@@ -849,8 +900,8 @@ async def mcp_health_check(request: Request):
                             "audit_enabled": True,
                             "rate_limit_enabled": True,
                             "max_concurrent_tools": 50,
-                            "request_timeout": 30
-                        }
+                            "request_timeout": 30,
+                        },
                     }
                 }
             },
@@ -876,22 +927,16 @@ async def mcp_status_check(request: Request):
 
         # Import MCP server manager
         try:
-            from second_brain_database.integrations.mcp.server import mcp_server_manager
             from second_brain_database.config import settings
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
         except ImportError as e:
             logger.error("MCP server not available: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is not available"
-            ) from e
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is not available") from e
 
         # Check if MCP is enabled
         if not settings.MCP_ENABLED:
             logger.info("MCP server status requested but MCP is disabled")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is disabled"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is disabled")
 
         # Get server status
         status_result = await mcp_server_manager.get_server_status()
@@ -906,10 +951,7 @@ async def mcp_status_check(request: Request):
             e, {"operation": "mcp_status_check", "client_ip": getattr(request.client, "host", "unknown")}
         )
         logger.error("MCP status check failed with error: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MCP status check failed"
-        ) from e
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MCP status check failed") from e
 
 
 @router.get(
@@ -946,23 +988,23 @@ async def mcp_status_check(request: Request):
                             "requests_total": 1250,
                             "requests_per_minute": 15.2,
                             "error_rate": 0.02,
-                            "average_response_time_ms": 45.3
+                            "average_response_time_ms": 45.3,
                         },
                         "tool_metrics": {
                             "total_executions": 850,
                             "success_rate": 0.98,
                             "average_execution_time_ms": 125.7,
-                            "most_used_tools": ["get_family_info", "get_user_profile", "list_shop_items"]
+                            "most_used_tools": ["get_family_info", "get_user_profile", "list_shop_items"],
                         },
                         "resource_metrics": {
                             "total_requests": 320,
                             "cache_hit_rate": 0.85,
-                            "most_accessed_resources": ["family_info", "user_profile", "shop_catalog"]
+                            "most_accessed_resources": ["family_info", "user_profile", "shop_catalog"],
                         },
                         "prompt_metrics": {
                             "total_requests": 180,
-                            "most_used_prompts": ["family_management_guide", "shop_navigation", "security_setup"]
-                        }
+                            "most_used_prompts": ["family_management_guide", "shop_navigation", "security_setup"],
+                        },
                     }
                 }
             },
@@ -988,22 +1030,16 @@ async def mcp_metrics_check(request: Request):
 
         # Import MCP server manager
         try:
-            from second_brain_database.integrations.mcp.server import mcp_server_manager
             from second_brain_database.config import settings
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
         except ImportError as e:
             logger.error("MCP server not available: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is not available"
-            ) from e
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is not available") from e
 
         # Check if MCP is enabled
         if not settings.MCP_ENABLED:
             logger.info("MCP server metrics requested but MCP is disabled")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP server is disabled"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server is disabled")
 
         # Get server status for basic metrics
         status_result = await mcp_server_manager.get_server_status()
@@ -1016,31 +1052,31 @@ async def mcp_metrics_check(request: Request):
                 "initialized": status_result.get("initialized", False),
                 "running": status_result.get("running", False),
                 "process_id": status_result.get("process_id"),
-                "configuration_valid": True  # Based on successful status retrieval
+                "configuration_valid": True,  # Based on successful status retrieval
             },
             "tool_metrics": {
                 "registered_tools": status_result.get("tool_count", 0),
                 "tools_enabled": settings.MCP_TOOLS_ENABLED,
                 "security_enabled": settings.MCP_SECURITY_ENABLED,
-                "rate_limit_enabled": settings.MCP_RATE_LIMIT_ENABLED
+                "rate_limit_enabled": settings.MCP_RATE_LIMIT_ENABLED,
             },
             "resource_metrics": {
                 "registered_resources": status_result.get("resource_count", 0),
                 "resources_enabled": settings.MCP_RESOURCES_ENABLED,
                 "cache_enabled": settings.MCP_CACHE_ENABLED,
-                "cache_ttl_seconds": settings.MCP_CACHE_TTL
+                "cache_ttl_seconds": settings.MCP_CACHE_TTL,
             },
             "prompt_metrics": {
                 "registered_prompts": status_result.get("prompt_count", 0),
-                "prompts_enabled": settings.MCP_PROMPTS_ENABLED
+                "prompts_enabled": settings.MCP_PROMPTS_ENABLED,
             },
             "configuration_metrics": {
                 "max_concurrent_tools": settings.MCP_MAX_CONCURRENT_TOOLS,
                 "request_timeout": settings.MCP_REQUEST_TIMEOUT,
                 "tool_execution_timeout": settings.MCP_TOOL_EXECUTION_TIMEOUT,
                 "retry_enabled": settings.MCP_RETRY_ENABLED,
-                "circuit_breaker_enabled": settings.MCP_CIRCUIT_BREAKER_ENABLED
-            }
+                "circuit_breaker_enabled": settings.MCP_CIRCUIT_BREAKER_ENABLED,
+            },
         }
 
         logger.info("MCP server metrics retrieved successfully")
@@ -1053,11 +1089,7 @@ async def mcp_metrics_check(request: Request):
             e, {"operation": "mcp_metrics_check", "client_ip": getattr(request.client, "host", "unknown")}
         )
         logger.error("MCP metrics check failed with error: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MCP metrics check failed"
-        ) from e
-
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MCP metrics check failed") from e
 
 
 @router.get("/favicon.ico")
@@ -1065,6 +1097,7 @@ async def favicon():
     """Simple favicon to prevent browser errors."""
     # Return a simple 1x1 transparent PNG
     import base64
+
     transparent_png = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77zgAAAABJRU5ErkJggg=="
     )

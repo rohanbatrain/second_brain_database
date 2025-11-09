@@ -7,16 +7,17 @@ including queries, updates, indexes, and performance characteristics.
 """
 
 import asyncio
+from datetime import datetime, timedelta
 import sys
 import time
-from datetime import datetime, timedelta
+
 from bson import ObjectId
 
 # Add the src directory to the path
 sys.path.insert(0, "src")
 
-from second_brain_database.database import db_manager
 from second_brain_database.config import settings
+from second_brain_database.database import db_manager
 
 
 async def test_user_agent_database_operations():
@@ -68,7 +69,7 @@ async def test_user_agent_database_operations():
             "code": "PENDING123",
             "expires_at": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
             "action": "enable",
-            "allowed_user_agents": ["Mozilla/5.0 (New Browser)"]
+            "allowed_user_agents": ["Mozilla/5.0 (New Browser)"],
         }
         user3_doc = {
             "_id": user3_id,
@@ -99,14 +100,18 @@ async def test_user_agent_database_operations():
 
         # Query users with specific User Agent
         start_time = time.time()
-        specific_ua_users = await users_collection.find({"trusted_user_agents": "Mozilla/5.0 (Trusted Browser)"}).to_list(length=100)
+        specific_ua_users = await users_collection.find(
+            {"trusted_user_agents": "Mozilla/5.0 (Trusted Browser)"}
+        ).to_list(length=100)
         query_time = time.time() - start_time
         assert len(specific_ua_users) >= 1
         print(f"✅ Query for specific User Agent completed in {query_time:.3f}s")
 
         # Query users with pending codes
         start_time = time.time()
-        pending_code_users = await users_collection.find({"trusted_user_agent_lockdown_codes": {"$exists": True, "$ne": []}}).to_list(length=100)
+        pending_code_users = await users_collection.find(
+            {"trusted_user_agent_lockdown_codes": {"$exists": True, "$ne": []}}
+        ).to_list(length=100)
         query_time = time.time() - start_time
         assert len(pending_code_users) >= 1
         print(f"✅ Query for users with pending codes completed in {query_time:.3f}s")
@@ -118,12 +123,7 @@ async def test_user_agent_database_operations():
         start_time = time.time()
         update_result = await users_collection.update_one(
             {"_id": user1_id},
-            {
-                "$set": {
-                    "trusted_user_agent_lockdown": True,
-                    "trusted_user_agents": ["Mozilla/5.0 (Updated Browser)"]
-                }
-            }
+            {"$set": {"trusted_user_agent_lockdown": True, "trusted_user_agents": ["Mozilla/5.0 (Updated Browser)"]}},
         )
         update_time = time.time() - start_time
         assert update_result.modified_count == 1
@@ -132,8 +132,7 @@ async def test_user_agent_database_operations():
         # Add User Agent to existing list
         start_time = time.time()
         push_result = await users_collection.update_one(
-            {"_id": user2_id},
-            {"$push": {"trusted_user_agents": "NewTrustedApp/2.0"}}
+            {"_id": user2_id}, {"$push": {"trusted_user_agents": "NewTrustedApp/2.0"}}
         )
         update_time = time.time() - start_time
         assert push_result.modified_count == 1
@@ -144,40 +143,39 @@ async def test_user_agent_database_operations():
         expired_time = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
         cleanup_result = await users_collection.update_many(
             {"trusted_user_agent_lockdown_codes.expires_at": {"$lt": expired_time}},
-            {"$pull": {"trusted_user_agent_lockdown_codes": {"expires_at": {"$lt": expired_time}}}}
+            {"$pull": {"trusted_user_agent_lockdown_codes": {"expires_at": {"$lt": expired_time}}}},
         )
         update_time = time.time() - start_time
-        print(f"✅ Cleanup expired codes completed in {update_time:.3f}s (affected {cleanup_result.modified_count} users)")
+        print(
+            f"✅ Cleanup expired codes completed in {update_time:.3f}s (affected {cleanup_result.modified_count} users)"
+        )
 
         # Test 4: Complex aggregation queries
         print("\n🔍 Test 4: Testing complex aggregation queries...")
 
         # Count users by lockdown status
         start_time = time.time()
-        lockdown_stats = await users_collection.aggregate([
-            {
-                "$group": {
-                    "_id": "$trusted_user_agent_lockdown",
-                    "count": {"$sum": 1}
-                }
-            }
-        ]).to_list(length=10)
+        lockdown_stats = await users_collection.aggregate(
+            [{"$group": {"_id": "$trusted_user_agent_lockdown", "count": {"$sum": 1}}}]
+        ).to_list(length=10)
         query_time = time.time() - start_time
         assert len(lockdown_stats) >= 1
         print(f"✅ Aggregation query for lockdown stats completed in {query_time:.3f}s")
 
         # Find users with most trusted User Agents
         start_time = time.time()
-        ua_count_stats = await users_collection.aggregate([
-            {
-                "$project": {
-                    "username": 1,
-                    "trusted_user_agent_count": {"$size": {"$ifNull": ["$trusted_user_agents", []]}}
-                }
-            },
-            {"$sort": {"trusted_user_agent_count": -1}},
-            {"$limit": 5}
-        ]).to_list(length=5)
+        ua_count_stats = await users_collection.aggregate(
+            [
+                {
+                    "$project": {
+                        "username": 1,
+                        "trusted_user_agent_count": {"$size": {"$ifNull": ["$trusted_user_agents", []]}},
+                    }
+                },
+                {"$sort": {"trusted_user_agent_count": -1}},
+                {"$limit": 5},
+            ]
+        ).to_list(length=5)
         query_time = time.time() - start_time
         assert len(ua_count_stats) >= 1
         print(f"✅ Aggregation query for User Agent counts completed in {query_time:.3f}s")
@@ -204,15 +202,12 @@ async def test_user_agent_database_operations():
         async def concurrent_update(user_id, user_agent):
             """Simulate concurrent User Agent updates."""
             return await users_collection.update_one(
-                {"_id": user_id},
-                {"$addToSet": {"trusted_user_agents": user_agent}}
+                {"_id": user_id}, {"$addToSet": {"trusted_user_agents": user_agent}}
             )
 
         # Run concurrent updates
         start_time = time.time()
-        concurrent_tasks = [
-            concurrent_update(user2_id, f"ConcurrentApp/{i}") for i in range(5)
-        ]
+        concurrent_tasks = [concurrent_update(user2_id, f"ConcurrentApp/{i}") for i in range(5)]
         results = await asyncio.gather(*concurrent_tasks)
         concurrent_time = time.time() - start_time
 
@@ -240,17 +235,19 @@ async def test_user_agent_database_operations():
         for i in range(50):
             user_id = ObjectId()
             bulk_user_ids.append(user_id)
-            bulk_users.append({
-                "_id": user_id,
-                "username": f"perf_test_user_{i}",
-                "email": f"perf_test_{i}@example.com",
-                "hashed_password": "test_hash",
-                "created_at": datetime.utcnow(),
-                "is_active": True,
-                "trusted_user_agent_lockdown": i % 3 == 0,  # Every 3rd user has lockdown
-                "trusted_user_agents": [f"TestBrowser/{i}", f"TestApp/{i}"] if i % 3 == 0 else [],
-                "trusted_user_agent_lockdown_codes": [],
-            })
+            bulk_users.append(
+                {
+                    "_id": user_id,
+                    "username": f"perf_test_user_{i}",
+                    "email": f"perf_test_{i}@example.com",
+                    "hashed_password": "test_hash",
+                    "created_at": datetime.utcnow(),
+                    "is_active": True,
+                    "trusted_user_agent_lockdown": i % 3 == 0,  # Every 3rd user has lockdown
+                    "trusted_user_agents": [f"TestBrowser/{i}", f"TestApp/{i}"] if i % 3 == 0 else [],
+                    "trusted_user_agent_lockdown_codes": [],
+                }
+            )
 
         # Bulk insert
         start_time = time.time()
@@ -260,12 +257,13 @@ async def test_user_agent_database_operations():
 
         # Performance query on larger dataset
         start_time = time.time()
-        large_query_result = await users_collection.find({
-            "trusted_user_agent_lockdown": True,
-            "trusted_user_agents": {"$exists": True, "$ne": []}
-        }).to_list(length=100)
+        large_query_result = await users_collection.find(
+            {"trusted_user_agent_lockdown": True, "trusted_user_agents": {"$exists": True, "$ne": []}}
+        ).to_list(length=100)
         query_time = time.time() - start_time
-        print(f"✅ Performance query on larger dataset completed in {query_time:.3f}s (found {len(large_query_result)} users)")
+        print(
+            f"✅ Performance query on larger dataset completed in {query_time:.3f}s (found {len(large_query_result)} users)"
+        )
 
         # Test 9: Edge cases and error handling
         print("\n🔍 Test 9: Testing edge cases...")
@@ -302,6 +300,7 @@ async def test_user_agent_database_operations():
     except Exception as e:
         print(f"\n❌ Database operations test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

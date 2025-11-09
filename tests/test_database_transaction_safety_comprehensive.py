@@ -19,28 +19,32 @@ Test Coverage:
 """
 
 import asyncio
-import pytest
-import time
-import uuid
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from typing import Dict, Any, List
-import sys
+from datetime import datetime, timedelta, timezone
 import os
+import sys
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, call, patch
+import uuid
+
+import pytest
 
 # Configure pytest for async tests
-pytest_plugins = ('pytest_asyncio',)
+pytest_plugins = ("pytest_asyncio",)
 
 # Mock dependencies before importing
-with patch('redis.Redis'), \
-     patch('redis.asyncio.Redis'), \
-     patch('motor.motor_asyncio.AsyncIOMotorClient'):
+with patch("redis.Redis"), patch("redis.asyncio.Redis"), patch("motor.motor_asyncio.AsyncIOMotorClient"):
 
-    from pymongo.errors import (
-        PyMongoError, ConnectionFailure, ServerSelectionTimeoutError,
-        DuplicateKeyError, WriteError, WriteConcernError, BulkWriteError
-    )
     from pymongo.client_session import ClientSession
+    from pymongo.errors import (
+        BulkWriteError,
+        ConnectionFailure,
+        DuplicateKeyError,
+        PyMongoError,
+        ServerSelectionTimeoutError,
+        WriteConcernError,
+        WriteError,
+    )
 
 
 class MockFamilyManager:
@@ -88,7 +92,7 @@ class MockFamilyManager:
                 "name": family_name or f"Family of {user_id}",
                 "admin_user_ids": [user_id],
                 "transaction_safe": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -128,7 +132,7 @@ class MockFamilyManager:
         family_id = f"fam_{uuid.uuid4().hex[:16]}"
 
         # Simulate database insertion that could fail
-        if hasattr(self, '_simulate_family_creation_failure') and self._simulate_family_creation_failure:
+        if hasattr(self, "_simulate_family_creation_failure") and self._simulate_family_creation_failure:
             raise PyMongoError("Simulated family creation failure")
 
         return family_id
@@ -136,13 +140,13 @@ class MockFamilyManager:
     async def _create_sbd_account(self, family_id: str, session):
         """Mock SBD account creation."""
         # Simulate SBD account creation that could fail
-        if hasattr(self, '_simulate_sbd_creation_failure') and self._simulate_sbd_creation_failure:
+        if hasattr(self, "_simulate_sbd_creation_failure") and self._simulate_sbd_creation_failure:
             raise ConnectionFailure("Simulated SBD creation failure")
 
     async def _add_user_to_family(self, family_id: str, user_id: str, session):
         """Mock adding user to family."""
         # Simulate user addition that could fail
-        if hasattr(self, '_simulate_user_addition_failure') and self._simulate_user_addition_failure:
+        if hasattr(self, "_simulate_user_addition_failure") and self._simulate_user_addition_failure:
             raise WriteError("Simulated user addition failure")
 
 
@@ -156,10 +160,12 @@ class TestDatabaseTransactionSafety:
     @pytest.fixture
     def family_manager(self):
         """Create a mock family manager instance for testing."""
+
         async def _create_manager():
             manager = MockFamilyManager()
             await manager.initialize()
             return manager
+
         return _create_manager
 
     @pytest.fixture
@@ -247,9 +253,7 @@ class TestDatabaseTransactionSafety:
         # Simulate concurrent family creation attempts
         tasks = []
         for i in range(5):
-            task = asyncio.create_task(
-                family_manager.create_family(user_id, f"Concurrent Family {i}")
-            )
+            task = asyncio.create_task(family_manager.create_family(user_id, f"Concurrent Family {i}"))
             tasks.append(task)
 
         # Execute concurrent operations
@@ -332,14 +336,11 @@ class TestDatabaseTransactionSafety:
             max_attempts=3,
             initial_delay=0.01,  # Fast for testing
             strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
-            retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError]
+            retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError],
         )
 
         # Test with retry decorator
-        @handle_errors(
-            operation_name="test_recovery",
-            retry_config=retry_config
-        )
+        @handle_errors(operation_name="test_recovery", retry_config=retry_config)
         async def test_operation():
             return await family_manager.create_family(user_id, family_name)
 
@@ -372,10 +373,7 @@ class TestDatabaseTransactionSafety:
         # Test with timeout decorator
         from src.second_brain_database.utils.error_handling import handle_errors
 
-        @handle_errors(
-            operation_name="timeout_test",
-            timeout=0.1  # Very short timeout
-        )
+        @handle_errors(operation_name="timeout_test", timeout=0.1)  # Very short timeout
         async def test_timeout_operation():
             return await family_manager.create_family(user_id, family_name)
 
@@ -514,9 +512,7 @@ class TestDatabaseTransactionSafety:
         # Create multiple families concurrently
         tasks = []
         for i in range(3):
-            task = asyncio.create_task(
-                family_manager.create_family(user_id, f"Nested Family {i}")
-            )
+            task = asyncio.create_task(family_manager.create_family(user_id, f"Nested Family {i}"))
             tasks.append(task)
 
         # Execute and verify all succeed

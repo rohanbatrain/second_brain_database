@@ -120,14 +120,14 @@ async def set_user_auth_preference(user_id: str, preferred_method: str) -> bool:
         # Validate the preferred method is available
         auth_methods = await get_user_auth_methods(user_id)
         if preferred_method not in auth_methods["available_methods"]:
-            logger.warning("Cannot set unavailable auth method as preference: %s for user %s",
-                          preferred_method, user_id)
+            logger.warning(
+                "Cannot set unavailable auth method as preference: %s for user %s", preferred_method, user_id
+            )
             return False
 
         # Update user preference
         result = await db_manager.get_collection("users").update_one(
-            {"_id": user_id},
-            {"$set": {"preferred_auth_method": preferred_method}}
+            {"_id": user_id}, {"$set": {"preferred_auth_method": preferred_method}}
         )
 
         if result.modified_count > 0:
@@ -231,10 +231,7 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
 
     try:
         allow_once_token = await generate_temporary_ip_access_token(
-            user_email=email,
-            ip_address=attempted_ip,
-            action="allow_once",
-            endpoint=endpoint
+            user_email=email, ip_address=attempted_ip, action="allow_once", endpoint=endpoint
         )
         logger.debug("Generated allow once token for login notification to %s", email)
     except Exception as e:
@@ -242,14 +239,13 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
 
     try:
         add_to_trusted_token = await generate_temporary_ip_access_token(
-            user_email=email,
-            ip_address=attempted_ip,
-            action="add_to_trusted",
-            endpoint=endpoint
+            user_email=email, ip_address=attempted_ip, action="add_to_trusted", endpoint=endpoint
         )
         logger.debug("Generated add to trusted token for login notification to %s", email)
     except Exception as e:
-        logger.error("Failed to generate add to trusted token for login notification to %s: %s", email, e, exc_info=True)
+        logger.error(
+            "Failed to generate add to trusted token for login notification to %s: %s", email, e, exc_info=True
+        )
 
     # Log security event for blocked login attempt
     log_security_event(
@@ -264,8 +260,8 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
             "action": "notification_sent",
             "tokens_generated": {
                 "allow_once": allow_once_token is not None,
-                "add_to_trusted": add_to_trusted_token is not None
-            }
+                "add_to_trusted": add_to_trusted_token is not None,
+            },
         },
     )
 
@@ -277,7 +273,7 @@ async def send_blocked_login_notification(email: str, attempted_ip: str, trusted
         endpoint=endpoint,
         timestamp=timestamp,
         allow_once_token=allow_once_token,
-        add_to_trusted_token=add_to_trusted_token
+        add_to_trusted_token=add_to_trusted_token,
     )
 
     try:
@@ -422,18 +418,17 @@ async def login_user(
         # Create a mock request object with the IP context
         class MockRequest:
             def __init__(self, ip_address):
-                self.client = type('obj', (object,), {'host': ip_address})
+                self.client = type("obj", (object,), {"host": ip_address})
                 self.headers = {}
-                self.url = type('obj', (object,), {'path': '/auth/login'})
-                self.method = 'POST'
+                self.url = type("obj", (object,), {"path": "/auth/login"})
+                self.method = "POST"
 
         mock_request = MockRequest(request_ip_ctx.get())
         await security_manager.check_ip_lockdown(mock_request, user)
 
     except HTTPException as ip_lockdown_error:
         # IP lockdown blocked the login attempt
-        logger.warning("Login blocked by IP lockdown for user %s from IP %s",
-                      user_id, request_ip_ctx.get())
+        logger.warning("Login blocked by IP lockdown for user %s from IP %s", user_id, request_ip_ctx.get())
 
         # Send blocked login notification
         try:
@@ -441,9 +436,7 @@ async def login_user(
             trusted_ips = user.get("trusted_ips", [])
             if user_email:
                 await send_blocked_login_notification(
-                    email=user_email,
-                    attempted_ip=request_ip_ctx.get() or "unknown",
-                    trusted_ips=trusted_ips
+                    email=user_email, attempted_ip=request_ip_ctx.get() or "unknown", trusted_ips=trusted_ips
                 )
                 logger.info("Sent blocked login notification to %s", user_email)
         except Exception as email_error:
@@ -564,8 +557,12 @@ async def login_user(
         recent_auth_methods = user.get("recent_auth_methods", [])
         if len([m for m in recent_auth_methods if m == authentication_method]) >= 2:
             update_data["preferred_auth_method"] = authentication_method
-            logger.info("Updating preferred auth method for user %s: %s -> %s",
-                       user_id, current_preferred, authentication_method)
+            logger.info(
+                "Updating preferred auth method for user %s: %s -> %s",
+                user_id,
+                current_preferred,
+                authentication_method,
+            )
 
     # Track recent authentication methods (last 5)
     recent_methods = user.get("recent_auth_methods", [])
@@ -576,11 +573,7 @@ async def login_user(
 
     # Clear failed login attempts and update user document
     await db_manager.get_collection("users").update_one(
-        {"_id": user["_id"]},
-        {
-            "$set": update_data,
-            "$unset": {"failed_login_attempts": ""}
-        }
+        {"_id": user["_id"]}, {"$set": update_data, "$unset": {"failed_login_attempts": ""}}
     )
 
     # Log successful authentication with method details
@@ -647,8 +640,9 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=settings.ALGORITHM)
 
     auth_method = "password"
-    logger.debug("JWT access token created for user: %s (auth method: %s)",
-                data.get("username") or data.get("sub"), auth_method)
+    logger.debug(
+        "JWT access token created for user: %s (auth method: %s)", data.get("username") or data.get("sub"), auth_method
+    )
 
     return encoded_jwt
 

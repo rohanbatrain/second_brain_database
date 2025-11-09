@@ -5,38 +5,33 @@ Security decorators and utilities for MCP tools that integrate with
 existing authentication and authorization patterns.
 """
 
-from functools import wraps
-from typing import List, Optional, Dict, Any, Callable
 import asyncio
-from fastapi import Request, HTTPException
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional
 
+from fastapi import HTTPException, Request
+
+from ...config import settings
 from ...managers.logging_manager import get_logger
 from ...managers.security_manager import security_manager
-from ...config import settings
-from .exceptions import (
-    MCPAuthenticationError,
-    MCPAuthorizationError,
-    MCPRateLimitError,
-)
 from .context import (
-    get_mcp_user_context,
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
-    extract_client_info_from_request
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    extract_client_info_from_request,
+    get_mcp_user_context,
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
+from .exceptions import MCPAuthenticationError, MCPAuthorizationError, MCPRateLimitError
 
 logger = get_logger(prefix="[MCP_Security]")
 
 
 def secure_mcp_tool(
-    permissions: Optional[List[str]] = None,
-    rate_limit_action: Optional[str] = None,
-    audit: bool = True
+    permissions: Optional[List[str]] = None, rate_limit_action: Optional[str] = None, audit: bool = True
 ):
     """
     Security decorator for MCP tools using existing auth patterns.
@@ -54,6 +49,7 @@ def secure_mcp_tool(
         MCPAuthorizationError: If user lacks required permissions
         MCPRateLimitError: If rate limit is exceeded
     """
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -68,6 +64,7 @@ def secure_mcp_tool(
                 except MCPAuthenticationError:
                     # Create a default development user context
                     from .simple_auth import create_development_user_context
+
                     user_context = await create_development_user_context()
                     set_mcp_user_context(user_context)
             else:
@@ -95,17 +92,12 @@ def secure_mcp_tool(
                 if not await _validate_user_permissions(user_context.user_id, permissions):
                     authz_error = MCPAuthorizationError(f"Missing required permissions: {permissions}")
                     logger.warning(
-                        "MCP tool access denied for user %s, missing permissions: %s",
-                        user_context.user_id, permissions
+                        "MCP tool access denied for user %s, missing permissions: %s", user_context.user_id, permissions
                     )
 
                     # Log authorization failure
                     await log_mcp_authorization_event(
-                        user_context,
-                        permissions,
-                        success=False,
-                        error=authz_error,
-                        resource=func.__name__
+                        user_context, permissions, success=False, error=authz_error, resource=func.__name__
                     )
 
                     raise authz_error
@@ -121,12 +113,7 @@ def secure_mcp_tool(
                 # Also log authentication and authorization events
                 await log_mcp_authentication_event(user_context, success=True)
                 if permissions:
-                    await log_mcp_authorization_event(
-                        user_context,
-                        permissions,
-                        success=True,
-                        resource=func.__name__
-                    )
+                    await log_mcp_authorization_event(user_context, permissions, success=True, resource=func.__name__)
 
             # Execute the tool function
             try:
@@ -134,18 +121,19 @@ def secure_mcp_tool(
 
                 # Log successful execution
                 if audit and settings.MCP_AUDIT_ENABLED:
-                    logger.info("MCP tool executed successfully: %s by user %s",
-                              func.__name__, user_context.user_id)
+                    logger.info("MCP tool executed successfully: %s by user %s", func.__name__, user_context.user_id)
 
                 return result
 
             except Exception as e:
                 # Log tool execution error
-                logger.error("MCP tool execution failed: %s by user %s, error: %s",
-                           func.__name__, user_context.user_id, e)
+                logger.error(
+                    "MCP tool execution failed: %s by user %s, error: %s", func.__name__, user_context.user_id, e
+                )
                 raise
 
         return wrapper
+
     return decorator
 
 
@@ -155,7 +143,7 @@ def authenticated_tool(
     permissions: Optional[List[str]] = None,
     rate_limit_action: Optional[str] = None,
     audit: bool = True,
-    tags: Optional[List[str]] = None
+    tags: Optional[List[str]] = None,
 ):
     """
     Combined FastMCP 2.x tool registration with security validation.
@@ -171,13 +159,10 @@ def authenticated_tool(
         audit: Whether to enable audit logging
         tags: Tags for FastMCP 2.x component filtering
     """
+
     def decorator(func):
         # Apply security wrapper first
-        secured_func = secure_mcp_tool(
-            permissions=permissions,
-            rate_limit_action=rate_limit_action,
-            audit=audit
-        )(func)
+        secured_func = secure_mcp_tool(permissions=permissions, rate_limit_action=rate_limit_action, audit=audit)(func)
 
         # Determine tags for FastMCP 2.x
         tool_tags = set(tags or [])
@@ -185,22 +170,20 @@ def authenticated_tool(
 
         # Add function-specific tags
         func_name = func.__name__
-        if 'create' in func_name or 'add' in func_name:
+        if "create" in func_name or "add" in func_name:
             tool_tags.add("write")
-        elif 'get' in func_name or 'list' in func_name:
+        elif "get" in func_name or "list" in func_name:
             tool_tags.add("read")
-        elif 'update' in func_name or 'modify' in func_name:
+        elif "update" in func_name or "modify" in func_name:
             tool_tags.add("write")
-        elif 'delete' in func_name or 'remove' in func_name:
+        elif "delete" in func_name or "remove" in func_name:
             tool_tags.add("write")
 
         # Apply FastMCP 2.x @tool decorator (without tags - not supported in 2.x)
         try:
             from .modern_server import mcp
-            mcp_tool_decorator = mcp.tool(
-                name=name or func.__name__,
-                description=description or func.__doc__ or ""
-            )
+
+            mcp_tool_decorator = mcp.tool(name=name or func.__name__, description=description or func.__doc__ or "")
             secured_func = mcp_tool_decorator(secured_func)
         except ImportError:
             # Fallback if modern_server is not available
@@ -229,6 +212,7 @@ def mcp_context_manager(operation_type: str = "tool"):
     Args:
         operation_type: Type of MCP operation ('tool', 'resource', 'prompt')
     """
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -237,13 +221,11 @@ def mcp_context_manager(operation_type: str = "tool"):
                 # Create request context if not exists
                 try:
                     from .context import get_mcp_request_context
+
                     request_context = get_mcp_request_context()
                 except RuntimeError:
                     # No request context, create one
-                    request_context = create_mcp_request_context(
-                        operation_type=operation_type,
-                        tool_name=func.__name__
-                    )
+                    request_context = create_mcp_request_context(operation_type=operation_type, tool_name=func.__name__)
                     set_mcp_request_context(request_context)
 
                 # Execute function
@@ -269,14 +251,11 @@ def mcp_context_manager(operation_type: str = "tool"):
                 pass
 
         return wrapper
+
     return decorator
 
 
-async def _apply_mcp_rate_limiting(
-    user_context: MCPUserContext,
-    rate_limit_action: str,
-    tool_name: str
-) -> None:
+async def _apply_mcp_rate_limiting(user_context: MCPUserContext, rate_limit_action: str, tool_name: str) -> None:
     """
     Apply rate limiting for MCP operations using existing SecurityManager.
 
@@ -298,20 +277,30 @@ async def _apply_mcp_rate_limiting(
             mock_request,
             f"mcp_{rate_limit_action}",  # Prefix with 'mcp_' to separate from regular API limits
             rate_limit_requests=settings.MCP_RATE_LIMIT_REQUESTS,
-            rate_limit_period=settings.MCP_RATE_LIMIT_PERIOD
+            rate_limit_period=settings.MCP_RATE_LIMIT_PERIOD,
         )
 
-        logger.debug("Rate limit check passed for user %s, action %s, tool %s",
-                    user_context.user_id, rate_limit_action, tool_name)
+        logger.debug(
+            "Rate limit check passed for user %s, action %s, tool %s",
+            user_context.user_id,
+            rate_limit_action,
+            tool_name,
+        )
 
     except HTTPException as e:
         # Convert FastAPI HTTPException to MCPRateLimitError
-        logger.warning("Rate limit exceeded for user %s on MCP action %s (tool %s): %s",
-                      user_context.user_id, rate_limit_action, tool_name, e.detail)
+        logger.warning(
+            "Rate limit exceeded for user %s on MCP action %s (tool %s): %s",
+            user_context.user_id,
+            rate_limit_action,
+            tool_name,
+            e.detail,
+        )
 
         # Update request context with rate limit information
         try:
             from .context import get_mcp_request_context
+
             request_context = get_mcp_request_context()
             request_context.rate_limit_key = f"mcp_{rate_limit_action}"
             request_context.rate_limit_remaining = 0  # Exceeded
@@ -323,8 +312,13 @@ async def _apply_mcp_rate_limiting(
         ) from e
 
     except Exception as e:
-        logger.error("Rate limiting error for user %s, action %s, tool %s: %s",
-                    user_context.user_id, rate_limit_action, tool_name, e)
+        logger.error(
+            "Rate limiting error for user %s, action %s, tool %s: %s",
+            user_context.user_id,
+            rate_limit_action,
+            tool_name,
+            e,
+        )
         # Don't block the request on rate limiting errors, but log them
         logger.warning("Proceeding with MCP request despite rate limiting error")
 
@@ -342,6 +336,7 @@ def _create_mock_request_for_rate_limiting(user_context: MCPUserContext):
     Returns:
         Mock request object compatible with SecurityManager
     """
+
     class MockRequest:
         def __init__(self, ip_address: str, user_agent: str):
             self.client = MockClient(ip_address)
@@ -358,15 +353,11 @@ def _create_mock_request_for_rate_limiting(user_context: MCPUserContext):
             self.path = "/mcp/tool"
 
     return MockRequest(
-        ip_address=user_context.ip_address or "127.0.0.1",
-        user_agent=user_context.user_agent or "MCP-Client"
+        ip_address=user_context.ip_address or "127.0.0.1", user_agent=user_context.user_agent or "MCP-Client"
     )
 
 
-async def check_mcp_rate_limit_status(
-    user_context: MCPUserContext,
-    rate_limit_action: str
-) -> Dict[str, Any]:
+async def check_mcp_rate_limit_status(user_context: MCPUserContext, rate_limit_action: str) -> Dict[str, Any]:
     """
     Check current rate limit status for a user and action.
 
@@ -402,7 +393,7 @@ async def check_mcp_rate_limit_status(
             "remaining": remaining,
             "reset_in_seconds": ttl,
             "current_count": current_count,
-            "window_seconds": settings.MCP_RATE_LIMIT_PERIOD
+            "window_seconds": settings.MCP_RATE_LIMIT_PERIOD,
         }
 
     except Exception as e:
@@ -414,7 +405,7 @@ async def check_mcp_rate_limit_status(
             "reset_in_seconds": settings.MCP_RATE_LIMIT_PERIOD,
             "current_count": 0,
             "window_seconds": settings.MCP_RATE_LIMIT_PERIOD,
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -432,10 +423,7 @@ def get_mcp_rate_limit_key(action: str, ip_address: str) -> str:
     return f"{settings.ENV_PREFIX}:ratelimit:mcp_{action}:{ip_address}"
 
 
-async def reset_mcp_rate_limit(
-    user_context: MCPUserContext,
-    rate_limit_action: str
-) -> bool:
+async def reset_mcp_rate_limit(user_context: MCPUserContext, rate_limit_action: str) -> bool:
     """
     Reset rate limit for a specific user and action (admin function).
 
@@ -463,8 +451,13 @@ async def reset_mcp_rate_limit(
 
         deleted_count = await redis_conn.delete(rate_key, abuse_key)
 
-        logger.info("Admin %s reset rate limit for action %s, IP %s (deleted %d keys)",
-                   user_context.user_id, rate_limit_action, ip, deleted_count)
+        logger.info(
+            "Admin %s reset rate limit for action %s, IP %s (deleted %d keys)",
+            user_context.user_id,
+            rate_limit_action,
+            ip,
+            deleted_count,
+        )
 
         return True
 
@@ -481,14 +474,7 @@ class MCPRateLimitInfo:
     rate limiting information for MCP tools and operations.
     """
 
-    def __init__(
-        self,
-        action: str,
-        limit: int,
-        remaining: int,
-        reset_time: int,
-        current_count: int = 0
-    ):
+    def __init__(self, action: str, limit: int, remaining: int, reset_time: int, current_count: int = 0):
         self.action = action
         self.limit = limit
         self.remaining = remaining
@@ -516,7 +502,7 @@ class MCPRateLimitInfo:
             "reset_time": self.reset_time,
             "current_count": self.current_count,
             "is_exceeded": self.is_exceeded,
-            "usage_percentage": self.usage_percentage
+            "usage_percentage": self.usage_percentage,
         }
 
     def __str__(self) -> str:
@@ -545,10 +531,15 @@ def _sanitize_arguments_for_logging(arguments: Dict[str, Any]) -> Dict[str, Any]
         elif isinstance(value, list):
             # Sanitize lists
             sanitized[key] = [
-                _sanitize_arguments_for_logging(item) if isinstance(item, dict)
-                else "<REDACTED>" if isinstance(item, str) and _is_sensitive_field(str(item))
-                else str(item)[:100] + "..." if isinstance(item, str) and len(str(item)) > 100
-                else item
+                (
+                    _sanitize_arguments_for_logging(item)
+                    if isinstance(item, dict)
+                    else (
+                        "<REDACTED>"
+                        if isinstance(item, str) and _is_sensitive_field(str(item))
+                        else str(item)[:100] + "..." if isinstance(item, str) and len(str(item)) > 100 else item
+                    )
+                )
                 for item in value
             ]
         elif isinstance(value, str):
@@ -573,7 +564,7 @@ async def log_mcp_security_event(
     user_context: MCPUserContext,
     success: bool = True,
     error: Optional[Exception] = None,
-    additional_details: Optional[Dict[str, Any]] = None
+    additional_details: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Log MCP security events using existing logging patterns.
@@ -598,16 +589,18 @@ async def log_mcp_security_event(
             "token_type": user_context.token_type,
             "authenticated_at": user_context.authenticated_at.isoformat(),
             "trusted_ip_lockdown": user_context.trusted_ip_lockdown,
-            "trusted_user_agent_lockdown": user_context.trusted_user_agent_lockdown
+            "trusted_user_agent_lockdown": user_context.trusted_user_agent_lockdown,
         }
 
         # Add error information if present
         if error:
-            details.update({
-                "error_type": type(error).__name__,
-                "error_message": str(error),
-                "error_details": getattr(error, 'details', None)
-            })
+            details.update(
+                {
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                    "error_details": getattr(error, "details", None),
+                }
+            )
 
         # Add additional details if provided
         if additional_details:
@@ -619,7 +612,7 @@ async def log_mcp_security_event(
             user_id=user_context.user_id,
             ip_address=user_context.ip_address,
             success=success,
-            details=details
+            details=details,
         )
 
         # Also log with structured logging
@@ -634,8 +627,8 @@ async def log_mcp_security_event(
                 "event_type": event_type,
                 "user_id": user_context.user_id,
                 "success": success,
-                "details": details
-            }
+                "details": details,
+            },
         )
 
     except Exception as e:
@@ -646,7 +639,7 @@ async def log_mcp_authentication_event(
     user_context: MCPUserContext,
     success: bool = True,
     error: Optional[Exception] = None,
-    authentication_method: str = "jwt"
+    authentication_method: str = "jwt",
 ) -> None:
     """
     Log MCP authentication events.
@@ -665,8 +658,8 @@ async def log_mcp_authentication_event(
         additional_details={
             "authentication_method": authentication_method,
             "token_type": user_context.token_type,
-            "token_id": user_context.token_id
-        }
+            "token_id": user_context.token_id,
+        },
     )
 
 
@@ -675,7 +668,7 @@ async def log_mcp_authorization_event(
     required_permissions: List[str],
     success: bool = True,
     error: Optional[Exception] = None,
-    resource: Optional[str] = None
+    resource: Optional[str] = None,
 ) -> None:
     """
     Log MCP authorization events.
@@ -696,8 +689,8 @@ async def log_mcp_authorization_event(
             "required_permissions": required_permissions,
             "user_permissions": user_context.permissions,
             "resource": resource,
-            "has_required_permissions": user_context.has_all_permissions(required_permissions)
-        }
+            "has_required_permissions": user_context.has_all_permissions(required_permissions),
+        },
     )
 
 
@@ -706,7 +699,7 @@ async def log_mcp_rate_limit_event(
     rate_limit_action: str,
     exceeded: bool = False,
     current_count: Optional[int] = None,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
 ) -> None:
     """
     Log MCP rate limiting events.
@@ -727,8 +720,8 @@ async def log_mcp_rate_limit_event(
             "exceeded": exceeded,
             "current_count": current_count,
             "limit": limit,
-            "rate_limit_key": f"mcp_{rate_limit_action}"
-        }
+            "rate_limit_key": f"mcp_{rate_limit_action}",
+        },
     )
 
 
@@ -738,7 +731,7 @@ async def create_mcp_audit_trail(
     resource_type: Optional[str] = None,
     resource_id: Optional[str] = None,
     changes: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Create comprehensive audit trail for MCP operations.
@@ -764,18 +757,21 @@ async def create_mcp_audit_trail(
             "user_agent": user_context.user_agent,
             "timestamp": user_context.authenticated_at.isoformat(),
             "changes": _sanitize_arguments_for_logging(changes) if changes else None,
-            "metadata": _sanitize_arguments_for_logging(metadata) if metadata else None
+            "metadata": _sanitize_arguments_for_logging(metadata) if metadata else None,
         }
 
         # Get request context for additional information
         try:
             from .context import get_mcp_request_context
+
             request_context = get_mcp_request_context()
-            audit_record.update({
-                "request_id": request_context.request_id,
-                "duration_ms": request_context.duration_ms,
-                "tool_name": request_context.tool_name
-            })
+            audit_record.update(
+                {
+                    "request_id": request_context.request_id,
+                    "duration_ms": request_context.duration_ms,
+                    "tool_name": request_context.tool_name,
+                }
+            )
         except RuntimeError:
             pass  # No request context available
 
@@ -785,20 +781,18 @@ async def create_mcp_audit_trail(
             operation,
             f"{resource_type}:{resource_id}" if resource_type and resource_id else "system",
             user_context.username or user_context.user_id,
-            extra={
-                "mcp_audit_trail": True,
-                "audit_record": audit_record
-            }
+            extra={"mcp_audit_trail": True, "audit_record": audit_record},
         )
 
         # Also use existing security event logging for compliance
         from ...utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="mcp_audit_trail",
             user_id=user_context.user_id,
             ip_address=user_context.ip_address,
             success=True,
-            details=audit_record
+            details=audit_record,
         )
 
     except Exception as e:
@@ -823,7 +817,7 @@ class MCPAuditLogger:
         parameters: Dict[str, Any],
         result: Optional[Any] = None,
         error: Optional[Exception] = None,
-        duration_ms: Optional[float] = None
+        duration_ms: Optional[float] = None,
     ) -> None:
         """Log MCP tool execution with full context."""
         await _log_mcp_tool_execution(tool_name, (), parameters, user_context)
@@ -835,7 +829,7 @@ class MCPAuditLogger:
             "duration_ms": duration_ms,
             "parameter_count": len(parameters),
             "has_result": result is not None,
-            "error_type": type(error).__name__ if error else None
+            "error_type": type(error).__name__ if error else None,
         }
 
         self.logger.info(
@@ -843,10 +837,7 @@ class MCPAuditLogger:
             tool_name,
             "SUCCESS" if error is None else "FAILED",
             duration_ms or 0,
-            extra={
-                "mcp_tool_execution": True,
-                "execution_data": execution_data
-            }
+            extra={"mcp_tool_execution": True, "execution_data": execution_data},
         )
 
     async def log_resource_access(
@@ -855,7 +846,7 @@ class MCPAuditLogger:
         user_context: MCPUserContext,
         access_type: str = "read",
         success: bool = True,
-        error: Optional[Exception] = None
+        error: Optional[Exception] = None,
     ) -> None:
         """Log MCP resource access."""
         await log_mcp_security_event(
@@ -863,10 +854,7 @@ class MCPAuditLogger:
             user_context=user_context,
             success=success,
             error=error,
-            additional_details={
-                "resource_uri": resource_uri,
-                "access_type": access_type
-            }
+            additional_details={"resource_uri": resource_uri, "access_type": access_type},
         )
 
     async def log_prompt_generation(
@@ -875,7 +863,7 @@ class MCPAuditLogger:
         user_context: MCPUserContext,
         parameters: Dict[str, Any],
         success: bool = True,
-        error: Optional[Exception] = None
+        error: Optional[Exception] = None,
     ) -> None:
         """Log MCP prompt generation."""
         await log_mcp_security_event(
@@ -883,10 +871,7 @@ class MCPAuditLogger:
             user_context=user_context,
             success=success,
             error=error,
-            additional_details={
-                "prompt_name": prompt_name,
-                "parameters": _sanitize_arguments_for_logging(parameters)
-            }
+            additional_details={"prompt_name": prompt_name, "parameters": _sanitize_arguments_for_logging(parameters)},
         )
 
 
@@ -904,8 +889,9 @@ async def _create_default_user_context() -> MCPUserContext:
     Returns:
         MCPUserContext with default development permissions
     """
-    from .context import MCPUserContext
     from datetime import datetime, timezone
+
+    from .context import MCPUserContext
 
     logger.info("Creating default MCP user context for development mode")
 
@@ -925,7 +911,7 @@ async def _create_default_user_context() -> MCPUserContext:
         trusted_user_agents=["MCP-Development-Client"],
         token_type="development",
         token_id="dev-token",
-        authenticated_at=datetime.now(timezone.utc)
+        authenticated_at=datetime.now(timezone.utc),
     )
 
 
@@ -947,8 +933,9 @@ async def _validate_user_permissions(user_id: str, required_permissions: List[st
         # Use the context's permission validation methods
         has_permissions = user_context.has_all_permissions(required_permissions)
 
-        logger.debug("Permission validation for user %s: required=%s, has_all=%s",
-                    user_id, required_permissions, has_permissions)
+        logger.debug(
+            "Permission validation for user %s: required=%s, has_all=%s", user_id, required_permissions, has_permissions
+        )
 
         return has_permissions
 
@@ -957,12 +944,7 @@ async def _validate_user_permissions(user_id: str, required_permissions: List[st
         return False
 
 
-async def _log_mcp_tool_execution(
-    tool_name: str,
-    args: tuple,
-    kwargs: dict,
-    user_context: MCPUserContext
-) -> None:
+async def _log_mcp_tool_execution(tool_name: str, args: tuple, kwargs: dict, user_context: MCPUserContext) -> None:
     """
     Log MCP tool execution for audit purposes using existing logging patterns.
 
@@ -984,6 +966,7 @@ async def _log_mcp_tool_execution(
         request_context = None
         try:
             from .context import get_mcp_request_context
+
             request_context = get_mcp_request_context()
         except RuntimeError:
             pass  # No request context available
@@ -1004,22 +987,28 @@ async def _log_mcp_tool_execution(
             "permissions": user_context.permissions,
             "token_type": user_context.token_type,
             "token_id": user_context.token_id,
-            "family_memberships": [{"id": fm.get("family_id"), "role": fm.get("role")} for fm in user_context.family_memberships],
-            "workspaces": [{"id": ws.get("_id"), "name": ws.get("name"), "role": ws.get("role")} for ws in user_context.workspaces]
+            "family_memberships": [
+                {"id": fm.get("family_id"), "role": fm.get("role")} for fm in user_context.family_memberships
+            ],
+            "workspaces": [
+                {"id": ws.get("_id"), "name": ws.get("name"), "role": ws.get("role")} for ws in user_context.workspaces
+            ],
         }
 
         # Add request context information if available
         if request_context:
-            audit_data.update({
-                "request_id": request_context.request_id,
-                "operation_type": request_context.operation_type,
-                "started_at": request_context.started_at.isoformat(),
-                "duration_ms": request_context.duration_ms,
-                "rate_limit_key": request_context.rate_limit_key,
-                "rate_limit_remaining": request_context.rate_limit_remaining,
-                "security_checks_passed": request_context.security_checks_passed,
-                "permission_checks": request_context.permission_checks
-            })
+            audit_data.update(
+                {
+                    "request_id": request_context.request_id,
+                    "operation_type": request_context.operation_type,
+                    "started_at": request_context.started_at.isoformat(),
+                    "duration_ms": request_context.duration_ms,
+                    "rate_limit_key": request_context.rate_limit_key,
+                    "rate_limit_remaining": request_context.rate_limit_remaining,
+                    "security_checks_passed": request_context.security_checks_passed,
+                    "permission_checks": request_context.permission_checks,
+                }
+            )
 
         # Log using existing security event logging
         log_security_event(
@@ -1027,7 +1016,7 @@ async def _log_mcp_tool_execution(
             user_id=user_context.user_id,
             ip_address=user_context.ip_address,
             success=True,
-            details=audit_data
+            details=audit_data,
         )
 
         # Also log using structured logging for MCP-specific monitoring
@@ -1042,8 +1031,8 @@ async def _log_mcp_tool_execution(
                 "tool_name": tool_name,
                 "user_id": user_context.user_id,
                 "ip_address": user_context.ip_address,
-                "audit_data": audit_data
-            }
+                "audit_data": audit_data,
+            },
         )
 
     except Exception as e:
@@ -1061,8 +1050,15 @@ def _is_sensitive_field(field_name: str) -> bool:
         True if field is sensitive, False otherwise
     """
     sensitive_fields = {
-        "password", "token", "secret", "key", "auth", "credential",
-        "private", "confidential", "sensitive"
+        "password",
+        "token",
+        "secret",
+        "key",
+        "auth",
+        "credential",
+        "private",
+        "confidential",
+        "sensitive",
     }
 
     field_lower = field_name.lower()
@@ -1070,10 +1066,7 @@ def _is_sensitive_field(field_name: str) -> bool:
 
 
 async def create_mcp_context_from_fastapi(
-    request: Request,
-    fastapi_user: Dict[str, Any],
-    tool_name: Optional[str] = None,
-    operation_type: str = "tool"
+    request: Request, fastapi_user: Dict[str, Any], tool_name: Optional[str] = None, operation_type: str = "tool"
 ) -> tuple[MCPUserContext, MCPRequestContext]:
     """
     Create MCP context from FastAPI request and user.
@@ -1103,22 +1096,19 @@ async def create_mcp_context_from_fastapi(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"],
             token_type="jwt",  # Default to JWT, can be enhanced later
-            token_id=None  # Can be extracted from token if needed
+            token_id=None,  # Can be extracted from token if needed
         )
 
         # Create request context
         request_context = create_mcp_request_context(
-            operation_type=operation_type,
-            tool_name=tool_name,
-            parameters={}  # Will be populated by tool decorators
+            operation_type=operation_type, tool_name=tool_name, parameters={}  # Will be populated by tool decorators
         )
 
         # Set contexts in context variables
         set_mcp_user_context(user_context)
         set_mcp_request_context(request_context)
 
-        logger.debug("Created MCP context for user %s, tool %s",
-                    user_context.user_id, tool_name)
+        logger.debug("Created MCP context for user %s, tool %s", user_context.user_id, tool_name)
 
         return user_context, request_context
 
@@ -1167,7 +1157,7 @@ async def authenticate_mcp_request(request: Request) -> MCPUserContext:
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"],
             token_type="jwt",
-            token_id=None
+            token_id=None,
         )
 
         # Set user context
@@ -1197,6 +1187,7 @@ def require_mcp_authentication(func: Callable) -> Callable:
     Returns:
         Decorated function that requires authentication
     """
+
     @wraps(func)
     async def wrapper(*args, **kwargs):
         # Check if we already have user context (from secure_mcp_tool)

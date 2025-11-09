@@ -14,22 +14,29 @@ Key Features:
 """
 
 import asyncio
-import time
-import json
-from typing import Optional, Dict, Any, List, Set
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import sys
+import time
+from typing import Any, Dict, List, Optional, Set
+
+# Add the src directory to Python path for proper imports when run as standalone script
+src_path = Path(__file__).parent.parent.parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import StaticTokenVerifier
 
-from ...config import settings
-from ...managers.logging_manager import get_logger
-from ...utils.error_handling import handle_errors, RetryConfig, RetryStrategy
-from .monitoring_integration import mcp_monitoring_integration
-from .error_recovery import mcp_recovery_manager
-from .performance_monitoring import mcp_performance_monitor
-from .alerting import mcp_alert_manager, alert_server_failure
+from second_brain_database.config import settings
+from second_brain_database.integrations.mcp.alerting import alert_server_failure, mcp_alert_manager
+from second_brain_database.integrations.mcp.error_recovery import mcp_recovery_manager
+from second_brain_database.integrations.mcp.monitoring_integration import mcp_monitoring_integration
+from second_brain_database.integrations.mcp.performance_monitoring import mcp_performance_monitor
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.utils.error_handling import RetryConfig, RetryStrategy, handle_errors
 
 logger = get_logger(prefix="[ModernMCPServer]")
 
@@ -54,10 +61,7 @@ async def mcp_lifespan(app):
 
     except Exception as e:
         logger.error("Error during MCP server lifespan: %s", e)
-        await alert_server_failure(
-            f"MCP server lifespan error: {str(e)}",
-            {"error": str(e), "component": "lifespan"}
-        )
+        await alert_server_failure(f"MCP server lifespan error: {str(e)}", {"error": str(e), "component": "lifespan"})
         raise
     finally:
         # Cleanup monitoring systems
@@ -90,7 +94,8 @@ def create_auth_provider():
     logger.info("Creating FastMCP 2.x JWT authentication provider")
 
     # Import the custom auth provider that integrates with existing JWT system
-    from .auth_middleware import FastMCPJWTAuthProvider
+    from second_brain_database.integrations.mcp.auth_middleware import FastMCPJWTAuthProvider
+
     return FastMCPJWTAuthProvider()
 
 
@@ -157,18 +162,11 @@ def create_modern_mcp_server() -> FastMCP:
 
     # Create FastMCP 2.x server instance following documentation patterns
     try:
-        server = FastMCP(
-            name=settings.MCP_SERVER_NAME,
-            version=settings.MCP_SERVER_VERSION,
-            auth=auth_provider
-        )
+        server = FastMCP(name=settings.MCP_SERVER_NAME, version=settings.MCP_SERVER_VERSION, auth=auth_provider)
     except Exception as e:
         logger.error("Failed to create FastMCP server: %s", e)
         # Fallback without auth if there's an issue
-        server = FastMCP(
-            name=settings.MCP_SERVER_NAME,
-            version=settings.MCP_SERVER_VERSION
-        )
+        server = FastMCP(name=settings.MCP_SERVER_NAME, version=settings.MCP_SERVER_VERSION)
         logger.warning("Created FastMCP server without authentication due to error")
 
     logger.info(
@@ -176,14 +174,10 @@ def create_modern_mcp_server() -> FastMCP:
         settings.MCP_SERVER_NAME,
         settings.MCP_SERVER_VERSION,
         settings.MCP_TRANSPORT,
-        "enabled" if auth_provider else "disabled"
+        "enabled" if auth_provider else "disabled",
     )
 
-    logger.info(
-        "Component filtering - include: %s, exclude: %s",
-        include_tags,
-        exclude_tags
-    )
+    logger.info("Component filtering - include: %s, exclude: %s", include_tags, exclude_tags)
 
     return server
 

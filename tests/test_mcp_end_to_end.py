@@ -7,35 +7,33 @@ to audit logging, simulating real-world usage scenarios.
 """
 
 import asyncio
-import pytest
-import time
 from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any, List
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-# Test imports
-from second_brain_database.integrations.mcp.server import MCPServerManager
+import pytest
+
 from second_brain_database.integrations.mcp.context import (
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    get_mcp_request_context,
     get_mcp_user_context,
-    get_mcp_request_context
-)
-from second_brain_database.integrations.mcp.security import (
-    secure_mcp_tool,
-    authenticated_tool,
-    mcp_audit_logger
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
 from second_brain_database.integrations.mcp.exceptions import (
     MCPAuthenticationError,
     MCPAuthorizationError,
-    MCPRateLimitError
+    MCPRateLimitError,
 )
+from second_brain_database.integrations.mcp.security import authenticated_tool, mcp_audit_logger, secure_mcp_tool
+
+# Test imports
+from second_brain_database.integrations.mcp.server import MCPServerManager
 
 
 class TestMCPEndToEndWorkflows:
@@ -50,17 +48,15 @@ class TestMCPEndToEndWorkflows:
             "email": "e2e@example.com",
             "role": "user",
             "permissions": ["family:read", "family:write", "profile:read"],
-            "workspaces": [
-                {"_id": "workspace_1", "name": "Test Workspace", "role": "member"}
-            ],
+            "workspaces": [{"_id": "workspace_1", "name": "Test Workspace", "role": "member"}],
             "family_memberships": [
                 {"family_id": "family_1", "role": "admin"},
-                {"family_id": "family_2", "role": "member"}
+                {"family_id": "family_2", "role": "member"},
             ],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     @pytest.fixture
@@ -77,7 +73,7 @@ class TestMCPEndToEndWorkflows:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     def setup_method(self):
@@ -97,14 +93,14 @@ class TestMCPEndToEndWorkflows:
             ip_address="192.168.1.100",
             user_agent="E2ETestClient/1.0",
             token_type="jwt",
-            token_id="jwt_e2e_123"
+            token_id="jwt_e2e_123",
         )
 
         # Step 2: Create request context
         request_context = create_mcp_request_context(
             operation_type="tool",
             tool_name="family_management_workflow",
-            parameters={"family_id": "family_1", "action": "get_info"}
+            parameters={"family_id": "family_1", "action": "get_info"},
         )
 
         # Step 3: Set contexts
@@ -112,7 +108,7 @@ class TestMCPEndToEndWorkflows:
         set_mcp_request_context(request_context)
 
         # Step 4: Mock family manager and dependencies
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -124,7 +120,7 @@ class TestMCPEndToEndWorkflows:
                 "description": "End-to-end test family",
                 "owner_id": "e2e_user_123",
                 "member_count": 3,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
             mock_family_manager.get_family.return_value = mock_family
 
@@ -160,16 +156,14 @@ class TestMCPEndToEndWorkflows:
         """Test multi-step family operations workflow."""
         # Create user context
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="MultiStepClient/1.0"
+            fastapi_user=mock_fastapi_user, ip_address="192.168.1.100", user_agent="MultiStepClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         workflow_results = []
 
         # Mock family manager for all operations
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -189,7 +183,7 @@ class TestMCPEndToEndWorkflows:
             # Step 2: Get family members
             mock_members = [
                 {"user_id": "user_1", "username": "member1", "role": "admin"},
-                {"user_id": "user_2", "username": "member2", "role": "member"}
+                {"user_id": "user_2", "username": "member2", "role": "member"},
             ]
             mock_family_manager.validate_family_access.return_value = True
             mock_family_manager.get_family_members.return_value = mock_members
@@ -252,9 +246,7 @@ class TestMCPEndToEndWorkflows:
         limited_user["permissions"] = ["profile:read"]  # No family permissions
 
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=limited_user,
-            ip_address="192.168.1.100",
-            user_agent="LimitedClient/1.0"
+            fastapi_user=limited_user, ip_address="192.168.1.100", user_agent="LimitedClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -272,15 +264,14 @@ class TestMCPEndToEndWorkflows:
     async def test_rate_limiting_workflow(self, mock_fastapi_user):
         """Test workflow with rate limiting."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="RateLimitClient/1.0"
+            fastapi_user=mock_fastapi_user, ip_address="192.168.1.100", user_agent="RateLimitClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Mock rate limiting to exceed limit
-        with patch('src.second_brain_database.integrations.mcp.security.security_manager') as mock_sm:
+        with patch("src.second_brain_database.integrations.mcp.security.security_manager") as mock_sm:
             from fastapi import HTTPException
+
             mock_sm.check_rate_limit = AsyncMock(
                 side_effect=HTTPException(status_code=429, detail="Rate limit exceeded")
             )
@@ -299,19 +290,17 @@ class TestMCPEndToEndWorkflows:
     async def test_admin_workflow_with_elevated_permissions(self, mock_admin_user):
         """Test admin workflow with elevated permissions."""
         admin_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_admin_user,
-            ip_address="192.168.1.100",
-            user_agent="AdminClient/1.0"
+            fastapi_user=mock_admin_user, ip_address="192.168.1.100", user_agent="AdminClient/1.0"
         )
         set_mcp_user_context(admin_context)
 
         # Mock system operations that require admin permissions
-        with patch('src.second_brain_database.integrations.mcp.tools.admin_tools.get_system_health') as mock_health:
+        with patch("src.second_brain_database.integrations.mcp.tools.admin_tools.get_system_health") as mock_health:
             mock_health.return_value = {
                 "status": "healthy",
                 "uptime": 3600,
                 "active_users": 150,
-                "database_status": "connected"
+                "database_status": "connected",
             }
 
             @secure_mcp_tool(permissions=["admin", "system:read"])
@@ -328,6 +317,7 @@ class TestMCPEndToEndWorkflows:
     @pytest.mark.asyncio
     async def test_concurrent_user_workflows(self, mock_fastapi_user):
         """Test concurrent workflows from different users."""
+
         async def user_workflow(user_id: str, family_id: str):
             # Create unique user context
             user_data = mock_fastapi_user.copy()
@@ -337,29 +327,23 @@ class TestMCPEndToEndWorkflows:
             user_context = await create_mcp_user_context_from_fastapi_user(
                 fastapi_user=user_data,
                 ip_address=f"192.168.1.{user_id[-1]}",
-                user_agent=f"ConcurrentClient_{user_id}/1.0"
+                user_agent=f"ConcurrentClient_{user_id}/1.0",
             )
 
             request_context = create_mcp_request_context(
-                operation_type="tool",
-                tool_name=f"concurrent_workflow_{user_id}",
-                parameters={"family_id": family_id}
+                operation_type="tool", tool_name=f"concurrent_workflow_{user_id}", parameters={"family_id": family_id}
             )
 
             set_mcp_user_context(user_context)
             set_mcp_request_context(request_context)
 
             # Mock family manager for this user
-            with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+            with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
                 mock_family_manager = AsyncMock()
                 mock_fm.return_value = mock_family_manager
 
                 mock_family = Mock()
-                mock_family.dict.return_value = {
-                    "id": family_id,
-                    "name": f"Family for {user_id}",
-                    "owner_id": user_id
-                }
+                mock_family.dict.return_value = {"id": family_id, "name": f"Family for {user_id}", "owner_id": user_id}
                 mock_family_manager.get_family.return_value = mock_family
 
                 @secure_mcp_tool(permissions=["family:read"])
@@ -367,11 +351,7 @@ class TestMCPEndToEndWorkflows:
                     # Simulate some processing time
                     await asyncio.sleep(0.01)
                     family = await mock_family_manager.get_family(family_id, user_id)
-                    return {
-                        "user_id": user_id,
-                        "family_data": family.dict(),
-                        "timestamp": time.time()
-                    }
+                    return {"user_id": user_id, "family_data": family.dict(), "timestamp": time.time()}
 
                 return await concurrent_family_tool()
 
@@ -379,7 +359,7 @@ class TestMCPEndToEndWorkflows:
         tasks = [
             user_workflow("user_001", "family_001"),
             user_workflow("user_002", "family_002"),
-            user_workflow("user_003", "family_003")
+            user_workflow("user_003", "family_003"),
         ]
 
         results = await asyncio.gather(*tasks)
@@ -399,20 +379,22 @@ class TestMCPEndToEndWorkflows:
     async def test_audit_logging_workflow(self, mock_fastapi_user):
         """Test complete audit logging workflow."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="AuditClient/1.0"
+            fastapi_user=mock_fastapi_user, ip_address="192.168.1.100", user_agent="AuditClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         audit_events = []
 
         # Mock audit logging to capture events
-        with patch('src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution') as mock_audit:
+        with patch("src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution") as mock_audit:
             mock_audit.side_effect = lambda *args, **kwargs: audit_events.append(("tool_execution", args, kwargs))
 
-            with patch('src.second_brain_database.integrations.mcp.security.log_mcp_security_event') as mock_security_log:
-                mock_security_log.side_effect = lambda *args, **kwargs: audit_events.append(("security_event", args, kwargs))
+            with patch(
+                "src.second_brain_database.integrations.mcp.security.log_mcp_security_event"
+            ) as mock_security_log:
+                mock_security_log.side_effect = lambda *args, **kwargs: audit_events.append(
+                    ("security_event", args, kwargs)
+                )
 
                 @secure_mcp_tool(permissions=["family:read"], audit=True)
                 async def audited_tool():
@@ -434,19 +416,18 @@ class TestMCPEndToEndWorkflows:
     async def test_error_recovery_workflow(self, mock_fastapi_user):
         """Test error recovery in MCP workflows."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="ErrorRecoveryClient/1.0"
+            fastapi_user=mock_fastapi_user, ip_address="192.168.1.100", user_agent="ErrorRecoveryClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Test workflow that encounters and recovers from errors
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
             # First call fails, second succeeds (simulating retry logic)
             call_count = 0
+
             def side_effect(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -482,12 +463,14 @@ class TestMCPEndToEndWorkflows:
         server_manager = MCPServerManager()
 
         # Test server initialization
-        with patch('src.second_brain_database.integrations.mcp.server.FastMCP') as mock_fastmcp:
+        with patch("src.second_brain_database.integrations.mcp.server.FastMCP") as mock_fastmcp:
             mock_mcp_instance = Mock()
             mock_fastmcp.return_value = mock_mcp_instance
 
             # Mock monitoring systems
-            with patch('src.second_brain_database.integrations.mcp.server.mcp_monitoring_integration') as mock_monitoring:
+            with patch(
+                "src.second_brain_database.integrations.mcp.server.mcp_monitoring_integration"
+            ) as mock_monitoring:
                 mock_monitoring.initialize = AsyncMock()
                 mock_monitoring.start_monitoring = AsyncMock()
                 mock_monitoring.stop_monitoring = AsyncMock()
@@ -497,7 +480,7 @@ class TestMCPEndToEndWorkflows:
                 assert server_manager.is_initialized is True
 
                 # Start server
-                with patch.object(server_manager, '_create_mock_process') as mock_process:
+                with patch.object(server_manager, "_create_mock_process") as mock_process:
                     mock_proc = Mock()
                     mock_proc.pid = 12345
                     mock_proc.returncode = None
@@ -528,6 +511,7 @@ class TestMCPWorkflowPerformance:
     @pytest.mark.asyncio
     async def test_workflow_performance_under_load(self):
         """Test MCP workflow performance under concurrent load."""
+
         async def single_workflow(workflow_id: int):
             # Create user context
             user_context = MCPUserContext(
@@ -535,13 +519,10 @@ class TestMCPWorkflowPerformance:
                 username=f"perf_user_{workflow_id}",
                 permissions=["family:read"],
                 ip_address="127.0.0.1",
-                user_agent="PerfTestClient/1.0"
+                user_agent="PerfTestClient/1.0",
             )
 
-            request_context = create_mcp_request_context(
-                operation_type="tool",
-                tool_name=f"perf_tool_{workflow_id}"
-            )
+            request_context = create_mcp_request_context(operation_type="tool", tool_name=f"perf_tool_{workflow_id}")
 
             set_mcp_user_context(user_context)
             set_mcp_request_context(request_context)
@@ -557,11 +538,7 @@ class TestMCPWorkflowPerformance:
             result = await perf_tool()
             end_time = time.time()
 
-            return {
-                "workflow_id": workflow_id,
-                "result": result,
-                "duration": end_time - start_time
-            }
+            return {"workflow_id": workflow_id, "result": result, "duration": end_time - start_time}
 
         # Execute multiple concurrent workflows
         num_workflows = 50
@@ -605,7 +582,7 @@ class TestMCPShopWorkflows:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     def setup_method(self):
@@ -621,9 +598,7 @@ class TestMCPShopWorkflows:
         """Test complete shop purchase workflow from browsing to transaction completion."""
         # Step 1: Create user context
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_shop_user,
-            ip_address="192.168.1.100",
-            user_agent="ShopClient/1.0"
+            fastapi_user=mock_shop_user, ip_address="192.168.1.100", user_agent="ShopClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -654,7 +629,7 @@ class TestMCPShopWorkflows:
                 "item_type": "theme",
                 "description": "Professional dark theme",
                 "featured": True,
-                "available": True
+                "available": True,
             },
             {
                 "_id": "avatar_pack_456",
@@ -663,8 +638,8 @@ class TestMCPShopWorkflows:
                 "item_type": "avatar",
                 "description": "Collection of avatars",
                 "featured": False,
-                "available": True
-            }
+                "available": True,
+            },
         ]
         mock_shop_collection.find.return_value.to_list.return_value = mock_shop_items
 
@@ -694,7 +669,7 @@ class TestMCPShopWorkflows:
             "_id": "shop_user_123",
             "sbd_balance": 1000,
             "owned_assets": ["avatar_1", "theme_1"],
-            "rented_assets": ["banner_1"]
+            "rented_assets": ["banner_1"],
         }
         mock_users_collection.find_one.return_value = mock_user_doc
 
@@ -723,10 +698,7 @@ class TestMCPShopWorkflows:
             # Update user balance and assets
             await mock_users_collection.update_one(
                 {"_id": user_context.user_id},
-                {
-                    "$set": {"sbd_balance": new_balance},
-                    "$push": {"owned_assets": item_id}
-                }
+                {"$set": {"sbd_balance": new_balance}, "$push": {"owned_assets": item_id}},
             )
 
             # Create transaction record
@@ -736,7 +708,7 @@ class TestMCPShopWorkflows:
                 "quantity": quantity,
                 "total_cost": total_cost,
                 "timestamp": datetime.now(timezone.utc),
-                "status": "completed"
+                "status": "completed",
             }
             result = await mock_transactions_collection.insert_one(transaction)
 
@@ -745,7 +717,7 @@ class TestMCPShopWorkflows:
                 "item_purchased": item["name"],
                 "cost": total_cost,
                 "new_balance": new_balance,
-                "status": "success"
+                "status": "success",
             }
 
         purchase_result = await purchase_item("premium_theme_123")
@@ -764,13 +736,11 @@ class TestMCPShopWorkflows:
     async def test_asset_rental_workflow(self, mock_shop_user):
         """Test asset rental workflow including rental management."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_shop_user,
-            ip_address="192.168.1.100",
-            user_agent="RentalClient/1.0"
+            fastapi_user=mock_shop_user, ip_address="192.168.1.100", user_agent="RentalClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.tools.shop_tools.db_manager') as mock_db:
+        with patch("src.second_brain_database.integrations.mcp.tools.shop_tools.db_manager") as mock_db:
             mock_rentals_collection = AsyncMock()
             mock_users_collection = AsyncMock()
             mock_shop_collection = AsyncMock()
@@ -779,7 +749,7 @@ class TestMCPShopWorkflows:
                 collections = {
                     "asset_rentals": mock_rentals_collection,
                     "users": mock_users_collection,
-                    "shop_items": mock_shop_collection
+                    "shop_items": mock_shop_collection,
                 }
                 return collections.get(name, AsyncMock())
 
@@ -793,7 +763,7 @@ class TestMCPShopWorkflows:
                 "rental_price_weekly": 50,
                 "rental_price_monthly": 150,
                 "item_type": "banner",
-                "available_for_rental": True
+                "available_for_rental": True,
             }
             mock_shop_collection.find.return_value.to_list.return_value = [mock_rental_item]
 
@@ -830,13 +800,12 @@ class TestMCPShopWorkflows:
                     "rental_start": datetime.now(timezone.utc),
                     "rental_end": rental_end,
                     "cost": rental_cost,
-                    "status": "active"
+                    "status": "active",
                 }
 
                 await mock_rentals_collection.insert_one(rental_record)
                 await mock_users_collection.update_one(
-                    {"_id": user_context.user_id},
-                    {"$set": {"sbd_balance": new_balance}}
+                    {"_id": user_context.user_id}, {"$set": {"sbd_balance": new_balance}}
                 )
 
                 return {
@@ -845,7 +814,7 @@ class TestMCPShopWorkflows:
                     "duration": duration,
                     "cost": rental_cost,
                     "expires": rental_end.isoformat(),
-                    "status": "active"
+                    "status": "active",
                 }
 
             rental_result = await rent_asset("banner_rental_123", "weekly")
@@ -863,13 +832,11 @@ class TestMCPShopWorkflows:
     async def test_shop_error_handling_workflow(self, mock_shop_user):
         """Test shop workflow error handling and recovery."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_shop_user,
-            ip_address="192.168.1.100",
-            user_agent="ErrorTestClient/1.0"
+            fastapi_user=mock_shop_user, ip_address="192.168.1.100", user_agent="ErrorTestClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.tools.shop_tools.db_manager') as mock_db:
+        with patch("src.second_brain_database.integrations.mcp.tools.shop_tools.db_manager") as mock_db:
             mock_shop_collection = AsyncMock()
             mock_users_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_shop_collection
@@ -879,7 +846,7 @@ class TestMCPShopWorkflows:
                 "_id": "expensive_item_123",
                 "name": "Expensive Theme",
                 "price": 2000,  # More than user's balance
-                "item_type": "theme"
+                "item_type": "theme",
             }
             mock_shop_collection.find_one.return_value = mock_expensive_item
 
@@ -892,7 +859,9 @@ class TestMCPShopWorkflows:
                 user = await mock_users_collection.find_one({"_id": user_context.user_id})
 
                 if user["sbd_balance"] < item["price"]:
-                    raise ValueError(f"Insufficient balance. Required: {item['price']}, Available: {user['sbd_balance']}")
+                    raise ValueError(
+                        f"Insufficient balance. Required: {item['price']}, Available: {user['sbd_balance']}"
+                    )
 
                 return {"status": "success"}
 
@@ -919,13 +888,13 @@ class TestMCPWorkspaceWorkflows:
             "permissions": ["workspace:read", "workspace:write", "workspace:admin"],
             "workspaces": [
                 {"_id": "workspace_1", "name": "Test Workspace", "role": "admin"},
-                {"_id": "workspace_2", "name": "Other Workspace", "role": "member"}
+                {"_id": "workspace_2", "name": "Other Workspace", "role": "member"},
             ],
             "family_memberships": [],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     def setup_method(self):
@@ -940,13 +909,11 @@ class TestMCPWorkspaceWorkflows:
     async def test_complete_workspace_lifecycle_workflow(self, mock_workspace_user):
         """Test complete workspace lifecycle from creation to deletion."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_workspace_user,
-            ip_address="192.168.1.100",
-            user_agent="WorkspaceClient/1.0"
+            fastapi_user=mock_workspace_user, ip_address="192.168.1.100", user_agent="WorkspaceClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager') as mock_wm:
+        with patch("src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager") as mock_wm:
             mock_workspace_manager = AsyncMock()
             mock_wm.return_value = mock_workspace_manager
 
@@ -959,15 +926,13 @@ class TestMCPWorkspaceWorkflows:
                 "owner_id": "workspace_user_123",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "member_count": 1,
-                "sbd_account": {"balance": 0, "frozen": False}
+                "sbd_account": {"balance": 0, "frozen": False},
             }
             mock_workspace_manager.create_workspace.return_value = mock_created_workspace
 
             @secure_mcp_tool(permissions=["workspace:write"])
             async def create_workspace(name: str, description: str):
-                workspace = await mock_workspace_manager.create_workspace(
-                    name, user_context.user_id, description
-                )
+                workspace = await mock_workspace_manager.create_workspace(name, user_context.user_id, description)
                 return workspace.dict()
 
             created_workspace = await create_workspace("New Test Workspace", "Test workspace for E2E testing")
@@ -997,7 +962,7 @@ class TestMCPWorkspaceWorkflows:
                 "id": "new_workspace_123",
                 "name": "Updated Workspace Name",
                 "description": "Updated description",
-                "settings": {"notifications": True, "public": False}
+                "settings": {"notifications": True, "public": False},
             }
             mock_workspace_manager.update_workspace.return_value = mock_updated_workspace
 
@@ -1008,8 +973,7 @@ class TestMCPWorkspaceWorkflows:
                 return updated.dict()
 
             updated_workspace = await update_workspace_settings(
-                "new_workspace_123",
-                {"name": "Updated Workspace Name", "description": "Updated description"}
+                "new_workspace_123", {"name": "Updated Workspace Name", "description": "Updated description"}
             )
 
             assert updated_workspace["name"] == "Updated Workspace Name"
@@ -1020,7 +984,7 @@ class TestMCPWorkspaceWorkflows:
                 "workspace_id": "new_workspace_123",
                 "balance": 500,
                 "frozen": False,
-                "permissions": {"can_request": True, "can_approve": True}
+                "permissions": {"can_request": True, "can_approve": True},
             }
             mock_workspace_manager.get_workspace_wallet.return_value = mock_wallet_info
 
@@ -1061,13 +1025,11 @@ class TestMCPWorkspaceWorkflows:
     async def test_workspace_token_request_workflow(self, mock_workspace_user):
         """Test workspace SBD token request and approval workflow."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_workspace_user,
-            ip_address="192.168.1.100",
-            user_agent="TokenClient/1.0"
+            fastapi_user=mock_workspace_user, ip_address="192.168.1.100", user_agent="TokenClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.tools.workspace_tools.TeamWalletManager') as mock_twm:
+        with patch("src.second_brain_database.integrations.mcp.tools.workspace_tools.TeamWalletManager") as mock_twm:
             mock_wallet_manager = AsyncMock()
             mock_twm.return_value = mock_wallet_manager
 
@@ -1079,7 +1041,7 @@ class TestMCPWorkspaceWorkflows:
                 "amount": 100,
                 "reason": "Development resources",
                 "status": "pending",
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
             mock_wallet_manager.create_token_request.return_value = mock_token_request
 
@@ -1100,14 +1062,12 @@ class TestMCPWorkspaceWorkflows:
                 "id": "token_request_123",
                 "status": "approved",
                 "reviewed_by": "workspace_user_123",
-                "reviewed_at": datetime.now(timezone.utc)
+                "reviewed_at": datetime.now(timezone.utc),
             }
 
             @secure_mcp_tool(permissions=["workspace:admin"])
             async def review_token_request(request_id: str, action: str, notes: str = ""):
-                result = await mock_wallet_manager.review_token_request(
-                    request_id, user_context.user_id, action, notes
-                )
+                result = await mock_wallet_manager.review_token_request(request_id, user_context.user_id, action, notes)
                 return result
 
             review_result = await review_token_request("token_request_123", "approve", "Approved for development")
@@ -1118,7 +1078,7 @@ class TestMCPWorkspaceWorkflows:
             mock_wallet_manager.get_workspace_wallet.return_value = {
                 "workspace_id": "workspace_1",
                 "balance": 600,  # Increased after approval
-                "pending_requests": 0
+                "pending_requests": 0,
             }
 
             @secure_mcp_tool(permissions=["workspace:read"])
@@ -1153,7 +1113,7 @@ class TestMCPResourcesAndPrompts:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     def setup_method(self):
@@ -1168,14 +1128,12 @@ class TestMCPResourcesAndPrompts:
     async def test_family_resources_workflow(self, mock_resource_user):
         """Test family resources access and content generation."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_resource_user,
-            ip_address="192.168.1.100",
-            user_agent="ResourceClient/1.0"
+            fastapi_user=mock_resource_user, ip_address="192.168.1.100", user_agent="ResourceClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Mock family resource data
-        with patch('src.second_brain_database.integrations.mcp.resources.family_resources.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.resources.family_resources.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -1187,7 +1145,7 @@ class TestMCPResourcesAndPrompts:
                 "description": "Test family for resources",
                 "member_count": 3,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "owner_id": "resource_user_123"
+                "owner_id": "resource_user_123",
             }
             mock_family_manager.get_family.return_value = mock_family
 
@@ -1206,10 +1164,14 @@ class TestMCPResourcesAndPrompts:
                     "family_id": family_id,
                     "content": family_data,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
-                    "access_level": "admin" if any(
-                        fm.get("family_id") == family_id and fm.get("role") == "admin"
-                        for fm in user_context.family_memberships
-                    ) else "member"
+                    "access_level": (
+                        "admin"
+                        if any(
+                            fm.get("family_id") == family_id and fm.get("role") == "admin"
+                            for fm in user_context.family_memberships
+                        )
+                        else "member"
+                    ),
                 }
                 return resource_content
 
@@ -1224,7 +1186,7 @@ class TestMCPResourcesAndPrompts:
             mock_members = [
                 {"user_id": "user_1", "username": "member1", "role": "admin"},
                 {"user_id": "user_2", "username": "member2", "role": "member"},
-                {"user_id": "user_3", "username": "member3", "role": "member"}
+                {"user_id": "user_3", "username": "member3", "role": "member"},
             ]
             mock_family_manager.get_family_members.return_value = mock_members
 
@@ -1239,7 +1201,7 @@ class TestMCPResourcesAndPrompts:
                     "family_id": family_id,
                     "members": members,
                     "member_count": len(members),
-                    "last_updated": datetime.now(timezone.utc).isoformat()
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
 
             members_resource = await get_family_members_resource("family_1")
@@ -1253,13 +1215,13 @@ class TestMCPResourcesAndPrompts:
     async def test_workspace_resources_workflow(self, mock_resource_user):
         """Test workspace resources access and content generation."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_resource_user,
-            ip_address="192.168.1.100",
-            user_agent="WorkspaceResourceClient/1.0"
+            fastapi_user=mock_resource_user, ip_address="192.168.1.100", user_agent="WorkspaceResourceClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.resources.workspace_resources.WorkspaceManager') as mock_wm:
+        with patch(
+            "src.second_brain_database.integrations.mcp.resources.workspace_resources.WorkspaceManager"
+        ) as mock_wm:
             mock_workspace_manager = AsyncMock()
             mock_wm.return_value = mock_workspace_manager
 
@@ -1270,7 +1232,7 @@ class TestMCPResourcesAndPrompts:
                 "description": "Test workspace for resources",
                 "owner_id": "other_user_456",
                 "member_count": 5,
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
             mock_workspace_manager.get_workspace_details.return_value = mock_workspace
 
@@ -1284,10 +1246,9 @@ class TestMCPResourcesAndPrompts:
                     "workspace_id": workspace_id,
                     "content": workspace,
                     "user_role": next(
-                        (ws.get("role") for ws in user_context.workspaces if ws.get("_id") == workspace_id),
-                        "none"
+                        (ws.get("role") for ws in user_context.workspaces if ws.get("_id") == workspace_id), "none"
                     ),
-                    "last_updated": datetime.now(timezone.utc).isoformat()
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
 
             workspace_resource = await get_workspace_resource("workspace_1")
@@ -1301,32 +1262,18 @@ class TestMCPResourcesAndPrompts:
     async def test_shop_resources_workflow(self, mock_resource_user):
         """Test shop resources access and content generation."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_resource_user,
-            ip_address="192.168.1.100",
-            user_agent="ShopResourceClient/1.0"
+            fastapi_user=mock_resource_user, ip_address="192.168.1.100", user_agent="ShopResourceClient/1.0"
         )
         set_mcp_user_context(user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.resources.shop_resources.db_manager') as mock_db:
+        with patch("src.second_brain_database.integrations.mcp.resources.shop_resources.db_manager") as mock_db:
             mock_shop_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_shop_collection
 
             # Mock shop catalog
             mock_shop_items = [
-                {
-                    "_id": "theme_1",
-                    "name": "Dark Theme",
-                    "price": 100,
-                    "item_type": "theme",
-                    "featured": True
-                },
-                {
-                    "_id": "avatar_1",
-                    "name": "Cool Avatar",
-                    "price": 50,
-                    "item_type": "avatar",
-                    "featured": False
-                }
+                {"_id": "theme_1", "name": "Dark Theme", "price": 100, "item_type": "theme", "featured": True},
+                {"_id": "avatar_1", "name": "Cool Avatar", "price": 50, "item_type": "avatar", "featured": False},
             ]
             mock_shop_collection.find.return_value.to_list.return_value = mock_shop_items
 
@@ -1348,7 +1295,7 @@ class TestMCPResourcesAndPrompts:
                     "total_items": len(items),
                     "categories": categories,
                     "featured_items": [item for item in items if item.get("featured", False)],
-                    "last_updated": datetime.now(timezone.utc).isoformat()
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
 
             catalog_resource = await get_shop_catalog_resource()
@@ -1363,9 +1310,7 @@ class TestMCPResourcesAndPrompts:
     async def test_guidance_prompts_workflow(self, mock_resource_user):
         """Test guidance prompts generation and contextual content."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_resource_user,
-            ip_address="192.168.1.100",
-            user_agent="PromptClient/1.0"
+            fastapi_user=mock_resource_user, ip_address="192.168.1.100", user_agent="PromptClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -1418,9 +1363,9 @@ class TestMCPResourcesAndPrompts:
                     "username": user_context.username,
                     "family_count": user_families,
                     "admin_family_count": admin_families,
-                    "permissions": user_context.permissions
+                    "permissions": user_context.permissions,
                 },
-                "generated_at": datetime.now(timezone.utc).isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }
 
         family_prompt = await get_family_management_prompt()
@@ -1475,9 +1420,9 @@ class TestMCPResourcesAndPrompts:
                     "user_id": user_context.user_id,
                     "username": user_context.username,
                     "workspace_count": user_workspaces,
-                    "admin_workspace_count": admin_workspaces
+                    "admin_workspace_count": admin_workspaces,
                 },
-                "generated_at": datetime.now(timezone.utc).isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }
 
         workspace_prompt = await get_workspace_management_prompt()
@@ -1507,7 +1452,7 @@ class TestMCPComplexErrorRecovery:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
     def setup_method(self):
@@ -1522,19 +1467,18 @@ class TestMCPComplexErrorRecovery:
     async def test_database_connection_failure_recovery(self, mock_error_user):
         """Test recovery from database connection failures during complex workflows."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_error_user,
-            ip_address="192.168.1.100",
-            user_agent="ErrorRecoveryClient/1.0"
+            fastapi_user=mock_error_user, ip_address="192.168.1.100", user_agent="ErrorRecoveryClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Simulate database connection failures with recovery
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
             # Simulate connection failure followed by recovery
             call_count = 0
+
             def connection_failure_side_effect(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -1545,7 +1489,7 @@ class TestMCPComplexErrorRecovery:
                     mock_family.dict.return_value = {
                         "id": "family_1",
                         "name": "Recovered Family",
-                        "status": "recovered"
+                        "status": "recovered",
                     }
                     return mock_family
 
@@ -1564,7 +1508,7 @@ class TestMCPComplexErrorRecovery:
                             "success": True,
                             "family": family.dict(),
                             "attempts": attempt + 1,
-                            "recovered": attempt > 0
+                            "recovered": attempt > 0,
                         }
                     except ConnectionError as e:
                         if attempt == max_retries - 1:  # Last attempt
@@ -1588,26 +1532,22 @@ class TestMCPComplexErrorRecovery:
     async def test_partial_service_failure_graceful_degradation(self, mock_error_user):
         """Test graceful degradation when some services are unavailable."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_error_user,
-            ip_address="192.168.1.100",
-            user_agent="DegradationClient/1.0"
+            fastapi_user=mock_error_user, ip_address="192.168.1.100", user_agent="DegradationClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Mock multiple services with some failing
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm, \
-             patch('src.second_brain_database.integrations.mcp.tools.family_tools.redis_manager') as mock_redis:
+        with (
+            patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm,
+            patch("src.second_brain_database.integrations.mcp.tools.family_tools.redis_manager") as mock_redis,
+        ):
 
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
             # Family service works
             mock_family = Mock()
-            mock_family.dict.return_value = {
-                "id": "family_1",
-                "name": "Test Family",
-                "member_count": 3
-            }
+            mock_family.dict.return_value = {"id": "family_1", "name": "Test Family", "member_count": 3}
             mock_family_manager.get_family.return_value = mock_family
 
             # Redis service fails
@@ -1619,11 +1559,8 @@ class TestMCPComplexErrorRecovery:
                 result = {
                     "family_info": None,
                     "cached_stats": None,
-                    "service_status": {
-                        "family_service": "available",
-                        "cache_service": "unavailable"
-                    },
-                    "degraded_mode": False
+                    "service_status": {"family_service": "available", "cache_service": "unavailable"},
+                    "degraded_mode": False,
                 }
 
                 # Try to get family info
@@ -1660,19 +1597,18 @@ class TestMCPComplexErrorRecovery:
     async def test_concurrent_operation_conflict_resolution(self, mock_error_user):
         """Test conflict resolution during concurrent operations."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_error_user,
-            ip_address="192.168.1.100",
-            user_agent="ConcurrencyClient/1.0"
+            fastapi_user=mock_error_user, ip_address="192.168.1.100", user_agent="ConcurrencyClient/1.0"
         )
         set_mcp_user_context(user_context)
 
         # Simulate concurrent operations with conflicts
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
             # Simulate version conflict during updates
             update_count = 0
+
             def update_with_conflict(*args, **kwargs):
                 nonlocal update_count
                 update_count += 1
@@ -1686,7 +1622,7 @@ class TestMCPComplexErrorRecovery:
                         "id": "family_1",
                         "name": "Updated Family Name",
                         "version": 2,
-                        "last_modified": datetime.now(timezone.utc).isoformat()
+                        "last_modified": datetime.now(timezone.utc).isoformat(),
                     }
                     return mock_updated_family
 
@@ -1698,7 +1634,7 @@ class TestMCPComplexErrorRecovery:
                 "id": "family_1",
                 "name": "Current Family Name",
                 "version": 2,
-                "settings": {"notifications": True}
+                "settings": {"notifications": True},
             }
             mock_family_manager.get_family.return_value = mock_current_family
 
@@ -1717,7 +1653,7 @@ class TestMCPComplexErrorRecovery:
                             "success": True,
                             "family": updated_family.dict(),
                             "attempts": attempt + 1,
-                            "conflicts_resolved": attempt > 0
+                            "conflicts_resolved": attempt > 0,
                         }
                     except ValueError as e:
                         if "Version conflict" in str(e) and attempt < max_attempts - 1:
@@ -1738,8 +1674,7 @@ class TestMCPComplexErrorRecovery:
                 return {"success": False, "error": "Max conflict resolution attempts exceeded"}
 
             result = await update_family_with_conflict_resolution(
-                "family_1",
-                {"name": "Updated Family Name", "notifications": False}
+                "family_1", {"name": "Updated Family Name", "notifications": False}
             )
 
             # Verify conflict resolution
@@ -1754,9 +1689,7 @@ class TestMCPComplexErrorRecovery:
     async def test_cascading_failure_circuit_breaker(self, mock_error_user):
         """Test circuit breaker pattern for cascading failures."""
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=mock_error_user,
-            ip_address="192.168.1.100",
-            user_agent="CircuitBreakerClient/1.0"
+            fastapi_user=mock_error_user, ip_address="192.168.1.100", user_agent="CircuitBreakerClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -1766,10 +1699,10 @@ class TestMCPComplexErrorRecovery:
             "last_failure_time": None,
             "state": "closed",  # closed, open, half_open
             "failure_threshold": 3,
-            "recovery_timeout": 0.05  # 50ms for testing
+            "recovery_timeout": 0.05,  # 50ms for testing
         }
 
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -1786,14 +1719,16 @@ class TestMCPComplexErrorRecovery:
 
                 # Check circuit breaker state
                 if circuit_breaker_state["state"] == "open":
-                    if (current_time - circuit_breaker_state["last_failure_time"]) > circuit_breaker_state["recovery_timeout"]:
+                    if (current_time - circuit_breaker_state["last_failure_time"]) > circuit_breaker_state[
+                        "recovery_timeout"
+                    ]:
                         circuit_breaker_state["state"] = "half_open"
                     else:
                         return {
                             "success": False,
                             "error": "Circuit breaker open - service unavailable",
                             "circuit_state": "open",
-                            "retry_after": circuit_breaker_state["recovery_timeout"]
+                            "retry_after": circuit_breaker_state["recovery_timeout"],
                         }
 
                 try:
@@ -1804,11 +1739,7 @@ class TestMCPComplexErrorRecovery:
                     circuit_breaker_state["failure_count"] = 0
                     circuit_breaker_state["state"] = "closed"
 
-                    return {
-                        "success": True,
-                        "members": members,
-                        "circuit_state": "closed"
-                    }
+                    return {"success": True, "members": members, "circuit_state": "closed"}
 
                 except Exception as e:
                     # Failure - update circuit breaker
@@ -1822,7 +1753,7 @@ class TestMCPComplexErrorRecovery:
                         "success": False,
                         "error": str(e),
                         "circuit_state": circuit_breaker_state["state"],
-                        "failure_count": circuit_breaker_state["failure_count"]
+                        "failure_count": circuit_breaker_state["failure_count"],
                     }
 
             # Test circuit breaker progression

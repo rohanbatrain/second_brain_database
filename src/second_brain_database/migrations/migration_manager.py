@@ -5,10 +5,10 @@ This module provides a comprehensive migration system that tracks
 migration history, supports rollbacks, and ensures data integrity.
 """
 
-import uuid
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Type
-from abc import ABC, abstractmethod
+import uuid
 
 from pymongo.errors import PyMongoError
 
@@ -101,7 +101,7 @@ class MigrationManager:
             "rollback_available": True,
             "rollback_data": {},
             "collections_affected": [],
-            "records_processed": 0
+            "records_processed": 0,
         }
 
         try:
@@ -113,7 +113,7 @@ class MigrationManager:
                 return {
                     "status": "skipped",
                     "message": "Migration already applied",
-                    "migration_id": migration.migration_id
+                    "migration_id": migration.migration_id,
                 }
 
             # Validate migration can be applied
@@ -137,21 +137,20 @@ class MigrationManager:
                         "completed_at": completed_at,
                         "collections_affected": result.get("collections_affected", []),
                         "records_processed": result.get("records_processed", 0),
-                        "rollback_data": result.get("rollback_data", {})
+                        "rollback_data": result.get("rollback_data", {}),
                     }
-                }
+                },
             )
 
             duration = (completed_at - start_time).total_seconds()
-            self.logger.info("Migration %s completed successfully in %.2f seconds",
-                           migration.name, duration)
+            self.logger.info("Migration %s completed successfully in %.2f seconds", migration.name, duration)
 
             return {
                 "status": "completed",
                 "migration_id": migration.migration_id,
                 "duration_seconds": duration,
                 "collections_affected": result.get("collections_affected", []),
-                "records_processed": result.get("records_processed", 0)
+                "records_processed": result.get("records_processed", 0),
             }
 
         except Exception as e:
@@ -159,18 +158,11 @@ class MigrationManager:
             error_time = datetime.now(timezone.utc)
             await migrations_collection.update_one(
                 {"migration_id": migration.migration_id},
-                {
-                    "$set": {
-                        "status": "failed",
-                        "completed_at": error_time,
-                        "error_message": str(e)
-                    }
-                }
+                {"$set": {"status": "failed", "completed_at": error_time, "error_message": str(e)}},
             )
 
             duration = (error_time - start_time).total_seconds()
-            self.logger.error("Migration %s failed after %.2f seconds: %s",
-                            migration.name, duration, e, exc_info=True)
+            self.logger.error("Migration %s failed after %.2f seconds: %s", migration.name, duration, e, exc_info=True)
 
             raise Exception(f"Migration {migration.name} failed: {str(e)}")
 
@@ -220,7 +212,7 @@ class MigrationManager:
                 "rollback_data": {},
                 "collections_affected": [],
                 "records_processed": 0,
-                "original_migration_id": migration_id
+                "original_migration_id": migration_id,
             }
 
             await migrations_collection.insert_one(rollback_record)
@@ -230,12 +222,7 @@ class MigrationManager:
             completed_at = datetime.now(timezone.utc)
             await migrations_collection.update_one(
                 {"migration_id": rollback_record["migration_id"]},
-                {
-                    "$set": {
-                        "status": "completed",
-                        "completed_at": completed_at
-                    }
-                }
+                {"$set": {"status": "completed", "completed_at": completed_at}},
             )
 
             # Mark original migration as rolled back
@@ -245,9 +232,9 @@ class MigrationManager:
                     "$set": {
                         "status": "rolled_back",
                         "rolled_back_at": completed_at,
-                        "rollback_migration_id": rollback_record["migration_id"]
+                        "rollback_migration_id": rollback_record["migration_id"],
                     }
-                }
+                },
             )
 
             duration = (completed_at - start_time).total_seconds()
@@ -256,13 +243,12 @@ class MigrationManager:
             return {
                 "status": "completed",
                 "rollback_migration_id": rollback_record["migration_id"],
-                "duration_seconds": duration
+                "duration_seconds": duration,
             }
 
         except Exception as e:
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.error("Migration rollback failed after %.2f seconds: %s",
-                            duration, e, exc_info=True)
+            self.logger.error("Migration rollback failed after %.2f seconds: %s", duration, e, exc_info=True)
             raise Exception(f"Rollback failed: {str(e)}")
 
     async def get_migration_history(self) -> List[Dict[str, Any]]:
@@ -303,10 +289,7 @@ class MigrationManager:
             applied_migrations = set()
             migrations_collection = db_manager.get_collection(self.migrations_collection_name)
 
-            cursor = migrations_collection.find(
-                {"status": "completed"},
-                {"name": 1, "version": 1}
-            )
+            cursor = migrations_collection.find({"status": "completed"}, {"name": 1, "version": 1})
 
             async for migration in cursor:
                 applied_migrations.add(f"{migration['name']}_{migration['version']}")
@@ -329,11 +312,7 @@ class MigrationManager:
         """Check if a migration has already been applied."""
         try:
             migrations_collection = db_manager.get_collection(self.migrations_collection_name)
-            migration = await migrations_collection.find_one({
-                "name": name,
-                "version": version,
-                "status": "completed"
-            })
+            migration = await migrations_collection.find_one({"name": name, "version": version, "status": "completed"})
             return migration is not None
 
         except Exception as e:
@@ -373,8 +352,7 @@ class MigrationManager:
                 backup_data[collection_name] = documents
                 total_records += len(documents)
 
-                self.logger.debug("Backed up %d documents from collection %s",
-                                len(documents), collection_name)
+                self.logger.debug("Backed up %d documents from collection %s", len(documents), collection_name)
 
             # Store backup metadata
             backup_record = {
@@ -385,7 +363,7 @@ class MigrationManager:
                 "created_at": start_time,
                 "expires_at": start_time.replace(day=start_time.day + 30),  # 30 days retention
                 "status": "completed",
-                "data": backup_data
+                "data": backup_data,
             }
 
             # Store backup in dedicated collection
@@ -393,14 +371,13 @@ class MigrationManager:
             await backups_collection.insert_one(backup_record)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info("Backup %s completed in %.2f seconds (%d records)",
-                           backup_id, duration, total_records)
+            self.logger.info("Backup %s completed in %.2f seconds (%d records)", backup_id, duration, total_records)
 
             return {
                 "backup_id": backup_id,
                 "collections": collections,
                 "total_records": total_records,
-                "duration_seconds": duration
+                "duration_seconds": duration,
             }
 
         except Exception as e:
@@ -447,6 +424,7 @@ class MigrationManager:
                     for doc in documents:
                         if "_id" in doc and isinstance(doc["_id"], str):
                             from bson import ObjectId
+
                             try:
                                 doc["_id"] = ObjectId(doc["_id"])
                             except:
@@ -458,18 +436,16 @@ class MigrationManager:
                 total_restored += len(documents)
                 collections_restored.append(collection_name)
 
-                self.logger.debug("Restored %d documents to collection %s",
-                                len(documents), collection_name)
+                self.logger.debug("Restored %d documents to collection %s", len(documents), collection_name)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info("Restore completed in %.2f seconds (%d records)",
-                           duration, total_restored)
+            self.logger.info("Restore completed in %.2f seconds (%d records)", duration, total_restored)
 
             return {
                 "backup_id": backup_id,
                 "collections_restored": collections_restored,
                 "total_records_restored": total_restored,
-                "duration_seconds": duration
+                "duration_seconds": duration,
             }
 
         except Exception as e:

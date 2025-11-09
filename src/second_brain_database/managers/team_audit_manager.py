@@ -17,14 +17,14 @@ Enterprise Features:
     - Data retention policies for audit compliance
 """
 
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-import uuid
-from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
-from pymongo.errors import PyMongoError
 from pymongo.client_session import ClientSession
+from pymongo.errors import PyMongoError
 
 from second_brain_database.config import settings
 from second_brain_database.database import db_manager
@@ -41,7 +41,7 @@ AUDIT_EVENT_TYPES = {
     "account_freeze": "Account Freeze/Unfreeze",
     "admin_action": "Administrative Action",
     "compliance_export": "Compliance Data Export",
-    "audit_access": "Audit Trail Access"
+    "audit_access": "Audit Trail Access",
 }
 
 # Transaction attribution types
@@ -49,7 +49,7 @@ ATTRIBUTION_TYPES = {
     "team_member": "Team Member Transaction",
     "admin_action": "Administrative Action",
     "system_action": "System Automated Action",
-    "recovery_action": "Account Recovery Action"
+    "recovery_action": "Account Recovery Action",
 }
 
 
@@ -67,21 +67,18 @@ class AuditTrailCorrupted(TeamAuditError):
     """Audit trail integrity check failed."""
 
     def __init__(self, message: str, audit_id: str = None, expected_hash: str = None, actual_hash: str = None):
-        super().__init__(message, "AUDIT_TRAIL_CORRUPTED", {
-            "audit_id": audit_id,
-            "expected_hash": expected_hash,
-            "actual_hash": actual_hash
-        })
+        super().__init__(
+            message,
+            "AUDIT_TRAIL_CORRUPTED",
+            {"audit_id": audit_id, "expected_hash": expected_hash, "actual_hash": actual_hash},
+        )
 
 
 class ComplianceReportError(TeamAuditError):
     """Compliance report generation failed."""
 
     def __init__(self, message: str, report_type: str = None, team_id: str = None):
-        super().__init__(message, "COMPLIANCE_REPORT_ERROR", {
-            "report_type": report_type,
-            "team_id": team_id
-        })
+        super().__init__(message, "COMPLIANCE_REPORT_ERROR", {"report_type": report_type, "team_id": team_id})
 
 
 class TeamAuditManager:
@@ -104,7 +101,7 @@ class TeamAuditManager:
         Args:
             db_manager: Database manager for data operations
         """
-        self.db_manager = db_manager or globals()['db_manager']
+        self.db_manager = db_manager or globals()["db_manager"]
         self.logger = logger
         self.logger.debug("TeamAuditManager initialized")
 
@@ -119,7 +116,7 @@ class TeamAuditManager:
         team_member_id: str,
         team_member_username: str,
         transaction_context: Dict[str, Any] = None,
-        session: ClientSession = None
+        session: ClientSession = None,
     ) -> Dict[str, Any]:
         """
         Log comprehensive audit trail for team SBD transactions.
@@ -146,7 +143,7 @@ class TeamAuditManager:
             "team_id": team_id,
             "transaction_id": transaction_id,
             "operation": "log_sbd_transaction_audit",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("team_audit_trails", "log_transaction", operation_context)
 
@@ -174,8 +171,8 @@ class TeamAuditManager:
                     "created_at": now,
                     "created_by": "team_audit_manager",
                     "version": "1.0",
-                    "environment": getattr(settings, 'ENV_PREFIX', 'dev')
-                }
+                    "environment": getattr(settings, "ENV_PREFIX", "dev"),
+                },
             }
 
             # Add request metadata if available
@@ -192,7 +189,10 @@ class TeamAuditManager:
             # Log successful audit
             self.logger.info(
                 "Team SBD transaction audit logged: %s for team %s (transaction: %s, amount: %d)",
-                audit_id, team_id, transaction_id, amount
+                audit_id,
+                team_id,
+                transaction_id,
+                amount,
             )
 
             # Log query success
@@ -204,7 +204,7 @@ class TeamAuditManager:
                 "transaction_id": transaction_id,
                 "integrity_hash": audit_data["integrity_hash"],
                 "compliance_eligible": True,
-                "timestamp": now.isoformat()
+                "timestamp": now.isoformat(),
             }
 
         except PyMongoError as e:
@@ -212,7 +212,7 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "transaction_id": transaction_id,
                 "operation": "log_sbd_transaction_audit",
-                "error": str(e)
+                "error": str(e),
             }
             self.db_manager.log_query_error("team_audit_trails", "log_transaction", start_time, error_context)
             raise TeamAuditError(f"Failed to log team audit trail: {str(e)}", "AUDIT_LOG_FAILED", error_context)
@@ -222,10 +222,12 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "transaction_id": transaction_id,
                 "operation": "log_sbd_transaction_audit",
-                "error": str(e)
+                "error": str(e),
             }
             self.db_manager.log_query_error("team_audit_trails", "log_transaction", start_time, error_context)
-            raise TeamAuditError(f"Unexpected error logging team audit: {str(e)}", "AUDIT_UNEXPECTED_ERROR", error_context)
+            raise TeamAuditError(
+                f"Unexpected error logging team audit: {str(e)}", "AUDIT_UNEXPECTED_ERROR", error_context
+            )
 
     async def log_permission_change_audit(
         self,
@@ -234,7 +236,7 @@ class TeamAuditManager:
         admin_username: str,
         action: str,
         member_permissions: Dict[str, Any],
-        session: ClientSession = None
+        session: ClientSession = None,
     ) -> Dict[str, Any]:
         """
         Log audit trail for team permission changes.
@@ -254,7 +256,7 @@ class TeamAuditManager:
             "team_id": team_id,
             "admin_user_id": admin_user_id,
             "operation": "log_permission_change_audit",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("team_audit_trails", "log_permission_change", operation_context)
 
@@ -277,8 +279,8 @@ class TeamAuditManager:
                     "created_at": now,
                     "created_by": "team_audit_manager",
                     "version": "1.0",
-                    "environment": getattr(settings, 'ENV_PREFIX', 'dev')
-                }
+                    "environment": getattr(settings, "ENV_PREFIX", "dev"),
+                },
             }
 
             # Generate integrity hash
@@ -289,18 +291,19 @@ class TeamAuditManager:
             await collection.insert_one(audit_data, session=session)
 
             self.logger.info(
-                "Team permission change audit logged: %s for team %s by admin %s",
-                audit_id, team_id, admin_username
+                "Team permission change audit logged: %s for team %s by admin %s", audit_id, team_id, admin_username
             )
 
-            self.db_manager.log_query_success("team_audit_trails", "log_permission_change", start_time, operation_context)
+            self.db_manager.log_query_success(
+                "team_audit_trails", "log_permission_change", start_time, operation_context
+            )
 
             return {
                 "audit_id": audit_id,
                 "team_id": team_id,
                 "event_type": "permission_change",
                 "integrity_hash": audit_data["integrity_hash"],
-                "timestamp": now.isoformat()
+                "timestamp": now.isoformat(),
             }
 
         except Exception as e:
@@ -308,10 +311,12 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "admin_user_id": admin_user_id,
                 "operation": "log_permission_change_audit",
-                "error": str(e)
+                "error": str(e),
             }
             self.db_manager.log_query_error("team_audit_trails", "log_permission_change", start_time, error_context)
-            raise TeamAuditError(f"Failed to log permission change audit: {str(e)}", "PERMISSION_AUDIT_FAILED", error_context)
+            raise TeamAuditError(
+                f"Failed to log permission change audit: {str(e)}", "PERMISSION_AUDIT_FAILED", error_context
+            )
 
     async def log_account_freeze_audit(
         self,
@@ -320,7 +325,7 @@ class TeamAuditManager:
         admin_username: str,
         action: str,
         reason: str = None,
-        session: ClientSession = None
+        session: ClientSession = None,
     ) -> Dict[str, Any]:
         """
         Log audit trail for team account freeze/unfreeze actions.
@@ -340,7 +345,7 @@ class TeamAuditManager:
             "team_id": team_id,
             "admin_user_id": admin_user_id,
             "operation": "log_account_freeze_audit",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("team_audit_trails", "log_account_freeze", operation_context)
 
@@ -363,8 +368,8 @@ class TeamAuditManager:
                     "created_at": now,
                     "created_by": "team_audit_manager",
                     "version": "1.0",
-                    "environment": getattr(settings, 'ENV_PREFIX', 'dev')
-                }
+                    "environment": getattr(settings, "ENV_PREFIX", "dev"),
+                },
             }
 
             # Generate integrity hash
@@ -376,7 +381,10 @@ class TeamAuditManager:
 
             self.logger.info(
                 "Team account freeze audit logged: %s for team %s by admin %s (action: %s)",
-                audit_id, team_id, admin_username, action
+                audit_id,
+                team_id,
+                admin_username,
+                action,
             )
 
             self.db_manager.log_query_success("team_audit_trails", "log_account_freeze", start_time, operation_context)
@@ -386,7 +394,7 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "event_type": "account_freeze",
                 "integrity_hash": audit_data["integrity_hash"],
-                "timestamp": now.isoformat()
+                "timestamp": now.isoformat(),
             }
 
         except Exception as e:
@@ -394,7 +402,7 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "admin_user_id": admin_user_id,
                 "operation": "log_account_freeze_audit",
-                "error": str(e)
+                "error": str(e),
             }
             self.db_manager.log_query_error("team_audit_trails", "log_account_freeze", start_time, error_context)
             raise TeamAuditError(f"Failed to log account freeze audit: {str(e)}", "FREEZE_AUDIT_FAILED", error_context)
@@ -405,7 +413,7 @@ class TeamAuditManager:
         start_date: datetime = None,
         end_date: datetime = None,
         event_types: List[str] = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve audit trail for a team with optional filtering.
@@ -423,7 +431,7 @@ class TeamAuditManager:
         operation_context = {
             "team_id": team_id,
             "operation": "get_team_audit_trail",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         start_time = self.db_manager.log_query_start("team_audit_trails", "get_audit_trail", operation_context)
 
@@ -461,20 +469,14 @@ class TeamAuditManager:
             return audit_trails
 
         except Exception as e:
-            error_context = {
-                "team_id": team_id,
-                "operation": "get_team_audit_trail",
-                "error": str(e)
-            }
+            error_context = {"team_id": team_id, "operation": "get_team_audit_trail", "error": str(e)}
             self.db_manager.log_query_error("team_audit_trails", "get_audit_trail", start_time, error_context)
-            raise TeamAuditError(f"Failed to retrieve team audit trail: {str(e)}", "AUDIT_RETRIEVAL_FAILED", error_context)
+            raise TeamAuditError(
+                f"Failed to retrieve team audit trail: {str(e)}", "AUDIT_RETRIEVAL_FAILED", error_context
+            )
 
     async def generate_compliance_report(
-        self,
-        team_id: str,
-        report_type: str = "json",
-        start_date: datetime = None,
-        end_date: datetime = None
+        self, team_id: str, report_type: str = "json", start_date: datetime = None, end_date: datetime = None
     ) -> Dict[str, Any]:
         """
         Generate compliance report for a team.
@@ -495,9 +497,11 @@ class TeamAuditManager:
             "team_id": team_id,
             "report_type": report_type,
             "operation": "generate_compliance_report",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        start_time = self.db_manager.log_query_start("team_audit_trails", "generate_compliance_report", operation_context)
+        start_time = self.db_manager.log_query_start(
+            "team_audit_trails", "generate_compliance_report", operation_context
+        )
 
         try:
             # Get audit trails
@@ -505,7 +509,7 @@ class TeamAuditManager:
                 team_id=team_id,
                 start_date=start_date,
                 end_date=end_date,
-                limit=10000  # Large limit for compliance reports
+                limit=10000,  # Large limit for compliance reports
             )
 
             # Generate report summary
@@ -515,24 +519,27 @@ class TeamAuditManager:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "period": {
                     "start_date": start_date.isoformat() if start_date else None,
-                    "end_date": end_date.isoformat() if end_date else None
+                    "end_date": end_date.isoformat() if end_date else None,
                 },
                 "summary": {
                     "total_events": len(audit_trails),
                     "transaction_count": len([t for t in audit_trails if t.get("transaction_type")]),
                     "permission_changes": len([t for t in audit_trails if t.get("event_type") == "permission_change"]),
-                    "account_freezes": len([t for t in audit_trails if t.get("event_type") == "account_freeze"])
+                    "account_freezes": len([t for t in audit_trails if t.get("event_type") == "account_freeze"]),
                 },
-                "audit_trails": audit_trails
+                "audit_trails": audit_trails,
             }
 
             # Log compliance export
             await self._log_compliance_export_audit(team_id, report_type, len(audit_trails))
 
-            self.logger.info("Generated %s compliance report for team %s with %d events",
-                           report_type, team_id, len(audit_trails))
+            self.logger.info(
+                "Generated %s compliance report for team %s with %d events", report_type, team_id, len(audit_trails)
+            )
 
-            self.db_manager.log_query_success("team_audit_trails", "generate_compliance_report", start_time, operation_context)
+            self.db_manager.log_query_success(
+                "team_audit_trails", "generate_compliance_report", start_time, operation_context
+            )
 
             return report_data
 
@@ -541,9 +548,11 @@ class TeamAuditManager:
                 "team_id": team_id,
                 "report_type": report_type,
                 "operation": "generate_compliance_report",
-                "error": str(e)
+                "error": str(e),
             }
-            self.db_manager.log_query_error("team_audit_trails", "generate_compliance_report", start_time, error_context)
+            self.db_manager.log_query_error(
+                "team_audit_trails", "generate_compliance_report", start_time, error_context
+            )
             raise ComplianceReportError(f"Failed to generate compliance report: {str(e)}", report_type, team_id)
 
     async def verify_audit_integrity(self, audit_id: str) -> bool:
@@ -590,12 +599,7 @@ class TeamAuditManager:
         data_str = json.dumps(data, sort_keys=True, default=str)
         return hashlib.sha256(data_str.encode()).hexdigest()
 
-    async def _log_compliance_export_audit(
-        self,
-        team_id: str,
-        report_type: str,
-        record_count: int
-    ) -> None:
+    async def _log_compliance_export_audit(self, team_id: str, report_type: str, record_count: int) -> None:
         """
         Log audit trail for compliance report exports.
 
@@ -621,8 +625,8 @@ class TeamAuditManager:
                     "created_at": now,
                     "created_by": "team_audit_manager",
                     "version": "1.0",
-                    "environment": getattr(settings, 'ENV_PREFIX', 'dev')
-                }
+                    "environment": getattr(settings, "ENV_PREFIX", "dev"),
+                },
             }
 
             audit_data["integrity_hash"] = self._generate_integrity_hash(audit_data)

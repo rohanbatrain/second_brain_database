@@ -9,6 +9,4 @@ Prompts are automatically discovered and registered with the FastMCP server.
 # Prompt modules - import to register with FastMCP
 from . import guidance_prompts
 
-__all__ = [
-    "guidance_prompts"
-]
+__all__ = ["guidance_prompts"]

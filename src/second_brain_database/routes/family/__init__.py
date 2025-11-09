@@ -1,9 +1,10 @@
 # Family management module
 
 from fastapi import APIRouter
-from .routes import router as family_router
-from .health import router as health_router
+
 from .admin_health import router as admin_health_router
+from .health import router as health_router
+from .routes import router as family_router
 
 # Combine all family-related routers
 router = APIRouter()

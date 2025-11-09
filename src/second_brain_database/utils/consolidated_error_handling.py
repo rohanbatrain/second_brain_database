@@ -29,6 +29,7 @@ logger = get_logger(prefix="[Consolidated Error Handling]")
 
 class ErrorCategory(Enum):
     """Categories of errors for consolidated handling"""
+
     AUTHENTICATION = "authentication"
     AUTHORIZATION = "authorization"
     RATE_LIMITING = "rate_limiting"
@@ -41,6 +42,7 @@ class ErrorCategory(Enum):
 
 class ErrorSeverity(Enum):
     """Severity levels for error handling and alerting"""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -49,6 +51,7 @@ class ErrorSeverity(Enum):
 
 class ConsolidatedErrorResponse(BaseModel):
     """Standardized error response format"""
+
     error: str
     message: str
     category: ErrorCategory
@@ -69,7 +72,7 @@ class ConsolidatedSecurityError(Exception):
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         details: Optional[Dict[str, Any]] = None,
         status_code: int = status.HTTP_400_BAD_REQUEST,
-        retry_after: Optional[int] = None
+        retry_after: Optional[int] = None,
     ):
         self.message = message
         self.category = category
@@ -88,7 +91,7 @@ class ConsolidatedSecurityError(Exception):
             severity=self.severity,
             details=self.details,
             timestamp=datetime.now().isoformat(),
-            retry_after=self.retry_after
+            retry_after=self.retry_after,
         )
 
 
@@ -101,7 +104,7 @@ class AuthenticationError(ConsolidatedSecurityError):
             category=ErrorCategory.AUTHENTICATION,
             severity=ErrorSeverity.HIGH,
             status_code=status.HTTP_401_UNAUTHORIZED,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -114,7 +117,7 @@ class AuthorizationError(ConsolidatedSecurityError):
             category=ErrorCategory.AUTHORIZATION,
             severity=ErrorSeverity.HIGH,
             status_code=status.HTTP_403_FORBIDDEN,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -128,7 +131,7 @@ class RateLimitError(ConsolidatedSecurityError):
             severity=ErrorSeverity.MEDIUM,
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             retry_after=retry_after,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -141,7 +144,7 @@ class SecurityPolicyError(ConsolidatedSecurityError):
             category=ErrorCategory.SECURITY_POLICY,
             severity=ErrorSeverity.HIGH,
             status_code=status.HTTP_403_FORBIDDEN,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -154,7 +157,7 @@ class ValidationError(ConsolidatedSecurityError):
             category=ErrorCategory.VALIDATION,
             severity=ErrorSeverity.LOW,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -167,7 +170,7 @@ class FamilyOperationError(ConsolidatedSecurityError):
             category=ErrorCategory.FAMILY_OPERATION,
             severity=ErrorSeverity.MEDIUM,
             status_code=status.HTTP_400_BAD_REQUEST,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -180,7 +183,7 @@ class SBDOperationError(ConsolidatedSecurityError):
             category=ErrorCategory.SBD_OPERATION,
             severity=ErrorSeverity.MEDIUM,
             status_code=status.HTTP_400_BAD_REQUEST,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -193,7 +196,7 @@ class SystemError(ConsolidatedSecurityError):
             category=ErrorCategory.SYSTEM,
             severity=ErrorSeverity.CRITICAL,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -209,7 +212,7 @@ class ConsolidatedErrorHandler:
             ErrorSeverity.LOW: 100,
             ErrorSeverity.MEDIUM: 50,
             ErrorSeverity.HIGH: 20,
-            ErrorSeverity.CRITICAL: 5
+            ErrorSeverity.CRITICAL: 5,
         }
 
     async def handle_security_error(
@@ -218,7 +221,7 @@ class ConsolidatedErrorHandler:
         user_id: Optional[str] = None,
         ip_address: Optional[str] = None,
         endpoint: Optional[str] = None,
-        additional_context: Optional[Dict[str, Any]] = None
+        additional_context: Optional[Dict[str, Any]] = None,
     ) -> HTTPException:
         """
         Handle security errors with consolidated logging and monitoring
@@ -237,10 +240,7 @@ class ConsolidatedErrorHandler:
         if isinstance(error, ConsolidatedSecurityError):
             consolidated_error = error
         else:
-            consolidated_error = SystemError(
-                message=str(error),
-                details={"original_error": str(error)}
-            )
+            consolidated_error = SystemError(message=str(error), details={"original_error": str(error)})
 
         # Log the error with consolidated format
         await self._log_consolidated_error(
@@ -248,7 +248,7 @@ class ConsolidatedErrorHandler:
             user_id=user_id,
             ip_address=ip_address,
             endpoint=endpoint,
-            additional_context=additional_context
+            additional_context=additional_context,
         )
 
         # Update error counters and check for alerting
@@ -260,7 +260,7 @@ class ConsolidatedErrorHandler:
         return HTTPException(
             status_code=consolidated_error.status_code,
             detail=error_response.dict(),
-            headers={"Retry-After": str(consolidated_error.retry_after)} if consolidated_error.retry_after else None
+            headers={"Retry-After": str(consolidated_error.retry_after)} if consolidated_error.retry_after else None,
         )
 
     async def _log_consolidated_error(
@@ -269,7 +269,7 @@ class ConsolidatedErrorHandler:
         user_id: Optional[str] = None,
         ip_address: Optional[str] = None,
         endpoint: Optional[str] = None,
-        additional_context: Optional[Dict[str, Any]] = None
+        additional_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log error with consolidated format to reduce duplication"""
 
@@ -279,7 +279,7 @@ class ConsolidatedErrorHandler:
             "error_severity": error.severity.value,
             "error_message": error.message,
             "status_code": error.status_code,
-            **error.details
+            **error.details,
         }
 
         if endpoint:
@@ -294,7 +294,7 @@ class ConsolidatedErrorHandler:
             user_id=user_id,
             ip_address=ip_address,
             success=False,
-            details=log_details
+            details=log_details,
         )
 
         # Log to application logger based on severity
@@ -329,21 +329,18 @@ class ConsolidatedErrorHandler:
             "error_severity": error.severity.value,
             "error_count": count,
             "time_window": "1 hour",
-            "alert_type": "error_threshold_exceeded"
+            "alert_type": "error_threshold_exceeded",
         }
 
         self.logger.critical(
             "Error threshold exceeded: %s errors of severity %s in the last hour",
-            count, error.severity.value,
-            extra=alert_details
+            count,
+            error.severity.value,
+            extra=alert_details,
         )
 
         # Log alert event
-        log_security_event(
-            event_type="error_threshold_alert",
-            success=False,
-            details=alert_details
-        )
+        log_security_event(event_type="error_threshold_alert", success=False, details=alert_details)
 
     def create_user_friendly_message(self, error: ConsolidatedSecurityError) -> str:
         """Create user-friendly error messages"""
@@ -355,7 +352,7 @@ class ConsolidatedErrorHandler:
             ErrorCategory.SECURITY_POLICY: "This action violates security policies.",
             ErrorCategory.FAMILY_OPERATION: "Family operation failed. Please try again or contact support.",
             ErrorCategory.SBD_OPERATION: "SBD operation failed. Please try again or contact support.",
-            ErrorCategory.SYSTEM: "A system error occurred. Please try again later."
+            ErrorCategory.SYSTEM: "A system error occurred. Please try again later.",
         }
 
         return user_friendly_messages.get(error.category, error.message)
@@ -364,11 +361,7 @@ class ConsolidatedErrorHandler:
         """Get error statistics for monitoring"""
         current_hour = datetime.now().strftime("%Y-%m-%d-%H")
 
-        stats = {
-            "current_hour": current_hour,
-            "error_counts": {},
-            "total_errors": 0
-        }
+        stats = {"current_hour": current_hour, "error_counts": {}, "total_errors": 0}
 
         for key, count in self._error_counters.items():
             if current_hour in key:
@@ -389,6 +382,7 @@ def handle_consolidated_errors(func):
     """
     Decorator to handle errors with consolidated error handling
     """
+
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
@@ -400,28 +394,22 @@ def handle_consolidated_errors(func):
 
             # Try to extract context from common parameter names
             for arg in args:
-                if hasattr(arg, 'client') and hasattr(arg.client, 'host'):
+                if hasattr(arg, "client") and hasattr(arg.client, "host"):
                     ip_address = arg.client.host
-                if hasattr(arg, 'method') and hasattr(arg, 'url'):
+                if hasattr(arg, "method") and hasattr(arg, "url"):
                     endpoint = f"{arg.method} {arg.url.path}"
 
             for key, value in kwargs.items():
-                if key == 'current_user' and isinstance(value, dict):
+                if key == "current_user" and isinstance(value, dict):
                     user_id = str(value.get("_id", value.get("username", "")))
 
             raise await consolidated_error_handler.handle_security_error(
-                error=e,
-                user_id=user_id,
-                ip_address=ip_address,
-                endpoint=endpoint
+                error=e, user_id=user_id, ip_address=ip_address, endpoint=endpoint
             )
         except Exception as e:
             # Handle unexpected errors
             raise await consolidated_error_handler.handle_security_error(
-                error=SystemError(
-                    message="An unexpected error occurred",
-                    details={"original_error": str(e)}
-                )
+                error=SystemError(message="An unexpected error occurred", details={"original_error": str(e)})
             )
 
     return wrapper

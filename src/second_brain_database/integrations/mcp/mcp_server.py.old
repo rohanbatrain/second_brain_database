@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""
+FastMCP 2.x Server - CLI Compatible
+
+This is a simple FastMCP server that follows the exact patterns from the
+FastMCP documentation and is compatible with the FastMCP CLI.
+
+Usage:
+    # Direct run (uses __main__ block)
+    python mcp_server.py
+
+    # FastMCP CLI (imports mcp object)
+    fastmcp run mcp_server.py:mcp
+    fastmcp run mcp_server.py:mcp --transport http --port 8001
+"""
+
+from pathlib import Path
+import sys
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from second_brain_database.config import settings
+from second_brain_database.integrations.mcp import mcp
+
+# The mcp object is already created and configured in the integrations module
+# with all tools, resources, and prompts registered via decorators
+
+# This follows the FastMCP documentation pattern exactly
+if __name__ == "__main__":
+    # Default to STDIO transport for local development
+    # HTTP transport can be used via FastMCP CLI or by modifying this
+    transport = "stdio"
+
+    if settings.MCP_TRANSPORT == "http":
+        # Use HTTP transport if configured
+        mcp.run(transport="http", host=settings.MCP_HTTP_HOST, port=settings.MCP_HTTP_PORT)
+    else:
+        # Use STDIO transport (default)
+        mcp.run(transport="stdio")

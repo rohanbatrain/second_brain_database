@@ -677,8 +677,3 @@ def test_comprehensive_documentation_suite():
 
         traceback.print_exc()
         return False
-
-
-if __name__ == "__main__":
-    success = test_comprehensive_documentation_suite()
-    exit(0 if success else 1)

@@ -7,25 +7,26 @@ observability and performance optimization.
 """
 
 import asyncio
-import time
-import threading
-from typing import Any, Dict, List, Optional, Set, Callable
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-import statistics
 import json
+import statistics
+import threading
+import time
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
-from .context import get_mcp_user_context, get_mcp_request_context, MCPUserContext
+from ...managers.logging_manager import get_logger
+from .context import MCPUserContext, get_mcp_request_context, get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_Performance]")
 
 
 class MetricType(Enum):
     """Types of performance metrics."""
+
     EXECUTION_TIME = "execution_time"
     SUCCESS_RATE = "success_rate"
     CONCURRENT_USAGE = "concurrent_usage"
@@ -38,6 +39,7 @@ class MetricType(Enum):
 @dataclass
 class PerformanceMetric:
     """Individual performance metric data point."""
+
     timestamp: datetime
     metric_type: MetricType
     tool_name: str
@@ -55,19 +57,20 @@ class PerformanceMetric:
             "user_id": self.user_id,
             "value": self.value,
             "unit": self.unit,
-            "metadata": self.metadata
+            "metadata": self.metadata,
         }
 
 
 @dataclass
 class ToolExecutionStats:
     """Statistics for a specific tool's execution."""
+
     tool_name: str
     total_executions: int = 0
     successful_executions: int = 0
     failed_executions: int = 0
     total_execution_time: float = 0.0
-    min_execution_time: float = float('inf')
+    min_execution_time: float = float("inf")
     max_execution_time: float = 0.0
     execution_times: deque = field(default_factory=lambda: deque(maxlen=1000))
     error_types: Dict[str, int] = field(default_factory=dict)
@@ -124,18 +127,19 @@ class ToolExecutionStats:
             "average_execution_time": self.average_execution_time,
             "median_execution_time": self.median_execution_time,
             "p95_execution_time": self.p95_execution_time,
-            "min_execution_time": self.min_execution_time if self.min_execution_time != float('inf') else 0.0,
+            "min_execution_time": self.min_execution_time if self.min_execution_time != float("inf") else 0.0,
             "max_execution_time": self.max_execution_time,
             "concurrent_executions": self.concurrent_executions,
             "peak_concurrent_executions": self.peak_concurrent_executions,
             "error_types": self.error_types,
-            "last_execution": self.last_execution.isoformat() if self.last_execution else None
+            "last_execution": self.last_execution.isoformat() if self.last_execution else None,
         }
 
 
 @dataclass
 class SystemResourceMetrics:
     """System resource consumption metrics."""
+
     timestamp: datetime
     cpu_usage_percent: float = 0.0
     memory_usage_mb: float = 0.0
@@ -155,7 +159,7 @@ class SystemResourceMetrics:
             "database_connections": self.database_connections,
             "redis_connections": self.redis_connections,
             "concurrent_tools": self.concurrent_tools,
-            "queue_size": self.queue_size
+            "queue_size": self.queue_size,
         }
 
 
@@ -201,10 +205,7 @@ class MCPPerformanceCollector:
             # Update concurrent execution counts
             stats = self._tool_stats[tool_name]
             stats.concurrent_executions += 1
-            stats.peak_concurrent_executions = max(
-                stats.peak_concurrent_executions,
-                stats.concurrent_executions
-            )
+            stats.peak_concurrent_executions = max(stats.peak_concurrent_executions, stats.concurrent_executions)
 
             logger.debug("Started execution for tool %s (ID: %s)", tool_name, execution_id)
 
@@ -215,7 +216,7 @@ class MCPPerformanceCollector:
         execution_time: float,
         success: bool,
         error_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Mark the end of a tool execution and record metrics.
@@ -253,19 +254,15 @@ class MCPPerformanceCollector:
                 stats.max_execution_time = max(stats.max_execution_time, execution_time)
 
                 # Record execution time metric
-                self._record_metric(
-                    MetricType.EXECUTION_TIME,
-                    tool_name,
-                    execution_time,
-                    "seconds",
-                    metadata or {}
-                )
+                self._record_metric(MetricType.EXECUTION_TIME, tool_name, execution_time, "seconds", metadata or {})
 
                 # Check for slow execution
                 if execution_time > self.slow_execution_threshold:
                     logger.warning(
                         "Slow execution detected for tool %s: %.2fs (threshold: %.2fs)",
-                        tool_name, execution_time, self.slow_execution_threshold
+                        tool_name,
+                        execution_time,
+                        self.slow_execution_threshold,
                     )
             else:
                 stats.failed_executions += 1
@@ -273,8 +270,7 @@ class MCPPerformanceCollector:
                     stats.error_types[error_type] = stats.error_types.get(error_type, 0) + 1
 
                 logger.warning(
-                    "Failed execution for tool %s (ID: %s): %s",
-                    tool_name, execution_id, error_type or "Unknown error"
+                    "Failed execution for tool %s (ID: %s): %s", tool_name, execution_id, error_type or "Unknown error"
                 )
 
             # Record success rate metric
@@ -283,28 +279,28 @@ class MCPPerformanceCollector:
                 tool_name,
                 stats.success_rate,
                 "percent",
-                {"total_executions": stats.total_executions}
+                {"total_executions": stats.total_executions},
             )
 
             # Check for high error rate
             if stats.error_rate > self.high_error_rate_threshold and stats.total_executions >= 10:
                 logger.error(
                     "High error rate detected for tool %s: %.1f%% (threshold: %.1f%%)",
-                    tool_name, stats.error_rate, self.high_error_rate_threshold
+                    tool_name,
+                    stats.error_rate,
+                    self.high_error_rate_threshold,
                 )
 
             logger.debug(
                 "Completed execution for tool %s (ID: %s) - Success: %s, Time: %.3fs",
-                tool_name, execution_id, success, execution_time
+                tool_name,
+                execution_id,
+                success,
+                execution_time,
             )
 
     def _record_metric(
-        self,
-        metric_type: MetricType,
-        tool_name: str,
-        value: float,
-        unit: str,
-        metadata: Dict[str, Any]
+        self, metric_type: MetricType, tool_name: str, value: float, unit: str, metadata: Dict[str, Any]
     ) -> None:
         """Record a performance metric."""
         # Get user context if available
@@ -322,7 +318,7 @@ class MCPPerformanceCollector:
             user_id=user_id,
             value=value,
             unit=unit,
-            metadata=metadata
+            metadata=metadata,
         )
 
         self._metrics_history.append(metric)
@@ -341,7 +337,8 @@ class MCPPerformanceCollector:
             if resource_metrics.concurrent_tools > self.high_concurrency_threshold:
                 logger.warning(
                     "High concurrency detected: %d concurrent tools (threshold: %d)",
-                    resource_metrics.concurrent_tools, self.high_concurrency_threshold
+                    resource_metrics.concurrent_tools,
+                    self.high_concurrency_threshold,
                 )
 
     def get_tool_stats(self, tool_name: Optional[str] = None) -> Dict[str, Any]:
@@ -359,10 +356,7 @@ class MCPPerformanceCollector:
                 stats = self._tool_stats.get(tool_name)
                 return stats.to_dict() if stats else {}
             else:
-                return {
-                    name: stats.to_dict()
-                    for name, stats in self._tool_stats.items()
-                }
+                return {name: stats.to_dict() for name, stats in self._tool_stats.items()}
 
     def get_system_metrics(self, minutes: int = 60) -> Dict[str, Any]:
         """
@@ -377,17 +371,10 @@ class MCPPerformanceCollector:
         cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=minutes)
 
         with self._lock:
-            recent_metrics = [
-                m for m in self._resource_metrics
-                if m.timestamp >= cutoff_time
-            ]
+            recent_metrics = [m for m in self._resource_metrics if m.timestamp >= cutoff_time]
 
             if not recent_metrics:
-                return {
-                    "period_minutes": minutes,
-                    "data_points": 0,
-                    "metrics": {}
-                }
+                return {"period_minutes": minutes, "data_points": 0, "metrics": {}}
 
             # Calculate aggregated metrics
             cpu_values = [m.cpu_usage_percent for m in recent_metrics]
@@ -402,22 +389,22 @@ class MCPPerformanceCollector:
                         "average": statistics.mean(cpu_values),
                         "min": min(cpu_values),
                         "max": max(cpu_values),
-                        "current": cpu_values[-1] if cpu_values else 0
+                        "current": cpu_values[-1] if cpu_values else 0,
                     },
                     "memory_usage": {
                         "average": statistics.mean(memory_values),
                         "min": min(memory_values),
                         "max": max(memory_values),
-                        "current": memory_values[-1] if memory_values else 0
+                        "current": memory_values[-1] if memory_values else 0,
                     },
                     "concurrent_tools": {
                         "average": statistics.mean(concurrent_tools),
                         "min": min(concurrent_tools),
                         "max": max(concurrent_tools),
-                        "current": concurrent_tools[-1] if concurrent_tools else 0
-                    }
+                        "current": concurrent_tools[-1] if concurrent_tools else 0,
+                    },
                 },
-                "latest_timestamp": recent_metrics[-1].timestamp.isoformat()
+                "latest_timestamp": recent_metrics[-1].timestamp.isoformat(),
             }
 
     def get_performance_summary(self) -> Dict[str, Any]:
@@ -440,12 +427,14 @@ class MCPPerformanceCollector:
             tool_performance = []
             for stats in self._tool_stats.values():
                 if stats.successful_executions > 0:
-                    tool_performance.append({
-                        "tool_name": stats.tool_name,
-                        "average_time": stats.average_execution_time,
-                        "executions": stats.total_executions,
-                        "success_rate": stats.success_rate
-                    })
+                    tool_performance.append(
+                        {
+                            "tool_name": stats.tool_name,
+                            "average_time": stats.average_execution_time,
+                            "executions": stats.total_executions,
+                            "success_rate": stats.success_rate,
+                        }
+                    )
 
             tool_performance.sort(key=lambda x: x["average_time"], reverse=True)
 
@@ -457,11 +446,11 @@ class MCPPerformanceCollector:
                     "overall_success_rate": overall_success_rate,
                     "overall_error_rate": overall_error_rate,
                     "active_executions": len(self._active_executions),
-                    "total_tools": len(self._tool_stats)
+                    "total_tools": len(self._tool_stats),
                 },
                 "slowest_tools": tool_performance[:5],
                 "fastest_tools": tool_performance[-5:] if len(tool_performance) > 5 else [],
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     def export_metrics(self, format_type: str = "json") -> str:
@@ -480,7 +469,7 @@ class MCPPerformanceCollector:
                     "tool_stats": self.get_tool_stats(),
                     "system_metrics": self.get_system_metrics(),
                     "performance_summary": self.get_performance_summary(),
-                    "export_timestamp": datetime.now(timezone.utc).isoformat()
+                    "export_timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 return json.dumps(export_data, indent=2)
             else:
@@ -542,7 +531,7 @@ class MCPPerformanceMonitor:
                         "MCP Performance Summary - Executions: %d, Success Rate: %.1f%%, Active: %d",
                         summary["summary"]["total_executions"],
                         summary["summary"]["overall_success_rate"],
-                        summary["summary"]["active_executions"]
+                        summary["summary"]["active_executions"],
                     )
 
                 await asyncio.sleep(self._monitoring_interval)
@@ -580,6 +569,7 @@ class MCPPerformanceMonitor:
         redis_connections = 0
         try:
             from ...managers.redis_manager import redis_manager
+
             # This would need to be implemented in redis_manager
             # redis_connections = await redis_manager.get_connection_count()
         except Exception:  # TODO: Use specific exception type
@@ -593,10 +583,10 @@ class MCPPerformanceMonitor:
             database_connections=db_connections,
             redis_connections=redis_connections,
             concurrent_tools=concurrent_tools,
-            queue_size=0  # Would need to be implemented based on actual queue
+            queue_size=0,  # Would need to be implemented based on actual queue
         )
 
-    def track_execution(self, tool_name: str, execution_id: Optional[str] = None) -> 'ExecutionTracker':
+    def track_execution(self, tool_name: str, execution_id: Optional[str] = None) -> "ExecutionTracker":
         """
         Create an execution tracker for a tool.
 
@@ -640,7 +630,7 @@ class MCPPerformanceMonitor:
             "monitoring_enabled": self._monitoring_enabled,
             "performance_summary": summary,
             "system_metrics": system_metrics,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -658,7 +648,7 @@ class ExecutionTracker:
         self.start_time: Optional[float] = None
         self.metadata: Dict[str, Any] = {}
 
-    def __enter__(self) -> 'ExecutionTracker':
+    def __enter__(self) -> "ExecutionTracker":
         self.start_time = time.time()
         self.collector.start_execution(self.tool_name, self.execution_id)
         return self
@@ -672,15 +662,10 @@ class ExecutionTracker:
         error_type = exc_type.__name__ if exc_type else None
 
         self.collector.end_execution(
-            self.tool_name,
-            self.execution_id,
-            execution_time,
-            success,
-            error_type,
-            self.metadata
+            self.tool_name, self.execution_id, execution_time, success, error_type, self.metadata
         )
 
-    async def __aenter__(self) -> 'ExecutionTracker':
+    async def __aenter__(self) -> "ExecutionTracker":
         return self.__enter__()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -703,6 +688,7 @@ def track_performance(tool_name: Optional[str] = None):
     Args:
         tool_name: Optional tool name override
     """
+
     def decorator(func: Callable) -> Callable:
         actual_tool_name = tool_name or func.__name__
 

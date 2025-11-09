@@ -16,16 +16,16 @@ Test Coverage:
 """
 
 import asyncio
-import json
-import pytest
-import time
 from datetime import datetime, timedelta
+import json
+import time
 from typing import Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
+import httpx
+import pytest
 
 # Import the FastAPI app and dependencies
 from src.second_brain_database.main import app
@@ -33,8 +33,8 @@ from src.second_brain_database.managers.security_manager import security_manager
 from src.second_brain_database.routes.family.dependencies import (
     enforce_family_security,
     get_current_family_user,
-    require_family_admin,
     require_2fa_for_sensitive_ops,
+    require_family_admin,
 )
 
 
@@ -58,7 +58,7 @@ class TestFamilyAPISecurityValidation:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "two_fa_enabled": True,
-            "two_fa_methods": ["totp", "email"]
+            "two_fa_methods": ["totp", "email"],
         }
 
         self.member_user = {
@@ -69,7 +69,7 @@ class TestFamilyAPISecurityValidation:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "two_fa_enabled": False,
-            "two_fa_methods": []
+            "two_fa_methods": [],
         }
 
         # Valid JWT token for testing
@@ -108,8 +108,9 @@ class TestFamilyAPISecurityValidation:
                 response = self.client.delete(endpoint)
 
             # Should return 401 Unauthorized
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED, \
-                f"Endpoint {method} {endpoint} should require authentication"
+            assert (
+                response.status_code == status.HTTP_401_UNAUTHORIZED
+            ), f"Endpoint {method} {endpoint} should require authentication"
 
             # Test with invalid token
             headers = {"Authorization": f"Bearer {self.invalid_token}"}
@@ -123,26 +124,33 @@ class TestFamilyAPISecurityValidation:
                 response = self.client.delete(endpoint, headers=headers)
 
             # Should return 401 Unauthorized for invalid token
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED, \
-                f"Endpoint {method} {endpoint} should reject invalid tokens"
+            assert (
+                response.status_code == status.HTTP_401_UNAUTHORIZED
+            ), f"Endpoint {method} {endpoint} should reject invalid tokens"
 
     @pytest.mark.asyncio
     async def test_authorization_admin_vs_member_operations(self):
         """Test authorization checks for admin vs member operations."""
 
         # Mock the authentication to return different user types
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
 
             # Test admin-only operations with member user
             mock_auth.return_value = self.member_user
 
             admin_only_endpoints = [
-                ("POST", f"/family/{self.test_family_id}/invite", {"identifier": "test@example.com", "relationship_type": "child"}),
+                (
+                    "POST",
+                    f"/family/{self.test_family_id}/invite",
+                    {"identifier": "test@example.com", "relationship_type": "child"},
+                ),
                 ("POST", f"/family/{self.test_family_id}/invitations/inv_123/resend", {}),
                 ("DELETE", f"/family/{self.test_family_id}/invitations/inv_123", {}),
-                ("PUT", f"/family/{self.test_family_id}/sbd-account/permissions", {
-                    "user_id": "user_123", "spending_limit": 100, "can_spend": True
-                }),
+                (
+                    "PUT",
+                    f"/family/{self.test_family_id}/sbd-account/permissions",
+                    {"user_id": "user_123", "spending_limit": 100, "can_spend": True},
+                ),
                 ("POST", f"/family/{self.test_family_id}/sbd-account/freeze", {"action": "freeze", "reason": "test"}),
             ]
 
@@ -157,12 +165,14 @@ class TestFamilyAPISecurityValidation:
                     response = self.client.delete(endpoint, headers=headers)
 
                 # Should return 403 Forbidden for non-admin users
-                assert response.status_code == status.HTTP_403_FORBIDDEN, \
-                    f"Admin-only endpoint {method} {endpoint} should reject member users"
+                assert (
+                    response.status_code == status.HTTP_403_FORBIDDEN
+                ), f"Admin-only endpoint {method} {endpoint} should reject member users"
 
                 response_data = response.json()
-                assert "INSUFFICIENT_PERMISSIONS" in response_data.get("detail", {}).get("error", ""), \
-                    f"Should return insufficient permissions error for {method} {endpoint}"
+                assert "INSUFFICIENT_PERMISSIONS" in response_data.get("detail", {}).get(
+                    "error", ""
+                ), f"Should return insufficient permissions error for {method} {endpoint}"
 
             # Test member operations with admin user (should work)
             mock_auth.return_value = self.admin_user
@@ -182,39 +192,35 @@ class TestFamilyAPISecurityValidation:
 
                 # Admin users should be able to access member operations
                 # Note: These might fail for other reasons (family not found, etc.) but not authorization
-                assert response.status_code != status.HTTP_403_FORBIDDEN, \
-                    f"Admin users should be able to access member endpoint {method} {endpoint}"
+                assert (
+                    response.status_code != status.HTTP_403_FORBIDDEN
+                ), f"Admin users should be able to access member endpoint {method} {endpoint}"
 
     @pytest.mark.asyncio
     async def test_rate_limiting_enforcement(self):
         """Test rate limiting with various operation types and thresholds."""
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.admin_user
 
             headers = {"Authorization": f"Bearer {self.valid_token}"}
 
             # Test rate limiting on family creation (5 requests per hour)
-            with patch.object(security_manager, 'check_rate_limit') as mock_rate_limit:
+            with patch.object(security_manager, "check_rate_limit") as mock_rate_limit:
                 # First few requests should pass
                 mock_rate_limit.return_value = None
 
                 for i in range(3):
-                    response = self.client.post("/family/create",
-                                             json={"name": f"Test Family {i}"},
-                                             headers=headers)
+                    response = self.client.post("/family/create", json={"name": f"Test Family {i}"}, headers=headers)
                     # May fail for other reasons, but not rate limiting
                     assert response.status_code != status.HTTP_429_TOO_MANY_REQUESTS
 
                 # Simulate rate limit exceeded
                 mock_rate_limit.side_effect = HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="Too many requests. Please try again later."
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests. Please try again later."
                 )
 
-                response = self.client.post("/family/create",
-                                          json={"name": "Rate Limited Family"},
-                                          headers=headers)
+                response = self.client.post("/family/create", json={"name": "Rate Limited Family"}, headers=headers)
                 assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
                 # Verify rate limit was called with correct parameters
@@ -232,13 +238,15 @@ class TestFamilyAPISecurityValidation:
             ]
 
             for endpoint, action_prefix, expected_requests, expected_period in rate_limit_tests:
-                with patch.object(security_manager, 'check_rate_limit') as mock_rate_limit:
+                with patch.object(security_manager, "check_rate_limit") as mock_rate_limit:
                     mock_rate_limit.return_value = None
 
                     if endpoint.endswith("/invite"):
-                        response = self.client.post(endpoint,
-                                                  json={"identifier": "test@example.com", "relationship_type": "child"},
-                                                  headers=headers)
+                        response = self.client.post(
+                            endpoint,
+                            json={"identifier": "test@example.com", "relationship_type": "child"},
+                            headers=headers,
+                        )
                     else:
                         response = self.client.get(endpoint, headers=headers)
 
@@ -253,7 +261,7 @@ class TestFamilyAPISecurityValidation:
     async def test_input_sanitization_and_validation(self):
         """Test input sanitization and validation on all endpoints."""
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.admin_user
 
             headers = {"Authorization": f"Bearer {self.valid_token}"}
@@ -269,9 +277,10 @@ class TestFamilyAPISecurityValidation:
 
             for invalid_data in invalid_family_data:
                 response = self.client.post("/family/create", json=invalid_data, headers=headers)
-                assert response.status_code == status.HTTP_400_BAD_REQUEST or \
-                       response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, \
-                    f"Should reject invalid family data: {invalid_data}"
+                assert (
+                    response.status_code == status.HTTP_400_BAD_REQUEST
+                    or response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+                ), f"Should reject invalid family data: {invalid_data}"
 
             # Test member invitation with invalid inputs
             invalid_invite_data = [
@@ -280,15 +289,19 @@ class TestFamilyAPISecurityValidation:
                 {"identifier": "test@example.com", "relationship_type": "invalid"},  # Invalid relationship
                 {"identifier": "test@example.com"},  # Missing relationship_type
                 {"relationship_type": "child"},  # Missing identifier
-                {"identifier": "test@example.com", "relationship_type": "child", "malicious_field": "<script>"},  # Extra field
+                {
+                    "identifier": "test@example.com",
+                    "relationship_type": "child",
+                    "malicious_field": "<script>",
+                },  # Extra field
             ]
 
             for invalid_data in invalid_invite_data:
-                response = self.client.post(f"/family/{self.test_family_id}/invite",
-                                          json=invalid_data, headers=headers)
-                assert response.status_code == status.HTTP_400_BAD_REQUEST or \
-                       response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, \
-                    f"Should reject invalid invite data: {invalid_data}"
+                response = self.client.post(f"/family/{self.test_family_id}/invite", json=invalid_data, headers=headers)
+                assert (
+                    response.status_code == status.HTTP_400_BAD_REQUEST
+                    or response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+                ), f"Should reject invalid invite data: {invalid_data}"
 
             # Test spending permissions with invalid inputs
             invalid_permissions_data = [
@@ -300,17 +313,19 @@ class TestFamilyAPISecurityValidation:
             ]
 
             for invalid_data in invalid_permissions_data:
-                response = self.client.put(f"/family/{self.test_family_id}/sbd-account/permissions",
-                                         json=invalid_data, headers=headers)
-                assert response.status_code == status.HTTP_400_BAD_REQUEST or \
-                       response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, \
-                    f"Should reject invalid permissions data: {invalid_data}"
+                response = self.client.put(
+                    f"/family/{self.test_family_id}/sbd-account/permissions", json=invalid_data, headers=headers
+                )
+                assert (
+                    response.status_code == status.HTTP_400_BAD_REQUEST
+                    or response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+                ), f"Should reject invalid permissions data: {invalid_data}"
 
     @pytest.mark.asyncio
     async def test_error_handling_user_friendly_messages(self):
         """Test error handling and user-friendly error messages."""
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.admin_user
 
             headers = {"Authorization": f"Bearer {self.valid_token}"}
@@ -324,7 +339,7 @@ class TestFamilyAPISecurityValidation:
                     "mock_exception": "FamilyLimitExceeded",
                     "expected_status": status.HTTP_403_FORBIDDEN,
                     "expected_error_code": "FAMILY_LIMIT_EXCEEDED",
-                    "expected_message_contains": "limit"
+                    "expected_message_contains": "limit",
                 },
                 {
                     "endpoint": f"/family/{self.test_family_id}/invite",
@@ -333,7 +348,7 @@ class TestFamilyAPISecurityValidation:
                     "mock_exception": "FamilyNotFound",
                     "expected_status": status.HTTP_404_NOT_FOUND,
                     "expected_error_code": "FAMILY_NOT_FOUND",
-                    "expected_message_contains": "not found"
+                    "expected_message_contains": "not found",
                 },
                 {
                     "endpoint": f"/family/{self.test_family_id}/sbd-account/permissions",
@@ -342,7 +357,7 @@ class TestFamilyAPISecurityValidation:
                     "mock_exception": "InsufficientPermissions",
                     "expected_status": status.HTTP_403_FORBIDDEN,
                     "expected_error_code": "INSUFFICIENT_PERMISSIONS",
-                    "expected_message_contains": "permission"
+                    "expected_message_contains": "permission",
                 },
                 {
                     "endpoint": f"/family/{self.test_family_id}/sbd-account/validate-spending?amount=1000",
@@ -351,24 +366,30 @@ class TestFamilyAPISecurityValidation:
                     "mock_exception": "AccountFrozen",
                     "expected_status": status.HTTP_400_BAD_REQUEST,
                     "expected_error_code": "ACCOUNT_FROZEN",
-                    "expected_message_contains": "frozen"
-                }
+                    "expected_message_contains": "frozen",
+                },
             ]
 
             for scenario in error_scenarios:
-                with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+                with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                     # Mock the appropriate exception
                     if scenario["mock_exception"] == "FamilyLimitExceeded":
                         from src.second_brain_database.managers.family_manager import FamilyLimitExceeded
+
                         mock_manager.create_family.side_effect = FamilyLimitExceeded("Family limit exceeded")
                     elif scenario["mock_exception"] == "FamilyNotFound":
                         from src.second_brain_database.managers.family_manager import FamilyNotFound
+
                         mock_manager.invite_member.side_effect = FamilyNotFound("Family not found")
                     elif scenario["mock_exception"] == "InsufficientPermissions":
                         from src.second_brain_database.managers.family_manager import InsufficientPermissions
-                        mock_manager.update_spending_permissions.side_effect = InsufficientPermissions("Insufficient permissions")
+
+                        mock_manager.update_spending_permissions.side_effect = InsufficientPermissions(
+                            "Insufficient permissions"
+                        )
                     elif scenario["mock_exception"] == "AccountFrozen":
                         from src.second_brain_database.managers.family_manager import AccountFrozen
+
                         mock_manager.validate_family_spending.side_effect = AccountFrozen("Account is frozen")
 
                     # Make the request
@@ -378,42 +399,41 @@ class TestFamilyAPISecurityValidation:
                         response = self.client.put(scenario["endpoint"], json=scenario["data"], headers=headers)
 
                     # Verify error response
-                    assert response.status_code == scenario["expected_status"], \
-                        f"Expected status {scenario['expected_status']} for {scenario['endpoint']}"
+                    assert (
+                        response.status_code == scenario["expected_status"]
+                    ), f"Expected status {scenario['expected_status']} for {scenario['endpoint']}"
 
                     response_data = response.json()
                     detail = response_data.get("detail", {})
 
                     if isinstance(detail, dict):
-                        assert detail.get("error") == scenario["expected_error_code"], \
-                            f"Expected error code {scenario['expected_error_code']} for {scenario['endpoint']}"
+                        assert (
+                            detail.get("error") == scenario["expected_error_code"]
+                        ), f"Expected error code {scenario['expected_error_code']} for {scenario['endpoint']}"
 
                         message = detail.get("message", "").lower()
-                        assert scenario["expected_message_contains"].lower() in message, \
-                            f"Expected message to contain '{scenario['expected_message_contains']}' for {scenario['endpoint']}"
+                        assert (
+                            scenario["expected_message_contains"].lower() in message
+                        ), f"Expected message to contain '{scenario['expected_message_contains']}' for {scenario['endpoint']}"
 
     @pytest.mark.asyncio
     async def test_ip_user_agent_lockdown_integration(self):
         """Test IP and User Agent lockdown integration."""
 
         # Test IP lockdown
-        lockdown_user = {
-            **self.admin_user,
-            "trusted_ip_lockdown": True,
-            "trusted_ips": ["192.168.1.100", "10.0.0.1"]
-        }
+        lockdown_user = {**self.admin_user, "trusted_ip_lockdown": True, "trusted_ips": ["192.168.1.100", "10.0.0.1"]}
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = lockdown_user
 
             headers = {"Authorization": f"Bearer {self.valid_token}"}
 
             # Mock security manager to simulate IP lockdown
-            with patch.object(security_manager, 'check_ip_lockdown') as mock_ip_check:
+            with patch.object(security_manager, "check_ip_lockdown") as mock_ip_check:
                 # Test blocked IP
                 mock_ip_check.side_effect = HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: IP address not in trusted list (IP Lockdown enabled)"
+                    detail="Access denied: IP address not in trusted list (IP Lockdown enabled)",
                 )
 
                 response = self.client.get("/family/my-families", headers=headers)
@@ -426,25 +446,27 @@ class TestFamilyAPISecurityValidation:
 
                 response = self.client.get("/family/my-families", headers=headers)
                 # Should not be blocked by IP lockdown (may fail for other reasons)
-                assert response.status_code != status.HTTP_403_FORBIDDEN or \
-                       "IP address not in trusted list" not in response.json().get("detail", "")
+                assert (
+                    response.status_code != status.HTTP_403_FORBIDDEN
+                    or "IP address not in trusted list" not in response.json().get("detail", "")
+                )
 
         # Test User Agent lockdown
         ua_lockdown_user = {
             **self.admin_user,
             "trusted_user_agent_lockdown": True,
-            "trusted_user_agents": ["Mozilla/5.0 (trusted-browser)", "MyApp/1.0"]
+            "trusted_user_agents": ["Mozilla/5.0 (trusted-browser)", "MyApp/1.0"],
         }
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = ua_lockdown_user
 
             # Mock security manager to simulate User Agent lockdown
-            with patch.object(security_manager, 'check_user_agent_lockdown') as mock_ua_check:
+            with patch.object(security_manager, "check_user_agent_lockdown") as mock_ua_check:
                 # Test blocked User Agent
                 mock_ua_check.side_effect = HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: User Agent not in trusted list (User Agent Lockdown enabled)"
+                    detail="Access denied: User Agent not in trusted list (User Agent Lockdown enabled)",
                 )
 
                 response = self.client.get("/family/my-families", headers=headers)
@@ -457,8 +479,10 @@ class TestFamilyAPISecurityValidation:
 
                 response = self.client.get("/family/my-families", headers=headers)
                 # Should not be blocked by User Agent lockdown (may fail for other reasons)
-                assert response.status_code != status.HTTP_403_FORBIDDEN or \
-                       "User Agent not in trusted list" not in response.json().get("detail", "")
+                assert (
+                    response.status_code != status.HTTP_403_FORBIDDEN
+                    or "User Agent not in trusted list" not in response.json().get("detail", "")
+                )
 
 
 class TestFamilyPermissionSystem:
@@ -475,7 +499,7 @@ class TestFamilyPermissionSystem:
             "username": "primary_admin",
             "email": "primary@test.com",
             "two_fa_enabled": True,
-            "two_fa_methods": ["totp"]
+            "two_fa_methods": ["totp"],
         }
 
         self.backup_admin = {
@@ -483,7 +507,7 @@ class TestFamilyPermissionSystem:
             "username": "backup_admin",
             "email": "backup@test.com",
             "two_fa_enabled": True,
-            "two_fa_methods": ["email"]
+            "two_fa_methods": ["email"],
         }
 
         self.regular_member = {
@@ -491,7 +515,7 @@ class TestFamilyPermissionSystem:
             "username": "regular_member",
             "email": "member@test.com",
             "two_fa_enabled": False,
-            "two_fa_methods": []
+            "two_fa_methods": [],
         }
 
         self.valid_token = "valid_jwt_token_789"
@@ -503,9 +527,11 @@ class TestFamilyPermissionSystem:
         # Test admin validation for different operations
         admin_operations = [
             ("POST", f"/family/{self.family_id}/invite", {"identifier": "new@test.com", "relationship_type": "child"}),
-            ("PUT", f"/family/{self.family_id}/sbd-account/permissions", {
-                "user_id": "user_123", "spending_limit": 500, "can_spend": True
-            }),
+            (
+                "PUT",
+                f"/family/{self.family_id}/sbd-account/permissions",
+                {"user_id": "user_123", "spending_limit": 500, "can_spend": True},
+            ),
             ("POST", f"/family/{self.family_id}/sbd-account/freeze", {"action": "freeze", "reason": "security"}),
             ("DELETE", f"/family/{self.family_id}/invitations/inv_123", {}),
         ]
@@ -513,10 +539,12 @@ class TestFamilyPermissionSystem:
         headers = {"Authorization": f"Bearer {self.valid_token}"}
 
         # Test with admin user
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.primary_admin
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager.validate_admin_permissions') as mock_validate:
+            with patch(
+                "src.second_brain_database.managers.family_manager.family_manager.validate_admin_permissions"
+            ) as mock_validate:
                 # Test successful admin validation
                 mock_validate.return_value = True
 
@@ -529,8 +557,10 @@ class TestFamilyPermissionSystem:
                         response = self.client.delete(endpoint, headers=headers)
 
                     # Should not fail due to admin validation (may fail for other reasons)
-                    assert response.status_code != status.HTTP_403_FORBIDDEN or \
-                           "Admin privileges required" not in response.json().get("detail", "")
+                    assert (
+                        response.status_code != status.HTTP_403_FORBIDDEN
+                        or "Admin privileges required" not in response.json().get("detail", "")
+                    )
 
                 # Test failed admin validation
                 mock_validate.return_value = False
@@ -545,14 +575,17 @@ class TestFamilyPermissionSystem:
 
                     # Should fail due to insufficient admin privileges
                     assert response.status_code == status.HTTP_403_FORBIDDEN
-                    assert "Admin privileges required" in response.json().get("detail", "") or \
-                           "INSUFFICIENT_PERMISSIONS" in str(response.json())
+                    assert "Admin privileges required" in response.json().get(
+                        "detail", ""
+                    ) or "INSUFFICIENT_PERMISSIONS" in str(response.json())
 
         # Test with regular member (should fail admin checks)
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.regular_member
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager.validate_admin_permissions') as mock_validate:
+            with patch(
+                "src.second_brain_database.managers.family_manager.family_manager.validate_admin_permissions"
+            ) as mock_validate:
                 mock_validate.return_value = False
 
                 for method, endpoint, data in admin_operations:
@@ -570,7 +603,7 @@ class TestFamilyPermissionSystem:
     async def test_spending_permission_enforcement(self):
         """Test spending permission enforcement and validation."""
 
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.regular_member
 
             headers = {"Authorization": f"Bearer {self.valid_token}"}
@@ -582,7 +615,7 @@ class TestFamilyPermissionSystem:
                     "can_spend": True,
                     "spending_limit": 500,
                     "account_frozen": False,
-                    "expected_result": True
+                    "expected_result": True,
                 },
                 {
                     "amount": 600,
@@ -590,7 +623,7 @@ class TestFamilyPermissionSystem:
                     "spending_limit": 500,
                     "account_frozen": False,
                     "expected_result": False,
-                    "denial_reason": "SPENDING_LIMIT_EXCEEDED"
+                    "denial_reason": "SPENDING_LIMIT_EXCEEDED",
                 },
                 {
                     "amount": 100,
@@ -598,7 +631,7 @@ class TestFamilyPermissionSystem:
                     "spending_limit": 500,
                     "account_frozen": False,
                     "expected_result": False,
-                    "denial_reason": "NO_SPENDING_PERMISSION"
+                    "denial_reason": "NO_SPENDING_PERMISSION",
                 },
                 {
                     "amount": 100,
@@ -606,12 +639,12 @@ class TestFamilyPermissionSystem:
                     "spending_limit": 500,
                     "account_frozen": True,
                     "expected_result": False,
-                    "denial_reason": "ACCOUNT_FROZEN"
-                }
+                    "denial_reason": "ACCOUNT_FROZEN",
+                },
             ]
 
             for scenario in spending_scenarios:
-                with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+                with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                     # Mock family data
                     mock_family_data = {
                         "sbd_account": {
@@ -621,9 +654,9 @@ class TestFamilyPermissionSystem:
                                 self.regular_member["_id"]: {
                                     "can_spend": scenario["can_spend"],
                                     "spending_limit": scenario["spending_limit"],
-                                    "role": "member"
+                                    "role": "member",
                                 }
-                            }
+                            },
                         }
                     }
 
@@ -634,7 +667,7 @@ class TestFamilyPermissionSystem:
                     response = self.client.post(
                         f"/family/{self.family_id}/sbd-account/validate-spending?amount={scenario['amount']}",
                         json={},
-                        headers=headers
+                        headers=headers,
                     )
 
                     assert response.status_code == status.HTTP_200_OK
@@ -653,10 +686,10 @@ class TestFamilyPermissionSystem:
         headers = {"Authorization": f"Bearer {self.valid_token}"}
 
         # Test promoting member to admin
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.primary_admin
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+            with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                 # Mock successful admin promotion
                 mock_manager.validate_admin_permissions.return_value = True
                 mock_manager.promote_to_admin.return_value = {
@@ -664,33 +697,29 @@ class TestFamilyPermissionSystem:
                     "promoted_user_id": self.regular_member["_id"],
                     "promoted_by": self.primary_admin["_id"],
                     "promoted_at": datetime.now(),
-                    "new_admin_count": 2
+                    "new_admin_count": 2,
                 }
 
                 # This endpoint might not exist yet, but testing the concept
-                promote_data = {
-                    "user_id": self.regular_member["_id"],
-                    "reason": "Trusted family member"
-                }
+                promote_data = {"user_id": self.regular_member["_id"], "reason": "Trusted family member"}
 
                 # Simulate admin promotion (would be implemented in actual routes)
                 # For now, we'll test the underlying manager function
                 result = await mock_manager.promote_to_admin(
-                    self.family_id,
-                    self.primary_admin["_id"],
-                    self.regular_member["_id"]
+                    self.family_id, self.primary_admin["_id"], self.regular_member["_id"]
                 )
 
                 assert result["promoted_user_id"] == self.regular_member["_id"]
                 assert result["new_admin_count"] == 2
 
         # Test demoting admin (should prevent leaving family without admins)
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.primary_admin
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+            with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                 # Mock scenario where demoting would leave no admins
                 from src.second_brain_database.managers.family_manager import MultipleAdminsRequired
+
                 mock_manager.validate_admin_permissions.return_value = True
                 mock_manager.demote_admin.side_effect = MultipleAdminsRequired(
                     "Cannot demote the last admin. Family must have at least one administrator."
@@ -701,7 +730,7 @@ class TestFamilyPermissionSystem:
                     await mock_manager.demote_admin(
                         self.family_id,
                         self.primary_admin["_id"],
-                        self.primary_admin["_id"]  # Trying to demote self as last admin
+                        self.primary_admin["_id"],  # Trying to demote self as last admin
                     )
                     assert False, "Should have raised MultipleAdminsRequired exception"
                 except MultipleAdminsRequired as e:
@@ -715,10 +744,10 @@ class TestFamilyPermissionSystem:
         headers = {"Authorization": f"Bearer {self.valid_token}"}
 
         # Test backup admin designation
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.primary_admin
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+            with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                 mock_manager.validate_admin_permissions.return_value = True
 
                 # Mock setting backup admin
@@ -728,34 +757,29 @@ class TestFamilyPermissionSystem:
                     "set_by": self.primary_admin["_id"],
                     "succession_plan": {
                         "backup_admins": [self.backup_admin["_id"]],
-                        "recovery_contacts": ["recovery@test.com"]
-                    }
+                        "recovery_contacts": ["recovery@test.com"],
+                    },
                 }
 
                 result = await mock_manager.set_backup_admin(
-                    self.family_id,
-                    self.primary_admin["_id"],
-                    self.backup_admin["_id"]
+                    self.family_id, self.primary_admin["_id"], self.backup_admin["_id"]
                 )
 
                 assert result["backup_admin_id"] == self.backup_admin["_id"]
                 assert self.backup_admin["_id"] in result["succession_plan"]["backup_admins"]
 
         # Test succession plan activation
-        with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+        with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
             # Mock scenario where primary admin is unavailable and backup takes over
             mock_manager.activate_succession_plan.return_value = {
                 "family_id": self.family_id,
                 "new_primary_admin": self.backup_admin["_id"],
                 "previous_admin": self.primary_admin["_id"],
                 "activation_reason": "Primary admin unavailable",
-                "activated_at": datetime.now()
+                "activated_at": datetime.now(),
             }
 
-            result = await mock_manager.activate_succession_plan(
-                self.family_id,
-                "Primary admin unavailable"
-            )
+            result = await mock_manager.activate_succession_plan(self.family_id, "Primary admin unavailable")
 
             assert result["new_primary_admin"] == self.backup_admin["_id"]
             assert result["previous_admin"] == self.primary_admin["_id"]
@@ -767,10 +791,10 @@ class TestFamilyPermissionSystem:
         headers = {"Authorization": f"Bearer {self.valid_token}"}
 
         # Test emergency recovery initiation
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.regular_member
 
-            with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+            with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
                 # Mock emergency recovery request
                 mock_manager.initiate_emergency_recovery.return_value = {
                     "recovery_id": "recovery_123",
@@ -779,14 +803,11 @@ class TestFamilyPermissionSystem:
                     "recovery_type": "admin_unavailable",
                     "verification_required": True,
                     "recovery_contacts_notified": ["recovery@test.com"],
-                    "expires_at": datetime.now() + timedelta(hours=24)
+                    "expires_at": datetime.now() + timedelta(hours=24),
                 }
 
                 result = await mock_manager.initiate_emergency_recovery(
-                    self.family_id,
-                    self.regular_member["_id"],
-                    "admin_unavailable",
-                    "All family admins are unreachable"
+                    self.family_id, self.regular_member["_id"], "admin_unavailable", "All family admins are unreachable"
                 )
 
                 assert result["recovery_id"] == "recovery_123"
@@ -794,31 +815,28 @@ class TestFamilyPermissionSystem:
                 assert result["verification_required"] is True
 
         # Test recovery verification and approval
-        with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+        with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
             # Mock recovery verification
             mock_manager.verify_emergency_recovery.return_value = {
                 "recovery_id": "recovery_123",
                 "verified": True,
                 "new_admin": self.regular_member["_id"],
                 "verification_method": "email_confirmation",
-                "recovery_completed_at": datetime.now()
+                "recovery_completed_at": datetime.now(),
             }
 
-            result = await mock_manager.verify_emergency_recovery(
-                "recovery_123",
-                "email_verification_token_123"
-            )
+            result = await mock_manager.verify_emergency_recovery("recovery_123", "email_verification_token_123")
 
             assert result["verified"] is True
             assert result["new_admin"] == self.regular_member["_id"]
 
         # Test recovery rejection/timeout
-        with patch('src.second_brain_database.managers.family_manager.family_manager') as mock_manager:
+        with patch("src.second_brain_database.managers.family_manager.family_manager") as mock_manager:
             # Mock recovery timeout
             mock_manager.cleanup_expired_recovery_requests.return_value = {
                 "expired_count": 1,
                 "expired_requests": ["recovery_123"],
-                "cleanup_timestamp": datetime.now()
+                "cleanup_timestamp": datetime.now(),
             }
 
             result = await mock_manager.cleanup_expired_recovery_requests()
@@ -841,7 +859,7 @@ class TestTwoFactorAuthentication:
             "username": "user_2fa",
             "email": "user2fa@test.com",
             "two_fa_enabled": True,
-            "two_fa_methods": ["totp", "email"]
+            "two_fa_methods": ["totp", "email"],
         }
 
         # User without 2FA
@@ -850,7 +868,7 @@ class TestTwoFactorAuthentication:
             "username": "user_no_2fa",
             "email": "userno2fa@test.com",
             "two_fa_enabled": False,
-            "two_fa_methods": []
+            "two_fa_methods": [],
         }
 
         self.valid_token = "valid_jwt_token_2fa"
@@ -862,21 +880,33 @@ class TestTwoFactorAuthentication:
         # List of sensitive operations that should require 2FA
         sensitive_operations = [
             ("POST", "/family/create", {"name": "Sensitive Family"}),
-            ("POST", f"/family/{self.family_id}/invite", {"identifier": "sensitive@test.com", "relationship_type": "child"}),
-            ("PUT", f"/family/{self.family_id}/sbd-account/permissions", {
-                "user_id": "user_123", "spending_limit": 1000, "can_spend": True
-            }),
-            ("POST", f"/family/{self.family_id}/sbd-account/freeze", {"action": "freeze", "reason": "security incident"}),
+            (
+                "POST",
+                f"/family/{self.family_id}/invite",
+                {"identifier": "sensitive@test.com", "relationship_type": "child"},
+            ),
+            (
+                "PUT",
+                f"/family/{self.family_id}/sbd-account/permissions",
+                {"user_id": "user_123", "spending_limit": 1000, "can_spend": True},
+            ),
+            (
+                "POST",
+                f"/family/{self.family_id}/sbd-account/freeze",
+                {"action": "freeze", "reason": "security incident"},
+            ),
         ]
 
         headers = {"Authorization": f"Bearer {self.valid_token}"}
 
         # Test with user who has 2FA enabled (should pass 2FA check)
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.user_with_2fa
 
             for method, endpoint, data in sensitive_operations:
-                with patch('src.second_brain_database.routes.family.dependencies.require_2fa_for_sensitive_ops') as mock_2fa:
+                with patch(
+                    "src.second_brain_database.routes.family.dependencies.require_2fa_for_sensitive_ops"
+                ) as mock_2fa:
                     mock_2fa.return_value = {**self.user_with_2fa, "2fa_validated": True}
 
                     if method == "POST":
@@ -885,15 +915,19 @@ class TestTwoFactorAuthentication:
                         response = self.client.put(endpoint, json=data, headers=headers)
 
                     # Should not fail due to 2FA (may fail for other reasons)
-                    assert response.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY or \
-                           "2fa_required" not in response.json().get("detail", {}).get("error", "")
+                    assert (
+                        response.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY
+                        or "2fa_required" not in response.json().get("detail", {}).get("error", "")
+                    )
 
         # Test with user who doesn't have 2FA enabled (should fail 2FA check)
-        with patch('src.second_brain_database.routes.auth.dependencies.get_current_user_dep') as mock_auth:
+        with patch("src.second_brain_database.routes.auth.dependencies.get_current_user_dep") as mock_auth:
             mock_auth.return_value = self.user_without_2fa
 
             for method, endpoint, data in sensitive_operations:
-                with patch('src.second_brain_database.routes.family.dependencies.require_2fa_for_sensitive_ops') as mock_2fa:
+                with patch(
+                    "src.second_brain_database.routes.family.dependencies.require_2fa_for_sensitive_ops"
+                ) as mock_2fa:
                     # Mock 2FA requirement failure
                     mock_2fa.side_effect = HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -901,8 +935,8 @@ class TestTwoFactorAuthentication:
                             "error": "2fa_required",
                             "message": "Two-factor authentication required for this sensitive operation",
                             "operation": "sensitive_family_operation",
-                            "available_methods": []
-                        }
+                            "available_methods": [],
+                        },
                     )
 
                     if method == "POST":

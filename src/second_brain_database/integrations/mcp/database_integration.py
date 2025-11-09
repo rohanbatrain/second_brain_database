@@ -6,12 +6,12 @@ integrating with the existing Second Brain Database infrastructure.
 """
 
 import asyncio
-from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
 from ...database import db_manager
+from ...managers.logging_manager import get_logger
 from .exceptions import MCPValidationError
 
 logger = get_logger(prefix="[MCP_Database]")
@@ -41,9 +41,11 @@ class MCPDatabaseManager:
         try:
             # Check if we need to verify connection
             now = datetime.now(timezone.utc)
-            if (self._connection_verified and
-                self._last_health_check and
-                (now - self._last_health_check).total_seconds() < self._health_check_interval):
+            if (
+                self._connection_verified
+                and self._last_health_check
+                and (now - self._last_health_check).total_seconds() < self._health_check_interval
+            ):
                 return True
 
             # Perform health check
@@ -93,18 +95,14 @@ class MCPDatabaseManager:
         Returns:
             Dictionary with health check results
         """
-        health_data = {
-            "healthy": False,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "details": {}
-        }
+        health_data = {"healthy": False, "timestamp": datetime.now(timezone.utc).isoformat(), "details": {}}
 
         try:
             # Basic connection check
             is_connected = await db_manager.health_check()
             health_data["details"]["connection"] = {
                 "status": "healthy" if is_connected else "unhealthy",
-                "connected": is_connected
+                "connected": is_connected,
             }
 
             if is_connected:
@@ -130,15 +128,13 @@ class MCPDatabaseManager:
                     health_data["details"]["replica_set"] = {
                         "enabled": bool(ismaster.get("setName")),
                         "set_name": ismaster.get("setName"),
-                        "is_master": ismaster.get("ismaster", False)
+                        "is_master": ismaster.get("ismaster", False),
                     }
                 except Exception as e:
                     health_data["details"]["replica_set"] = {"error": str(e)}
 
                 # Overall health
-                all_collections_healthy = all(
-                    status == "healthy" for status in collection_health.values()
-                )
+                all_collections_healthy = all(status == "healthy" for status in collection_health.values())
                 health_data["healthy"] = is_connected and all_collections_healthy
 
         except Exception as e:
@@ -210,13 +206,10 @@ class MCPDatabaseManager:
 
             except Exception as e:
                 last_error = e
-                self.logger.warning(
-                    "Database operation failed (attempt %d/%d): %s",
-                    attempt + 1, max_retries + 1, e
-                )
+                self.logger.warning("Database operation failed (attempt %d/%d): %s", attempt + 1, max_retries + 1, e)
 
                 if attempt < max_retries:
-                    await asyncio.sleep(delay * (2 ** attempt))  # Exponential backoff
+                    await asyncio.sleep(delay * (2**attempt))  # Exponential backoff
                     # Reset connection verification to force recheck
                     self._connection_verified = False
 
@@ -253,13 +246,13 @@ class MCPDatabaseManager:
                     "collections": db_stats.get("collections", 0),
                     "data_size": db_stats.get("dataSize", 0),
                     "storage_size": db_stats.get("storageSize", 0),
-                    "index_size": db_stats.get("indexSize", 0)
+                    "index_size": db_stats.get("indexSize", 0),
                 },
                 "collection_stats": collection_stats,
                 "connection_info": {
                     "database_name": settings.MONGODB_DATABASE,
-                    "replica_set": await self.is_replica_set()
-                }
+                    "replica_set": await self.is_replica_set(),
+                },
             }
 
         except Exception as e:
@@ -318,7 +311,7 @@ async def initialize_mcp_database():
     try:
         # First, ensure the database manager is connected
         # This is the key fix - we need to explicitly connect the db_manager
-        if not hasattr(db_manager, 'client') or db_manager.client is None:
+        if not hasattr(db_manager, "client") or db_manager.client is None:
             logger.info("Database manager not connected, establishing connection...")
             await db_manager.connect()
             logger.info("Database manager connected successfully")
@@ -336,7 +329,7 @@ async def initialize_mcp_database():
                 logger.info(
                     "Connected to database: %s (replica_set: %s)",
                     db_info.get("database_name", "unknown"),
-                    db_info.get("replica_set", False)
+                    db_info.get("replica_set", False),
                 )
 
             return True
@@ -378,7 +371,10 @@ class MCPDatabaseContext:
         else:
             logger.error(
                 "MCP database operation failed: %s (%.2fms) - %s: %s",
-                self.operation_name, duration, exc_type.__name__, exc_val
+                self.operation_name,
+                duration,
+                exc_type.__name__,
+                exc_val,
             )
 
         return False  # Don't suppress exceptions

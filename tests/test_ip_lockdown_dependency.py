@@ -8,9 +8,10 @@ import sys
 from unittest.mock import AsyncMock, MagicMock
 
 # Add the src directory to the path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from fastapi import HTTPException, Request
+
 from second_brain_database.routes.auth.dependencies import enforce_ip_lockdown
 
 
@@ -32,7 +33,7 @@ async def test_ip_lockdown_dependency():
         "username": "testuser1",
         "email": "test1@example.com",
         "trusted_ip_lockdown": False,
-        "trusted_ips": []
+        "trusted_ips": [],
     }
 
     try:
@@ -50,7 +51,7 @@ async def test_ip_lockdown_dependency():
         "username": "testuser2",
         "email": "test2@example.com",
         "trusted_ip_lockdown": True,
-        "trusted_ips": ["192.168.1.100", "10.0.0.1"]
+        "trusted_ips": ["192.168.1.100", "10.0.0.1"],
     }
 
     try:
@@ -68,7 +69,7 @@ async def test_ip_lockdown_dependency():
         "username": "testuser3",
         "email": "test3@example.com",
         "trusted_ip_lockdown": True,
-        "trusted_ips": ["10.0.0.1", "172.16.0.1"]  # Different IPs
+        "trusted_ips": ["10.0.0.1", "172.16.0.1"],  # Different IPs
     }
 
     try:
@@ -102,6 +103,7 @@ async def main():
     except Exception as e:
         print(f"\n💥 Test execution failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

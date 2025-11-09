@@ -3,17 +3,16 @@
 Test script for notification preferences endpoint fix.
 """
 
-import requests
 import json
+
+import requests
+
 
 # Test the notification preferences endpoint
 def test_notification_preferences():
     # First, login to get access token
     login_url = "http://localhost:8000/auth/login"
-    login_data = {
-        "username": "rohanbatra",
-        "password": "Letters,123"
-    }
+    login_data = {"username": "rohanbatra", "password": "Letters,123"}
 
     print("Logging in...")
     login_response = requests.post(login_url, json=login_data)
@@ -41,19 +40,17 @@ def test_notification_preferences():
 
     # Test PUT notification preferences
     print("\nTesting PUT /family/notifications/preferences...")
-    preferences_data = {
-        "email_notifications": True,
-        "push_notifications": False,
-        "sms_notifications": True
-    }
+    preferences_data = {"email_notifications": True, "push_notifications": False, "sms_notifications": True}
 
-    put_response = requests.put("http://localhost:8000/family/notifications/preferences",
-                               json=preferences_data, headers=headers)
+    put_response = requests.put(
+        "http://localhost:8000/family/notifications/preferences", json=preferences_data, headers=headers
+    )
     print(f"PUT status: {put_response.status_code}")
     if put_response.status_code == 200:
         print("PUT response:", json.dumps(put_response.json(), indent=2))
     else:
         print("PUT failed:", put_response.text)
+
 
 if __name__ == "__main__":
     test_notification_preferences()

@@ -5,18 +5,20 @@ Handles:
 - Async processing with Celery
 - Document search and retrieval
 """
-from typing import Optional, List
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
+
+import base64
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-import base64
 
-from .auth.services.auth.login import get_current_user
-from ..managers.logging_manager import get_logger
-from ..integrations.mcp.context import MCPUserContext
-from ..tasks.document_tasks import process_document_async, extract_tables_async, chunk_document_for_rag
-from ..integrations.docling_processor import document_processor
 from ..database import db_manager
+from ..integrations.mcp.context import MCPUserContext
+from ..managers.logging_manager import get_logger
+from ..services.document_service import document_service
+from ..tasks.document_tasks import chunk_document_for_rag, extract_tables_async, process_document_async
+from .auth.services.auth.login import get_current_user
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 logger = get_logger(prefix="[DocumentRoutes]")
@@ -24,6 +26,7 @@ logger = get_logger(prefix="[DocumentRoutes]")
 
 class DocumentUploadResponse(BaseModel):
     """Response for document upload."""
+
     task_id: str
     filename: str
     file_size: int
@@ -33,6 +36,7 @@ class DocumentUploadResponse(BaseModel):
 
 class DocumentProcessingStatus(BaseModel):
     """Document processing status."""
+
     task_id: str
     status: str
     result: Optional[dict] = None
@@ -45,7 +49,7 @@ async def upload_document(
     extract_images: bool = Form(True),
     output_format: str = Form("markdown"),
     async_processing: bool = Form(True),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Upload and process document.
 
@@ -68,10 +72,7 @@ async def upload_document(
         # Validate file size (max 50MB)
         max_size = 50 * 1024 * 1024  # 50MB
         if file_size > max_size:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large. Maximum size: {max_size / 1024 / 1024}MB"
-            )
+            raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {max_size / 1024 / 1024}MB")
 
         # Validate file type
         allowed_extensions = {".pdf", ".docx", ".pptx", ".html", ".txt", ".md"}
@@ -79,8 +80,7 @@ async def upload_document(
 
         if file_ext not in allowed_extensions:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
+                status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
             )
 
         if async_processing:
@@ -92,12 +92,11 @@ async def upload_document(
                 filename=file.filename,
                 user_id=user_id,
                 extract_images=extract_images,
-                output_format=output_format
+                output_format=output_format,
             )
 
             logger.info(
-                f"Queued document {file.filename} for processing",
-                extra={"user_id": user_id, "task_id": task.id}
+                f"Queued document {file.filename} for processing", extra={"user_id": user_id, "task_id": task.id}
             )
 
             return DocumentUploadResponse(
@@ -105,16 +104,17 @@ async def upload_document(
                 filename=file.filename,
                 file_size=file_size,
                 status="processing",
-                message="Document queued for processing. Check status with task_id."
+                message="Document queued for processing. Check status with task_id.",
             )
         else:
             # Process synchronously
-            result = await document_processor.process_document(
+            result = await document_service.process_and_index_document(
                 file_data=file_data,
                 filename=file.filename,
                 user_id=user_id,
                 extract_images=extract_images,
-                output_format=output_format
+                output_format=output_format,
+                index_for_search=True,
             )
 
             return DocumentUploadResponse(
@@ -122,7 +122,7 @@ async def upload_document(
                 filename=file.filename,
                 file_size=file_size,
                 status="completed",
-                message=f"Document processed. ID: {result['document_id']}"
+                message=f"Document processed. ID: {result['document_id']}",
             )
 
     except HTTPException:
@@ -133,10 +133,7 @@ async def upload_document(
 
 
 @router.get("/status/{task_id}", response_model=DocumentProcessingStatus)
-async def get_processing_status(
-    task_id: str,
-    current_user: dict = Depends(get_current_user)
-):
+async def get_processing_status(task_id: str, current_user: dict = Depends(get_current_user)):
     """Get document processing status.
 
     **Args**:
@@ -158,12 +155,7 @@ async def get_processing_status(
         elif status == "FAILURE":
             error = str(task_result.info)
 
-        return DocumentProcessingStatus(
-            task_id=task_id,
-            status=status.lower(),
-            result=result,
-            error=error
-        )
+        return DocumentProcessingStatus(task_id=task_id, status=status.lower(), result=result, error=error)
 
     except Exception as e:
         logger.error(f"Error getting task status: {e}", exc_info=True)
@@ -171,10 +163,7 @@ async def get_processing_status(
 
 
 @router.post("/extract-tables")
-async def extract_tables(
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
-):
+async def extract_tables(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """Extract tables from document.
 
     **Supported**: PDF, DOCX, PPTX
@@ -188,22 +177,11 @@ async def extract_tables(
         file_data_b64 = base64.b64encode(file_data).decode()
 
         # Process async
-        task = extract_tables_async.delay(
-            file_data_b64=file_data_b64,
-            filename=file.filename,
-            user_id=user_id
-        )
+        task = extract_tables_async.delay(file_data_b64=file_data_b64, filename=file.filename, user_id=user_id)
 
-        logger.info(
-            f"Queued table extraction for {file.filename}",
-            extra={"user_id": user_id, "task_id": task.id}
-        )
+        logger.info(f"Queued table extraction for {file.filename}", extra={"user_id": user_id, "task_id": task.id})
 
-        return {
-            "task_id": task.id,
-            "filename": file.filename,
-            "status": "processing"
-        }
+        return {"task_id": task.id, "filename": file.filename, "status": "processing"}
 
     except Exception as e:
         logger.error(f"Error extracting tables: {e}", exc_info=True)
@@ -211,11 +189,7 @@ async def extract_tables(
 
 
 @router.get("/list")
-async def list_documents(
-    limit: int = 50,
-    skip: int = 0,
-    current_user: dict = Depends(get_current_user)
-):
+async def list_documents(limit: int = 50, skip: int = 0, current_user: dict = Depends(get_current_user)):
     """List user's processed documents.
 
     **Pagination**: Use limit and skip parameters
@@ -225,31 +199,19 @@ async def list_documents(
     try:
         user_id = str(current_user["_id"])
 
+        # Use document service to get document list
+        documents = await document_service.get_document_list(
+            user_id=user_id,
+            limit=limit,
+            offset=skip,
+            include_content=False,
+        )
+
+        # Get total count
         collection = db_manager.get_collection("processed_documents")
-
-        cursor = collection.find(
-            {"user_id": user_id}
-        ).sort("created_at", -1).skip(skip).limit(limit)
-
-        documents = []
-        async for doc in cursor:
-            documents.append({
-                "document_id": str(doc["_id"]),
-                "filename": doc["filename"],
-                "metadata": doc["metadata"],
-                "indexed": doc.get("indexed", False),
-                "chunk_count": doc.get("chunk_count", 0),
-                "created_at": doc["created_at"].isoformat()
-            })
-
         total = await collection.count_documents({"user_id": user_id})
 
-        return {
-            "documents": documents,
-            "total": total,
-            "limit": limit,
-            "skip": skip
-        }
+        return {"documents": documents, "total": total, "limit": limit, "skip": skip}
 
     except Exception as e:
         logger.error(f"Error listing documents: {e}", exc_info=True)
@@ -257,36 +219,30 @@ async def list_documents(
 
 
 @router.get("/{document_id}")
-async def get_document(
-    document_id: str,
-    current_user: dict = Depends(get_current_user)
-):
+async def get_document(document_id: str, current_user: dict = Depends(get_current_user)):
     """Get processed document by ID.
 
     **Returns**: Full document content and metadata
     """
     try:
-        from bson import ObjectId
-
         user_id = str(current_user["_id"])
 
-        collection = db_manager.get_collection("processed_documents")
-        doc = await collection.find_one({
-            "_id": ObjectId(document_id),
-            "user_id": user_id
-        })
+        # Use document service to get document content
+        doc = await document_service.get_document_content(document_id)
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
+        # Format response
         return {
-            "document_id": str(doc["_id"]),
+            "document_id": doc["document_id"],
             "filename": doc["filename"],
             "content": doc["content"],
             "metadata": doc["metadata"],
             "images": doc.get("images", []),
             "indexed": doc.get("indexed", False),
-            "created_at": doc["created_at"].isoformat()
+            "chunk_count": doc.get("chunk_count", 0),
+            "created_at": doc["created_at"].isoformat() if doc.get("created_at") else None,
         }
 
     except HTTPException:
@@ -302,7 +258,7 @@ async def chunk_document(
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
     background_tasks: BackgroundTasks = None,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Chunk document for RAG/vector search.
 
@@ -319,31 +275,17 @@ async def chunk_document(
 
         # Verify ownership
         collection = db_manager.get_collection("processed_documents")
-        doc = await collection.find_one({
-            "_id": ObjectId(document_id),
-            "user_id": user_id
-        })
+        doc = await collection.find_one({"_id": ObjectId(document_id), "user_id": user_id})
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Queue chunking task
-        task = chunk_document_for_rag.delay(
-            document_id=document_id,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
+        task = chunk_document_for_rag.delay(document_id=document_id, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-        logger.info(
-            f"Queued chunking for document {document_id}",
-            extra={"user_id": user_id, "task_id": task.id}
-        )
+        logger.info(f"Queued chunking for document {document_id}", extra={"user_id": user_id, "task_id": task.id})
 
-        return {
-            "task_id": task.id,
-            "document_id": document_id,
-            "status": "chunking"
-        }
+        return {"task_id": task.id, "document_id": document_id, "status": "chunking"}
 
     except HTTPException:
         raise
@@ -353,10 +295,7 @@ async def chunk_document(
 
 
 @router.delete("/{document_id}")
-async def delete_document(
-    document_id: str,
-    current_user: dict = Depends(get_current_user)
-):
+async def delete_document(document_id: str, current_user: dict = Depends(get_current_user)):
     """Delete processed document.
 
     **Note**: Also deletes associated chunks
@@ -368,10 +307,7 @@ async def delete_document(
 
         # Delete document
         collection = db_manager.get_collection("processed_documents")
-        result = await collection.delete_one({
-            "_id": ObjectId(document_id),
-            "user_id": user_id
-        })
+        result = await collection.delete_one({"_id": ObjectId(document_id), "user_id": user_id})
 
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -380,15 +316,9 @@ async def delete_document(
         chunks_collection = db_manager.get_collection("document_chunks")
         await chunks_collection.delete_many({"document_id": document_id})
 
-        logger.info(
-            f"Deleted document {document_id}",
-            extra={"user_id": user_id}
-        )
+        logger.info(f"Deleted document {document_id}", extra={"user_id": user_id})
 
-        return {
-            "message": "Document deleted successfully",
-            "document_id": document_id
-        }
+        return {"message": "Document deleted successfully", "document_id": document_id}
 
     except HTTPException:
         raise

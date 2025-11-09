@@ -8,17 +8,18 @@ authentication patterns as documented.
 
 import asyncio
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Add the src directory to the path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from second_brain_database.config import settings
-from second_brain_database.integrations.mcp.modern_server import mcp, create_auth_provider
 from second_brain_database.integrations.mcp.auth_middleware import FastMCPJWTAuthProvider
+from second_brain_database.integrations.mcp.modern_server import create_auth_provider, mcp
 from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[FastMCP_Auth_Test]")
+
 
 async def test_fastmcp_auth_provider():
     """Test the FastMCP 2.x authentication provider."""
@@ -46,6 +47,7 @@ async def test_fastmcp_auth_provider():
         print(f"❌ Auth provider test failed: {e}")
         return False
 
+
 async def test_mcp_server_auth_integration():
     """Test MCP server authentication integration."""
     print("\n🧪 Testing MCP Server Authentication Integration")
@@ -69,6 +71,7 @@ async def test_mcp_server_auth_integration():
     except Exception as e:
         print(f"❌ Server auth integration test failed: {e}")
         return False
+
 
 async def test_jwt_auth_provider_interface():
     """Test the JWT authentication provider interface."""
@@ -97,6 +100,7 @@ async def test_jwt_auth_provider_interface():
         print(f"❌ JWT provider interface test failed: {e}")
         return False
 
+
 async def test_fastmcp_compliance():
     """Test FastMCP 2.x compliance."""
     print("\n🧪 Testing FastMCP 2.x Compliance")
@@ -104,16 +108,15 @@ async def test_fastmcp_compliance():
 
     compliance_checks = {
         "Server instantiation": mcp is not None,
-        "Server has name": hasattr(mcp, 'name') and mcp.name,
-        "Server has version": hasattr(mcp, 'version') and mcp.version,
-        "Server has auth attribute": hasattr(mcp, 'auth'),
+        "Server has name": hasattr(mcp, "name") and mcp.name,
+        "Server has version": hasattr(mcp, "version") and mcp.version,
+        "Server has auth attribute": hasattr(mcp, "auth"),
         "Auth provider follows interface": (
-            mcp.auth is None or
-            (hasattr(mcp.auth, 'authenticate') and callable(mcp.auth.authenticate))
+            mcp.auth is None or (hasattr(mcp.auth, "authenticate") and callable(mcp.auth.authenticate))
         ),
         "Tools registered via decorators": True,  # Tools are registered in tools_registration.py
-        "HTTP app method available": hasattr(mcp, 'http_app'),
-        "Run method available": hasattr(mcp, 'run')
+        "HTTP app method available": hasattr(mcp, "http_app"),
+        "Run method available": hasattr(mcp, "run"),
     }
 
     passed = 0
@@ -134,6 +137,7 @@ async def test_fastmcp_compliance():
     else:
         print("❌ Low compliance - needs improvement")
         return False
+
 
 async def main():
     """Run all FastMCP 2.x authentication tests."""
@@ -182,6 +186,7 @@ async def main():
     else:
         print(f"\n❌ {total - passed} tests failed. Authentication needs fixes.")
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(main())

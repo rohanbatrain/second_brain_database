@@ -7,34 +7,31 @@ without complex import dependencies that cause circular import issues.
 """
 
 import asyncio
-import pytest
-import time
 from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any, List
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Test imports
 from second_brain_database.integrations.mcp.context import (
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    get_mcp_request_context,
     get_mcp_user_context,
-    get_mcp_request_context
-)
-from second_brain_database.integrations.mcp.security import (
-    secure_mcp_tool,
-    authenticated_tool,
-    mcp_audit_logger
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
 from second_brain_database.integrations.mcp.exceptions import (
     MCPAuthenticationError,
     MCPAuthorizationError,
-    MCPRateLimitError
+    MCPRateLimitError,
 )
+from second_brain_database.integrations.mcp.security import authenticated_tool, mcp_audit_logger, secure_mcp_tool
 
 
 class TestMCPComprehensiveFixed:
@@ -52,7 +49,7 @@ class TestMCPComprehensiveFixed:
             ip_address="127.0.0.1",
             user_agent="TestClient/1.0",
             token_type="jwt",
-            token_id="token_123"
+            token_id="token_123",
         )
 
     @pytest.fixture
@@ -67,7 +64,7 @@ class TestMCPComprehensiveFixed:
             ip_address="127.0.0.1",
             user_agent="AdminClient/1.0",
             token_type="jwt",
-            token_id="admin_token_123"
+            token_id="admin_token_123",
         )
 
     def setup_method(self):
@@ -94,6 +91,7 @@ class TestMCPComprehensiveFixed:
     @pytest.mark.asyncio
     async def test_authentication_failure(self):
         """Test authentication failure when no user context is set."""
+
         @secure_mcp_tool(permissions=["family:read"])
         async def test_tool():
             return {"should_not_reach": True}
@@ -138,17 +136,15 @@ class TestMCPComprehensiveFixed:
             "email": "test@example.com",
             "role": "user",
             "permissions": ["family:read", "profile:read"],
-            "workspaces": [
-                {"_id": "workspace_1", "name": "Test Workspace", "role": "member"}
-            ],
+            "workspaces": [{"_id": "workspace_1", "name": "Test Workspace", "role": "member"}],
             "family_memberships": [
                 {"family_id": "family_1", "role": "admin"},
-                {"family_id": "family_2", "role": "member"}
+                {"family_id": "family_2", "role": "member"},
             ],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
@@ -156,7 +152,7 @@ class TestMCPComprehensiveFixed:
             ip_address="192.168.1.100",
             user_agent="TestClient/1.0",
             token_type="jwt",
-            token_id="jwt_token_123"
+            token_id="jwt_token_123",
         )
 
         # Verify context creation
@@ -185,9 +181,7 @@ class TestMCPComprehensiveFixed:
         set_mcp_user_context(mock_user_context)
 
         request_context = create_mcp_request_context(
-            operation_type="tool",
-            tool_name="test_tool",
-            parameters={"param1": "value1", "param2": "value2"}
+            operation_type="tool", tool_name="test_tool", parameters={"param1": "value1", "param2": "value2"}
         )
 
         set_mcp_request_context(request_context)
@@ -204,6 +198,7 @@ class TestMCPComprehensiveFixed:
     @pytest.mark.asyncio
     async def test_concurrent_user_operations(self):
         """Test concurrent operations from different users."""
+
         async def user_operation(user_id: str, permissions: List[str]):
             # Create unique user context
             user_context = MCPUserContext(
@@ -211,13 +206,10 @@ class TestMCPComprehensiveFixed:
                 username=f"user_{user_id}",
                 permissions=permissions,
                 ip_address="127.0.0.1",
-                user_agent=f"ConcurrentClient_{user_id}/1.0"
+                user_agent=f"ConcurrentClient_{user_id}/1.0",
             )
 
-            request_context = create_mcp_request_context(
-                operation_type="tool",
-                tool_name=f"concurrent_tool_{user_id}"
-            )
+            request_context = create_mcp_request_context(operation_type="tool", tool_name=f"concurrent_tool_{user_id}")
 
             set_mcp_user_context(user_context)
             set_mcp_request_context(request_context)
@@ -234,7 +226,7 @@ class TestMCPComprehensiveFixed:
         tasks = [
             user_operation("user_1", ["family:read"]),
             user_operation("user_2", ["profile:read"]),
-            user_operation("user_3", ["family:read", "family:write"])
+            user_operation("user_3", ["family:read", "family:write"]),
         ]
 
         results = await asyncio.gather(*tasks)
@@ -294,9 +286,7 @@ class TestMCPComprehensiveFixed:
         set_mcp_user_context(mock_user_context)
 
         @authenticated_tool(
-            name="test_authenticated_tool",
-            description="Test tool with authentication",
-            permissions=["family:read"]
+            name="test_authenticated_tool", description="Test tool with authentication", permissions=["family:read"]
         )
         async def test_tool():
             return {"authenticated": True}
@@ -318,7 +308,7 @@ class TestMCPComprehensiveFixed:
             username="user_one",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="Client1/1.0"
+            user_agent="Client1/1.0",
         )
 
         context2 = MCPUserContext(
@@ -326,7 +316,7 @@ class TestMCPComprehensiveFixed:
             username="user_two",
             permissions=["profile:read"],
             ip_address="192.168.1.1",
-            user_agent="Client2/1.0"
+            user_agent="Client2/1.0",
         )
 
         async def operation_with_context1():
@@ -368,7 +358,7 @@ class TestMCPComprehensiveFixed:
             username="test_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(malformed_context)
 
@@ -387,7 +377,7 @@ class TestMCPComprehensiveFixed:
             username="test_user",
             permissions=None,  # None permissions
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
@@ -401,6 +391,7 @@ class TestMCPComprehensiveFixed:
     @pytest.mark.asyncio
     async def test_performance_under_load(self):
         """Test MCP performance under concurrent load."""
+
         async def single_operation(operation_id: int):
             # Create user context
             user_context = MCPUserContext(
@@ -408,13 +399,10 @@ class TestMCPComprehensiveFixed:
                 username=f"perf_user_{operation_id}",
                 permissions=["family:read"],
                 ip_address="127.0.0.1",
-                user_agent="PerfTestClient/1.0"
+                user_agent="PerfTestClient/1.0",
             )
 
-            request_context = create_mcp_request_context(
-                operation_type="tool",
-                tool_name=f"perf_tool_{operation_id}"
-            )
+            request_context = create_mcp_request_context(operation_type="tool", tool_name=f"perf_tool_{operation_id}")
 
             set_mcp_user_context(user_context)
             set_mcp_request_context(request_context)
@@ -430,11 +418,7 @@ class TestMCPComprehensiveFixed:
             result = await perf_tool()
             end_time = time.time()
 
-            return {
-                "operation_id": operation_id,
-                "result": result,
-                "duration": end_time - start_time
-            }
+            return {"operation_id": operation_id, "result": result, "duration": end_time - start_time}
 
         # Execute multiple concurrent operations
         num_operations = 20
@@ -479,20 +463,16 @@ class TestMCPSimulatedWorkflows:
             "email": "family@example.com",
             "role": "user",
             "permissions": ["family:read", "family:write"],
-            "family_memberships": [
-                {"family_id": "family_1", "role": "admin"}
-            ],
+            "family_memberships": [{"family_id": "family_1", "role": "admin"}],
             "workspaces": [],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="FamilyClient/1.0"
+            fastapi_user=fastapi_user, ip_address="192.168.1.100", user_agent="FamilyClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -503,12 +483,7 @@ class TestMCPSimulatedWorkflows:
         @secure_mcp_tool(permissions=["family:read"])
         async def get_family_info():
             # Simulate family data retrieval
-            return {
-                "id": "family_1",
-                "name": "Test Family",
-                "member_count": 3,
-                "owner_id": user_context.user_id
-            }
+            return {"id": "family_1", "name": "Test Family", "member_count": 3, "owner_id": user_context.user_id}
 
         family_info = await get_family_info()
         workflow_results.append(("get_family", family_info))
@@ -519,7 +494,7 @@ class TestMCPSimulatedWorkflows:
             # Simulate family members retrieval
             return [
                 {"user_id": "user_1", "username": "member1", "role": "admin"},
-                {"user_id": "user_2", "username": "member2", "role": "member"}
+                {"user_id": "user_2", "username": "member2", "role": "member"},
             ]
 
         members = await get_family_members()
@@ -529,11 +504,7 @@ class TestMCPSimulatedWorkflows:
         @secure_mcp_tool(permissions=["family:write"])
         async def update_family_settings():
             # Simulate family update
-            return {
-                "id": "family_1",
-                "name": "Updated Family Name",
-                "updated": True
-            }
+            return {"id": "family_1", "name": "Updated Family Name", "updated": True}
 
         updated_family = await update_family_settings()
         workflow_results.append(("update_family", updated_family))
@@ -563,13 +534,11 @@ class TestMCPSimulatedWorkflows:
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="ShopClient/1.0"
+            fastapi_user=fastapi_user, ip_address="192.168.1.100", user_agent="ShopClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -578,18 +547,8 @@ class TestMCPSimulatedWorkflows:
         async def browse_shop_items():
             # Simulate shop items retrieval
             return [
-                {
-                    "id": "theme_1",
-                    "name": "Premium Theme",
-                    "price": 200,
-                    "type": "theme"
-                },
-                {
-                    "id": "avatar_1",
-                    "name": "Cool Avatar",
-                    "price": 100,
-                    "type": "avatar"
-                }
+                {"id": "theme_1", "name": "Premium Theme", "price": 200, "type": "theme"},
+                {"id": "avatar_1", "name": "Cool Avatar", "price": 100, "type": "avatar"},
             ]
 
         shop_items = await browse_shop_items()
@@ -607,7 +566,7 @@ class TestMCPSimulatedWorkflows:
                 "transaction_id": "txn_123",
                 "item_purchased": item["name"],
                 "cost": item["price"],
-                "status": "completed"
+                "status": "completed",
             }
 
         purchase_result = await purchase_item("theme_1")
@@ -625,20 +584,16 @@ class TestMCPSimulatedWorkflows:
             "email": "workspace@example.com",
             "role": "user",
             "permissions": ["workspace:read", "workspace:write"],
-            "workspaces": [
-                {"_id": "workspace_1", "name": "Test Workspace", "role": "admin"}
-            ],
+            "workspaces": [{"_id": "workspace_1", "name": "Test Workspace", "role": "admin"}],
             "family_memberships": [],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=fastapi_user,
-            ip_address="192.168.1.100",
-            user_agent="WorkspaceClient/1.0"
+            fastapi_user=fastapi_user, ip_address="192.168.1.100", user_agent="WorkspaceClient/1.0"
         )
         set_mcp_user_context(user_context)
 
@@ -646,14 +601,7 @@ class TestMCPSimulatedWorkflows:
         @secure_mcp_tool(permissions=["workspace:read"])
         async def get_user_workspaces():
             # Simulate workspace retrieval
-            return [
-                {
-                    "id": "workspace_1",
-                    "name": "Test Workspace",
-                    "role": "admin",
-                    "member_count": 5
-                }
-            ]
+            return [{"id": "workspace_1", "name": "Test Workspace", "role": "admin", "member_count": 5}]
 
         workspaces = await get_user_workspaces()
         assert len(workspaces) == 1
@@ -668,7 +616,7 @@ class TestMCPSimulatedWorkflows:
                 "name": name,
                 "description": description,
                 "owner_id": user_context.user_id,
-                "created": True
+                "created": True,
             }
 
         new_workspace = await create_workspace("New Workspace", "Test workspace")

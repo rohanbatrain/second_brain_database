@@ -8,25 +8,27 @@ using JWT tokens instead of creating fake static users.
 
 import asyncio
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Add the src directory to the path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from second_brain_database.config import settings
-from second_brain_database.routes.auth.services.auth.login import get_current_user, create_access_token
 from second_brain_database.integrations.mcp.auth_middleware import SecondBrainAuthProvider
 from second_brain_database.integrations.mcp.context import create_mcp_user_context_from_fastapi_user
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes.auth.services.auth.login import create_access_token, get_current_user
 
 logger = get_logger(prefix="[JWT_MCP_Test]")
+
 
 class MockRequest:
     """Mock FastAPI Request for testing."""
 
     def __init__(self, headers: Dict[str, str]):
         self.headers = headers
-        self.client = type('Client', (), {'host': '127.0.0.1'})()
+        self.client = type("Client", (), {"host": "127.0.0.1"})()
+
 
 async def test_jwt_authentication():
     """Test JWT authentication flow with MCP."""
@@ -69,7 +71,7 @@ async def test_jwt_authentication():
                 ip_address="127.0.0.1",
                 user_agent="TestClient/1.0",
                 token_type="jwt",
-                token_id="test_token_123"
+                token_id="test_token_123",
             )
 
             print(f"✅ MCP user context created successfully!")
@@ -90,10 +92,7 @@ async def test_jwt_authentication():
             auth_provider = SecondBrainAuthProvider()
 
             # Create mock request with JWT token
-            mock_request = MockRequest({
-                "Authorization": f"Bearer {jwt_token}",
-                "User-Agent": "TestClient/1.0"
-            })
+            mock_request = MockRequest({"Authorization": f"Bearer {jwt_token}", "User-Agent": "TestClient/1.0"})
 
             # Test authentication
             auth_result = await auth_provider.authenticate(mock_request)
@@ -123,6 +122,7 @@ async def test_jwt_authentication():
         print(f"❌ Test failed with error: {e}")
         return False
 
+
 async def test_development_mode():
     """Test development mode (no JWT required)."""
 
@@ -140,9 +140,7 @@ async def test_development_mode():
         auth_provider = SecondBrainAuthProvider()
 
         # Create mock request without JWT token
-        mock_request = MockRequest({
-            "User-Agent": "TestClient/1.0"
-        })
+        mock_request = MockRequest({"User-Agent": "TestClient/1.0"})
 
         # Test authentication
         auth_result = await auth_provider.authenticate(mock_request)
@@ -164,6 +162,7 @@ async def test_development_mode():
     except Exception as e:
         print(f"❌ Development mode test failed: {e}")
         return False
+
 
 async def main():
     """Run all authentication tests."""
@@ -198,6 +197,7 @@ async def main():
     else:
         print("\n❌ Some tests failed. Please check the errors above.")
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(main())

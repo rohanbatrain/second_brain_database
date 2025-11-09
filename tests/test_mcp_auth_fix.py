@@ -7,27 +7,23 @@ properly in both development and production modes.
 """
 
 import asyncio
-import sys
 import json
 from pathlib import Path
+import sys
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from second_brain_database.config import settings
-from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.integrations.mcp.context import clear_mcp_context, get_mcp_user_context, set_mcp_user_context
+from second_brain_database.integrations.mcp.security import _create_default_user_context
 from second_brain_database.integrations.mcp.server_factory import (
     create_mcp_server,
     get_mcp_server_info,
+    mcp_health_check,
     validate_mcp_configuration,
-    mcp_health_check
 )
-from second_brain_database.integrations.mcp.security import _create_default_user_context
-from second_brain_database.integrations.mcp.context import (
-    set_mcp_user_context,
-    get_mcp_user_context,
-    clear_mcp_context
-)
+from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[MCP_Auth_Test]")
 
@@ -112,17 +108,17 @@ async def test_configuration_validation():
         print(f"  - Issues: {len(validation['issues'])}")
         print(f"  - Warnings: {len(validation['warnings'])}")
 
-        if validation['issues']:
+        if validation["issues"]:
             print("  Issues found:")
-            for issue in validation['issues']:
+            for issue in validation["issues"]:
                 print(f"    - {issue}")
 
-        if validation['warnings']:
+        if validation["warnings"]:
             print("  Warnings found:")
-            for warning in validation['warnings']:
+            for warning in validation["warnings"]:
                 print(f"    - {warning}")
 
-        return validation['valid']
+        return validation["valid"]
 
     except Exception as e:
         print(f"❌ Configuration validation test failed: {e}")
@@ -141,11 +137,11 @@ async def test_health_check():
         print(f"  - Healthy: {health['healthy']}")
         print(f"  - Components: {len(health.get('components', {}))}")
 
-        for component, status in health.get('components', {}).items():
-            status_icon = "✅" if status['status'] == 'healthy' else "⚠️" if status['status'] == 'warning' else "❌"
+        for component, status in health.get("components", {}).items():
+            status_icon = "✅" if status["status"] == "healthy" else "⚠️" if status["status"] == "warning" else "❌"
             print(f"  - {component}: {status_icon} {status['status']} - {status['details']}")
 
-        return health['healthy']
+        return health["healthy"]
 
     except Exception as e:
         print(f"❌ Health check test failed: {e}")

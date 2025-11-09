@@ -5,17 +5,18 @@ Test resources for MCP development and validation.
 Provides test data and mock resources for development and testing purposes.
 """
 
-import json
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+import json
+from typing import Any, Dict, List, Optional
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
+from ....managers.logging_manager import get_logger
+from ..context import create_mcp_audit_trail
 from ..modern_server import mcp
 from ..security import get_mcp_user_context
-from ..context import create_mcp_audit_trail
 
 logger = get_logger(prefix="[MCP_TestResources]")
+
 
 @mcp.resource("test://simple", tags={"development", "resources", "testing"})
 async def get_simple_test_resource() -> str:
@@ -32,7 +33,7 @@ async def get_simple_test_resource() -> str:
             "message": "Hello from MCP test resource!",
             "timestamp": datetime.utcnow().isoformat(),
             "user_id": user_context.user_id,
-            "resource_type": "test_simple"
+            "resource_type": "test_simple",
         }
 
         await create_mcp_audit_trail(
@@ -40,7 +41,7 @@ async def get_simple_test_resource() -> str:
             user_context=user_context,
             resource_type="test",
             resource_id="simple",
-            metadata={"test_resource": True}
+            metadata={"test_resource": True},
         )
 
         return json.dumps(result, indent=2, default=str)
@@ -71,27 +72,24 @@ async def get_test_data_resource(data_type: str) -> str:
             test_data = {
                 "users": [
                     {"id": "user_001", "name": "Test User 1", "email": "test1@example.com"},
-                    {"id": "user_002", "name": "Test User 2", "email": "test2@example.com"}
+                    {"id": "user_002", "name": "Test User 2", "email": "test2@example.com"},
                 ]
             }
         elif data_type == "families":
             test_data = {
                 "families": [
                     {"id": "family_001", "name": "Test Family 1", "member_count": 3},
-                    {"id": "family_002", "name": "Test Family 2", "member_count": 5}
+                    {"id": "family_002", "name": "Test Family 2", "member_count": 5},
                 ]
             }
         else:
-            test_data = {
-                "message": f"Unknown test data type: {data_type}",
-                "available_types": ["users", "families"]
-            }
+            test_data = {"message": f"Unknown test data type: {data_type}", "available_types": ["users", "families"]}
 
         result = {
             "data_type": data_type,
             "data": test_data,
             "resource_type": "test_data",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -99,7 +97,7 @@ async def get_test_data_resource(data_type: str) -> str:
             user_context=user_context,
             resource_type="test",
             resource_id=data_type,
-            metadata={"data_type": data_type}
+            metadata={"data_type": data_type},
         )
 
         return json.dumps(result, indent=2, default=str)

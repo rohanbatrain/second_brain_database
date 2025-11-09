@@ -5,38 +5,43 @@ MCP tools for system health monitoring, user management, and system configuratio
 These tools provide comprehensive administrative capabilities for system operators.
 """
 
-from typing import List, Dict, Any, Optional
+import asyncio
 from datetime import datetime, timedelta
 import time
-import asyncio
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..security import authenticated_tool, get_mcp_user_context
-from ..modern_server import mcp
+from ....managers.logging_manager import get_logger
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
+from ..security import authenticated_tool, get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_AdminTools]")
 
 # Import manager instances
 from ....database import db_manager
-from ....managers.security_manager import security_manager
-from ....managers.redis_manager import redis_manager
 from ....managers.family_manager import FamilyManager
+from ....managers.redis_manager import redis_manager
+from ....managers.security_manager import security_manager
+
 
 # Pydantic models for admin tool parameters and responses
 class SystemHealthStatus(BaseModel):
     """System health status response model."""
+
     healthy: bool
     timestamp: datetime
     components: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     overall_status: str
     uptime_seconds: Optional[float] = None
 
+
 class DatabaseStats(BaseModel):
     """Database statistics response model."""
+
     connection_status: str
     collections: int
     total_documents: int
@@ -45,8 +50,10 @@ class DatabaseStats(BaseModel):
     avg_response_time_ms: float
     collections_stats: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
+
 class RedisStats(BaseModel):
     """Redis statistics response model."""
+
     connection_status: str
     memory_usage_bytes: int
     connected_clients: int
@@ -56,8 +63,10 @@ class RedisStats(BaseModel):
     hit_rate_percentage: float
     uptime_seconds: int
 
+
 class APIMetrics(BaseModel):
     """API performance metrics response model."""
+
     total_requests: int
     requests_per_minute: float
     average_response_time_ms: float
@@ -65,8 +74,10 @@ class APIMetrics(BaseModel):
     active_connections: int
     endpoint_stats: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
+
 class ErrorLogEntry(BaseModel):
     """Error log entry model."""
+
     timestamp: datetime
     level: str
     message: str
@@ -75,8 +86,10 @@ class ErrorLogEntry(BaseModel):
     ip_address: Optional[str] = None
     error_type: Optional[str] = None
 
+
 class PerformanceMetrics(BaseModel):
     """System performance metrics response model."""
+
     cpu_usage_percentage: Optional[float] = None
     memory_usage_percentage: Optional[float] = None
     disk_usage_percentage: Optional[float] = None
@@ -84,13 +97,15 @@ class PerformanceMetrics(BaseModel):
     database_performance: Dict[str, Any] = Field(default_factory=dict)
     cache_performance: Dict[str, Any] = Field(default_factory=dict)
 
+
 # System Monitoring Tools (Task 8.1)
+
 
 @authenticated_tool(
     name="get_system_health",
     description="Get comprehensive system health status including all components",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
 async def get_system_health() -> Dict[str, Any]:
     """
@@ -115,7 +130,7 @@ async def get_system_health() -> Dict[str, Any]:
             "timestamp": datetime.utcnow(),
             "components": {},
             "overall_status": "healthy",
-            "uptime_seconds": None
+            "uptime_seconds": None,
         }
 
         # Check database health
@@ -124,7 +139,7 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["components"]["database"] = {
                 "status": "healthy" if db_healthy else "unhealthy",
                 "healthy": db_healthy,
-                "message": "Database connection active" if db_healthy else "Database connection failed"
+                "message": "Database connection active" if db_healthy else "Database connection failed",
             }
             if not db_healthy:
                 health_status["healthy"] = False
@@ -132,7 +147,7 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["components"]["database"] = {
                 "status": "error",
                 "healthy": False,
-                "message": f"Database health check failed: {str(e)}"
+                "message": f"Database health check failed: {str(e)}",
             }
             health_status["healthy"] = False
 
@@ -143,31 +158,32 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["components"]["redis"] = {
                 "status": "healthy",
                 "healthy": True,
-                "message": "Redis connection active"
+                "message": "Redis connection active",
             }
         except Exception as e:
             health_status["components"]["redis"] = {
                 "status": "unhealthy",
                 "healthy": False,
-                "message": f"Redis connection failed: {str(e)}"
+                "message": f"Redis connection failed: {str(e)}",
             }
             health_status["healthy"] = False
 
         # Check MCP server health
         try:
             from ..server import mcp_server_manager
+
             mcp_health = await mcp_server_manager.health_check()
             health_status["components"]["mcp_server"] = {
                 "status": "healthy" if mcp_health["healthy"] else "unhealthy",
                 "healthy": mcp_health["healthy"],
                 "message": "MCP server operational" if mcp_health["healthy"] else "MCP server issues detected",
-                "details": mcp_health
+                "details": mcp_health,
             }
         except Exception as e:
             health_status["components"]["mcp_server"] = {
                 "status": "error",
                 "healthy": False,
-                "message": f"MCP server health check failed: {str(e)}"
+                "message": f"MCP server health check failed: {str(e)}",
             }
 
         # Check application configuration
@@ -187,7 +203,9 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["components"]["configuration"] = {
                 "status": "healthy" if config_healthy else "unhealthy",
                 "healthy": config_healthy,
-                "message": "Configuration valid" if config_healthy else f"Configuration issues: {', '.join(config_issues)}"
+                "message": (
+                    "Configuration valid" if config_healthy else f"Configuration issues: {', '.join(config_issues)}"
+                ),
             }
 
             if not config_healthy:
@@ -197,7 +215,7 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["components"]["configuration"] = {
                 "status": "error",
                 "healthy": False,
-                "message": f"Configuration check failed: {str(e)}"
+                "message": f"Configuration check failed: {str(e)}",
             }
             health_status["healthy"] = False
 
@@ -206,8 +224,7 @@ async def get_system_health() -> Dict[str, Any]:
             health_status["overall_status"] = "healthy"
         else:
             unhealthy_components = [
-                name for name, comp in health_status["components"].items()
-                if not comp.get("healthy", False)
+                name for name, comp in health_status["components"].items() if not comp.get("healthy", False)
             ]
             health_status["overall_status"] = f"unhealthy - issues with: {', '.join(unhealthy_components)}"
 
@@ -223,12 +240,15 @@ async def get_system_health() -> Dict[str, Any]:
             metadata={
                 "overall_healthy": health_status["healthy"],
                 "components_checked": len(health_status["components"]),
-                "check_duration_ms": health_status["check_duration_ms"]
-            }
+                "check_duration_ms": health_status["check_duration_ms"],
+            },
         )
 
-        logger.info("System health check completed by user %s - Status: %s",
-                   user_context.user_id, health_status["overall_status"])
+        logger.info(
+            "System health check completed by user %s - Status: %s",
+            user_context.user_id,
+            health_status["overall_status"],
+        )
 
         return health_status
 
@@ -241,7 +261,7 @@ async def get_system_health() -> Dict[str, Any]:
     name="get_database_stats",
     description="Get detailed database metrics and statistics",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
 async def get_database_stats() -> Dict[str, Any]:
     """
@@ -286,7 +306,7 @@ async def get_database_stats() -> Dict[str, Any]:
                     "storage_size_bytes": collection_stats.get("storageSize", 0),
                     "index_count": collection_stats.get("nindexes", 0),
                     "index_size_bytes": collection_stats.get("totalIndexSize", 0),
-                    "avg_document_size_bytes": collection_stats.get("avgObjSize", 0)
+                    "avg_document_size_bytes": collection_stats.get("avgObjSize", 0),
                 }
             except Exception as e:
                 logger.warning("Failed to get stats for collection %s: %s", collection_name, e)
@@ -303,7 +323,7 @@ async def get_database_stats() -> Dict[str, Any]:
             "avg_response_time_ms": round(ping_duration, 2),
             "collections_stats": collections_stats,
             "database_version": None,
-            "server_status": {}
+            "server_status": {},
         }
 
         # Get server information
@@ -313,7 +333,7 @@ async def get_database_stats() -> Dict[str, Any]:
             database_stats["server_status"] = {
                 "max_bson_size": server_info.get("maxBsonObjectSize", 0),
                 "max_message_size": server_info.get("maxMessageSizeBytes", 0),
-                "max_write_batch_size": server_info.get("maxWriteBatchSize", 0)
+                "max_write_batch_size": server_info.get("maxWriteBatchSize", 0),
             }
         except Exception as e:
             logger.warning("Failed to get server info: %s", e)
@@ -323,7 +343,8 @@ async def get_database_stats() -> Dict[str, Any]:
         database_stats["total_size_bytes"] = total_size
         database_stats["index_ratio_percentage"] = (
             (database_stats["index_size_bytes"] / database_stats["data_size_bytes"] * 100)
-            if database_stats["data_size_bytes"] > 0 else 0
+            if database_stats["data_size_bytes"] > 0
+            else 0
         )
 
         # Add timing information
@@ -338,12 +359,16 @@ async def get_database_stats() -> Dict[str, Any]:
             metadata={
                 "collections_count": database_stats["collections"],
                 "total_documents": database_stats["total_documents"],
-                "total_size_mb": round(total_size / (1024 * 1024), 2)
-            }
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+            },
         )
 
-        logger.info("Database statistics retrieved by user %s - %d collections, %d documents",
-                   user_context.user_id, database_stats["collections"], database_stats["total_documents"])
+        logger.info(
+            "Database statistics retrieved by user %s - %d collections, %d documents",
+            user_context.user_id,
+            database_stats["collections"],
+            database_stats["total_documents"],
+        )
 
         return database_stats
 
@@ -356,7 +381,7 @@ async def get_database_stats() -> Dict[str, Any]:
     name="get_redis_stats",
     description="Get Redis cache metrics and performance statistics",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
 async def get_redis_stats() -> Dict[str, Any]:
     """
@@ -404,14 +429,13 @@ async def get_redis_stats() -> Dict[str, Any]:
             "keyspace_misses": redis_info.get("keyspace_misses", 0),
             "expired_keys": redis_info.get("expired_keys", 0),
             "evicted_keys": redis_info.get("evicted_keys", 0),
-            "ping_response_time_ms": round(ping_duration, 2)
+            "ping_response_time_ms": round(ping_duration, 2),
         }
 
         # Calculate hit rate
         total_keyspace_ops = redis_stats["keyspace_hits"] + redis_stats["keyspace_misses"]
         redis_stats["hit_rate_percentage"] = (
-            (redis_stats["keyspace_hits"] / total_keyspace_ops * 100)
-            if total_keyspace_ops > 0 else 0
+            (redis_stats["keyspace_hits"] / total_keyspace_ops * 100) if total_keyspace_ops > 0 else 0
         )
 
         # Get keyspace information (databases)
@@ -437,7 +461,7 @@ async def get_redis_stats() -> Dict[str, Any]:
             "used_memory_peak_human": redis_info.get("used_memory_peak_human", "0B"),
             "used_memory_overhead": redis_info.get("used_memory_overhead", 0),
             "used_memory_dataset": redis_info.get("used_memory_dataset", 0),
-            "mem_fragmentation_ratio": redis_info.get("mem_fragmentation_ratio", 0)
+            "mem_fragmentation_ratio": redis_info.get("mem_fragmentation_ratio", 0),
         }
 
         # Get persistence information
@@ -445,7 +469,7 @@ async def get_redis_stats() -> Dict[str, Any]:
             "rdb_changes_since_last_save": redis_info.get("rdb_changes_since_last_save", 0),
             "rdb_last_save_time": redis_info.get("rdb_last_save_time", 0),
             "rdb_last_bgsave_status": redis_info.get("rdb_last_bgsave_status", "unknown"),
-            "aof_enabled": redis_info.get("aof_enabled", 0) == 1
+            "aof_enabled": redis_info.get("aof_enabled", 0) == 1,
         }
 
         # Add timing information
@@ -460,14 +484,16 @@ async def get_redis_stats() -> Dict[str, Any]:
             metadata={
                 "connected_clients": redis_stats["connected_clients"],
                 "used_memory_mb": round(redis_stats["used_memory_bytes"] / (1024 * 1024), 2),
-                "hit_rate_percentage": round(redis_stats["hit_rate_percentage"], 2)
-            }
+                "hit_rate_percentage": round(redis_stats["hit_rate_percentage"], 2),
+            },
         )
 
-        logger.info("Redis statistics retrieved by user %s - Memory: %s, Hit rate: %.2f%%",
-                   user_context.user_id,
-                   redis_stats["memory_info"]["used_memory_human"],
-                   redis_stats["hit_rate_percentage"])
+        logger.info(
+            "Redis statistics retrieved by user %s - Memory: %s, Hit rate: %.2f%%",
+            user_context.user_id,
+            redis_stats["memory_info"]["used_memory_human"],
+            redis_stats["hit_rate_percentage"],
+        )
 
         return redis_stats
 
@@ -480,7 +506,7 @@ async def get_redis_stats() -> Dict[str, Any]:
     name="get_api_metrics",
     description="Get API performance metrics and request statistics",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
 async def get_api_metrics() -> Dict[str, Any]:
     """
@@ -514,7 +540,7 @@ async def get_api_metrics() -> Dict[str, Any]:
             "endpoint_stats": {},
             "status_code_distribution": {},
             "recent_errors": [],
-            "performance_summary": {}
+            "performance_summary": {},
         }
 
         # Get metrics from Redis (these would be populated by middleware)
@@ -553,7 +579,7 @@ async def get_api_metrics() -> Dict[str, Any]:
                         "request_count": int(endpoint_data.get(b"count", 0)),
                         "avg_response_time_ms": float(endpoint_data.get(b"avg_time", 0)),
                         "error_count": int(endpoint_data.get(b"errors", 0)),
-                        "last_accessed": endpoint_data.get(b"last_accessed", b"").decode()
+                        "last_accessed": endpoint_data.get(b"last_accessed", b"").decode(),
                     }
         except Exception as e:
             logger.warning("Failed to retrieve endpoint statistics: %s", e)
@@ -578,14 +604,22 @@ async def get_api_metrics() -> Dict[str, Any]:
         # Calculate performance summary
         api_metrics["performance_summary"] = {
             "requests_per_second": api_metrics["requests_per_minute"] / 60.0,
-            "error_rate_status": "low" if api_metrics["error_rate_percentage"] < 1.0 else
-                                "medium" if api_metrics["error_rate_percentage"] < 5.0 else "high",
-            "response_time_status": "fast" if api_metrics["average_response_time_ms"] < 100 else
-                                   "medium" if api_metrics["average_response_time_ms"] < 500 else "slow",
+            "error_rate_status": (
+                "low"
+                if api_metrics["error_rate_percentage"] < 1.0
+                else "medium" if api_metrics["error_rate_percentage"] < 5.0 else "high"
+            ),
+            "response_time_status": (
+                "fast"
+                if api_metrics["average_response_time_ms"] < 100
+                else "medium" if api_metrics["average_response_time_ms"] < 500 else "slow"
+            ),
             "total_endpoints": len(api_metrics["endpoint_stats"]),
-            "most_used_endpoint": max(api_metrics["endpoint_stats"].items(),
-                                    key=lambda x: x[1]["request_count"])[0]
-                                    if api_metrics["endpoint_stats"] else None
+            "most_used_endpoint": (
+                max(api_metrics["endpoint_stats"].items(), key=lambda x: x[1]["request_count"])[0]
+                if api_metrics["endpoint_stats"]
+                else None
+            ),
         }
 
         # Add timing information
@@ -600,15 +634,17 @@ async def get_api_metrics() -> Dict[str, Any]:
             metadata={
                 "total_requests": api_metrics["total_requests"],
                 "error_rate_percentage": round(api_metrics["error_rate_percentage"], 2),
-                "avg_response_time_ms": round(api_metrics["average_response_time_ms"], 2)
-            }
+                "avg_response_time_ms": round(api_metrics["average_response_time_ms"], 2),
+            },
         )
 
-        logger.info("API metrics retrieved by user %s - Requests: %d, Error rate: %.2f%%, Avg response: %.2fms",
-                   user_context.user_id,
-                   api_metrics["total_requests"],
-                   api_metrics["error_rate_percentage"],
-                   api_metrics["average_response_time_ms"])
+        logger.info(
+            "API metrics retrieved by user %s - Requests: %d, Error rate: %.2f%%, Avg response: %.2fms",
+            user_context.user_id,
+            api_metrics["total_requests"],
+            api_metrics["error_rate_percentage"],
+            api_metrics["average_response_time_ms"],
+        )
 
         return api_metrics
 
@@ -621,13 +657,9 @@ async def get_api_metrics() -> Dict[str, Any]:
     name="get_error_logs",
     description="Get recent error logs for system monitoring and debugging",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
-async def get_error_logs(
-    limit: int = 50,
-    level: Optional[str] = None,
-    since_hours: int = 24
-) -> List[Dict[str, Any]]:
+async def get_error_logs(limit: int = 50, level: Optional[str] = None, since_hours: int = 24) -> List[Dict[str, Any]]:
     """
     Get recent error logs with filtering options for system monitoring.
 
@@ -682,6 +714,7 @@ async def get_error_logs(
                 for raw_log in raw_logs:
                     try:
                         import json
+
                         log_entry = json.loads(raw_log.decode())
 
                         # Parse timestamp
@@ -689,18 +722,20 @@ async def get_error_logs(
 
                         # Filter by time range
                         if log_timestamp >= since_timestamp:
-                            error_logs.append({
-                                "timestamp": log_timestamp,
-                                "level": log_entry.get("level", log_level),
-                                "message": log_entry.get("message", ""),
-                                "source": log_entry.get("source", "unknown"),
-                                "user_id": log_entry.get("user_id"),
-                                "ip_address": log_entry.get("ip_address"),
-                                "error_type": log_entry.get("error_type"),
-                                "stack_trace": log_entry.get("stack_trace"),
-                                "request_id": log_entry.get("request_id"),
-                                "additional_context": log_entry.get("context", {})
-                            })
+                            error_logs.append(
+                                {
+                                    "timestamp": log_timestamp,
+                                    "level": log_entry.get("level", log_level),
+                                    "message": log_entry.get("message", ""),
+                                    "source": log_entry.get("source", "unknown"),
+                                    "user_id": log_entry.get("user_id"),
+                                    "ip_address": log_entry.get("ip_address"),
+                                    "error_type": log_entry.get("error_type"),
+                                    "stack_trace": log_entry.get("stack_trace"),
+                                    "request_id": log_entry.get("request_id"),
+                                    "additional_context": log_entry.get("context", {}),
+                                }
+                            )
 
                     except (json.JSONDecodeError, ValueError) as e:
                         logger.warning("Failed to parse log entry: %s", e)
@@ -721,7 +756,7 @@ async def get_error_logs(
                     "error_type": "ConnectionTimeout",
                     "stack_trace": None,
                     "request_id": "req_123456",
-                    "additional_context": {"timeout_seconds": 30}
+                    "additional_context": {"timeout_seconds": 30},
                 },
                 {
                     "timestamp": datetime.utcnow() - timedelta(hours=2),
@@ -733,8 +768,8 @@ async def get_error_logs(
                     "error_type": "RateLimitExceeded",
                     "stack_trace": None,
                     "request_id": "req_789012",
-                    "additional_context": {"action": "login", "limit": 5}
-                }
+                    "additional_context": {"action": "login", "limit": 5},
+                },
             ]
 
         # Sort by timestamp (most recent first)
@@ -751,8 +786,10 @@ async def get_error_logs(
         summary = {
             "total_entries": len(error_logs),
             "time_range_hours": since_hours,
-            "levels_included": log_levels if 'log_levels' in locals() else [level] if level else ["ERROR", "WARNING", "CRITICAL"],
-            "collection_duration_ms": (time.time() - start_time) * 1000
+            "levels_included": (
+                log_levels if "log_levels" in locals() else [level] if level else ["ERROR", "WARNING", "CRITICAL"]
+            ),
+            "collection_duration_ms": (time.time() - start_time) * 1000,
         }
 
         # Create audit trail
@@ -761,20 +798,17 @@ async def get_error_logs(
             user_context=user_context,
             resource_type="system",
             resource_id="logs",
-            metadata={
-                "entries_retrieved": len(error_logs),
-                "level_filter": level,
-                "time_range_hours": since_hours
-            }
+            metadata={"entries_retrieved": len(error_logs), "level_filter": level, "time_range_hours": since_hours},
         )
 
-        logger.info("Error logs retrieved by user %s - %d entries from last %d hours",
-                   user_context.user_id, len(error_logs), since_hours)
+        logger.info(
+            "Error logs retrieved by user %s - %d entries from last %d hours",
+            user_context.user_id,
+            len(error_logs),
+            since_hours,
+        )
 
-        return {
-            "logs": error_logs,
-            "summary": summary
-        }
+        return {"logs": error_logs, "summary": summary}
 
     except Exception as e:
         logger.error("Failed to get error logs: %s", e)
@@ -785,7 +819,7 @@ async def get_error_logs(
     name="get_performance_metrics",
     description="Get comprehensive system performance metrics",
     permissions=["admin", "system:monitor"],
-    rate_limit_action="admin_monitor"
+    rate_limit_action="admin_monitor",
 )
 async def get_performance_metrics() -> Dict[str, Any]:
     """
@@ -812,7 +846,7 @@ async def get_performance_metrics() -> Dict[str, Any]:
             "database_performance": {},
             "cache_performance": {},
             "application_performance": {},
-            "network_performance": {}
+            "network_performance": {},
         }
 
         # Get system resource usage (if psutil is available)
@@ -822,54 +856,46 @@ async def get_performance_metrics() -> Dict[str, Any]:
             # CPU metrics
             cpu_percent = psutil.cpu_percent(interval=1)
             cpu_count = psutil.cpu_count()
-            load_avg = psutil.getloadavg() if hasattr(psutil, 'getloadavg') else (0, 0, 0)
+            load_avg = psutil.getloadavg() if hasattr(psutil, "getloadavg") else (0, 0, 0)
 
             # Memory metrics
             memory = psutil.virtual_memory()
             swap = psutil.swap_memory()
 
             # Disk metrics
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
 
             performance_metrics["system_resources"] = {
                 "cpu_usage_percentage": cpu_percent,
                 "cpu_count": cpu_count,
-                "load_average": {
-                    "1min": load_avg[0],
-                    "5min": load_avg[1],
-                    "15min": load_avg[2]
-                },
+                "load_average": {"1min": load_avg[0], "5min": load_avg[1], "15min": load_avg[2]},
                 "memory": {
                     "total_bytes": memory.total,
                     "available_bytes": memory.available,
                     "used_bytes": memory.used,
                     "usage_percentage": memory.percent,
-                    "free_bytes": memory.free
+                    "free_bytes": memory.free,
                 },
                 "swap": {
                     "total_bytes": swap.total,
                     "used_bytes": swap.used,
                     "free_bytes": swap.free,
-                    "usage_percentage": swap.percent
+                    "usage_percentage": swap.percent,
                 },
                 "disk": {
                     "total_bytes": disk.total,
                     "used_bytes": disk.used,
                     "free_bytes": disk.free,
-                    "usage_percentage": (disk.used / disk.total * 100) if disk.total > 0 else 0
-                }
+                    "usage_percentage": (disk.used / disk.total * 100) if disk.total > 0 else 0,
+                },
             }
 
         except ImportError:
             logger.warning("psutil not available - system resource metrics unavailable")
-            performance_metrics["system_resources"] = {
-                "error": "System resource monitoring requires psutil package"
-            }
+            performance_metrics["system_resources"] = {"error": "System resource monitoring requires psutil package"}
         except Exception as e:
             logger.warning("Failed to get system resource metrics: %s", e)
-            performance_metrics["system_resources"] = {
-                "error": f"Failed to collect system metrics: {str(e)}"
-            }
+            performance_metrics["system_resources"] = {"error": f"Failed to collect system metrics: {str(e)}"}
 
         # Database performance metrics
         try:
@@ -887,36 +913,34 @@ async def get_performance_metrics() -> Dict[str, Any]:
                     "connections": {
                         "current": db_stats.get("connections", {}).get("current", 0),
                         "available": db_stats.get("connections", {}).get("available", 0),
-                        "total_created": db_stats.get("connections", {}).get("totalCreated", 0)
+                        "total_created": db_stats.get("connections", {}).get("totalCreated", 0),
                     },
                     "operations": {
                         "insert": db_stats.get("opcounters", {}).get("insert", 0),
                         "query": db_stats.get("opcounters", {}).get("query", 0),
                         "update": db_stats.get("opcounters", {}).get("update", 0),
-                        "delete": db_stats.get("opcounters", {}).get("delete", 0)
+                        "delete": db_stats.get("opcounters", {}).get("delete", 0),
                     },
                     "memory": {
                         "resident_mb": db_stats.get("mem", {}).get("resident", 0),
                         "virtual_mb": db_stats.get("mem", {}).get("virtual", 0),
-                        "mapped_mb": db_stats.get("mem", {}).get("mapped", 0)
+                        "mapped_mb": db_stats.get("mem", {}).get("mapped", 0),
                     },
                     "network": {
                         "bytes_in": db_stats.get("network", {}).get("bytesIn", 0),
                         "bytes_out": db_stats.get("network", {}).get("bytesOut", 0),
-                        "requests": db_stats.get("network", {}).get("numRequests", 0)
-                    }
+                        "requests": db_stats.get("network", {}).get("numRequests", 0),
+                    },
                 }
             else:
                 performance_metrics["database_performance"] = {
                     "connection_healthy": False,
-                    "error": "Database health check failed"
+                    "error": "Database health check failed",
                 }
 
         except Exception as e:
             logger.warning("Failed to get database performance metrics: %s", e)
-            performance_metrics["database_performance"] = {
-                "error": f"Failed to collect database metrics: {str(e)}"
-            }
+            performance_metrics["database_performance"] = {"error": f"Failed to collect database metrics: {str(e)}"}
 
         # Cache (Redis) performance metrics
         try:
@@ -933,24 +957,26 @@ async def get_performance_metrics() -> Dict[str, Any]:
                 "memory_usage_bytes": redis_info.get("used_memory", 0),
                 "memory_peak_bytes": redis_info.get("used_memory_peak", 0),
                 "hit_rate_percentage": (
-                    (redis_info.get("keyspace_hits", 0) /
-                     (redis_info.get("keyspace_hits", 0) + redis_info.get("keyspace_misses", 1)) * 100)
+                    (
+                        redis_info.get("keyspace_hits", 0)
+                        / (redis_info.get("keyspace_hits", 0) + redis_info.get("keyspace_misses", 1))
+                        * 100
+                    )
                 ),
                 "operations_per_second": redis_info.get("instantaneous_ops_per_sec", 0),
                 "connected_clients": redis_info.get("connected_clients", 0),
-                "total_commands": redis_info.get("total_commands_processed", 0)
+                "total_commands": redis_info.get("total_commands_processed", 0),
             }
 
         except Exception as e:
             logger.warning("Failed to get cache performance metrics: %s", e)
-            performance_metrics["cache_performance"] = {
-                "error": f"Failed to collect cache metrics: {str(e)}"
-            }
+            performance_metrics["cache_performance"] = {"error": f"Failed to collect cache metrics: {str(e)}"}
 
         # Application performance metrics
         try:
             # Get MCP server performance
             from ..server import mcp_server_manager
+
             mcp_status = await mcp_server_manager.get_server_status()
 
             performance_metrics["application_performance"] = {
@@ -959,14 +985,14 @@ async def get_performance_metrics() -> Dict[str, Any]:
                     "uptime_seconds": mcp_status.get("uptime_seconds", 0),
                     "tool_count": mcp_status.get("tool_count", 0),
                     "resource_count": mcp_status.get("resource_count", 0),
-                    "prompt_count": mcp_status.get("prompt_count", 0)
+                    "prompt_count": mcp_status.get("prompt_count", 0),
                 },
                 "configuration": {
                     "debug_mode": settings.DEBUG,
                     "environment": "production" if not settings.DEBUG else "development",
                     "max_concurrent_tools": settings.MCP_MAX_CONCURRENT_TOOLS,
-                    "request_timeout": settings.MCP_REQUEST_TIMEOUT
-                }
+                    "request_timeout": settings.MCP_REQUEST_TIMEOUT,
+                },
             }
 
         except Exception as e:
@@ -985,13 +1011,18 @@ async def get_performance_metrics() -> Dict[str, Any]:
             resource_type="system",
             resource_id="performance",
             metadata={
-                "metrics_collected": len([k for k, v in performance_metrics.items() if not isinstance(v, str) and "error" not in v]),
-                "collection_duration_ms": performance_metrics["collection_duration_ms"]
-            }
+                "metrics_collected": len(
+                    [k for k, v in performance_metrics.items() if not isinstance(v, str) and "error" not in v]
+                ),
+                "collection_duration_ms": performance_metrics["collection_duration_ms"],
+            },
         )
 
-        logger.info("Performance metrics retrieved by user %s - Collection time: %.2fms",
-                   user_context.user_id, performance_metrics["collection_duration_ms"])
+        logger.info(
+            "Performance metrics retrieved by user %s - Collection time: %.2fms",
+            user_context.user_id,
+            performance_metrics["collection_duration_ms"],
+        )
 
         return performance_metrics
 
@@ -999,18 +1030,23 @@ async def get_performance_metrics() -> Dict[str, Any]:
         logger.error("Failed to get performance metrics: %s", e)
         raise MCPValidationError(f"Failed to retrieve performance metrics: {str(e)}")
 
+
 # User Management and Moderation Tools (Task 8.2)
+
 
 class UserListRequest(BaseModel):
     """Request model for user list retrieval."""
+
     limit: int = Field(50, description="Maximum number of users to return")
     offset: int = Field(0, description="Number of users to skip")
     search: Optional[str] = Field(None, description="Search term for username or email")
     role_filter: Optional[str] = Field(None, description="Filter by user role")
     status_filter: Optional[str] = Field(None, description="Filter by account status")
 
+
 class UserDetails(BaseModel):
     """User details response model."""
+
     user_id: str
     username: str
     email: str
@@ -1022,30 +1058,35 @@ class UserDetails(BaseModel):
     workspace_memberships: List[Dict[str, Any]] = Field(default_factory=list)
     security_info: Dict[str, Any] = Field(default_factory=dict)
 
+
 class UserSuspensionRequest(BaseModel):
     """Request model for user suspension."""
+
     user_id: str = Field(..., description="ID of user to suspend")
     reason: str = Field(..., description="Reason for suspension")
     duration_hours: Optional[int] = Field(None, description="Suspension duration in hours (permanent if not specified)")
 
+
 class PasswordResetRequest(BaseModel):
     """Request model for admin password reset."""
+
     user_id: str = Field(..., description="ID of user to reset password for")
     notify_user: bool = Field(True, description="Whether to notify user via email")
     temporary_password: Optional[str] = Field(None, description="Temporary password (generated if not provided)")
+
 
 @authenticated_tool(
     name="get_user_list",
     description="Get paginated list of users for administration (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_management"
+    rate_limit_action="admin_user_management",
 )
 async def get_user_list(
     limit: int = 50,
     offset: int = 0,
     search: Optional[str] = None,
     role_filter: Optional[str] = None,
-    status_filter: Optional[str] = None
+    status_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Get paginated list of users with filtering options for administration.
@@ -1085,10 +1126,7 @@ async def get_user_list(
         # Add search filter
         if search:
             search_regex = {"$regex": search, "$options": "i"}
-            query_filter["$or"] = [
-                {"username": search_regex},
-                {"email": search_regex}
-            ]
+            query_filter["$or"] = [{"username": search_regex}, {"email": search_regex}]
 
         # Add role filter
         if role_filter:
@@ -1131,7 +1169,7 @@ async def get_user_list(
                 "failed_login_attempts": user.get("failed_login_attempts", 0),
                 "last_ip_address": user.get("last_ip_address"),
                 "trusted_ip_lockdown": user.get("trusted_ip_lockdown", False),
-                "trusted_user_agent_lockdown": user.get("trusted_user_agent_lockdown", False)
+                "trusted_user_agent_lockdown": user.get("trusted_user_agent_lockdown", False),
             }
             user_list.append(user_data)
 
@@ -1148,14 +1186,10 @@ async def get_user_list(
                 "has_next": has_next,
                 "has_previous": has_previous,
                 "next_offset": offset + limit if has_next else None,
-                "previous_offset": max(0, offset - limit) if has_previous else None
+                "previous_offset": max(0, offset - limit) if has_previous else None,
             },
-            "filters_applied": {
-                "search": search,
-                "role_filter": role_filter,
-                "status_filter": status_filter
-            },
-            "query_duration_ms": (time.time() - start_time) * 1000
+            "filters_applied": {"search": search, "role_filter": role_filter, "status_filter": status_filter},
+            "query_duration_ms": (time.time() - start_time) * 1000,
         }
 
         # Create audit trail
@@ -1168,12 +1202,16 @@ async def get_user_list(
                 "users_returned": len(user_list),
                 "total_users": total_count,
                 "search_term": search,
-                "filters": {"role": role_filter, "status": status_filter}
-            }
+                "filters": {"role": role_filter, "status": status_filter},
+            },
         )
 
-        logger.info("User list retrieved by admin %s - %d users returned (total: %d)",
-                   user_context.user_id, len(user_list), total_count)
+        logger.info(
+            "User list retrieved by admin %s - %d users returned (total: %d)",
+            user_context.user_id,
+            len(user_list),
+            total_count,
+        )
 
         return result
 
@@ -1186,7 +1224,7 @@ async def get_user_list(
     name="get_user_details",
     description="Get detailed information about a specific user (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_management"
+    rate_limit_action="admin_user_management",
 )
 async def get_user_details(user_id: str) -> Dict[str, Any]:
     """
@@ -1224,24 +1262,28 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             families_collection = db_manager.get_collection("families")
             family = await families_collection.find_one({"family_id": membership.get("family_id")})
             if family:
-                family_memberships.append({
-                    "family_id": membership.get("family_id"),
-                    "family_name": family.get("name"),
-                    "role": membership.get("role"),
-                    "joined_at": membership.get("joined_at"),
-                    "relationship": membership.get("relationship"),
-                    "spending_permissions": membership.get("spending_permissions", {})
-                })
+                family_memberships.append(
+                    {
+                        "family_id": membership.get("family_id"),
+                        "family_name": family.get("name"),
+                        "role": membership.get("role"),
+                        "joined_at": membership.get("joined_at"),
+                        "relationship": membership.get("relationship"),
+                        "spending_permissions": membership.get("spending_permissions", {}),
+                    }
+                )
 
         # Get workspace memberships
         workspace_memberships = []
         for workspace in user.get("workspaces", []):
-            workspace_memberships.append({
-                "workspace_id": workspace.get("_id"),
-                "name": workspace.get("name"),
-                "role": workspace.get("role"),
-                "joined_at": workspace.get("joined_at")
-            })
+            workspace_memberships.append(
+                {
+                    "workspace_id": workspace.get("_id"),
+                    "name": workspace.get("name"),
+                    "role": workspace.get("role"),
+                    "joined_at": workspace.get("joined_at"),
+                }
+            )
 
         # Get security information
         security_info = {
@@ -1257,16 +1299,13 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             "last_ip_address": user.get("last_ip_address"),
             "last_user_agent": user.get("last_user_agent"),
             "password_last_changed": user.get("password_last_changed"),
-            "account_created_ip": user.get("account_created_ip")
+            "account_created_ip": user.get("account_created_ip"),
         }
 
         # Get permanent tokens count
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
-            token_count = await tokens_collection.count_documents({
-                "user_id": user_id,
-                "is_revoked": False
-            })
+            token_count = await tokens_collection.count_documents({"user_id": user_id, "is_revoked": False})
             security_info["permanent_tokens_count"] = token_count
         except Exception as e:
             logger.warning("Failed to get permanent tokens count for user %s: %s", user_id, e)
@@ -1274,13 +1313,15 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
         # Get recent activity (last 10 login attempts)
         recent_activity = []
         for activity in user.get("login_history", [])[-10:]:
-            recent_activity.append({
-                "timestamp": activity.get("timestamp"),
-                "ip_address": activity.get("ip_address"),
-                "user_agent": activity.get("user_agent"),
-                "success": activity.get("success"),
-                "failure_reason": activity.get("failure_reason")
-            })
+            recent_activity.append(
+                {
+                    "timestamp": activity.get("timestamp"),
+                    "ip_address": activity.get("ip_address"),
+                    "user_agent": activity.get("user_agent"),
+                    "success": activity.get("success"),
+                    "failure_reason": activity.get("failure_reason"),
+                }
+            )
 
         # Compile detailed user information
         user_details = {
@@ -1296,7 +1337,7 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                 "bio": user.get("bio"),
                 "avatar_url": user.get("avatar_url"),
                 "banner_url": user.get("banner_url"),
-                "preferences": user.get("preferences", {})
+                "preferences": user.get("preferences", {}),
             },
             "family_memberships": family_memberships,
             "workspace_memberships": workspace_memberships,
@@ -1304,9 +1345,9 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
             "recent_activity": recent_activity,
             "account_limits": {
                 "max_families_allowed": user.get("family_limits", {}).get("max_families_allowed", 5),
-                "max_workspaces_allowed": user.get("workspace_limits", {}).get("max_workspaces_allowed", 10)
+                "max_workspaces_allowed": user.get("workspace_limits", {}).get("max_workspaces_allowed", 10),
             },
-            "query_duration_ms": (time.time() - start_time) * 1000
+            "query_duration_ms": (time.time() - start_time) * 1000,
         }
 
         # Create audit trail
@@ -1319,12 +1360,13 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
                 "target_username": user.get("username"),
                 "target_role": user.get("role"),
                 "family_count": len(family_memberships),
-                "workspace_count": len(workspace_memberships)
-            }
+                "workspace_count": len(workspace_memberships),
+            },
         )
 
-        logger.info("User details retrieved by admin %s for user %s (%s)",
-                   user_context.user_id, user_id, user.get("username"))
+        logger.info(
+            "User details retrieved by admin %s for user %s (%s)", user_context.user_id, user_id, user.get("username")
+        )
 
         return user_details
 
@@ -1337,13 +1379,9 @@ async def get_user_details(user_id: str) -> Dict[str, Any]:
     name="suspend_user",
     description="Suspend a user account with specified reason and duration (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_moderation"
+    rate_limit_action="admin_user_moderation",
 )
-async def suspend_user(
-    user_id: str,
-    reason: str,
-    duration_hours: Optional[int] = None
-) -> Dict[str, Any]:
+async def suspend_user(user_id: str, reason: str, duration_hours: Optional[int] = None) -> Dict[str, Any]:
     """
     Suspend a user account for moderation purposes.
 
@@ -1409,15 +1447,12 @@ async def suspend_user(
                 "reason": reason.strip(),
                 "duration_hours": duration_hours,
                 "suspension_end": suspension_end,
-                "is_permanent": duration_hours is None
+                "is_permanent": duration_hours is None,
             },
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
         }
 
-        result = await users_collection.update_one(
-            {"_id": user_id},
-            {"$set": suspension_data}
-        )
+        result = await users_collection.update_one({"_id": user_id}, {"$set": suspension_data})
 
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update user suspension status")
@@ -1434,7 +1469,7 @@ async def suspend_user(
             tokens_collection = db_manager.get_collection("permanent_tokens")
             await tokens_collection.update_many(
                 {"user_id": user_id, "is_revoked": False},
-                {"$set": {"suspended_at": datetime.utcnow(), "suspended_by": user_context.user_id}}
+                {"$set": {"suspended_at": datetime.utcnow(), "suspended_by": user_context.user_id}},
             )
 
         except Exception as e:
@@ -1450,13 +1485,13 @@ async def suspend_user(
                 "account_status": "suspended",
                 "reason": reason,
                 "duration_hours": duration_hours,
-                "is_permanent": duration_hours is None
+                "is_permanent": duration_hours is None,
             },
             metadata={
                 "target_username": user.get("username"),
                 "target_role": user.get("role"),
-                "suspension_end": suspension_end.isoformat() if suspension_end else None
-            }
+                "suspension_end": suspension_end.isoformat() if suspension_end else None,
+            },
         )
 
         # Prepare response
@@ -1470,15 +1505,20 @@ async def suspend_user(
                 "suspended_by": user_context.username,
                 "duration_hours": duration_hours,
                 "suspension_end": suspension_end.isoformat() if suspension_end else None,
-                "is_permanent": duration_hours is None
+                "is_permanent": duration_hours is None,
             },
             "sessions_revoked": True,
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("User %s (%s) suspended by admin %s - Reason: %s, Duration: %s hours",
-                   user_id, user.get("username"), user_context.user_id, reason,
-                   duration_hours or "permanent")
+        logger.info(
+            "User %s (%s) suspended by admin %s - Reason: %s, Duration: %s hours",
+            user_id,
+            user.get("username"),
+            user_context.user_id,
+            reason,
+            duration_hours or "permanent",
+        )
 
         return suspension_result
 
@@ -1491,7 +1531,7 @@ async def suspend_user(
     name="unsuspend_user",
     description="Remove suspension from a user account (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_moderation"
+    rate_limit_action="admin_user_moderation",
 )
 async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
     """
@@ -1538,27 +1578,25 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
                 "unsuspended_at": datetime.utcnow(),
                 "unsuspended_by": user_context.user_id,
                 "unsuspended_by_username": user_context.username,
-                "reason": reason.strip()
+                "reason": reason.strip(),
             },
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
         }
 
         # Keep suspension history but mark as resolved
         if "suspension_info" in user:
             unsuspension_data["suspension_history"] = user.get("suspension_history", [])
-            unsuspension_data["suspension_history"].append({
-                **user["suspension_info"],
-                "resolved_at": datetime.utcnow(),
-                "resolved_by": user_context.user_id,
-                "resolution_reason": reason.strip()
-            })
+            unsuspension_data["suspension_history"].append(
+                {
+                    **user["suspension_info"],
+                    "resolved_at": datetime.utcnow(),
+                    "resolved_by": user_context.user_id,
+                    "resolution_reason": reason.strip(),
+                }
+            )
 
         result = await users_collection.update_one(
-            {"_id": user_id},
-            {
-                "$set": unsuspension_data,
-                "$unset": {"suspension_info": ""}
-            }
+            {"_id": user_id}, {"$set": unsuspension_data, "$unset": {"suspension_info": ""}}
         )
 
         if result.modified_count == 0:
@@ -1568,8 +1606,7 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
             await tokens_collection.update_many(
-                {"user_id": user_id, "is_revoked": False},
-                {"$unset": {"suspended_at": "", "suspended_by": ""}}
+                {"user_id": user_id, "is_revoked": False}, {"$unset": {"suspended_at": "", "suspended_by": ""}}
             )
         except Exception as e:
             logger.warning("Failed to re-enable tokens for unsuspended user %s: %s", user_id, e)
@@ -1580,14 +1617,8 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_id,
-            changes={
-                "account_status": "active",
-                "reason": reason
-            },
-            metadata={
-                "target_username": user.get("username"),
-                "target_role": user.get("role")
-            }
+            changes={"account_status": "active", "reason": reason},
+            metadata={"target_username": user.get("username"), "target_role": user.get("role")},
         )
 
         unsuspension_result = {
@@ -1597,14 +1628,19 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
             "unsuspension_details": {
                 "reason": reason,
                 "unsuspended_at": unsuspension_data["unsuspension_info"]["unsuspended_at"].isoformat(),
-                "unsuspended_by": user_context.username
+                "unsuspended_by": user_context.username,
             },
             "tokens_reactivated": True,
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("User %s (%s) unsuspended by admin %s - Reason: %s",
-                   user_id, user.get("username"), user_context.user_id, reason)
+        logger.info(
+            "User %s (%s) unsuspended by admin %s - Reason: %s",
+            user_id,
+            user.get("username"),
+            user_context.user_id,
+            reason,
+        )
 
         return unsuspension_result
 
@@ -1617,12 +1653,10 @@ async def unsuspend_user(user_id: str, reason: str) -> Dict[str, Any]:
     name="reset_user_password",
     description="Reset a user's password for administrative purposes (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_moderation"
+    rate_limit_action="admin_user_moderation",
 )
 async def reset_user_password(
-    user_id: str,
-    notify_user: bool = True,
-    temporary_password: Optional[str] = None
+    user_id: str, notify_user: bool = True, temporary_password: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Reset a user's password for administrative purposes.
@@ -1659,11 +1693,13 @@ async def reset_user_password(
         if not temporary_password:
             import secrets
             import string
+
             alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-            temporary_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+            temporary_password = "".join(secrets.choice(alphabet) for _ in range(12))
 
         # Hash the temporary password
         from ....utils.crypto import hash_password
+
         password_hash = hash_password(temporary_password)
 
         # Update user password and mark as requiring change
@@ -1675,15 +1711,12 @@ async def reset_user_password(
                 "reset_at": datetime.utcnow(),
                 "reset_by": user_context.user_id,
                 "reset_by_username": user_context.username,
-                "admin_reset": True
+                "admin_reset": True,
             },
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
         }
 
-        result = await users_collection.update_one(
-            {"_id": user_id},
-            {"$set": password_reset_data}
-        )
+        result = await users_collection.update_one({"_id": user_id}, {"$set": password_reset_data})
 
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update user password")
@@ -1714,16 +1747,12 @@ async def reset_user_password(
             user_context=user_context,
             resource_type="user",
             resource_id=user_id,
-            changes={
-                "password_reset": True,
-                "reset_required": True,
-                "sessions_revoked": True
-            },
+            changes={"password_reset": True, "reset_required": True, "sessions_revoked": True},
             metadata={
                 "target_username": user.get("username"),
                 "target_email": user.get("email"),
-                "notification_sent": email_sent
-            }
+                "notification_sent": email_sent,
+            },
         )
 
         reset_result = {
@@ -1734,15 +1763,20 @@ async def reset_user_password(
             "reset_details": {
                 "reset_at": password_reset_data["password_reset_info"]["reset_at"].isoformat(),
                 "reset_by": user_context.username,
-                "requires_change_on_login": True
+                "requires_change_on_login": True,
             },
             "notification_sent": email_sent,
             "sessions_revoked": True,
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("Password reset for user %s (%s) by admin %s - Notification sent: %s",
-                   user_id, user.get("username"), user_context.user_id, email_sent)
+        logger.info(
+            "Password reset for user %s (%s) by admin %s - Notification sent: %s",
+            user_id,
+            user.get("username"),
+            user_context.user_id,
+            email_sent,
+        )
 
         return reset_result
 
@@ -1755,13 +1789,10 @@ async def reset_user_password(
     name="get_user_activity_log",
     description="Get activity log for a specific user (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_management"
+    rate_limit_action="admin_user_management",
 )
 async def get_user_activity_log(
-    user_id: str,
-    limit: int = 50,
-    activity_type: Optional[str] = None,
-    since_hours: int = 168  # 1 week default
+    user_id: str, limit: int = 50, activity_type: Optional[str] = None, since_hours: int = 168  # 1 week default
 ) -> Dict[str, Any]:
     """
     Get comprehensive activity log for a specific user.
@@ -1810,46 +1841,53 @@ async def get_user_activity_log(
         for login in login_history:
             if login.get("timestamp") and login["timestamp"] >= since_timestamp:
                 if not activity_type or activity_type == "login":
-                    activity_log.append({
-                        "timestamp": login["timestamp"],
-                        "activity_type": "login",
-                        "success": login.get("success", False),
-                        "ip_address": login.get("ip_address"),
-                        "user_agent": login.get("user_agent"),
-                        "failure_reason": login.get("failure_reason"),
-                        "details": {
-                            "method": login.get("method", "password"),
-                            "two_fa_used": login.get("two_fa_used", False)
+                    activity_log.append(
+                        {
+                            "timestamp": login["timestamp"],
+                            "activity_type": "login",
+                            "success": login.get("success", False),
+                            "ip_address": login.get("ip_address"),
+                            "user_agent": login.get("user_agent"),
+                            "failure_reason": login.get("failure_reason"),
+                            "details": {
+                                "method": login.get("method", "password"),
+                                "two_fa_used": login.get("two_fa_used", False),
+                            },
                         }
-                    })
+                    )
 
         # Get family activity from family admin actions
         try:
             family_actions_collection = db_manager.get_collection("family_admin_actions")
-            family_actions = await family_actions_collection.find({
-                "$or": [
-                    {"admin_user_id": user_id},
-                    {"target_user_id": user_id}
-                ],
-                "created_at": {"$gte": since_timestamp}
-            }).limit(limit).to_list(length=limit)
+            family_actions = (
+                await family_actions_collection.find(
+                    {
+                        "$or": [{"admin_user_id": user_id}, {"target_user_id": user_id}],
+                        "created_at": {"$gte": since_timestamp},
+                    }
+                )
+                .limit(limit)
+                .to_list(length=limit)
+            )
 
             for action in family_actions:
                 if not activity_type or activity_type == "family_action":
-                    activity_log.append({
-                        "timestamp": action.get("created_at"),
-                        "activity_type": "family_action",
-                        "success": True,
-                        "ip_address": action.get("ip_address"),
-                        "user_agent": action.get("user_agent"),
-                        "details": {
-                            "action_type": action.get("action_type"),
-                            "family_id": action.get("family_id"),
-                            "target_user_id": action.get("target_user_id"),
-                            "is_admin_action": action.get("admin_user_id") == user_id,
-                            "is_target": action.get("target_user_id") == user_id
+                    activity_log.append(
+                        {
+                            "timestamp": action.get("created_at"),
+                            "activity_type": "family_action",
+                            "success": True,
+                            "ip_address": action.get("ip_address"),
+                            "user_agent": action.get("user_agent"),
+                            "details": {
+                                "action_type": action.get("action_type"),
+                                "family_id": action.get("family_id"),
+                                "target_user_id": action.get("target_user_id"),
+                                "is_admin_action": action.get("admin_user_id") == user_id,
+                                "is_target": action.get("target_user_id") == user_id,
+                            },
                         }
-                    })
+                    )
 
         except Exception as e:
             logger.warning("Failed to get family activity for user %s: %s", user_id, e)
@@ -1857,26 +1895,27 @@ async def get_user_activity_log(
         # Get token activity
         try:
             tokens_collection = db_manager.get_collection("permanent_tokens")
-            tokens = await tokens_collection.find({
-                "user_id": user_id,
-                "created_at": {"$gte": since_timestamp}
-            }).to_list(length=50)
+            tokens = await tokens_collection.find(
+                {"user_id": user_id, "created_at": {"$gte": since_timestamp}}
+            ).to_list(length=50)
 
             for token in tokens:
                 if not activity_type or activity_type == "token_action":
-                    activity_log.append({
-                        "timestamp": token.get("created_at"),
-                        "activity_type": "token_action",
-                        "success": True,
-                        "ip_address": token.get("created_ip"),
-                        "user_agent": token.get("created_user_agent"),
-                        "details": {
-                            "action": "token_created",
-                            "token_name": token.get("name"),
-                            "permissions": token.get("permissions", []),
-                            "is_revoked": token.get("is_revoked", False)
+                    activity_log.append(
+                        {
+                            "timestamp": token.get("created_at"),
+                            "activity_type": "token_action",
+                            "success": True,
+                            "ip_address": token.get("created_ip"),
+                            "user_agent": token.get("created_user_agent"),
+                            "details": {
+                                "action": "token_created",
+                                "token_name": token.get("name"),
+                                "permissions": token.get("permissions", []),
+                                "is_revoked": token.get("is_revoked", False),
+                            },
                         }
-                    })
+                    )
 
         except Exception as e:
             logger.warning("Failed to get token activity for user %s: %s", user_id, e)
@@ -1899,14 +1938,16 @@ async def get_user_activity_log(
             "activity_types": {},
             "success_rate": 0.0,
             "unique_ips": set(),
-            "most_recent_activity": activity_log[0]["timestamp"] if activity_log else None
+            "most_recent_activity": activity_log[0]["timestamp"] if activity_log else None,
         }
 
         # Calculate summary statistics
         successful_activities = 0
         for activity in activity_log:
             activity_type_key = activity["activity_type"]
-            activity_summary["activity_types"][activity_type_key] = activity_summary["activity_types"].get(activity_type_key, 0) + 1
+            activity_summary["activity_types"][activity_type_key] = (
+                activity_summary["activity_types"].get(activity_type_key, 0) + 1
+            )
 
             if activity.get("success"):
                 successful_activities += 1
@@ -1922,12 +1963,8 @@ async def get_user_activity_log(
             "username": user.get("username"),
             "activity_log": activity_log,
             "summary": activity_summary,
-            "filters_applied": {
-                "activity_type": activity_type,
-                "since_hours": since_hours,
-                "limit": limit
-            },
-            "query_duration_ms": (time.time() - start_time) * 1000
+            "filters_applied": {"activity_type": activity_type, "since_hours": since_hours, "limit": limit},
+            "query_duration_ms": (time.time() - start_time) * 1000,
         }
 
         # Create audit trail
@@ -1940,12 +1977,17 @@ async def get_user_activity_log(
                 "target_username": user.get("username"),
                 "entries_returned": len(activity_log),
                 "time_range_hours": since_hours,
-                "activity_type_filter": activity_type
-            }
+                "activity_type_filter": activity_type,
+            },
         )
 
-        logger.info("Activity log retrieved by admin %s for user %s (%s) - %d entries",
-                   user_context.user_id, user_id, user.get("username"), len(activity_log))
+        logger.info(
+            "Activity log retrieved by admin %s for user %s (%s) - %d entries",
+            user_context.user_id,
+            user_id,
+            user.get("username"),
+            len(activity_log),
+        )
 
         return result
 
@@ -1958,14 +2000,9 @@ async def get_user_activity_log(
     name="moderate_user_content",
     description="Moderate user-generated content (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_user_moderation"
+    rate_limit_action="admin_user_moderation",
 )
-async def moderate_user_content(
-    user_id: str,
-    content_type: str,
-    action: str,
-    reason: str
-) -> Dict[str, Any]:
+async def moderate_user_content(user_id: str, content_type: str, action: str, reason: str) -> Dict[str, Any]:
     """
     Moderate user-generated content such as profiles, posts, or other user data.
 
@@ -2019,7 +2056,7 @@ async def moderate_user_content(
             "moderated_by_username": user_context.username,
             "action": action,
             "reason": reason.strip(),
-            "original_content": None
+            "original_content": None,
         }
 
         # Apply moderation action based on content type
@@ -2035,15 +2072,17 @@ async def moderate_user_content(
                     "display_name": user.get("display_name"),
                     "bio": user.get("bio"),
                     "avatar_url": user.get("avatar_url"),
-                    "banner_url": user.get("banner_url")
+                    "banner_url": user.get("banner_url"),
                 }
-                update_data.update({
-                    "display_name": None,
-                    "bio": None,
-                    "avatar_url": None,
-                    "banner_url": None,
-                    "profile_moderation": moderation_info
-                })
+                update_data.update(
+                    {
+                        "display_name": None,
+                        "bio": None,
+                        "avatar_url": None,
+                        "banner_url": None,
+                        "profile_moderation": moderation_info,
+                    }
+                )
             elif action == "approve":
                 update_data["profile_hidden"] = False
                 update_data["profile_approved"] = True
@@ -2081,23 +2120,22 @@ async def moderate_user_content(
 
         # Add general moderation tracking
         moderation_history = user.get("moderation_history", [])
-        moderation_history.append({
-            "content_type": content_type,
-            "action": action,
-            "reason": reason,
-            "moderated_at": moderation_timestamp,
-            "moderated_by": user_context.user_id,
-            "moderated_by_username": user_context.username
-        })
+        moderation_history.append(
+            {
+                "content_type": content_type,
+                "action": action,
+                "reason": reason,
+                "moderated_at": moderation_timestamp,
+                "moderated_by": user_context.user_id,
+                "moderated_by_username": user_context.username,
+            }
+        )
 
         update_data["moderation_history"] = moderation_history
         update_data["updated_at"] = moderation_timestamp
 
         # Update user record
-        result = await users_collection.update_one(
-            {"_id": user_id},
-            {"$set": update_data}
-        )
+        result = await users_collection.update_one({"_id": user_id}, {"$set": update_data})
 
         if result.modified_count == 0:
             raise MCPValidationError("Failed to apply moderation action")
@@ -2108,17 +2146,13 @@ async def moderate_user_content(
             user_context=user_context,
             resource_type="user",
             resource_id=user_id,
-            changes={
-                "content_type": content_type,
-                "action": action,
-                "reason": reason
-            },
+            changes={"content_type": content_type, "action": action, "reason": reason},
             metadata={
                 "target_username": user.get("username"),
                 "content_type": content_type,
                 "moderation_action": action,
-                "has_original_content": moderation_info["original_content"] is not None
-            }
+                "has_original_content": moderation_info["original_content"] is not None,
+            },
         )
 
         moderation_result = {
@@ -2130,49 +2164,63 @@ async def moderate_user_content(
                 "action": action,
                 "reason": reason,
                 "moderated_at": moderation_timestamp.isoformat(),
-                "moderated_by": user_context.username
+                "moderated_by": user_context.username,
             },
             "content_changes": {
-                key: value for key, value in update_data.items()
-                if key not in ["moderation_history", "updated_at"]
+                key: value for key, value in update_data.items() if key not in ["moderation_history", "updated_at"]
             },
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("Content moderation applied by admin %s to user %s (%s) - Type: %s, Action: %s",
-                   user_context.user_id, user_id, user.get("username"), content_type, action)
+        logger.info(
+            "Content moderation applied by admin %s to user %s (%s) - Type: %s, Action: %s",
+            user_context.user_id,
+            user_id,
+            user.get("username"),
+            content_type,
+            action,
+        )
 
         return moderation_result
 
     except Exception as e:
         logger.error("Failed to moderate user content for %s: %s", user_id, e)
         raise MCPValidationError(f"Failed to moderate user content: {str(e)}")
+
+
 # System Configuration Tools (Task 8.3)
+
 
 class SystemConfigUpdate(BaseModel):
     """Request model for system configuration updates."""
+
     config_key: str = Field(..., description="Configuration key to update")
     config_value: Any = Field(..., description="New configuration value")
     reason: str = Field(..., description="Reason for configuration change")
 
+
 class FeatureFlagUpdate(BaseModel):
     """Request model for feature flag updates."""
+
     flag_name: str = Field(..., description="Feature flag name")
     enabled: bool = Field(..., description="Whether to enable or disable the flag")
     reason: str = Field(..., description="Reason for flag change")
 
+
 class MaintenanceSchedule(BaseModel):
     """Request model for maintenance scheduling."""
+
     start_time: datetime = Field(..., description="Maintenance start time")
     duration_minutes: int = Field(..., description="Expected maintenance duration")
     description: str = Field(..., description="Maintenance description")
     notify_users: bool = Field(True, description="Whether to notify users")
 
+
 @authenticated_tool(
     name="get_system_config",
     description="Get current system configuration settings (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
 async def get_system_config() -> Dict[str, Any]:
     """
@@ -2201,17 +2249,17 @@ async def get_system_config() -> Dict[str, Any]:
                 "host": settings.HOST,
                 "port": settings.PORT,
                 "base_url": settings.BASE_URL,
-                "docs_enabled": settings.docs_should_be_enabled
+                "docs_enabled": settings.docs_should_be_enabled,
             },
             "database": {
                 "mongodb_url": settings.MONGODB_URL,  # Don't expose credentials
                 "mongodb_database": settings.MONGODB_DATABASE,
                 "connection_timeout": settings.MONGODB_CONNECTION_TIMEOUT,
-                "server_selection_timeout": settings.MONGODB_SERVER_SELECTION_TIMEOUT
+                "server_selection_timeout": settings.MONGODB_SERVER_SELECTION_TIMEOUT,
             },
             "redis": {
                 "redis_url": settings.REDIS_URL,  # Don't expose credentials
-                "redis_enabled": True  # Assume enabled if URL is set
+                "redis_enabled": True,  # Assume enabled if URL is set
             },
             "security": {
                 "rate_limiting_enabled": True,  # Based on SecurityManager usage
@@ -2220,7 +2268,7 @@ async def get_system_config() -> Dict[str, Any]:
                 "webauthn_enabled": True,
                 "two_fa_enabled": True,
                 "trusted_ip_lockdown_available": True,
-                "trusted_user_agent_lockdown_available": True
+                "trusted_user_agent_lockdown_available": True,
             },
             "mcp_server": {
                 "enabled": settings.MCP_ENABLED,
@@ -2233,7 +2281,7 @@ async def get_system_config() -> Dict[str, Any]:
                 "audit_enabled": settings.MCP_AUDIT_ENABLED,
                 "rate_limit_enabled": settings.MCP_RATE_LIMIT_ENABLED,
                 "max_concurrent_tools": settings.MCP_MAX_CONCURRENT_TOOLS,
-                "request_timeout": settings.MCP_REQUEST_TIMEOUT
+                "request_timeout": settings.MCP_REQUEST_TIMEOUT,
             },
             "features": {
                 "family_management": True,
@@ -2242,7 +2290,7 @@ async def get_system_config() -> Dict[str, Any]:
                 "digital_assets": True,
                 "sbd_tokens": True,
                 "notifications": True,
-                "audit_logging": True
+                "audit_logging": True,
             },
             "limits": {
                 "max_families_per_user": 5,  # Default limit
@@ -2250,8 +2298,8 @@ async def get_system_config() -> Dict[str, Any]:
                 "max_permanent_tokens_per_user": 10,
                 "max_webauthn_credentials_per_user": 5,
                 "rate_limit_requests_per_minute": 100,
-                "max_file_upload_size_mb": 10
-            }
+                "max_file_upload_size_mb": 10,
+            },
         }
 
         # Get feature flags from Redis (if stored there)
@@ -2270,9 +2318,7 @@ async def get_system_config() -> Dict[str, Any]:
 
         except Exception as e:
             logger.warning("Failed to retrieve feature flags: %s", e)
-            system_config["feature_flags"] = {
-                "error": "Failed to retrieve feature flags from Redis"
-            }
+            system_config["feature_flags"] = {"error": "Failed to retrieve feature flags from Redis"}
 
         # Get maintenance status
         try:
@@ -2285,26 +2331,21 @@ async def get_system_config() -> Dict[str, Any]:
                     "start_time": maintenance_info.get(b"start_time", b"").decode(),
                     "end_time": maintenance_info.get(b"end_time", b"").decode(),
                     "description": maintenance_info.get(b"description", b"").decode(),
-                    "notify_users": maintenance_info.get(b"notify_users", b"true").decode() == "true"
+                    "notify_users": maintenance_info.get(b"notify_users", b"true").decode() == "true",
                 }
             else:
-                system_config["maintenance"] = {
-                    "enabled": False,
-                    "scheduled": False
-                }
+                system_config["maintenance"] = {"enabled": False, "scheduled": False}
 
         except Exception as e:
             logger.warning("Failed to retrieve maintenance status: %s", e)
-            system_config["maintenance"] = {
-                "error": "Failed to retrieve maintenance status"
-            }
+            system_config["maintenance"] = {"error": "Failed to retrieve maintenance status"}
 
         # Add configuration metadata
         system_config["metadata"] = {
             "retrieved_at": datetime.utcnow().isoformat(),
             "retrieved_by": user_context.username,
             "config_sections": len(system_config),
-            "retrieval_duration_ms": (time.time() - start_time) * 1000
+            "retrieval_duration_ms": (time.time() - start_time) * 1000,
         }
 
         # Create audit trail
@@ -2316,12 +2357,13 @@ async def get_system_config() -> Dict[str, Any]:
             metadata={
                 "config_sections": len(system_config),
                 "feature_flags_count": len(system_config.get("feature_flags", {})),
-                "maintenance_enabled": system_config.get("maintenance", {}).get("enabled", False)
-            }
+                "maintenance_enabled": system_config.get("maintenance", {}).get("enabled", False),
+            },
         )
 
-        logger.info("System configuration retrieved by admin %s - %d sections",
-                   user_context.user_id, len(system_config))
+        logger.info(
+            "System configuration retrieved by admin %s - %d sections", user_context.user_id, len(system_config)
+        )
 
         return system_config
 
@@ -2334,13 +2376,9 @@ async def get_system_config() -> Dict[str, Any]:
     name="update_system_settings",
     description="Update system configuration settings (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
-async def update_system_settings(
-    config_key: str,
-    config_value: Any,
-    reason: str
-) -> Dict[str, Any]:
+async def update_system_settings(config_key: str, config_value: Any, reason: str) -> Dict[str, Any]:
     """
     Update system configuration settings with audit trail.
 
@@ -2381,7 +2419,7 @@ async def update_system_settings(
         "security.session_timeout_minutes": {"type": int, "min": 15, "max": 1440},
         "features.new_user_registration": {"type": bool},
         "features.public_api_access": {"type": bool},
-        "maintenance.message": {"type": str, "max_length": 500}
+        "maintenance.message": {"type": str, "max_length": 500},
     }
 
     if config_key not in allowed_config_keys:
@@ -2438,13 +2476,12 @@ async def update_system_settings(
             "changed_by_username": user_context.username,
             "reason": reason.strip(),
             "ip_address": user_context.ip_address,
-            "user_agent": user_context.user_agent
+            "user_agent": user_context.user_agent,
         }
 
         # Store change history
         change_history_key = f"{settings.ENV_PREFIX}:config_history:{config_key}"
-        await redis_conn.lpush(change_history_key,
-                              json.dumps(config_change, default=str))
+        await redis_conn.lpush(change_history_key, json.dumps(config_change, default=str))
 
         # Keep only last 50 changes
         await redis_conn.ltrim(change_history_key, 0, 49)
@@ -2462,12 +2499,9 @@ async def update_system_settings(
                 "config_key": config_key,
                 "old_value": old_value,
                 "new_value": str(config_value),
-                "reason": reason
+                "reason": reason,
             },
-            metadata={
-                "config_category": config_key.split(".")[0],
-                "value_type": type(config_value).__name__
-            }
+            metadata={"config_category": config_key.split(".")[0], "value_type": type(config_value).__name__},
         )
 
         update_result = {
@@ -2478,14 +2512,19 @@ async def update_system_settings(
             "change_details": {
                 "changed_at": config_change["changed_at"].isoformat(),
                 "changed_by": user_context.username,
-                "reason": reason
+                "reason": reason,
             },
             "requires_restart": config_key.startswith("mcp.") or config_key.startswith("database."),
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("System configuration updated by admin %s - Key: %s, Value: %s, Reason: %s",
-                   user_context.user_id, config_key, config_value, reason)
+        logger.info(
+            "System configuration updated by admin %s - Key: %s, Value: %s, Reason: %s",
+            user_context.user_id,
+            config_key,
+            config_value,
+            reason,
+        )
 
         return update_result
 
@@ -2498,7 +2537,7 @@ async def update_system_settings(
     name="get_feature_flags",
     description="Get all feature flags and their current states (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
 async def get_feature_flags() -> Dict[str, Any]:
     """
@@ -2537,7 +2576,7 @@ async def get_feature_flags() -> Dict[str, Any]:
                     "created_by": flag_data.get(b"created_by", b"").decode(),
                     "last_modified_at": flag_data.get(b"last_modified_at", b"").decode(),
                     "last_modified_by": flag_data.get(b"last_modified_by", b"").decode(),
-                    "category": flag_data.get(b"category", b"general").decode()
+                    "category": flag_data.get(b"category", b"general").decode(),
                 }
 
         # Add default feature flags if none exist
@@ -2546,62 +2585,61 @@ async def get_feature_flags() -> Dict[str, Any]:
                 "new_user_registration": {
                     "enabled": True,
                     "description": "Allow new user registration",
-                    "category": "authentication"
+                    "category": "authentication",
                 },
                 "family_management": {
                     "enabled": True,
                     "description": "Enable family management features",
-                    "category": "features"
+                    "category": "features",
                 },
                 "workspace_collaboration": {
                     "enabled": True,
                     "description": "Enable workspace collaboration features",
-                    "category": "features"
+                    "category": "features",
                 },
-                "shop_system": {
-                    "enabled": True,
-                    "description": "Enable digital asset shop",
-                    "category": "commerce"
-                },
+                "shop_system": {"enabled": True, "description": "Enable digital asset shop", "category": "commerce"},
                 "advanced_security": {
                     "enabled": True,
                     "description": "Enable advanced security features",
-                    "category": "security"
+                    "category": "security",
                 },
                 "api_rate_limiting": {
                     "enabled": True,
                     "description": "Enable API rate limiting",
-                    "category": "security"
+                    "category": "security",
                 },
                 "audit_logging": {
                     "enabled": True,
                     "description": "Enable comprehensive audit logging",
-                    "category": "monitoring"
+                    "category": "monitoring",
                 },
                 "mcp_server": {
                     "enabled": settings.MCP_ENABLED,
                     "description": "Enable MCP server functionality",
-                    "category": "integration"
-                }
+                    "category": "integration",
+                },
             }
 
             # Initialize default flags in Redis
             for flag_name, flag_info in default_flags.items():
                 flag_key = f"{settings.ENV_PREFIX}:feature_flag:{flag_name}"
-                await redis_conn.hset(flag_key, mapping={
-                    "enabled": str(flag_info["enabled"]).lower(),
-                    "description": flag_info["description"],
-                    "category": flag_info["category"],
-                    "created_at": datetime.utcnow().isoformat(),
-                    "created_by": "system"
-                })
+                await redis_conn.hset(
+                    flag_key,
+                    mapping={
+                        "enabled": str(flag_info["enabled"]).lower(),
+                        "description": flag_info["description"],
+                        "category": flag_info["category"],
+                        "created_at": datetime.utcnow().isoformat(),
+                        "created_by": "system",
+                    },
+                )
 
                 feature_flags[flag_name] = {
                     **flag_info,
                     "created_at": datetime.utcnow().isoformat(),
                     "created_by": "system",
                     "last_modified_at": "",
-                    "last_modified_by": ""
+                    "last_modified_by": "",
                 }
 
         # Group flags by category
@@ -2623,13 +2661,13 @@ async def get_feature_flags() -> Dict[str, Any]:
                 "total_flags": total_flags,
                 "enabled_flags": enabled_flags,
                 "disabled_flags": total_flags - enabled_flags,
-                "categories": list(flags_by_category.keys())
+                "categories": list(flags_by_category.keys()),
             },
             "metadata": {
                 "retrieved_at": datetime.utcnow().isoformat(),
                 "retrieved_by": user_context.username,
-                "retrieval_duration_ms": (time.time() - start_time) * 1000
-            }
+                "retrieval_duration_ms": (time.time() - start_time) * 1000,
+            },
         }
 
         # Create audit trail
@@ -2638,15 +2676,15 @@ async def get_feature_flags() -> Dict[str, Any]:
             user_context=user_context,
             resource_type="system",
             resource_id="feature_flags",
-            metadata={
-                "total_flags": total_flags,
-                "enabled_flags": enabled_flags,
-                "categories": len(flags_by_category)
-            }
+            metadata={"total_flags": total_flags, "enabled_flags": enabled_flags, "categories": len(flags_by_category)},
         )
 
-        logger.info("Feature flags retrieved by admin %s - %d total flags, %d enabled",
-                   user_context.user_id, total_flags, enabled_flags)
+        logger.info(
+            "Feature flags retrieved by admin %s - %d total flags, %d enabled",
+            user_context.user_id,
+            total_flags,
+            enabled_flags,
+        )
 
         return result
 
@@ -2659,13 +2697,9 @@ async def get_feature_flags() -> Dict[str, Any]:
     name="toggle_feature_flag",
     description="Enable or disable a feature flag (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
-async def toggle_feature_flag(
-    flag_name: str,
-    enabled: bool,
-    reason: str
-) -> Dict[str, Any]:
+async def toggle_feature_flag(flag_name: str, enabled: bool, reason: str) -> Dict[str, Any]:
     """
     Enable or disable a feature flag with audit trail.
 
@@ -2713,7 +2747,7 @@ async def toggle_feature_flag(
         update_data = {
             "enabled": str(enabled).lower(),
             "last_modified_at": datetime.utcnow().isoformat(),
-            "last_modified_by": user_context.username
+            "last_modified_by": user_context.username,
         }
 
         await redis_conn.hset(flag_key, mapping=update_data)
@@ -2727,13 +2761,12 @@ async def toggle_feature_flag(
             "changed_by": user_context.user_id,
             "changed_by_username": user_context.username,
             "reason": reason.strip(),
-            "ip_address": user_context.ip_address
+            "ip_address": user_context.ip_address,
         }
 
         # Store change history
         history_key = f"{settings.ENV_PREFIX}:feature_flag_history:{flag_name}"
-        await redis_conn.lpush(history_key,
-                              json.dumps(change_record, default=str))
+        await redis_conn.lpush(history_key, json.dumps(change_record, default=str))
 
         # Keep only last 100 changes
         await redis_conn.ltrim(history_key, 0, 99)
@@ -2747,16 +2780,11 @@ async def toggle_feature_flag(
             user_context=user_context,
             resource_type="system",
             resource_id="feature_flags",
-            changes={
-                "flag_name": flag_name,
-                "old_enabled": old_enabled,
-                "new_enabled": enabled,
-                "reason": reason
-            },
+            changes={"flag_name": flag_name, "old_enabled": old_enabled, "new_enabled": enabled, "reason": reason},
             metadata={
                 "flag_category": flag_data.get(b"category", b"general").decode(),
-                "action": "enabled" if enabled else "disabled"
-            }
+                "action": "enabled" if enabled else "disabled",
+            },
         )
 
         toggle_result = {
@@ -2767,18 +2795,22 @@ async def toggle_feature_flag(
             "change_details": {
                 "changed_at": change_record["changed_at"].isoformat(),
                 "changed_by": user_context.username,
-                "reason": reason
+                "reason": reason,
             },
             "flag_info": {
                 "description": flag_data.get(b"description", b"").decode(),
-                "category": flag_data.get(b"category", b"general").decode()
+                "category": flag_data.get(b"category", b"general").decode(),
             },
-            "operation_duration_ms": (time.time() - start_time) * 1000
+            "operation_duration_ms": (time.time() - start_time) * 1000,
         }
 
-        logger.info("Feature flag '%s' %s by admin %s - Reason: %s",
-                   flag_name, "enabled" if enabled else "disabled",
-                   user_context.user_id, reason)
+        logger.info(
+            "Feature flag '%s' %s by admin %s - Reason: %s",
+            flag_name,
+            "enabled" if enabled else "disabled",
+            user_context.user_id,
+            reason,
+        )
 
         return toggle_result
 
@@ -2791,7 +2823,7 @@ async def toggle_feature_flag(
     name="get_maintenance_status",
     description="Get current maintenance mode status and schedule (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
 async def get_maintenance_status() -> Dict[str, Any]:
     """
@@ -2826,7 +2858,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 "description": maintenance_data.get(b"description", b"").decode(),
                 "notify_users": maintenance_data.get(b"notify_users", b"true").decode() == "true",
                 "scheduled_by": maintenance_data.get(b"scheduled_by", b"").decode(),
-                "scheduled_at": maintenance_data.get(b"scheduled_at", b"").decode()
+                "scheduled_at": maintenance_data.get(b"scheduled_at", b"").decode(),
             }
         else:
             maintenance_status = {
@@ -2837,7 +2869,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                 "description": None,
                 "notify_users": True,
                 "scheduled_by": None,
-                "scheduled_at": None
+                "scheduled_at": None,
             }
 
         # Get maintenance history
@@ -2848,6 +2880,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
         for entry in history_entries:
             try:
                 import json
+
                 history_item = json.loads(entry.decode())
                 maintenance_history.append(history_item)
             except (json.JSONDecodeError, UnicodeDecodeError):
@@ -2858,7 +2891,9 @@ async def get_maintenance_status() -> Dict[str, Any]:
         if maintenance_status["enabled"] and maintenance_status["start_time"]:
             try:
                 start_dt = datetime.fromisoformat(maintenance_status["start_time"])
-                end_dt = datetime.fromisoformat(maintenance_status["end_time"]) if maintenance_status["end_time"] else None
+                end_dt = (
+                    datetime.fromisoformat(maintenance_status["end_time"]) if maintenance_status["end_time"] else None
+                )
                 now = datetime.utcnow()
 
                 if end_dt:
@@ -2873,7 +2908,7 @@ async def get_maintenance_status() -> Dict[str, Any]:
                     "duration_minutes": duration_minutes,
                     "remaining_minutes": remaining_minutes,
                     "started": start_dt <= now,
-                    "ended": end_dt and now > end_dt
+                    "ended": end_dt and now > end_dt,
                 }
             except (ValueError, TypeError):
                 maintenance_window = {"error": "Invalid maintenance time format"}
@@ -2885,13 +2920,13 @@ async def get_maintenance_status() -> Dict[str, Any]:
             "system_status": {
                 "accepting_requests": not maintenance_status["enabled"],
                 "read_only_mode": False,  # Could be implemented as a separate feature
-                "api_available": True
+                "api_available": True,
             },
             "metadata": {
                 "retrieved_at": datetime.utcnow().isoformat(),
                 "retrieved_by": user_context.username,
-                "retrieval_duration_ms": (time.time() - start_time) * 1000
-            }
+                "retrieval_duration_ms": (time.time() - start_time) * 1000,
+            },
         }
 
         # Create audit trail
@@ -2903,12 +2938,15 @@ async def get_maintenance_status() -> Dict[str, Any]:
             metadata={
                 "maintenance_enabled": maintenance_status["enabled"],
                 "has_scheduled_maintenance": bool(maintenance_status.get("start_time")),
-                "history_entries": len(maintenance_history)
-            }
+                "history_entries": len(maintenance_history),
+            },
         )
 
-        logger.info("Maintenance status retrieved by admin %s - Enabled: %s",
-                   user_context.user_id, maintenance_status["enabled"])
+        logger.info(
+            "Maintenance status retrieved by admin %s - Enabled: %s",
+            user_context.user_id,
+            maintenance_status["enabled"],
+        )
 
         return result
 
@@ -2921,13 +2959,10 @@ async def get_maintenance_status() -> Dict[str, Any]:
     name="schedule_maintenance",
     description="Schedule system maintenance with user notification (admin only)",
     permissions=["admin"],
-    rate_limit_action="admin_config"
+    rate_limit_action="admin_config",
 )
 async def schedule_maintenance(
-    start_time: str,
-    duration_minutes: int,
-    description: str,
-    notify_users: bool = True
+    start_time: str, duration_minutes: int, description: str, notify_users: bool = True
 ) -> Dict[str, Any]:
     """
     Schedule system maintenance with optional user notification.
@@ -2961,7 +2996,7 @@ async def schedule_maintenance(
     try:
         # Parse and validate start time
         try:
-            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
         except ValueError:
             raise MCPValidationError("Invalid start time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
 
@@ -2985,7 +3020,7 @@ async def schedule_maintenance(
             "notify_users": str(notify_users).lower(),
             "scheduled_by": user_context.username,
             "scheduled_at": datetime.utcnow().isoformat(),
-            "duration_minutes": str(duration_minutes)
+            "duration_minutes": str(duration_minutes),
         }
 
         # Store maintenance schedule
@@ -3001,7 +3036,7 @@ async def schedule_maintenance(
             "description": description.strip(),
             "scheduled_by": user_context.username,
             "scheduled_at": datetime.utcnow().isoformat(),
-            "notify_users": notify_users
+            "notify_users": notify_users,
         }
 
         history_key = f"{settings.ENV_PREFIX}:maintenance_history"
@@ -3035,13 +3070,13 @@ async def schedule_maintenance(
                 "action": "scheduled",
                 "start_time": start_dt.isoformat(),
                 "duration_minutes": duration_minutes,
-                "description": description
+                "description": description,
             },
             metadata={
                 "notify_users": notify_users,
                 "notifications_sent": notifications_sent,
-                "advance_notice_hours": (start_dt - datetime.utcnow()).total_seconds() / 3600
-            }
+                "advance_notice_hours": (start_dt - datetime.utcnow()).total_seconds() / 3600,
+            },
         )
 
         schedule_result = {
@@ -3051,22 +3086,27 @@ async def schedule_maintenance(
                 "end_time": end_dt.isoformat(),
                 "duration_minutes": duration_minutes,
                 "description": description,
-                "notify_users": notify_users
+                "notify_users": notify_users,
             },
             "scheduling_info": {
                 "scheduled_by": user_context.username,
                 "scheduled_at": maintenance_data["scheduled_at"],
-                "advance_notice_hours": round((start_dt - datetime.utcnow()).total_seconds() / 3600, 1)
+                "advance_notice_hours": round((start_dt - datetime.utcnow()).total_seconds() / 3600, 1),
             },
             "notifications": {
                 "users_notified": notifications_sent,
-                "notification_sent": notify_users and notifications_sent > 0
+                "notification_sent": notify_users and notifications_sent > 0,
             },
-            "operation_duration_ms": (time.time() - start_time_processing) * 1000
+            "operation_duration_ms": (time.time() - start_time_processing) * 1000,
         }
 
-        logger.info("Maintenance scheduled by admin %s - Start: %s, Duration: %d minutes, Notifications: %s",
-                   user_context.user_id, start_dt.isoformat(), duration_minutes, notify_users)
+        logger.info(
+            "Maintenance scheduled by admin %s - Start: %s, Duration: %d minutes, Notifications: %s",
+            user_context.user_id,
+            start_dt.isoformat(),
+            duration_minutes,
+            notify_users,
+        )
 
         return schedule_result
 

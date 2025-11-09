@@ -14,31 +14,38 @@ Requirements tested: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
 
 import asyncio
-import sys
+from datetime import datetime, timedelta, timezone
 import os
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any
-import uuid
+import sys
+from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
 # Mock the database and Redis connections before importing
-sys.modules['pymongo'] = MagicMock()
-sys.modules['pymongo.errors'] = MagicMock()
-sys.modules['motor'] = MagicMock()
-sys.modules['motor.motor_asyncio'] = MagicMock()
-sys.modules['redis'] = MagicMock()
-sys.modules['redis.asyncio'] = MagicMock()
+sys.modules["pymongo"] = MagicMock()
+sys.modules["pymongo.errors"] = MagicMock()
+sys.modules["motor"] = MagicMock()
+sys.modules["motor.motor_asyncio"] = MagicMock()
+sys.modules["redis"] = MagicMock()
+sys.modules["redis.asyncio"] = MagicMock()
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Mock the managers before importing
-with patch('second_brain_database.managers.redis_manager.RedisManager'), \
-     patch('second_brain_database.database.DatabaseManager'):
+with (
+    patch("second_brain_database.managers.redis_manager.RedisManager"),
+    patch("second_brain_database.database.DatabaseManager"),
+):
 
     from second_brain_database.managers.family_manager import (
-        FamilyError, FamilyNotFound, InsufficientPermissions, ValidationError,
-        AccountFrozen, TokenRequestNotFound, RateLimitExceeded
+        AccountFrozen,
+        FamilyError,
+        FamilyNotFound,
+        InsufficientPermissions,
+        RateLimitExceeded,
+        TokenRequestNotFound,
+        ValidationError,
     )
 
 
@@ -76,7 +83,7 @@ class TokenRequestWorkflowTester:
                 "families": self.families_collection,
                 "family_token_requests": self.requests_collection,
                 "users": self.users_collection,
-                "family_notifications": self.notifications_collection
+                "family_notifications": self.notifications_collection,
             }
             return collections.get(name, AsyncMock())
 
@@ -85,13 +92,15 @@ class TokenRequestWorkflowTester:
     def log_test_result(self, test_name: str, success: bool, details: str = ""):
         """Log test result for reporting."""
         status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "status": status,
-            "success": success,
-            "details": details,
-            "timestamp": datetime.now().isoformat()
-        })
+        self.test_results.append(
+            {
+                "test": test_name,
+                "status": status,
+                "success": success,
+                "details": details,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         print(f"{status}: {test_name}")
         if details:
             print(f"    Details: {details}")
@@ -112,39 +121,29 @@ class TokenRequestWorkflowTester:
                 "_id": family_id,
                 "family_id": family_id,
                 "admin_user_ids": ["admin_123"],
-                "sbd_account": {
-                    "is_frozen": False,
-                    "account_username": "family_test"
-                },
-                "settings": {
-                    "request_expiry_hours": 168,
-                    "auto_approval_threshold": 50
-                }
+                "sbd_account": {"is_frozen": False, "account_username": "family_test"},
+                "settings": {"request_expiry_hours": 168, "auto_approval_threshold": 50},
             }
 
             # Mock user membership
             self.families_collection.find_one.return_value = family_data
 
             # Mock user data
-            self.users_collection.find_one.return_value = {
-                "_id": user_id,
-                "username": "testuser"
-            }
+            self.users_collection.find_one.return_value = {"_id": user_id, "username": "testuser"}
 
             # Mock successful insertion
             self.requests_collection.insert_one = AsyncMock()
 
             # Mock helper methods
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_is_user_in_family', return_value=True), \
-                 patch.object(self.family_manager, '_notify_admins_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_is_user_in_family", return_value=True),
+                patch.object(self.family_manager, "_notify_admins_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+            ):
 
                 result = await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=amount,
-                    reason=reason
+                    family_id=family_id, user_id=user_id, amount=amount, reason=reason
                 )
 
                 # Validate result
@@ -177,30 +176,23 @@ class TokenRequestWorkflowTester:
                 "_id": family_id,
                 "family_id": family_id,
                 "admin_user_ids": ["admin_123"],
-                "sbd_account": {
-                    "is_frozen": False,
-                    "account_username": "family_test"
-                },
-                "settings": {
-                    "request_expiry_hours": 168,
-                    "auto_approval_threshold": 50
-                }
+                "sbd_account": {"is_frozen": False, "account_username": "family_test"},
+                "settings": {"request_expiry_hours": 168, "auto_approval_threshold": 50},
             }
 
             # Mock successful insertion
             self.requests_collection.insert_one = AsyncMock()
 
             # Mock helper methods
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_is_user_in_family', return_value=True), \
-                 patch.object(self.family_manager, '_process_approved_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_is_user_in_family", return_value=True),
+                patch.object(self.family_manager, "_process_approved_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+            ):
 
                 result = await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=amount,
-                    reason=reason
+                    family_id=family_id, user_id=user_id, amount=amount, reason=reason
                 )
 
                 # Validate auto-approval
@@ -224,10 +216,7 @@ class TokenRequestWorkflowTester:
             # Test negative amount
             try:
                 await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=-10,
-                    reason="Valid reason"
+                    family_id=family_id, user_id=user_id, amount=-10, reason="Valid reason"
                 )
                 assert False, "Should have raised ValidationError for negative amount"
             except ValidationError as e:
@@ -236,10 +225,7 @@ class TokenRequestWorkflowTester:
             # Test empty reason
             try:
                 await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=100,
-                    reason=""
+                    family_id=family_id, user_id=user_id, amount=100, reason=""
                 )
                 assert False, "Should have raised ValidationError for empty reason"
             except ValidationError as e:
@@ -248,10 +234,7 @@ class TokenRequestWorkflowTester:
             # Test short reason
             try:
                 await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=100,
-                    reason="Hi"
+                    family_id=family_id, user_id=user_id, amount=100, reason="Hi"
                 )
                 assert False, "Should have raised ValidationError for short reason"
             except ValidationError as e:
@@ -275,26 +258,18 @@ class TokenRequestWorkflowTester:
                 "_id": family_id,
                 "family_id": family_id,
                 "admin_user_ids": ["admin_123"],
-                "sbd_account": {
-                    "is_frozen": True,
-                    "frozen_by": "admin_123",
-                    "frozen_at": datetime.now(timezone.utc)
-                },
-                "settings": {
-                    "request_expiry_hours": 168,
-                    "auto_approval_threshold": 50
-                }
+                "sbd_account": {"is_frozen": True, "frozen_by": "admin_123", "frozen_at": datetime.now(timezone.utc)},
+                "settings": {"request_expiry_hours": 168, "auto_approval_threshold": 50},
             }
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_is_user_in_family', return_value=True):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_is_user_in_family", return_value=True),
+            ):
 
                 try:
                     await self.family_manager.create_token_request(
-                        family_id=family_id,
-                        user_id=user_id,
-                        amount=100,
-                        reason="Valid reason"
+                        family_id=family_id, user_id=user_id, amount=100, reason="Valid reason"
                     )
                     assert False, "Should have raised AccountFrozen error"
                 except AccountFrozen as e:
@@ -324,29 +299,25 @@ class TokenRequestWorkflowTester:
                 "reason": "School supplies",
                 "status": "pending",
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
 
             # Mock family data
-            family_data = {
-                "_id": "fam_test123",
-                "admin_user_ids": [admin_id, "admin_789"]
-            }
+            family_data = {"_id": "fam_test123", "admin_user_ids": [admin_id, "admin_789"]}
 
             # Mock database operations
             self.requests_collection.find_one.return_value = request_data
             self.requests_collection.update_one = AsyncMock()
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_process_approved_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None), \
-                 patch.object(self.family_manager, '_notify_admins_token_decision', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_process_approved_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+                patch.object(self.family_manager, "_notify_admins_token_decision", return_value=None),
+            ):
 
                 result = await self.family_manager.review_token_request(
-                    request_id=request_id,
-                    admin_id=admin_id,
-                    action="approve",
-                    comments=comments
+                    request_id=request_id, admin_id=admin_id, action="approve", comments=comments
                 )
 
                 # Validate approval result
@@ -381,28 +352,24 @@ class TokenRequestWorkflowTester:
                 "reason": "Need tokens",
                 "status": "pending",
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
 
             # Mock family data
-            family_data = {
-                "_id": "fam_test123",
-                "admin_user_ids": [admin_id]
-            }
+            family_data = {"_id": "fam_test123", "admin_user_ids": [admin_id]}
 
             # Mock database operations
             self.requests_collection.find_one.return_value = request_data
             self.requests_collection.update_one = AsyncMock()
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None), \
-                 patch.object(self.family_manager, '_notify_admins_token_decision', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+                patch.object(self.family_manager, "_notify_admins_token_decision", return_value=None),
+            ):
 
                 result = await self.family_manager.review_token_request(
-                    request_id=request_id,
-                    admin_id=admin_id,
-                    action="deny",
-                    comments=comments
+                    request_id=request_id, admin_id=admin_id, action="deny", comments=comments
                 )
 
                 # Validate denial result
@@ -433,24 +400,19 @@ class TokenRequestWorkflowTester:
                 "family_id": "fam_test123",
                 "requester_user_id": "user_test456",
                 "status": "pending",
-                "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
             }
 
             # Mock family data (non_admin_id not in admin list)
-            family_data = {
-                "_id": "fam_test123",
-                "admin_user_ids": ["admin_789"]  # Different admin
-            }
+            family_data = {"_id": "fam_test123", "admin_user_ids": ["admin_789"]}  # Different admin
 
             self.requests_collection.find_one.return_value = request_data
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data):
+            with patch.object(self.family_manager, "_get_family_by_id", return_value=family_data):
 
                 try:
                     await self.family_manager.review_token_request(
-                        request_id=request_id,
-                        admin_id=non_admin_id,
-                        action="approve"
+                        request_id=request_id, admin_id=non_admin_id, action="approve"
                     )
                     assert False, "Should have raised InsufficientPermissions"
                 except InsufficientPermissions as e:
@@ -476,25 +438,20 @@ class TokenRequestWorkflowTester:
                 "requester_user_id": "user_test456",
                 "status": "pending",
                 "expires_at": datetime.now(timezone.utc) - timedelta(hours=1),  # Expired
-                "created_at": datetime.now(timezone.utc) - timedelta(hours=25)
+                "created_at": datetime.now(timezone.utc) - timedelta(hours=25),
             }
 
             # Mock family data
-            family_data = {
-                "_id": "fam_test123",
-                "admin_user_ids": [admin_id]
-            }
+            family_data = {"_id": "fam_test123", "admin_user_ids": [admin_id]}
 
             self.requests_collection.find_one.return_value = request_data
             self.requests_collection.update_one = AsyncMock()
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data):
+            with patch.object(self.family_manager, "_get_family_by_id", return_value=family_data):
 
                 try:
                     await self.family_manager.review_token_request(
-                        request_id=request_id,
-                        admin_id=admin_id,
-                        action="approve"
+                        request_id=request_id, admin_id=admin_id, action="approve"
                     )
                     assert False, "Should have raised TokenRequestNotFound for expired request"
                 except TokenRequestNotFound as e:
@@ -519,10 +476,7 @@ class TokenRequestWorkflowTester:
             admin_id = "admin_456"
 
             # Mock family data
-            family_data = {
-                "_id": family_id,
-                "admin_user_ids": [admin_id]
-            }
+            family_data = {"_id": family_id, "admin_user_ids": [admin_id]}
 
             # Mock pending requests
             pending_requests = [
@@ -534,7 +488,7 @@ class TokenRequestWorkflowTester:
                     "status": "pending",
                     "auto_approved": False,
                     "created_at": datetime.now(timezone.utc),
-                    "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
+                    "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
                 },
                 {
                     "request_id": "req_002",
@@ -544,8 +498,8 @@ class TokenRequestWorkflowTester:
                     "status": "pending",
                     "auto_approved": False,
                     "created_at": datetime.now(timezone.utc),
-                    "expires_at": datetime.now(timezone.utc) + timedelta(hours=48)
-                }
+                    "expires_at": datetime.now(timezone.utc) + timedelta(hours=48),
+                },
             ]
 
             # Mock cursor
@@ -554,14 +508,13 @@ class TokenRequestWorkflowTester:
             mock_cursor.sort.return_value = mock_cursor
             self.requests_collection.find.return_value = mock_cursor
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_get_user_by_id') as mock_get_user:
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_get_user_by_id") as mock_get_user,
+            ):
 
                 # Mock user data
-                mock_get_user.side_effect = [
-                    {"username": "user001"},
-                    {"username": "user002"}
-                ]
+                mock_get_user.side_effect = [{"username": "user001"}, {"username": "user002"}]
 
                 result = await self.family_manager.get_pending_token_requests(family_id, admin_id)
 
@@ -592,7 +545,7 @@ class TokenRequestWorkflowTester:
             user_id = "user_test456"
 
             # Mock rate limit exceeded
-            with patch.object(self.family_manager, '_check_rate_limit') as mock_rate_limit:
+            with patch.object(self.family_manager, "_check_rate_limit") as mock_rate_limit:
                 mock_rate_limit.side_effect = Exception("Rate limit exceeded")
 
                 try:
@@ -601,7 +554,7 @@ class TokenRequestWorkflowTester:
                         user_id=user_id,
                         amount=100,
                         reason="Valid reason",
-                        request_context={"request": MagicMock()}
+                        request_context={"request": MagicMock()},
                     )
                     assert False, "Should have raised RateLimitExceeded"
                 except RateLimitExceeded as e:
@@ -627,22 +580,18 @@ class TokenRequestWorkflowTester:
                 "family_id": family_id,
                 "admin_user_ids": ["admin_123"],
                 "sbd_account": {"is_frozen": False},
-                "settings": {
-                    "request_expiry_hours": 168,
-                    "auto_approval_threshold": 50
-                }
+                "settings": {"request_expiry_hours": 168, "auto_approval_threshold": 50},
             }
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_is_user_in_family', return_value=True), \
-                 patch.object(self.family_manager, '_notify_admins_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_is_user_in_family", return_value=True),
+                patch.object(self.family_manager, "_notify_admins_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+            ):
 
                 await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=100,
-                    reason="Test request"
+                    family_id=family_id, user_id=user_id, amount=100, reason="Test request"
                 )
 
                 # Verify audit logging was called
@@ -683,26 +632,22 @@ class TokenRequestWorkflowTester:
                 "family_id": family_id,
                 "admin_user_ids": [admin_id],
                 "sbd_account": {"is_frozen": False},
-                "settings": {
-                    "request_expiry_hours": 168,
-                    "auto_approval_threshold": 50
-                }
+                "settings": {"request_expiry_hours": 168, "auto_approval_threshold": 50},
             }
 
             # Mock request creation
             request_id = f"req_{uuid.uuid4().hex[:16]}"
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_is_user_in_family', return_value=True), \
-                 patch.object(self.family_manager, '_notify_admins_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_is_user_in_family", return_value=True),
+                patch.object(self.family_manager, "_notify_admins_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+            ):
 
                 # Create request
                 create_result = await self.family_manager.create_token_request(
-                    family_id=family_id,
-                    user_id=user_id,
-                    amount=amount,
-                    reason=reason
+                    family_id=family_id, user_id=user_id, amount=amount, reason=reason
                 )
 
                 assert create_result["status"] == "pending"
@@ -717,23 +662,22 @@ class TokenRequestWorkflowTester:
                 "reason": reason,
                 "status": "pending",
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
 
             self.requests_collection.find_one.return_value = request_data
             self.requests_collection.update_one = AsyncMock()
 
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_process_approved_token_request', return_value=None), \
-                 patch.object(self.family_manager, '_send_token_request_notification', return_value=None), \
-                 patch.object(self.family_manager, '_notify_admins_token_decision', return_value=None):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_process_approved_token_request", return_value=None),
+                patch.object(self.family_manager, "_send_token_request_notification", return_value=None),
+                patch.object(self.family_manager, "_notify_admins_token_decision", return_value=None),
+            ):
 
                 # Review and approve
                 review_result = await self.family_manager.review_token_request(
-                    request_id=request_id,
-                    admin_id=admin_id,
-                    action="approve",
-                    comments="Approved for educational use"
+                    request_id=request_id, admin_id=admin_id, action="approve", comments="Approved for educational use"
                 )
 
                 assert review_result["status"] == "approved"
@@ -741,8 +685,10 @@ class TokenRequestWorkflowTester:
                 assert "processed_at" in review_result
 
             # Step 3: Verify pending requests retrieval
-            with patch.object(self.family_manager, '_get_family_by_id', return_value=family_data), \
-                 patch.object(self.family_manager, '_get_user_by_id', return_value={"username": "testuser"}):
+            with (
+                patch.object(self.family_manager, "_get_family_by_id", return_value=family_data),
+                patch.object(self.family_manager, "_get_user_by_id", return_value={"username": "testuser"}),
+            ):
 
                 # Mock empty pending requests (since our request was processed)
                 mock_cursor = AsyncMock()

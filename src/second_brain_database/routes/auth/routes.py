@@ -15,6 +15,7 @@ Defines API endpoints for user registration, login, email verification, token ma
 password change, and password reset. All business logic is delegated to the service layer.
 """
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
@@ -39,6 +40,7 @@ from second_brain_database.docs.models import (
 )
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.routes.auth.dependencies import enforce_all_lockdowns, get_current_user_dep
 from second_brain_database.routes.auth.logging_utils import (
     auth_logger,
     extract_request_info,
@@ -64,16 +66,6 @@ from second_brain_database.routes.auth.models import (
     UserIn,
     UserOut,
     validate_password_strength,
-    WebAuthnAuthenticationBeginRequest,
-    WebAuthnAuthenticationBeginResponse,
-    WebAuthnAuthenticationCompleteRequest,
-    WebAuthnAuthenticationCompleteResponse,
-    WebAuthnCredentialDeletionResponse,
-    WebAuthnCredentialListResponse,
-    WebAuthnRegistrationBeginRequest,
-    WebAuthnRegistrationBeginResponse,
-    WebAuthnRegistrationCompleteRequest,
-    WebAuthnRegistrationCompleteResponse,
 )
 from second_brain_database.routes.auth.routes_html import render_reset_password_page
 from second_brain_database.routes.auth.services.abuse.detection import (
@@ -87,21 +79,20 @@ from second_brain_database.routes.auth.services.abuse.management import (
     whitelist_reset_pair,
 )
 from second_brain_database.routes.auth.services.auth import login as login_service
-from second_brain_database.routes.auth.services.auth.login import (
+from second_brain_database.routes.auth.services.auth.login import (  # get_user_auth_methods,
+    check_auth_fallback_available,
     create_access_token,
     get_current_user,
     login_user,
-    # get_user_auth_methods,
     set_user_auth_preference,
-    check_auth_fallback_available,
 )
 from second_brain_database.routes.auth.services.auth.password import (
     change_user_password,
+    send_blocked_user_agent_notification,
     send_password_reset_email,
     send_password_reset_notification,
     send_trusted_ip_lockdown_code_email,
     send_user_agent_lockdown_code_email,
-    send_blocked_user_agent_notification,
 )
 from second_brain_database.routes.auth.services.auth.registration import register_user, verify_user_email
 from second_brain_database.routes.auth.services.auth.twofa import (
@@ -115,18 +106,6 @@ from second_brain_database.routes.auth.services.auth.verification import (
     resend_verification_email_service,
     send_verification_email,
 )
-# from second_brain_database.routes.auth.services.webauthn.authentication import (
-#     begin_authentication,
-#     complete_authentication,
-# )
-# from second_brain_database.routes.auth.services.webauthn.registration import (
-#     begin_registration,
-# )
-from second_brain_database.utils.logging_utils import (
-    log_auth_failure,
-    log_auth_success,
-    log_security_event,
-)
 from second_brain_database.routes.auth.services.security.tokens import blacklist_token
 from second_brain_database.routes.auth.services.utils.redis_utils import (
     consume_abuse_action_token,
@@ -135,12 +114,14 @@ from second_brain_database.routes.auth.services.utils.redis_utils import (
 )
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
+    log_auth_failure,
+    log_auth_success,
     log_database_operation,
     log_performance,
+    log_security_event,
     request_id_context,
     user_id_context,
 )
-from second_brain_database.routes.auth.dependencies import enforce_all_lockdowns, get_current_user_dep
 
 # Constants
 RESEND_RESET_EMAIL_INTERVAL: int = 60  # seconds
@@ -195,18 +176,6 @@ TWO_FA_RESET_LIMIT: int = 5
 TWO_FA_RESET_PERIOD: int = 3600
 RESET_PASSWORD_RATE_LIMIT: int = 100
 RESET_PASSWORD_RATE_PERIOD: int = 60
-WEBAUTHN_CREDENTIALS_LIST_RATE_LIMIT: int = 100
-WEBAUTHN_CREDENTIALS_LIST_RATE_PERIOD: int = 60
-WEBAUTHN_CREDENTIALS_DELETE_RATE_LIMIT: int = 50
-WEBAUTHN_CREDENTIALS_DELETE_RATE_PERIOD: int = 60
-WEBAUTHN_REGISTER_BEGIN_RATE_LIMIT: int = 50
-WEBAUTHN_REGISTER_BEGIN_RATE_PERIOD: int = 60
-WEBAUTHN_REGISTER_COMPLETE_RATE_LIMIT: int = 50
-WEBAUTHN_REGISTER_COMPLETE_RATE_PERIOD: int = 60
-WEBAUTHN_AUTH_BEGIN_RATE_LIMIT: int = 50
-WEBAUTHN_AUTH_BEGIN_RATE_PERIOD: int = 60
-WEBAUTHN_AUTH_COMPLETE_RATE_LIMIT: int = 50
-WEBAUTHN_AUTH_COMPLETE_RATE_PERIOD: int = 60
 
 logger = get_logger(prefix="[Auth Routes]")
 
@@ -214,26 +183,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 admin_api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
-
-
-async def require_admin(current_user: dict = Depends(get_current_user_dep)):
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin privileges required.")
-    return current_user
-
-
-@router.on_event("startup")
-async def create_log_indexes():
-    """Create indexes for the logs collection on startup."""
-    logs = db_manager.get_collection("logs")
-    await logs.create_index([("username", ASCENDING)])
-    await logs.create_index([("timestamp", DESCENDING)])
-    await logs.create_index([("outcome", ASCENDING)])
-
-
-@router.on_event("startup")
-async def reconcile_blocklist_whitelist_on_startup():
-    await reconcile_blocklist_whitelist()
 
 
 # Rate limit: register: 100 requests per 60 seconds per IP (default)
@@ -387,7 +336,9 @@ async def verify_email(request: Request, token: str = None, username: str = None
     # Check if request is from a web browser (render HTML) or API client (return JSON)
     user_agent = request.headers.get("user-agent", "").lower()
     accept_header = request.headers.get("accept", "").lower()
-    is_browser = "mozilla" in user_agent or "chrome" in user_agent or "safari" in user_agent or "text/html" in accept_header
+    is_browser = (
+        "mozilla" in user_agent or "chrome" in user_agent or "safari" in user_agent or "text/html" in accept_header
+    )
     is_mobile_app = any(app in user_agent for app in ["emotion_tracker", "dart", "flutter"])
 
     if not token and not username:
@@ -400,7 +351,10 @@ async def verify_email(request: Request, token: str = None, username: str = None
         )
         if is_browser and not is_mobile_app:
             from second_brain_database.routes.auth.main import render_email_verification_page
-            return render_email_verification_page(request, success=False, message="Verification Failed: No Token Provided")
+
+            return render_email_verification_page(
+                request, success=False, message="Verification Failed: No Token Provided"
+            )
         raise HTTPException(status_code=400, detail="Token or username required.")
 
     try:
@@ -412,6 +366,7 @@ async def verify_email(request: Request, token: str = None, username: str = None
             )
             if is_browser and not is_mobile_app:
                 from second_brain_database.routes.auth.main import render_email_verification_page
+
                 return render_email_verification_page(request, success=True)
             return {"message": "Email verified successfully"}
 
@@ -427,7 +382,10 @@ async def verify_email(request: Request, token: str = None, username: str = None
             )
             if is_browser and not is_mobile_app:
                 from second_brain_database.routes.auth.main import render_email_verification_page
-                return render_email_verification_page(request, success=False, message="Verification Failed: Invalid Username")
+
+                return render_email_verification_page(
+                    request, success=False, message="Verification Failed: Invalid Username"
+                )
             raise HTTPException(status_code=400, detail="Invalid username")
 
         if user.get("is_verified", False):
@@ -440,6 +398,7 @@ async def verify_email(request: Request, token: str = None, username: str = None
             )
             if is_browser and not is_mobile_app:
                 from second_brain_database.routes.auth.main import render_email_verification_page
+
                 return render_email_verification_page(request, success=True, message="Email Already Verified")
             return {"message": "Email already verified"}
 
@@ -454,7 +413,10 @@ async def verify_email(request: Request, token: str = None, username: str = None
             )
             if is_browser and not is_mobile_app:
                 from second_brain_database.routes.auth.main import render_email_verification_page
-                return render_email_verification_page(request, success=False, message="Verification Failed: No Token Found")
+
+                return render_email_verification_page(
+                    request, success=False, message="Verification Failed: No Token Found"
+                )
             raise HTTPException(status_code=400, detail="No verification token found for this user.")
 
         await verify_user_email(verification_token)
@@ -466,13 +428,15 @@ async def verify_email(request: Request, token: str = None, username: str = None
 
         if is_browser and not is_mobile_app:
             from second_brain_database.routes.auth.main import render_email_verification_page
+
             return render_email_verification_page(request, success=True)
         return {"message": "Email verified successfully"}
 
     except HTTPException as e:
         if is_browser and not is_mobile_app:
             from second_brain_database.routes.auth.main import render_email_verification_page
-            error_msg = str(e.detail) if hasattr(e, 'detail') else "Verification Failed"
+
+            error_msg = str(e.detail) if hasattr(e, "detail") else "Verification Failed"
             return render_email_verification_page(request, success=False, message=f"Verification Failed: {error_msg}")
         raise
     except Exception as e:
@@ -486,6 +450,7 @@ async def verify_email(request: Request, token: str = None, username: str = None
         logger.error("Email verification failed: %s", str(e), exc_info=True)
         if is_browser and not is_mobile_app:
             from second_brain_database.routes.auth.main import render_email_verification_page
+
             return render_email_verification_page(request, success=False, message="Verification Failed: Internal Error")
         raise HTTPException(status_code=500, detail="Email verification failed")
 
@@ -610,7 +575,10 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     if is_mobile_app:
         logger.info(
             "POST /auth/login from mobile app - User-Agent: %s, Content-Type: %s, Method: %s, URL: %s",
-            user_agent[:100], content_type, request.method, str(request.url)
+            user_agent[:100],
+            content_type,
+            request.method,
+            str(request.url),
         )
 
     # Default values
@@ -848,7 +816,19 @@ async def refresh_token(request: Request, current_user: dict = Depends(enforce_a
 async def logout(
     request: Request, current_user: dict = Depends(enforce_all_lockdowns), token: str = Depends(oauth2_scheme)
 ):
-    """Logout user (invalidate token on server side)."""
+    """Logout user and invalidate the current JWT token.
+
+    This endpoint securely logs out the user by adding the current JWT token to a server-side blacklist.
+    Once blacklisted, the token can no longer be used for authentication, even if it has not expired.
+
+    Args:
+        request (Request): The incoming request object.
+        current_user (dict): The authenticated user, injected by Depends.
+        token (str): The JWT token to be invalidated, injected by Depends.
+
+    Returns:
+        dict: A message confirming successful logout.
+    """
     # Extract request info and set context
     request_info = extract_request_info(request)
     set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
@@ -877,9 +857,23 @@ async def logout(
 # Rate limit: change-password: 100 requests per 60 seconds per IP (default)
 @router.put("/change-password")
 async def change_password(
-    password_request: PasswordChangeRequest, current_user: dict = Depends(enforce_all_lockdowns), request: Request = None
+    password_request: PasswordChangeRequest,
+    current_user: dict = Depends(enforce_all_lockdowns),
+    request: Request = None,
 ):
-    """Change the password for the current authenticated user. Requires recent authentication."""
+    """Change the password for the current authenticated user.
+
+    This endpoint allows an authenticated user to change their password.
+    For security, this action should require recent authentication (e.g., re-entering the current password).
+
+    Args:
+        password_request (PasswordChangeRequest): An object containing the user's current password and the new password.
+        current_user (dict): The authenticated user, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A message confirming the password was changed successfully.
+    """
     await security_manager.check_rate_limit(request, "change-password")
     # Recent password confirmation or re-login should be required for sensitive actions in production
     try:
@@ -1031,7 +1025,18 @@ async def forgot_password(request: Request, payload: Optional[Dict[str, Any]] = 
 # Rate limit: resend-verification-email: 1 request per 600 seconds per IP
 @router.post("/resend-verification-email")
 async def resend_verification_email(request: Request):
-    """Resend verification email to a user if not already verified. Accepts email or username in JSON body. Heavily rate-limited to prevent abuse."""
+    """Resend the verification email to a user.
+
+    This endpoint allows a user to request a new verification email if they have not yet verified their account.
+    It accepts either an email or a username in the JSON body.
+    To prevent abuse, this endpoint is heavily rate-limited.
+
+    Args:
+        request (Request): The incoming request object, containing the user's email or username in the body.
+
+    Returns:
+        dict: A message confirming that the verification email has been sent.
+    """
     await security_manager.check_rate_limit(
         request, "resend-verification-email", rate_limit_requests=50, rate_limit_period=600
     )
@@ -1105,7 +1110,18 @@ async def resend_verification_email(request: Request):
 # Rate limit: check-username: 100 requests per 60 seconds per IP (default)
 @router.get("/check-username")
 async def check_username(request: Request, username: str = Query(..., min_length=3, max_length=50)):
-    """Check if a username is available (not already taken), using DB for accuracy and Redis for demand tracking only."""
+    """Check if a username is available.
+
+    This endpoint checks for the availability of a username. It queries the database for an exact match
+    and also uses Redis to track the demand for usernames.
+
+    Args:
+        request (Request): The incoming request object.
+        username (str): The username to check.
+
+    Returns:
+        dict: A dictionary containing the username and a boolean indicating its availability.
+    """
     await security_manager.check_rate_limit(request, "check-username")
     await redis_incr_username_demand(username)
     # Always check DB directly for availability
@@ -1116,7 +1132,17 @@ async def check_username(request: Request, username: str = Query(..., min_length
 # Rate limit: check-email: 100 requests per 60 seconds per IP (default)
 @router.get("/check-email")
 async def check_email(request: Request, email: str = Query(...)):
-    """Check if an email is available (not already taken), using DB directly."""
+    """Check if an email is available.
+
+    This endpoint checks if an email address is already associated with an existing account in the database.
+
+    Args:
+        request (Request): The incoming request object.
+        email (str): The email address to check.
+
+    Returns:
+        dict: A dictionary containing the email and a boolean indicating its availability.
+    """
     await security_manager.check_rate_limit(request, "check-email")
     exists = await db_manager.get_collection("users").find_one({"email": email})
     return {"email": email, "available": not bool(exists)}
@@ -1125,7 +1151,18 @@ async def check_email(request: Request, email: str = Query(...)):
 # Rate limit: username-demand: 100 requests per 60 seconds per IP (default)
 @router.get("/username-demand")
 async def username_demand(request: Request, top_n: int = 10):
-    """Get the most in-demand usernames (most checked), using Redis."""
+    """Get the most in-demand usernames.
+
+    This endpoint retrieves a list of the most frequently checked usernames from Redis,
+    which can be used to gauge interest in certain usernames.
+
+    Args:
+        request (Request): The incoming request object.
+        top_n (int, optional): The number of top usernames to return. Defaults to 10.
+
+    Returns:
+        list: A list of dictionaries, each containing a username and the number of times it has been checked.
+    """
     await security_manager.check_rate_limit(request, "username-demand")
     most_demanded = await redis_get_top_demanded_usernames(top_n=top_n)
     return [{"username": uname, "checks": count} for uname, count in most_demanded]
@@ -1172,7 +1209,17 @@ async def disable_two_fa(request: Request, current_user: dict = Depends(enforce_
 # Rate limit: is-verified: 100 requests per 60 seconds per IP (default)
 @router.get("/is-verified")
 async def is_verified(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
-    """Check if the current user's email is verified."""
+    """Check if the current user's email is verified.
+
+    This endpoint checks the verification status of the currently authenticated user's email address.
+
+    Args:
+        request (Request): The incoming request object.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary containing a boolean indicating the user's verification status.
+    """
     await security_manager.check_rate_limit(request, "is-verified")
     return {"is_verified": current_user.get("is_verified", False)}
 
@@ -1180,7 +1227,18 @@ async def is_verified(request: Request, current_user: dict = Depends(enforce_all
 # Rate limit: validate-token: 100 requests per 60 seconds per IP (default)
 @router.get("/validate-token")
 async def validate_token(token: str = Depends(oauth2_scheme), request: Request = None):
-    """Validate a JWT access token and return user info if valid, matching login response fields (except token)."""
+    """Validate a JWT access token.
+
+    This endpoint checks the validity of a JWT access token. If the token is valid and the user is verified,
+    it returns user information similar to the login response.
+
+    Args:
+        token (str): The JWT token to validate, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A dictionary containing user information if the token is valid, or an error message if it is not.
+    """
     await security_manager.check_rate_limit(request, "validate-token")
     try:
         user = await get_current_user(token)
@@ -1214,7 +1272,17 @@ async def validate_token(token: str = Depends(oauth2_scheme), request: Request =
 # Rate limit: 2fa-guide: 100 requests per 60 seconds per IP (default)
 @router.get("/2fa/guide")
 async def get_2fa_setup_guide(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
-    """Get basic 2FA setup information."""
+    """Get a basic guide for setting up 2FA.
+
+    This endpoint provides basic information about the user's 2FA status and a list of recommended authenticator apps.
+
+    Args:
+        current_user (dict): The authenticated user, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A dictionary containing 2FA status, enabled methods, and a list of recommended apps.
+    """
     await security_manager.check_rate_limit(request, "2fa-guide")
 
     return {
@@ -1227,7 +1295,18 @@ async def get_2fa_setup_guide(current_user: dict = Depends(enforce_all_lockdowns
 # Rate limit: security-dashboard: 100 requests per 60 seconds per IP (default)
 @router.get("/security-dashboard")
 async def get_security_dashboard(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
-    """Get security status for the current user."""
+    """Get a security overview for the current user.
+
+    This endpoint provides a security dashboard for the authenticated user, including a security score
+    and the status of various security-related settings.
+
+    Args:
+        current_user (dict): The authenticated user, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A dictionary containing the user's security score and the status of their security settings.
+    """
     await security_manager.check_rate_limit(request, "security-dashboard")
 
     # Calculate security score
@@ -1256,7 +1335,18 @@ async def get_security_dashboard(current_user: dict = Depends(enforce_all_lockdo
 # Rate limit: 2fa-backup-codes: 5 requests per 300 seconds per IP (restricted)
 @router.get("/2fa/backup-codes")
 async def get_backup_codes_status(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
-    """Get backup codes status (count remaining, not the actual codes for security)."""
+    """Get the status of 2FA backup codes.
+
+    This endpoint returns the number of total, used, and remaining 2FA backup codes for the user.
+    For security reasons, it does not return the actual codes.
+
+    Args:
+        current_user (dict): The authenticated user, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A dictionary with the total, used, and remaining backup code counts.
+    """
     await security_manager.check_rate_limit(request, "2fa-backup-codes", rate_limit_requests=5, rate_limit_period=300)
 
     if not current_user.get("two_fa_enabled", False):
@@ -1275,7 +1365,18 @@ async def get_backup_codes_status(current_user: dict = Depends(enforce_all_lockd
 # Rate limit: 2fa-regenerate-backup: 20 requests per 3600 (1hr) seconds per IP (increased for testing)
 @router.post("/2fa/regenerate-backup-codes")
 async def regenerate_backup_codes(current_user: dict = Depends(enforce_all_lockdowns), request: Request = None):
-    """Regenerate backup codes for 2FA recovery. This invalidates all existing backup codes."""
+    """Regenerate 2FA backup codes.
+
+    This endpoint generates a new set of 2FA backup codes for the user.
+    This action invalidates all previously existing backup codes.
+
+    Args:
+        current_user (dict): The authenticated user, injected by Depends.
+        request (Request): The incoming request object.
+
+    Returns:
+        dict: A message confirming the action and the new set of backup codes.
+    """
     # Increased rate limit for testing purposes doing it 200 times per hour
     await security_manager.check_rate_limit(
         request, "2fa-regenerate-backup", rate_limit_requests=200, rate_limit_period=3600
@@ -1315,7 +1416,17 @@ async def reset_two_fa(
 # Rate limit: reset-password: 100 requests per 60 seconds per IP (default)
 @router.post("/reset-password")
 async def reset_password(payload: dict = Body(...)):
-    """Reset the user's password using a valid reset token."""
+    """Reset the user's password using a valid reset token.
+
+    This endpoint allows a user to reset their password by providing a valid password reset token and a new password.
+    The token is sent to the user's email address via the /forgot-password endpoint.
+
+    Args:
+        payload (dict): A dictionary containing the password reset token and the new password.
+
+    Returns:
+        dict: A message confirming that the password has been reset successfully.
+    """
     token = payload.get("token")
     new_password = payload.get("new_password")
     if not token or not new_password:
@@ -1396,9 +1507,8 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(e
     user preferences, and usage statistics.
 
     **Response includes:**
-    - Available authentication methods (password, webauthn)
+    - Available authentication methods (password)
     - User's preferred authentication method
-    - WebAuthn credential count
     - Recent authentication method usage
     """
     from second_brain_database.routes.auth.services.auth.login import get_user_auth_methods
@@ -1412,8 +1522,6 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(e
         "available_methods": auth_methods["available_methods"],
         "preferred_method": auth_methods["preferred_method"],
         "has_password": auth_methods["has_password"],
-        "has_webauthn": auth_methods["has_webauthn"],
-        "webauthn_credential_count": auth_methods["webauthn_credential_count"],
         "recent_auth_methods": auth_methods["recent_auth_methods"],
         "last_auth_method": auth_methods["last_auth_method"],
     }
@@ -1421,53 +1529,40 @@ async def get_user_auth_methods(request: Request, current_user: dict = Depends(e
 
 @router.put("/auth-methods/preference", response_model=AuthPreferenceResponse)
 async def set_auth_preference(
-    request: Request,
-    preferred_method: str = Body(..., embed=True),
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, preferred_method: str = Body(..., embed=True), current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Set the user's preferred authentication method.
 
     The preferred method will be suggested first during login flows.
-    The method must be available for the user (e.g., they must have WebAuthn credentials
-    to set webauthn as preferred).
+    The method must be available for the user.
 
     **Supported methods:**
     - password: Traditional password authentication
-    - webauthn: WebAuthn/FIDO2 passwordless authentication
     """
     from second_brain_database.routes.auth.services.auth.login import set_user_auth_preference
 
     user_id = str(current_user["_id"])
 
     # Validate method
-    if preferred_method not in ["password", "webauthn"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid authentication method. Must be 'password' or 'webauthn'"
-        )
+    if preferred_method not in ["password"]:
+        raise HTTPException(status_code=400, detail="Invalid authentication method. Must be 'password'")
 
     success = await set_user_auth_preference(user_id, preferred_method)
 
     if not success:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot set preferred method. Method may not be available for your account."
+            status_code=400, detail="Cannot set preferred method. Method may not be available for your account."
         )
 
     logger.info("Updated auth preference for user %s: %s", current_user["username"], preferred_method)
 
-    return {
-        "message": "Authentication preference updated successfully",
-        "preferred_method": preferred_method
-    }
+    return {"message": "Authentication preference updated successfully", "preferred_method": preferred_method}
 
 
 @router.get("/auth-methods/fallback/{failed_method}", response_model=AuthFallbackResponse)
 async def check_auth_fallback(
-    request: Request,
-    failed_method: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, failed_method: str, current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """
     Check available authentication fallback options when one method fails.
@@ -1476,7 +1571,7 @@ async def check_auth_fallback(
     are available if the primary method fails or is unavailable.
 
     **Parameters:**
-    - failed_method: The authentication method that failed ("password" or "webauthn")
+    - failed_method: The authentication method that failed ("password")
 
     **Response includes:**
     - Whether fallback options are available
@@ -1488,16 +1583,17 @@ async def check_auth_fallback(
     user_id = str(current_user["_id"])
 
     # Validate failed method
-    if failed_method not in ["password", "webauthn"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid authentication method. Must be 'password' or 'webauthn'"
-        )
+    if failed_method not in ["password"]:
+        raise HTTPException(status_code=400, detail="Invalid authentication method. Must be 'password'")
 
     fallback_info = await check_auth_fallback_available(user_id, failed_method)
 
-    logger.info("Checked auth fallback for user %s, failed method %s: %s",
-               current_user["username"], failed_method, fallback_info)
+    logger.info(
+        "Checked auth fallback for user %s, failed method %s: %s",
+        current_user["username"],
+        failed_method,
+        fallback_info,
+    )
 
     return fallback_info
 
@@ -1672,8 +1768,8 @@ async def trusted_ips_lockdown_confirm(
             "confirmed_from_ip": request_ip,
             "endpoint": f"{request.method} {request.url.path}",
             "user_agent": request.headers.get("user-agent", ""),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
     )
 
     logger.info(
@@ -1732,7 +1828,9 @@ async def trusted_user_agents_lockdown_request(
         # First, check if trusted_user_agent_lockdown is enabled before proceeding
         user_doc = await db_manager.get_collection("users").find_one({"_id": current_user["_id"]})
         if not user_doc.get("trusted_user_agent_lockdown", False):
-            logger.info("Trusted User Agent Lockdown is not enabled for user %s; cannot disable", current_user.get("username"))
+            logger.info(
+                "Trusted User Agent Lockdown is not enabled for user %s; cannot disable", current_user.get("username")
+            )
             raise HTTPException(status_code=400, detail="Trusted User Agent Lockdown is not enabled.")
 
         # For disabling, ignore user-provided trusted_user_agents and use the current trusted_user_agents from the DB
@@ -1743,7 +1841,8 @@ async def trusted_user_agents_lockdown_request(
                 current_user.get("username"),
             )
             raise HTTPException(
-                status_code=400, detail="No trusted User Agents set. Cannot disable lockdown without any trusted User Agents."
+                status_code=400,
+                detail="No trusted User Agents set. Cannot disable lockdown without any trusted User Agents.",
             )
     elif not trusted_user_agents or not isinstance(trusted_user_agents, list):
         logger.info("No trusted_user_agents provided for lockdown by user %s", current_user.get("username"))
@@ -1758,12 +1857,14 @@ async def trusted_user_agents_lockdown_request(
         {"_id": current_user["_id"]},
         {
             "$set": {
-                "trusted_user_agent_lockdown_codes": [{
-                    "code": code,
-                    "expires_at": expiry,
-                    "action": action,
-                    "allowed_user_agents": trusted_user_agents,
-                }]
+                "trusted_user_agent_lockdown_codes": [
+                    {
+                        "code": code,
+                        "expires_at": expiry,
+                        "action": action,
+                        "allowed_user_agents": trusted_user_agents,
+                    }
+                ]
             }
         },
     )
@@ -1788,7 +1889,7 @@ async def trusted_user_agents_lockdown_request(
         logger.info(
             "User Agent lockdown disable email sent to user %s (allowed User Agents: %s)",
             current_user.get("username"),
-            trusted_user_agents
+            trusted_user_agents,
         )
 
     try:
@@ -1797,7 +1898,7 @@ async def trusted_user_agents_lockdown_request(
             "User Agent lockdown %s code sent to user %s (allowed User Agents: %s)",
             action,
             current_user.get("username"),
-            trusted_user_agents
+            trusted_user_agents,
         )
     except Exception as e:
         logger.error("Failed to send User Agent lockdown code to %s: %s", email, str(e), exc_info=True)
@@ -1873,7 +1974,7 @@ async def trusted_user_agents_lockdown_confirm(
             )
             raise HTTPException(
                 status_code=403,
-                detail="Disabling lockdown must be confirmed from one of your existing trusted User Agents."
+                detail="Disabling lockdown must be confirmed from one of your existing trusted User Agents.",
             )
     else:  # action == "enable"
         # For enable, check against the allowed User Agents from the confirmation code
@@ -1884,10 +1985,7 @@ async def trusted_user_agents_lockdown_confirm(
                 current_user.get("username"),
                 allowed_user_agents,
             )
-            raise HTTPException(
-                status_code=403,
-                detail="Confirmation must be from one of the allowed User Agents."
-            )
+            raise HTTPException(status_code=403, detail="Confirmation must be from one of the allowed User Agents.")
 
     # Update user document with lockdown settings
     lockdown_flag = True if action == "enable" else False
@@ -1922,8 +2020,8 @@ async def trusted_user_agents_lockdown_confirm(
             "confirmed_from_user_agent": request_user_agent,
             "endpoint": f"{request.method} {request.url.path}",
             "user_agent": request_user_agent,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
     )
 
     logger.info(
@@ -1950,19 +2048,14 @@ async def trusted_user_agents_lockdown_status(request: Request, current_user: di
     lockdown_status = bool(current_user.get("trusted_user_agent_lockdown", False))
     request_user_agent = security_manager.get_client_user_agent(request)
 
-    return {
-        "trusted_user_agent_lockdown": lockdown_status,
-        "your_user_agent": request_user_agent
-    }
+    return {"trusted_user_agent_lockdown": lockdown_status, "your_user_agent": request_user_agent}
 
 
 # --- "Allow Once" Temporary Access Endpoints ---
 
+
 @router.post("/lockdown/allow-once/ip")
-async def allow_once_ip_access(
-    request: Request,
-    token: str = Body(..., embed=True)
-):
+async def allow_once_ip_access(request: Request, token: str = Body(..., embed=True)):
     """
     Grant temporary IP access using a token from blocked access notification email.
 
@@ -1982,50 +2075,40 @@ async def allow_once_ip_access(
 
     **Requirements:** 1.4, 2.4
     """
-    await security_manager.check_rate_limit(
-        request, "allow-once-ip", rate_limit_requests=10, rate_limit_period=3600
-    )
+    await security_manager.check_rate_limit(request, "allow-once-ip", rate_limit_requests=10, rate_limit_period=3600)
 
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
+            execute_allow_once_ip_access,
             validate_and_use_temporary_ip_token,
-            execute_allow_once_ip_access
         )
 
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
             logger.warning("Invalid or expired allow-once IP token used")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new access link."
-            )
+            raise HTTPException(status_code=400, detail="Invalid or expired token. Please request a new access link.")
 
         # Verify this is an "allow_once" action
         if token_data.get("action") != "allow_once":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid token type for this action."
-            )
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
 
         # Execute the allow once action
         success = await execute_allow_once_ip_access(token_data)
         if not success:
             logger.error("Failed to execute allow-once IP access for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to grant temporary access. Please try again."
-            )
+            raise HTTPException(status_code=500, detail="Failed to grant temporary access. Please try again.")
 
-        logger.info("Granted temporary IP access for user %s, IP %s",
-                   token_data.get("user_email"), token_data.get("ip_address"))
+        logger.info(
+            "Granted temporary IP access for user %s, IP %s", token_data.get("user_email"), token_data.get("ip_address")
+        )
 
         return {
             "message": "Temporary access granted successfully",
             "ip_address": token_data.get("ip_address"),
             "expires_in_minutes": 15,
-            "endpoint": token_data.get("endpoint")
+            "endpoint": token_data.get("endpoint"),
         }
 
     except HTTPException:
@@ -2033,16 +2116,12 @@ async def allow_once_ip_access(
     except Exception as e:
         logger.error("Unexpected error in allow-once IP access: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
+            status_code=500, detail="An unexpected error occurred. Please try again or contact support."
         )
 
 
 @router.post("/lockdown/allow-once/user-agent")
-async def allow_once_user_agent_access(
-    request: Request,
-    token: str = Body(..., embed=True)
-):
+async def allow_once_user_agent_access(request: Request, token: str = Body(..., embed=True)):
     """
     Grant temporary User Agent access using a token from blocked access notification email.
 
@@ -2068,45 +2147,42 @@ async def allow_once_user_agent_access(
 
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
+            execute_allow_once_user_agent_access,
             validate_and_use_temporary_user_agent_token,
-            execute_allow_once_user_agent_access
         )
 
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
             logger.warning("Invalid or expired allow-once User Agent token used")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new access link."
-            )
+            raise HTTPException(status_code=400, detail="Invalid or expired token. Please request a new access link.")
 
         # Verify this is an "allow_once" action
         if token_data.get("action") != "allow_once":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid token type for this action."
-            )
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
 
         # Execute the allow once action
         success = await execute_allow_once_user_agent_access(token_data)
         if not success:
             logger.error("Failed to execute allow-once User Agent access for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to grant temporary access. Please try again."
-            )
+            raise HTTPException(status_code=500, detail="Failed to grant temporary access. Please try again.")
 
-        logger.info("Granted temporary User Agent access for user %s, User Agent %s",
-                   token_data.get("user_email"),
-                   token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
+        logger.info(
+            "Granted temporary User Agent access for user %s, User Agent %s",
+            token_data.get("user_email"),
+            (
+                token_data.get("user_agent")[:50] + "..."
+                if len(token_data.get("user_agent", "")) > 50
+                else token_data.get("user_agent")
+            ),
+        )
 
         return {
             "message": "Temporary access granted successfully",
             "user_agent": token_data.get("user_agent"),
             "expires_in_minutes": 15,
-            "endpoint": token_data.get("endpoint")
+            "endpoint": token_data.get("endpoint"),
         }
 
     except HTTPException:
@@ -2114,18 +2190,15 @@ async def allow_once_user_agent_access(
     except Exception as e:
         logger.error("Unexpected error in allow-once User Agent access: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
+            status_code=500, detail="An unexpected error occurred. Please try again or contact support."
         )
 
 
 # --- "Add to Trusted List" Permanent Access Endpoints ---
 
+
 @router.post("/lockdown/add-trusted/ip")
-async def add_ip_to_trusted_list(
-    request: Request,
-    token: str = Body(..., embed=True)
-):
+async def add_ip_to_trusted_list(request: Request, token: str = Body(..., embed=True)):
     """
     Add an IP address to the trusted list using a token from blocked access notification email.
 
@@ -2146,49 +2219,39 @@ async def add_ip_to_trusted_list(
 
     **Requirements:** 1.4, 2.4
     """
-    await security_manager.check_rate_limit(
-        request, "add-trusted-ip", rate_limit_requests=10, rate_limit_period=3600
-    )
+    await security_manager.check_rate_limit(request, "add-trusted-ip", rate_limit_requests=10, rate_limit_period=3600)
 
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
+            execute_add_to_trusted_ip_list,
             validate_and_use_temporary_ip_token,
-            execute_add_to_trusted_ip_list
         )
 
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_ip_token(token)
         if not token_data:
             logger.warning("Invalid or expired add-to-trusted IP token used")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new access link."
-            )
+            raise HTTPException(status_code=400, detail="Invalid or expired token. Please request a new access link.")
 
         # Verify this is an "add_to_trusted" action
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid token type for this action."
-            )
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
 
         # Execute the add to trusted list action
         success = await execute_add_to_trusted_ip_list(token_data)
         if not success:
             logger.error("Failed to execute add-to-trusted IP action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add IP to trusted list. Please try again."
-            )
+            raise HTTPException(status_code=500, detail="Failed to add IP to trusted list. Please try again.")
 
-        logger.info("Added IP to trusted list for user %s, IP %s",
-                   token_data.get("user_email"), token_data.get("ip_address"))
+        logger.info(
+            "Added IP to trusted list for user %s, IP %s", token_data.get("user_email"), token_data.get("ip_address")
+        )
 
         return {
             "message": "IP address added to trusted list successfully",
             "ip_address": token_data.get("ip_address"),
-            "endpoint": token_data.get("endpoint")
+            "endpoint": token_data.get("endpoint"),
         }
 
     except HTTPException:
@@ -2196,16 +2259,12 @@ async def add_ip_to_trusted_list(
     except Exception as e:
         logger.error("Unexpected error in add-to-trusted IP action: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
+            status_code=500, detail="An unexpected error occurred. Please try again or contact support."
         )
 
 
 @router.post("/lockdown/add-trusted/user-agent")
-async def add_user_agent_to_trusted_list(
-    request: Request,
-    token: str = Body(..., embed=True)
-):
+async def add_user_agent_to_trusted_list(request: Request, token: str = Body(..., embed=True)):
     """
     Add a User Agent to the trusted list using a token from blocked access notification email.
 
@@ -2232,44 +2291,41 @@ async def add_user_agent_to_trusted_list(
 
     try:
         from second_brain_database.routes.auth.services.temporary_access import (
+            execute_add_to_trusted_user_agent_list,
             validate_and_use_temporary_user_agent_token,
-            execute_add_to_trusted_user_agent_list
         )
 
         # Validate and consume the token (single use)
         token_data = await validate_and_use_temporary_user_agent_token(token)
         if not token_data:
             logger.warning("Invalid or expired add-to-trusted User Agent token used")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new access link."
-            )
+            raise HTTPException(status_code=400, detail="Invalid or expired token. Please request a new access link.")
 
         # Verify this is an "add_to_trusted" action
         if token_data.get("action") != "add_to_trusted":
             logger.warning("Token used for wrong action type: %s", token_data.get("action"))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid token type for this action."
-            )
+            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
 
         # Execute the add to trusted list action
         success = await execute_add_to_trusted_user_agent_list(token_data)
         if not success:
             logger.error("Failed to execute add-to-trusted User Agent action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add User Agent to trusted list. Please try again."
-            )
+            raise HTTPException(status_code=500, detail="Failed to add User Agent to trusted list. Please try again.")
 
-        logger.info("Added User Agent to trusted list for user %s, User Agent %s",
-                   token_data.get("user_email"),
-                   token_data.get("user_agent")[:50] + "..." if len(token_data.get("user_agent", "")) > 50 else token_data.get("user_agent"))
+        logger.info(
+            "Added User Agent to trusted list for user %s, User Agent %s",
+            token_data.get("user_email"),
+            (
+                token_data.get("user_agent")[:50] + "..."
+                if len(token_data.get("user_agent", "")) > 50
+                else token_data.get("user_agent")
+            ),
+        )
 
         return {
             "message": "User Agent added to trusted list successfully",
             "user_agent": token_data.get("user_agent"),
-            "endpoint": token_data.get("endpoint")
+            "endpoint": token_data.get("endpoint"),
         }
 
     except HTTPException:
@@ -2277,8 +2333,7 @@ async def add_user_agent_to_trusted_list(
     except Exception as e:
         logger.error("Unexpected error in add-to-trusted User Agent action: %s", e, exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
+            status_code=500, detail="An unexpected error occurred. Please try again or contact support."
         )
 
 
@@ -2420,1304 +2475,29 @@ async def revoke_permanent_token(request: Request, token_id: str, current_user: 
         )
 
 
-# WebAuthn Registration Endpoints
 
-
-@router.post(
-    "/webauthn/register/begin",
-    response_model=WebAuthnRegistrationBeginResponse,
-    summary="Begin WebAuthn credential registration",
-    description="""
-    Start the WebAuthn credential registration process for the authenticated user.
-
-    **Process:**
-    1. Generates a unique cryptographic challenge
-    2. Retrieves user's existing credentials to exclude duplicates
-    3. Returns WebAuthn credential creation options for the client
-
-    **Security Features:**
-    - Requires valid JWT authentication
-    - Challenge expires in 5 minutes
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive security logging and monitoring
-    - Security headers for WebAuthn operations
-
-    **Usage:**
-    - Call this endpoint first to get registration options
-    - Use the response with WebAuthn API on the client side
-    - Complete registration with /webauthn/register/complete
-
-    **Response:**
-    Returns WebAuthn credential creation options including challenge,
-    relying party info, user info, and supported algorithms.
-    """,
-    responses={
-        200: {
-            "description": "Registration options generated successfully",
-            "model": WebAuthnRegistrationBeginResponse,
-        },
-        400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Authentication required", "model": StandardErrorResponse},
-        403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to generate registration options", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_register_begin")
-async def webauthn_register_begin(
-    request: Request,
-    registration_request: WebAuthnRegistrationBeginRequest,
-    current_user: dict = Depends(enforce_all_lockdowns),
-):
+async def require_admin(current_user: dict = Depends(enforce_all_lockdowns)):
     """
-    Begin WebAuthn credential registration for authenticated user.
+    Dependency function to require admin role for protected endpoints.
 
-    Generates WebAuthn credential creation options following existing auth patterns
-    with enhanced security validation, request sanitization, and comprehensive monitoring.
+    Checks if the authenticated user has admin privileges (role == "admin").
+    Raises HTTPException if the user is not an admin.
+
+    Args:
+        current_user: The authenticated user document from enforce_all_lockdowns
+
+    Returns:
+        The user document if they have admin role
+
+    Raises:
+        HTTPException: If user does not have admin role (403 Forbidden)
     """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-register-begin",
-        rate_limit_requests=WEBAUTHN_REGISTER_BEGIN_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_REGISTER_BEGIN_RATE_PERIOD,
-    )
-
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"],
-        additional_checks={"authenticated_user": current_user}
-    )
-
-    # Apply additional request integrity validation
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"]
-    )
-
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=registration_request.model_dump(),
-        operation_type="registration"
-    )
-
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
-
-    logger.info("WebAuthn registration begin for user: %s", current_user["username"])
-
-    try:
-        # Use the registration service following existing auth patterns
-        # Call the registration service with user and sanitized device name
-        options_dict = await begin_registration(
-            user=current_user,
-            device_name=sanitized_request_data.get("device_name")
-        )
-
-        # Convert to response model for API consistency
-        options = WebAuthnRegistrationBeginResponse(**options_dict)
-
-        logger.info("WebAuthn registration options generated for user: %s", current_user["username"])
-
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = options.model_dump()
-        response = JSONResponse(content=response_data)
-
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "registration")
-
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions from service layer
-        raise
-    except Exception as e:
-        logger.error("Failed to generate WebAuthn registration options for user %s: %s", current_user["username"], e, exc_info=True)
-
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_registration_begin_failed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "device_name": sanitized_request_data.get("device_name"),
-                "validation_context": validation_context
-            },
-        )
-
+    user_role = current_user.get("role", "user")
+    if user_role != "admin":
+        logger.warning("Access denied: user %s attempted admin operation (role: %s)",
+                      current_user.get("username", "unknown"), user_role)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate WebAuthn registration options"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
         )
-
-
-@router.post(
-    "/webauthn/register/complete",
-    response_model=WebAuthnRegistrationCompleteResponse,
-    summary="Complete WebAuthn credential registration",
-    description="""
-    Complete the WebAuthn credential registration process.
-
-    **Process:**
-    1. Validates the WebAuthn credential creation response
-    2. Verifies the challenge and attestation
-    3. Stores the credential public key and metadata
-    4. Returns confirmation with credential details
-
-    **Security Features:**
-    - Challenge validation (one-time use, 5-minute expiry)
-    - Attestation verification (simplified for "none" attestation)
-    - Credential deduplication (updates existing if same authenticator)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive audit logging and monitoring
-    - Security headers for WebAuthn operations
-
-    **Usage:**
-    - Call after successful WebAuthn credential creation on client
-    - Provide the complete WebAuthn credential creation response
-    - Optionally specify a friendly device name
-
-    **Response:**
-    Returns confirmation with credential metadata and registration timestamp.
-    """,
-    responses={
-        201: {
-            "description": "Credential registered successfully",
-            "model": WebAuthnRegistrationCompleteResponse,
-        },
-        400: {"description": "Invalid credential response, expired challenge, or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Authentication required", "model": StandardErrorResponse},
-        403: {"description": "Origin not allowed or security check failed", "model": StandardErrorResponse},
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to register credential", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_register_complete")
-async def webauthn_register_complete(
-    request: Request,
-    registration_request: WebAuthnRegistrationCompleteRequest,
-    current_user: dict = Depends(enforce_all_lockdowns),
-):
-    """
-    Complete WebAuthn credential registration for authenticated user.
-
-    Validates credential response and stores credential following existing
-    validation and error handling patterns with enhanced security validation.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-register-complete",
-        rate_limit_requests=WEBAUTHN_REGISTER_COMPLETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_REGISTER_COMPLETE_RATE_PERIOD,
-    )
-
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"],
-        additional_checks={"authenticated_user": current_user}
-    )
-
-    # Apply additional request integrity validation for registration complete
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="registration",
-        user_id=current_user["username"]
-    )
-
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=registration_request.model_dump(),
-        operation_type="registration"
-    )
-
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
-
-    logger.info("WebAuthn registration complete for user: %s", current_user["username"])
-
-    try:
-        # Use the complete_registration service function following existing patterns
-        from second_brain_database.routes.auth.services.webauthn.registration import complete_registration
-
-        # Convert sanitized request to dictionary format expected by service
-        credential_response = {
-            "id": sanitized_request_data.get("id"),
-            "rawId": sanitized_request_data.get("rawId"),
-            "response": sanitized_request_data.get("response"),
-            "type": sanitized_request_data.get("type")
-        }
-
-        # Call the registration service following existing service layer patterns
-        result = await complete_registration(
-            user=current_user,
-            credential_response=credential_response,
-            device_name=sanitized_request_data.get("device_name")
-        )
-
-        logger.info("WebAuthn credential registered successfully for user: %s", current_user["username"])
-
-        # Log successful registration using existing auth success pattern
-        log_auth_success(
-            event_type="webauthn_registration_completed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "credential_id": result["credential_id"],
-                "device_name": result["device_name"],
-                "authenticator_type": result["authenticator_type"],
-                "operation": "credential_registration",
-                "validation_context": validation_context
-            },
-        )
-
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = WebAuthnRegistrationCompleteResponse(
-            message=result["message"],
-            credential_id=result["credential_id"],
-            device_name=result["device_name"],
-            authenticator_type=result["authenticator_type"],
-            created_at=result["created_at"]
-        ).model_dump()
-
-        response = JSONResponse(content=response_data, status_code=201)
-
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "registration")
-
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to complete WebAuthn registration for user %s: %s", current_user["username"], e, exc_info=True)
-
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_registration_complete_failed",
-            user_id=current_user["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "credential_id": sanitized_request_data.get("id"),
-                "device_name": sanitized_request_data.get("device_name"),
-                "validation_context": validation_context
-            },
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to register WebAuthn credential"
-        )
-
-
-# WebAuthn Credential Management Endpoints
-
-
-@router.get("/webauthn/credentials", response_model=WebAuthnCredentialListResponse)
-async def list_webauthn_credentials(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
-    """
-    List all WebAuthn credentials for the authenticated user.
-
-    Returns credential metadata (ID, device name, created date, last used, etc.)
-    but never returns sensitive cryptographic data for security.
-
-    **Security Features:**
-    - Requires authentication
-    - Only returns user's own credentials
-    - Excludes sensitive cryptographic data (public keys, signature counters)
-    - Comprehensive audit logging
-
-    **Response Data:**
-    - Credential ID (for management operations)
-    - Device name (user-friendly identifier)
-    - Authenticator type (platform/cross-platform)
-    - Transport methods (usb, nfc, internal, etc.)
-    - Registration and last used timestamps
-    - Active status
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-credentials-list",
-        rate_limit_requests=WEBAUTHN_CREDENTIALS_LIST_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_CREDENTIALS_LIST_RATE_PERIOD,
-    )
-
-    from second_brain_database.routes.auth.services.webauthn.credentials import get_user_credential_list
-
-    try:
-        credentials = await get_user_credential_list(str(current_user["_id"]), include_inactive=False)
-
-        return WebAuthnCredentialListResponse(
-            credentials=credentials,
-            total_count=len(credentials)
-        )
-
-    except Exception as e:
-        logger.error("Failed to list WebAuthn credentials for user %s: %s", current_user["username"], e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve WebAuthn credentials"
-        )
-
-
-@router.delete("/webauthn/credentials/{credential_id}", response_model=WebAuthnCredentialDeletionResponse)
-async def delete_webauthn_credential(request: Request, credential_id: str, current_user: dict = Depends(enforce_all_lockdowns)):
-    """
-    Delete a WebAuthn credential by its ID.
-
-    Only the credential owner can delete their own credentials.
-    Deleted credentials are immediately invalidated and cannot be used for authentication.
-
-    **Security Features:**
-    - Requires authentication
-    - Ownership verification (users can only delete their own credentials)
-    - Comprehensive security logging
-    - Cache invalidation for immediate effect
-    - Soft delete with audit trail
-
-    **Important Notes:**
-    - This action cannot be undone
-    - The credential will no longer work for authentication
-    - Consider the impact on user's ability to access their account
-    - Users should have alternative authentication methods available
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-credentials-delete",
-        rate_limit_requests=WEBAUTHN_CREDENTIALS_DELETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_CREDENTIALS_DELETE_RATE_PERIOD,
-    )
-
-    from second_brain_database.routes.auth.services.webauthn.credentials import delete_credential_by_id
-
-    try:
-        deletion_response = await delete_credential_by_id(user_id=str(current_user["_id"]), credential_id=credential_id)
-
-        if deletion_response is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found or already deleted")
-
-        logger.info("WebAuthn credential deleted: credential_id=%s, user=%s", credential_id, current_user["username"])
-
-        return WebAuthnCredentialDeletionResponse(**deletion_response)
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        logger.error("Failed to delete WebAuthn credential %s for user %s: %s", credential_id, current_user["username"], e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete WebAuthn credential"
-        )
-
-
-# WebAuthn Authentication Endpoints
-
-
-@router.post(
-    "/webauthn/authenticate/begin",
-    response_model=WebAuthnAuthenticationBeginResponse,
-    summary="Begin WebAuthn passwordless authentication",
-    description="""
-    Start the WebAuthn authentication process for passwordless login.
-
-    **Process:**
-    1. Validates user exists and account is active
-    2. Retrieves user's registered WebAuthn credentials
-    3. Generates a unique cryptographic challenge
-    4. Returns WebAuthn credential request options for the client
-
-    **Authentication Methods:**
-    - Username-based authentication
-    - Email-based authentication
-
-    **Security Features:**
-    - Account status validation (active, verified, not suspended)
-    - Challenge generation with secure randomness
-    - Credential filtering (only active credentials)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Enhanced request validation and sanitization
-    - Origin and referer validation
-    - Comprehensive audit logging and monitoring
-    - Security headers for WebAuthn operations
-    - IP-based security checks (if trusted IP lockdown enabled)
-
-    **Usage:**
-    - Call this endpoint first to get authentication options
-    - Use the response with WebAuthn API on the client side
-    - Complete authentication with /webauthn/authenticate/complete
-
-    **Response:**
-    Returns WebAuthn credential request options including challenge,
-    allowed credentials, and authentication parameters.
-    """,
-    responses={
-        200: {
-            "description": "Authentication options generated successfully",
-            "model": WebAuthnAuthenticationBeginResponse,
-        },
-        400: {"description": "Invalid request format or security validation failed", "model": StandardErrorResponse},
-        401: {"description": "Invalid credentials or user not found", "model": StandardErrorResponse},
-        403: {
-            "description": "Account inactive, email not verified, account suspended, or origin not allowed",
-            "model": StandardErrorResponse,
-        },
-        404: {
-            "description": "No WebAuthn credentials found for user",
-            "model": StandardErrorResponse,
-        },
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to generate authentication options", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_authenticate_begin")
-async def webauthn_authenticate_begin(
-    request: Request,
-    auth_request: WebAuthnAuthenticationBeginRequest,
-):
-    """
-    Begin WebAuthn authentication process for passwordless login.
-
-    Generates WebAuthn credential request options following existing auth patterns
-    with enhanced security validation, request sanitization, and comprehensive monitoring.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-authenticate-begin",
-        rate_limit_requests=WEBAUTHN_AUTH_BEGIN_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_AUTH_BEGIN_RATE_PERIOD,
-    )
-
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-
-    identifier = auth_request.username or auth_request.email or "unknown"
-
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="authentication",
-        user_id=identifier,
-        additional_checks={"public_endpoint": True}  # No auth required for this endpoint
-    )
-
-    # Apply additional request integrity validation for authentication begin
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="authentication",
-        user_id=identifier
-    )
-
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=auth_request.model_dump(),
-        operation_type="authentication"
-    )
-
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=identifier, ip_address=request_info["ip_address"])
-
-    logger.info("WebAuthn authentication begin for identifier: %s", identifier)
-
-    try:
-        # Call the authentication service following existing service layer patterns
-        options_dict = await begin_authentication(
-            username=sanitized_request_data.get("username"),
-            email=sanitized_request_data.get("email"),
-            user_verification=sanitized_request_data.get("user_verification", "preferred"),
-            ip_address=request_info["ip_address"]
-        )
-
-        # Convert to response model for API consistency
-        options = WebAuthnAuthenticationBeginResponse(**options_dict)
-
-        logger.info("WebAuthn authentication options generated for identifier: %s", identifier)
-
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = options.model_dump()
-        response = JSONResponse(content=response_data)
-
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "authentication")
-
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, user not found, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to generate WebAuthn authentication options for identifier %s: %s", identifier, e, exc_info=True)
-
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_authentication_begin_failed",
-            user_id=identifier,
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "has_username": bool(sanitized_request_data.get("username")),
-                "has_email": bool(sanitized_request_data.get("email")),
-                "validation_context": validation_context
-            },
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate WebAuthn authentication options"
-        )
-
-
-@router.post(
-    "/webauthn/authenticate/complete",
-    response_model=WebAuthnAuthenticationCompleteResponse,
-    summary="Complete WebAuthn passwordless authentication",
-    description="""
-    Complete the WebAuthn authentication process and obtain JWT token.
-
-    **Process:**
-    1. Validates the WebAuthn assertion response from the client
-    2. Verifies the challenge and cryptographic signature
-    3. Updates credential usage statistics
-    4. Generates JWT token for authenticated session
-    5. Returns authentication result with user information
-
-    **Security Features:**
-    - Challenge validation (one-time use, 60-second expiry)
-    - Cryptographic signature verification (simulated for now)
-    - Origin validation for security
-    - Credential ownership verification
-    - Signature counter validation (replay attack prevention)
-    - Rate limiting (50 requests per 60 seconds per IP)
-    - Comprehensive audit logging
-    - JWT token generation with user context
-
-    **Usage:**
-    - Call after successful WebAuthn assertion on client
-    - Provide the complete WebAuthn assertion response
-    - Receive JWT token for API access
-
-    **Response:**
-    Returns JWT token and user information, similar to standard login response,
-    plus additional WebAuthn-specific metadata about the credential used.
-    """,
-    responses={
-        200: {
-            "description": "Authentication successful",
-            "model": WebAuthnAuthenticationCompleteResponse,
-        },
-        400: {
-            "description": "Invalid assertion response, expired challenge, or invalid origin",
-            "model": StandardErrorResponse,
-        },
-        401: {
-            "description": "Invalid credential or authentication failed",
-            "model": StandardErrorResponse,
-        },
-        429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Failed to complete authentication", "model": StandardErrorResponse},
-    },
-    tags=["WebAuthn"],
-)
-@log_performance("webauthn_authenticate_complete")
-async def webauthn_authenticate_complete(
-    request: Request,
-    auth_request: WebAuthnAuthenticationCompleteRequest,
-):
-    """
-    Complete WebAuthn authentication process and return JWT token.
-
-    Validates assertion response and generates JWT token following existing
-    authentication patterns with enhanced security validation, request sanitization,
-    and comprehensive monitoring.
-    """
-    # Apply rate limiting following existing patterns
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-authenticate-complete",
-        rate_limit_requests=WEBAUTHN_AUTH_COMPLETE_RATE_LIMIT,
-        rate_limit_period=WEBAUTHN_AUTH_COMPLETE_RATE_PERIOD,
-    )
-
-    # Enhanced security validation using existing patterns
-    from second_brain_database.routes.auth.services.webauthn.security_validation import webauthn_security_validator
-
-    credential_id_short = auth_request.id[:16] + "..." if len(auth_request.id) > 16 else auth_request.id
-
-    # Apply comprehensive security validation
-    validation_context = await webauthn_security_validator.validate_webauthn_request(
-        request=request,
-        operation_type="authentication",
-        user_id="unknown",  # Will be determined from credential
-        additional_checks={"public_endpoint": True}  # No auth required for this endpoint
-    )
-
-    # Apply additional request integrity validation for authentication complete
-    integrity_context = await webauthn_security_validator.validate_request_integrity(
-        request=request,
-        operation_type="authentication",
-        user_id="unknown"
-    )
-
-    # Sanitize request data following existing sanitization patterns
-    sanitized_request_data = webauthn_security_validator.sanitize_webauthn_data(
-        data=auth_request.model_dump(),
-        operation_type="authentication"
-    )
-
-    # Extract request info and set logging context
-    request_info = extract_request_info(request)
-    set_auth_logging_context(user_id="unknown", ip_address=request_info["ip_address"])
-
-    logger.info("WebAuthn authentication complete for credential: %s", credential_id_short)
-
-    try:
-        # Call the authentication service following existing service layer patterns
-        result = await complete_authentication(
-            credential_id=sanitized_request_data.get("id"),
-            authenticator_data=sanitized_request_data.get("response", {}).get("authenticatorData"),
-            client_data_json=sanitized_request_data.get("response", {}).get("clientDataJSON"),
-            signature=sanitized_request_data.get("response", {}).get("signature"),
-            user_handle=sanitized_request_data.get("response", {}).get("userHandle"),
-            ip_address=request_info["ip_address"]
-        )
-
-        # Update logging context with authenticated user
-        set_auth_logging_context(user_id=result["username"], ip_address=request_info["ip_address"])
-
-        logger.info("WebAuthn authentication successful for user: %s", result["username"])
-
-        # Log successful authentication using existing auth success pattern
-        log_auth_success(
-            event_type="webauthn_authentication_successful",
-            user_id=result["username"],
-            ip_address=request_info["ip_address"],
-            details={
-                "credential_id": credential_id_short,
-                "authentication_method": "webauthn",
-                "device_name": result["credential_used"]["device_name"],
-                "authenticator_type": result["credential_used"]["authenticator_type"],
-                "validation_context": validation_context
-            },
-        )
-
-        # Create response with enhanced security headers
-        from fastapi.responses import JSONResponse
-        response_data = WebAuthnAuthenticationCompleteResponse(
-            access_token=result["access_token"],
-            token_type=result["token_type"],
-            client_side_encryption=result["client_side_encryption"],
-            issued_at=result["issued_at"],
-            expires_at=result["expires_at"],
-            is_verified=result["is_verified"],
-            role=result["role"],
-            username=result["username"],
-            email=result["email"],
-            authentication_method=result["authentication_method"],
-            credential_used=result["credential_used"]
-        ).model_dump()
-
-        response = JSONResponse(content=response_data)
-
-        # Add security headers following existing patterns
-        response = webauthn_security_validator.add_security_headers(response, "authentication")
-
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, authentication failures, etc.)
-        raise
-    except Exception as e:
-        logger.error("Failed to complete WebAuthn authentication for credential %s: %s", credential_id_short, e, exc_info=True)
-
-        # Log authentication failure following existing patterns
-        log_auth_failure(
-            event_type="webauthn_authentication_complete_failed",
-            user_id="unknown",
-            ip_address=request_info["ip_address"],
-            details={
-                "error": str(e),
-                "credential_id": credential_id_short,
-                "validation_context": validation_context
-            },
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete WebAuthn authentication"
-        )
-
-
-# WebAuthn Web Interface Endpoints
-
-
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    """
-    Serve secure login page with both password and WebAuthn authentication options.
-
-    For mobile/desktop apps (like Flutter), returns JSON error instead of HTML.
-    For web browsers, HTML rendering is currently disabled.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "login-page",
-        rate_limit_requests=100,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("Login page accessed from IP: %s", request_info["ip_address"])
-
-    # Check if request is from a mobile/desktop app (not a web browser)
-    user_agent = request.headers.get("user-agent", "").lower()
-    is_mobile_app = any(app in user_agent for app in ["emotion_tracker", "dart", "flutter"])
-
-    if is_mobile_app:
-        # Return JSON error for mobile/desktop apps instead of HTML/redirect
-        logger.warning(
-            "GET /auth/login accessed from mobile app - User-Agent: %s, Headers: %s",
-            user_agent,
-            dict(request.headers)
-        )
-        return JSONResponse(
-            status_code=405,
-            content={
-                "error": "METHOD_NOT_ALLOWED",
-                "message": "GET method not allowed. Please use POST /auth/login for authentication.",
-                "hint": "This endpoint only accepts POST requests with JSON body containing username/email and password.",
-                "debug_info": {
-                    "received_method": "GET",
-                    "expected_method": "POST",
-                    "correct_endpoint": "POST /auth/login",
-                    "your_user_agent": request.headers.get("user-agent", "unknown")
-                }
-            }
-        )
-
-    # Disabled: do not render HTML page for web browsers
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_login_page
-    #     return render_login_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve login page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load login page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML login page rendering is disabled.")
-
-
-@router.get("/webauthn/setup", response_class=HTMLResponse)
-async def webauthn_setup_page(request: Request):
-    """
-    Serve web interface for passkey setup and management.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-setup-page",
-        rate_limit_requests=50,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("WebAuthn setup page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_webauthn_setup_page
-    #     return render_webauthn_setup_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve WebAuthn setup page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load passkey setup page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn setup page rendering is disabled.")
-
-
-@router.get("/webauthn/manage", response_class=HTMLResponse)
-async def webauthn_manage_page(request: Request):
-    """
-    Serve web interface for passkey management.
-    """
-    await security_manager.check_rate_limit(
-        request,
-        "webauthn-manage-page",
-        rate_limit_requests=50,
-        rate_limit_period=60,
-    )
-    request_info = extract_request_info(request)
-    logger.info("WebAuthn manage page accessed from IP: %s", request_info["ip_address"])
-    # Disabled: do not render HTML page
-    # try:
-    #     from second_brain_database.routes.auth.routes_html import render_webauthn_manage_page
-    #     return render_webauthn_manage_page()
-    # except Exception as e:
-    #     logger.error("Failed to serve WebAuthn manage page: %s", e)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Failed to load passkey management page"
-    #     )
-    raise HTTPException(status_code=405, detail="Method not allowed: HTML WebAuthn manage page rendering is disabled.")
-
-
-# --- Temporary Access Token Endpoints for IP Lockdown Action Buttons ---
-
-@router.get("/temporary-access/allow-once")
-async def handle_allow_once_ip_access(request: Request, token: str = Query(...)):
-    """
-    Handle "allow once" action from blocked IP notification email.
-
-    This endpoint validates the temporary access token and creates a temporary
-    bypass that allows the IP to access the account for 15 minutes.
-    """
-    from second_brain_database.routes.auth.services.temporary_access import (
-        validate_and_use_temporary_ip_token,
-        execute_allow_once_ip_access
-    )
-
-    await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
-
-    try:
-        # Validate and use the token
-        token_data = await validate_and_use_temporary_ip_token(token)
-        if not token_data:
-            logger.warning("Invalid or expired allow once token from IP %s",
-                          security_manager.get_client_ip(request))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new blocked access notification."
-            )
-
-        # Verify this is an allow_once token
-        if token_data.get("action") != "allow_once":
-            logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
-            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-
-        # Execute the allow once action
-        success = await execute_allow_once_ip_access(token_data)
-        if not success:
-            logger.error("Failed to execute allow once action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to process allow once request. Please try again or contact support."
-            )
-
-        # Return success page
-        return HTMLResponse(f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Access Granted - IP Lockdown</title>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    max-width: 600px;
-                    margin: 50px auto;
-                    padding: 20px;
-                    background-color: #f8f9fa;
-                }}
-                .container {{
-                    background: white;
-                    padding: 40px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    text-align: center;
-                }}
-                .success-icon {{ font-size: 48px; color: #28a745; margin-bottom: 20px; }}
-                h1 {{ color: #28a745; margin-bottom: 20px; }}
-                .details {{ background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0; }}
-                .detail-item {{ margin: 10px 0; }}
-                .detail-label {{ font-weight: 600; }}
-                .detail-value {{ font-family: monospace; background: #e9ecef; padding: 4px 8px; border-radius: 4px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="success-icon">✅</div>
-                <h1>Access Granted!</h1>
-                <p>Your IP address has been temporarily allowed to access your account.</p>
-
-                <div class="details">
-                    <div class="detail-item">
-                        <span class="detail-label">IP Address:</span><br>
-                        <span class="detail-value">{token_data.get('ip_address')}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Access Duration:</span><br>
-                        <span class="detail-value">15 minutes</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Original Endpoint:</span><br>
-                        <span class="detail-value">{token_data.get('endpoint')}</span>
-                    </div>
-                </div>
-
-                <p><strong>You can now access your account from this IP address for the next 15 minutes.</strong></p>
-                <p>After this time expires, normal IP lockdown restrictions will resume.</p>
-
-                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
-                    If you frequently access your account from this location, consider adding this IP to your trusted list.
-                </p>
-            </div>
-        </body>
-        </html>
-        """)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Unexpected error in allow once handler: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
-        )
-
-
-@router.get("/temporary-access/add-to-trusted")
-async def handle_add_to_trusted_ip_list(request: Request, token: str = Query(...)):
-    """
-    Handle "add to trusted list" action from blocked IP notification email.
-
-    This endpoint validates the temporary access token and adds the IP address
-    to the user's trusted IP list permanently.
-    """
-    from second_brain_database.routes.auth.services.temporary_access import (
-        validate_and_use_temporary_ip_token,
-        execute_add_to_trusted_ip_list
-    )
-
-    await security_manager.check_rate_limit(request, "temporary-access", rate_limit_requests=10, rate_limit_period=60)
-
-    try:
-        # Validate and use the token
-        token_data = await validate_and_use_temporary_ip_token(token)
-        if not token_data:
-            logger.warning("Invalid or expired add to trusted token from IP %s",
-                          security_manager.get_client_ip(request))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new blocked access notification."
-            )
-
-        # Verify this is an add_to_trusted token
-        if token_data.get("action") != "add_to_trusted":
-            logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
-            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-
-        # Execute the add to trusted action
-        success = await execute_add_to_trusted_ip_list(token_data)
-        if not success:
-            logger.error("Failed to execute add to trusted action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add IP to trusted list. Please try again or contact support."
-            )
-
-        # Return success page
-        return HTMLResponse(f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>IP Added to Trusted List</title>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    max-width: 600px;
-                    margin: 50px auto;
-                    padding: 20px;
-                    background-color: #f8f9fa;
-                }}
-                .container {{
-                    background: white;
-                    padding: 40px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    text-align: center;
-                }}
-                .success-icon {{ font-size: 48px; color: #28a745; margin-bottom: 20px; }}
-                h1 {{ color: #28a745; margin-bottom: 20px; }}
-                .details {{ background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0; }}
-                .detail-item {{ margin: 10px 0; }}
-                .detail-label {{ font-weight: 600; }}
-                .detail-value {{ font-family: monospace; background: #e9ecef; padding: 4px 8px; border-radius: 4px; }}
-                .security-notice {{ background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 6px; padding: 15px; margin: 20px 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="success-icon">🔒</div>
-                <h1>IP Added to Trusted List!</h1>
-                <p>Your IP address has been permanently added to your trusted list.</p>
-
-                <div class="details">
-                    <div class="detail-item">
-                        <span class="detail-label">IP Address:</span><br>
-                        <span class="detail-value">{token_data.get('ip_address')}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Original Endpoint:</span><br>
-                        <span class="detail-value">{token_data.get('endpoint')}</span>
-                    </div>
-                </div>
-
-                <p><strong>You can now access your account from this IP address without restrictions.</strong></p>
-
-                <div class="security-notice">
-                    <h4>🛡️ Security Reminder</h4>
-                    <p>This IP address will now have permanent access to your account. Make sure this is a location you trust and use regularly.</p>
-                    <p>You can manage your trusted IP list through the API or by contacting support if you need to remove this IP later.</p>
-                </div>
-
-                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
-                    Your IP lockdown settings remain active for all other IP addresses.
-                </p>
-            </div>
-        </body>
-        </html>
-        """)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Unexpected error in add to trusted handler: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
-        )
-
-
-# --- User Agent Temporary Access Token Endpoints for Email Action Buttons ---
-
-@router.get("/temporary-access/allow-once-user-agent")
-async def handle_allow_once_user_agent_access(request: Request, token: str = Query(...)):
-    """
-    Handle "allow once" action from blocked User Agent notification email.
-
-    This endpoint validates the temporary access token and creates a temporary bypass
-    for the User Agent, allowing access for a limited time without adding to trusted list.
-    """
-    from second_brain_database.routes.auth.services.temporary_access import (
-        validate_and_use_temporary_user_agent_token,
-        execute_allow_once_user_agent_access
-    )
-
-    try:
-        logger.info("Processing allow once User Agent access from IP %s",
-                   security_manager.get_client_ip(request))
-
-        # Validate and use the token (single use)
-        token_data = await validate_and_use_temporary_user_agent_token(token)
-        if not token_data:
-            logger.warning("Invalid or expired allow once User Agent token from IP %s",
-                          security_manager.get_client_ip(request))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new one."
-            )
-
-        # Verify this is an allow_once token
-        if token_data.get("action") != "allow_once":
-            logger.warning("Wrong token type for allow once: %s", token_data.get("action"))
-            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-
-        # Execute the allow once action
-        success = await execute_allow_once_user_agent_access(token_data)
-        if not success:
-            logger.error("Failed to execute allow once action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to create temporary access. Please try again or contact support."
-            )
-
-        # Return success page
-        return HTMLResponse(content=f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Temporary Access Granted</title>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin: 0;
-                    padding: 20px;
-                }}
-                .container {{
-                    background: white;
-                    border-radius: 12px;
-                    padding: 40px;
-                    text-align: center;
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                    max-width: 500px;
-                }}
-                .success-icon {{ font-size: 64px; margin-bottom: 20px; }}
-                h1 {{ color: #28a745; margin-bottom: 20px; }}
-                .details {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-                .user-agent {{ font-family: monospace; word-break: break-all; font-size: 12px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="success-icon">🔓</div>
-                <h1>Temporary Access Granted!</h1>
-                <p>Your User Agent has been granted temporary access for 15 minutes.</p>
-
-                <div class="details">
-                    <strong>User Agent:</strong><br>
-                    <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
-                </div>
-
-                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
-                    If you frequently access your account from this browser/application, consider adding this User Agent to your trusted list.
-                </p>
-            </div>
-        </body>
-        </html>
-        """)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Unexpected error in allow once User Agent handler: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
-        )
-
-
-@router.get("/temporary-access/add-to-trusted-user-agent")
-async def handle_add_to_trusted_user_agent_list(request: Request, token: str = Query(...)):
-    """
-    Handle "add to trusted list" action from blocked User Agent notification email.
-
-    This endpoint validates the temporary access token and adds the User Agent address
-    to the user's permanent trusted User Agent list.
-    """
-    from second_brain_database.routes.auth.services.temporary_access import (
-        validate_and_use_temporary_user_agent_token,
-        execute_add_to_trusted_user_agent_list
-    )
-
-    try:
-        logger.info("Processing add User Agent to trusted list from IP %s",
-                   security_manager.get_client_ip(request))
-
-        # Validate and use the token (single use)
-        token_data = await validate_and_use_temporary_user_agent_token(token)
-        if not token_data:
-            logger.warning("Invalid or expired add to trusted User Agent token from IP %s",
-                          security_manager.get_client_ip(request))
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired token. Please request a new one."
-            )
-
-        # Verify this is an add_to_trusted token
-        if token_data.get("action") != "add_to_trusted":
-            logger.warning("Wrong token type for add to trusted: %s", token_data.get("action"))
-            raise HTTPException(status_code=400, detail="Invalid token type for this action.")
-
-        # Execute the add to trusted action
-        success = await execute_add_to_trusted_user_agent_list(token_data)
-        if not success:
-            logger.error("Failed to execute add to trusted action for token: %s", token_data)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add User Agent to trusted list. Please try again or contact support."
-            )
-
-        # Return success page
-        return HTMLResponse(content=f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>User Agent Added to Trusted List</title>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin: 0;
-                    padding: 20px;
-                }}
-                .container {{
-                    background: white;
-                    border-radius: 12px;
-                    padding: 40px;
-                    text-align: center;
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                    max-width: 500px;
-                }}
-                .success-icon {{ font-size: 64px; margin-bottom: 20px; }}
-                h1 {{ color: #28a745; margin-bottom: 20px; }}
-                .details {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-                .user-agent {{ font-family: monospace; word-break: break-all; font-size: 12px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="success-icon">🔒</div>
-                <h1>User Agent Added to Trusted List!</h1>
-                <p>Your User Agent has been permanently added to your trusted list.</p>
-
-                <div class="details">
-                    <strong>User Agent:</strong><br>
-                    <span class="user-agent">{token_data.get('user_agent', 'Unknown')}</span>
-                </div>
-
-                <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
-                    You will no longer receive blocking notifications for this User Agent.
-                </p>
-            </div>
-        </body>
-        </html>
-        """)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Unexpected error in add to trusted User Agent handler: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred. Please try again or contact support."
-        )
+    return current_user

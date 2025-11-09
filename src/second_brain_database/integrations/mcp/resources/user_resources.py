@@ -5,18 +5,19 @@ Comprehensive information resources for user entities and profiles.
 Provides user information, preferences, and activity data through MCP resources.
 """
 
-import json
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+import json
+from typing import Any, Dict, List, Optional
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..modern_server import mcp
-from ..security import get_mcp_user_context
+from ....managers.logging_manager import get_logger
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
+from ..security import get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_UserResources]")
+
 
 @mcp.resource("user://{user_id}/profile", tags={"production", "resources", "secure", "user"})
 async def get_user_profile_resource(user_id: str) -> str:
@@ -43,30 +44,18 @@ async def get_user_profile_resource(user_id: str) -> str:
             "email": f"user_{user_id}@example.com",
             "created_at": datetime.utcnow().isoformat(),
             "last_login": datetime.utcnow().isoformat(),
-            "preferences": {
-                "theme": "dark",
-                "language": "en",
-                "notifications": True
-            },
-            "stats": {
-                "families_count": 1,
-                "workspaces_count": 2,
-                "total_sbd_tokens": 100
-            }
+            "preferences": {"theme": "dark", "language": "en", "notifications": True},
+            "stats": {"families_count": 1, "workspaces_count": 2, "total_sbd_tokens": 100},
         }
 
-        result = {
-            "profile": profile,
-            "resource_type": "user_profile",
-            "last_updated": datetime.utcnow().isoformat()
-        }
+        result = {"profile": profile, "resource_type": "user_profile", "last_updated": datetime.utcnow().isoformat()}
 
         await create_mcp_audit_trail(
             operation="get_user_profile_resource",
             user_context=user_context,
             resource_type="user",
             resource_id=user_id,
-            metadata={"profile_accessed": True}
+            metadata={"profile_accessed": True},
         )
 
         return json.dumps(result, indent=2, default=str)
@@ -92,22 +81,14 @@ async def get_current_user_preferences_resource() -> str:
             "user_id": user_context.user_id,
             "theme": "dark",
             "language": "en",
-            "notifications": {
-                "email": True,
-                "push": False,
-                "family_updates": True,
-                "workspace_updates": True
-            },
-            "privacy": {
-                "profile_visibility": "family",
-                "activity_tracking": True
-            }
+            "notifications": {"email": True, "push": False, "family_updates": True, "workspace_updates": True},
+            "privacy": {"profile_visibility": "family", "activity_tracking": True},
         }
 
         result = {
             "preferences": preferences,
             "resource_type": "user_preferences",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.utcnow().isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -115,7 +96,7 @@ async def get_current_user_preferences_resource() -> str:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"preferences_accessed": True}
+            metadata={"preferences_accessed": True},
         )
 
         return json.dumps(result, indent=2, default=str)

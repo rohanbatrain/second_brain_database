@@ -19,34 +19,47 @@ Test Coverage:
 """
 
 import asyncio
-import pytest
-import time
-import uuid
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from typing import Dict, Any, List
-import sys
+from datetime import datetime, timedelta, timezone
 import os
+import sys
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, call, patch
+import uuid
+
+import pytest
 
 # Add the src directory to the path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Mock Redis and monitoring before importing modules that depend on them
-with patch('redis.Redis'), \
-     patch('src.second_brain_database.managers.redis_manager.redis_manager'), \
-     patch('src.second_brain_database.managers.family_monitoring.family_monitor'):
+with (
+    patch("redis.Redis"),
+    patch("src.second_brain_database.managers.redis_manager.redis_manager"),
+    patch("src.second_brain_database.managers.family_monitoring.family_monitor"),
+):
 
     # Import the modules we're testing
     from src.second_brain_database.utils.error_handling import (
-        handle_errors, ErrorContext, ErrorSeverity, RetryConfig, RetryStrategy,
-        ValidationError, create_user_friendly_error
+        handle_errors,
+        ErrorContext,
+        ErrorSeverity,
+        RetryConfig,
+        RetryStrategy,
+        ValidationError,
+        create_user_friendly_error,
     )
 
-from pymongo.errors import (
-    PyMongoError, ConnectionFailure, ServerSelectionTimeoutError,
-    DuplicateKeyError, WriteError, WriteConcernError, BulkWriteError
-)
 from pymongo.client_session import ClientSession
+from pymongo.errors import (
+    BulkWriteError,
+    ConnectionFailure,
+    DuplicateKeyError,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+    WriteConcernError,
+    WriteError,
+)
 
 
 class TestDatabaseTransactionSafety:
@@ -59,16 +72,18 @@ class TestDatabaseTransactionSafety:
     @pytest.fixture
     async def family_manager(self):
         """Create a family manager instance for testing."""
-        with patch('src.second_brain_database.managers.family_manager.db_manager'), \
-             patch('src.second_brain_database.managers.family_manager.redis_manager'), \
-             patch('src.second_brain_database.managers.family_manager.family_monitor'):
+        with (
+            patch("src.second_brain_database.managers.family_manager.db_manager"),
+            patch("src.second_brain_database.managers.family_manager.redis_manager"),
+            patch("src.second_brain_database.managers.family_manager.family_monitor"),
+        ):
 
             # Import after mocking dependencies
             from src.second_brain_database.managers.family_manager import FamilyManager
 
             manager = FamilyManager()
             # Mock the initialization to avoid actual database connections
-            with patch.object(manager, 'initialize'):
+            with patch.object(manager, "initialize"):
                 await manager.initialize()
             return manager
 
@@ -97,7 +112,7 @@ class TestDatabaseTransactionSafety:
         family_name = "Test Family Transaction Rollback"
 
         # Mock database operations to simulate transaction failure
-        with patch('src.second_brain_database.database.db_manager') as mock_db_manager:
+        with patch("src.second_brain_database.database.db_manager") as mock_db_manager:
 
             # Setup session mock
             mock_session = AsyncMock(spec=ClientSession)
@@ -124,13 +139,17 @@ class TestDatabaseTransactionSafety:
 
             # Simulate successful family creation but failed relationship creation
             mock_families_collection.insert_one.return_value.inserted_id = "family_123"
-            mock_relationships_collection.insert_one.side_effect = PyMongoError("Database connection lost during relationship creation")
+            mock_relationships_collection.insert_one.side_effect = PyMongoError(
+                "Database connection lost during relationship creation"
+            )
 
             # Mock family manager methods
-            with patch.object(family_manager, '_validate_family_creation_input') as mock_validate, \
-                 patch.object(family_manager, '_check_family_creation_limits') as mock_limits, \
-                 patch.object(family_manager, '_get_user_by_id') as mock_get_user, \
-                 patch.object(family_manager, '_generate_unique_sbd_username') as mock_sbd_username:
+            with (
+                patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+                patch.object(family_manager, "_check_family_creation_limits") as mock_limits,
+                patch.object(family_manager, "_get_user_by_id") as mock_get_user,
+                patch.object(family_manager, "_generate_unique_sbd_username") as mock_sbd_username,
+            ):
 
                 mock_validate.return_value = None
                 mock_limits.return_value = {"current_families": 0, "max_families": 5}
@@ -158,15 +177,17 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Atomic Success Family"
 
-        with patch.object(db_manager, 'client') as mock_client, \
-             patch.object(family_manager, '_validate_family_creation_input') as mock_validate, \
-             patch.object(family_manager, '_check_family_creation_limits') as mock_limits, \
-             patch.object(family_manager, '_get_user_by_id') as mock_get_user, \
-             patch.object(family_manager, '_generate_unique_sbd_username') as mock_sbd_username, \
-             patch.object(family_manager, '_build_family_document') as mock_build_doc, \
-             patch.object(family_manager, '_create_virtual_sbd_account_transactional') as mock_create_sbd, \
-             patch.object(family_manager, '_add_user_to_family_membership_transactional') as mock_add_member, \
-             patch.object(family_manager, '_cache_family') as mock_cache:
+        with (
+            patch.object(db_manager, "client") as mock_client,
+            patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+            patch.object(family_manager, "_check_family_creation_limits") as mock_limits,
+            patch.object(family_manager, "_get_user_by_id") as mock_get_user,
+            patch.object(family_manager, "_generate_unique_sbd_username") as mock_sbd_username,
+            patch.object(family_manager, "_build_family_document") as mock_build_doc,
+            patch.object(family_manager, "_create_virtual_sbd_account_transactional") as mock_create_sbd,
+            patch.object(family_manager, "_add_user_to_family_membership_transactional") as mock_add_member,
+            patch.object(family_manager, "_cache_family") as mock_cache,
+        ):
 
             # Setup successful mocks
             mock_validate.return_value = None
@@ -178,7 +199,7 @@ class TestDatabaseTransactionSafety:
                 "family_id": f"fam_{uuid.uuid4().hex[:16]}",
                 "name": family_name,
                 "admin_user_ids": [user_id],
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
             mock_build_doc.return_value = family_doc
 
@@ -243,16 +264,14 @@ class TestDatabaseTransactionSafety:
                 "family_id": f"fam_{uuid.uuid4().hex[:16]}",
                 "name": name,
                 "admin_user_ids": [uid],
-                "transaction_safe": True
+                "transaction_safe": True,
             }
 
-        with patch.object(family_manager, 'create_family', side_effect=mock_create_family_with_delay):
+        with patch.object(family_manager, "create_family", side_effect=mock_create_family_with_delay):
             # Simulate concurrent family creation attempts
             tasks = []
             for i in range(5):
-                task = asyncio.create_task(
-                    family_manager.create_family(user_id, f"Concurrent Family {i}")
-                )
+                task = asyncio.create_task(family_manager.create_family(user_id, f"Concurrent Family {i}"))
                 tasks.append(task)
 
             # Execute concurrent operations
@@ -282,14 +301,16 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Consistency Test Family"
 
-        with patch.object(db_manager, 'client') as mock_client, \
-             patch.object(family_manager, '_validate_family_creation_input') as mock_validate, \
-             patch.object(family_manager, '_check_family_creation_limits') as mock_limits, \
-             patch.object(family_manager, '_get_user_by_id') as mock_get_user, \
-             patch.object(family_manager, '_generate_unique_sbd_username') as mock_sbd_username, \
-             patch.object(family_manager, '_build_family_document') as mock_build_doc, \
-             patch.object(family_manager, '_create_virtual_sbd_account_transactional') as mock_create_sbd, \
-             patch.object(family_manager, '_add_user_to_family_membership_transactional') as mock_add_member:
+        with (
+            patch.object(db_manager, "client") as mock_client,
+            patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+            patch.object(family_manager, "_check_family_creation_limits") as mock_limits,
+            patch.object(family_manager, "_get_user_by_id") as mock_get_user,
+            patch.object(family_manager, "_generate_unique_sbd_username") as mock_sbd_username,
+            patch.object(family_manager, "_build_family_document") as mock_build_doc,
+            patch.object(family_manager, "_create_virtual_sbd_account_transactional") as mock_create_sbd,
+            patch.object(family_manager, "_add_user_to_family_membership_transactional") as mock_add_member,
+        ):
 
             # Setup successful initial steps
             mock_validate.return_value = None
@@ -363,7 +384,7 @@ class TestDatabaseTransactionSafety:
                     "name": name,
                     "admin_user_ids": [uid],
                     "transaction_safe": True,
-                    "recovery_attempts": call_count - 1
+                    "recovery_attempts": call_count - 1,
                 }
 
         # Configure retry for connection failures
@@ -371,14 +392,11 @@ class TestDatabaseTransactionSafety:
             max_attempts=3,
             initial_delay=0.01,  # Fast for testing
             strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
-            retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError]
+            retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError],
         )
 
         # Test with retry decorator
-        @handle_errors(
-            operation_name="test_recovery",
-            retry_config=retry_config
-        )
+        @handle_errors(operation_name="test_recovery", retry_config=retry_config)
         async def test_operation():
             return await mock_create_with_recovery(user_id, family_name)
 
@@ -400,8 +418,10 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Timeout Test Family"
 
-        with patch.object(db_manager, 'client') as mock_client, \
-             patch.object(family_manager, '_validate_family_creation_input') as mock_validate:
+        with (
+            patch.object(db_manager, "client") as mock_client,
+            patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+        ):
 
             mock_validate.return_value = None
 
@@ -424,10 +444,7 @@ class TestDatabaseTransactionSafety:
             mock_client.get_collection.return_value = mock_families_collection
 
             # Test with timeout decorator
-            @handle_errors(
-                operation_name="timeout_test",
-                timeout=0.1  # Very short timeout
-            )
+            @handle_errors(operation_name="timeout_test", timeout=0.1)  # Very short timeout
             async def test_timeout_operation():
                 return await family_manager.create_family(user_id, family_name)
 
@@ -450,11 +467,13 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Duplicate Test Family"
 
-        with patch.object(db_manager, 'client') as mock_client, \
-             patch.object(family_manager, '_validate_family_creation_input') as mock_validate, \
-             patch.object(family_manager, '_check_family_creation_limits') as mock_limits, \
-             patch.object(family_manager, '_get_user_by_id') as mock_get_user, \
-             patch.object(family_manager, '_generate_unique_sbd_username') as mock_sbd_username:
+        with (
+            patch.object(db_manager, "client") as mock_client,
+            patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+            patch.object(family_manager, "_check_family_creation_limits") as mock_limits,
+            patch.object(family_manager, "_get_user_by_id") as mock_get_user,
+            patch.object(family_manager, "_generate_unique_sbd_username") as mock_sbd_username,
+        ):
 
             # Setup mocks
             mock_validate.return_value = None
@@ -496,9 +515,11 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Bulk Write Test Family"
 
-        with patch.object(db_manager, 'client') as mock_client, \
-             patch.object(family_manager, '_validate_family_creation_input') as mock_validate, \
-             patch.object(family_manager, '_check_family_creation_limits') as mock_limits:
+        with (
+            patch.object(db_manager, "client") as mock_client,
+            patch.object(family_manager, "_validate_family_creation_input") as mock_validate,
+            patch.object(family_manager, "_check_family_creation_limits") as mock_limits,
+        ):
 
             mock_validate.return_value = None
             mock_limits.return_value = {"current_families": 0, "max_families": 5}

@@ -656,6 +656,7 @@ async def periodic_admin_session_token_cleanup() -> None:
             logger.error("Error in periodic_admin_session_token_cleanup: %s", exc, exc_info=True)
         await asyncio.sleep(interval)
 
+
 async def get_last_trusted_user_agent_lockdown_code_cleanup_time() -> Optional[datetime]:
     """
     Retrieve the last time the trusted User Agent lockdown code cleanup task ran from the system collection.
@@ -707,7 +708,9 @@ async def periodic_trusted_user_agent_lockdown_code_cleanup() -> None:
                     codes = user.get("trusted_user_agent_lockdown_codes", [])
                     filtered = [c for c in codes if c.get("expires_at", now) > now]
                     if len(filtered) != len(codes):
-                        await users.update_one({"_id": user["_id"]}, {"$set": {"trusted_user_agent_lockdown_codes": filtered}})
+                        await users.update_one(
+                            {"_id": user["_id"]}, {"$set": {"trusted_user_agent_lockdown_codes": filtered}}
+                        )
                         cleanup_count += 1
                         logger.info(
                             "Trusted User Agent lockdown code cleanup: removed expired codes for user '%s' (_id=%s)",
@@ -715,7 +718,9 @@ async def periodic_trusted_user_agent_lockdown_code_cleanup() -> None:
                             user.get("_id"),
                         )
                 if cleanup_count > 0:
-                    logger.info("Trusted User Agent lockdown code cleanup completed: cleaned up %d users", cleanup_count)
+                    logger.info(
+                        "Trusted User Agent lockdown code cleanup completed: cleaned up %d users", cleanup_count
+                    )
                 else:
                     logger.debug("No trusted User Agent lockdown code cleanup actions needed this cycle.")
                 await set_last_trusted_user_agent_lockdown_code_cleanup_time(now_dt)
@@ -785,7 +790,7 @@ async def periodic_temporary_access_tokens_cleanup() -> None:
                     "$or": [
                         {"temporary_ip_access_tokens": {"$exists": True, "$ne": []}},
                         {"temporary_user_agent_access_tokens": {"$exists": True, "$ne": []}},
-                        {"temporary_ip_bypasses": {"$exists": True, "$ne": []}}
+                        {"temporary_ip_bypasses": {"$exists": True, "$ne": []}},
                     ]
                 }
 

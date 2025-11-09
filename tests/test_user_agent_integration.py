@@ -7,10 +7,11 @@ properly with existing authentication and security systems.
 """
 
 import asyncio
-import sys
 from datetime import datetime, timedelta
-from bson import ObjectId
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from bson import ObjectId
 
 # Add the src directory to the path
 sys.path.insert(0, "src")
@@ -29,9 +30,13 @@ async def test_user_agent_integration():
         users_collection = db_manager.get_collection("users")
 
         # Clean up any leftover test users from previous runs
-        await users_collection.delete_many({
-            "username": {"$regex": "^(integration_test_user|new_integration_user|combined_lockdown_user|legacy_user)_"}
-        })
+        await users_collection.delete_many(
+            {
+                "username": {
+                    "$regex": "^(integration_test_user|new_integration_user|combined_lockdown_user|legacy_user)_"
+                }
+            }
+        )
 
         # Test 1: Integration with SecurityManager
         print("\n🔍 Test 1: Testing integration with SecurityManager...")
@@ -80,8 +85,8 @@ async def test_user_agent_integration():
         print("\n🔍 Test 2: Testing integration with user registration...")
 
         # Import registration function
-        from second_brain_database.routes.auth.services.auth.registration import register_user
         from second_brain_database.routes.auth.models import UserIn
+        from second_brain_database.routes.auth.services.auth.registration import register_user
 
         # Create test user registration
         test_registration = UserIn(
@@ -91,7 +96,7 @@ async def test_user_agent_integration():
             plan="free",
             team=["individual"],  # team is a list of strings
             role="user",
-            client_side_encryption=False
+            client_side_encryption=False,
         )
 
         # Register user and check that User Agent lockdown fields are initialized
@@ -123,20 +128,19 @@ async def test_user_agent_integration():
             "code": "EXPIRED123",
             "expires_at": (datetime.utcnow() - timedelta(minutes=5)).isoformat(),
             "action": "enable",
-            "allowed_user_agents": ["ExpiredBrowser/1.0"]
+            "allowed_user_agents": ["ExpiredBrowser/1.0"],
         }
 
         await users_collection.update_one(
-            {"_id": test_user_id},
-            {"$push": {"trusted_user_agent_lockdown_codes": expired_code}}
+            {"_id": test_user_id}, {"$push": {"trusted_user_agent_lockdown_codes": expired_code}}
         )
 
         # Import and test cleanup functions
         from second_brain_database.routes.auth.periodics.cleanup import (
-            get_last_trusted_user_agent_lockdown_code_cleanup_time,
-            set_last_trusted_user_agent_lockdown_code_cleanup_time,
             get_last_temporary_access_tokens_cleanup_time,
+            get_last_trusted_user_agent_lockdown_code_cleanup_time,
             set_last_temporary_access_tokens_cleanup_time,
+            set_last_trusted_user_agent_lockdown_code_cleanup_time,
         )
 
         # Test cleanup time tracking
@@ -215,9 +219,7 @@ async def test_user_agent_integration():
 
         # Test query performance with new fields
         start_time = time.time()
-        users_with_lockdown = await users_collection.find({
-            "trusted_user_agent_lockdown": True
-        }).to_list(length=100)
+        users_with_lockdown = await users_collection.find({"trusted_user_agent_lockdown": True}).to_list(length=100)
         query_time = time.time() - start_time
 
         # Performance should be reasonable (under 100ms for small dataset)
@@ -227,8 +229,7 @@ async def test_user_agent_integration():
         # Test update performance
         start_time = time.time()
         await users_collection.update_one(
-            {"_id": test_user_id},
-            {"$set": {"trusted_user_agents": ["Updated Browser/1.0"]}}
+            {"_id": test_user_id}, {"$set": {"trusted_user_agents": ["Updated Browser/1.0"]}}
         )
         update_time = time.time() - start_time
 
@@ -248,12 +249,9 @@ async def test_user_agent_integration():
 
         # Clean up system collection test data
         system_collection = db_manager.get_collection("system")
-        await system_collection.delete_many({
-            "_id": {"$in": [
-                "trusted_user_agent_lockdown_code_cleanup",
-                "temporary_access_tokens_cleanup"
-            ]}
-        })
+        await system_collection.delete_many(
+            {"_id": {"$in": ["trusted_user_agent_lockdown_code_cleanup", "temporary_access_tokens_cleanup"]}}
+        )
         print("✅ Test data cleaned up")
 
         print("\n🎉 All User Agent lockdown integration tests passed!")
@@ -262,6 +260,7 @@ async def test_user_agent_integration():
     except Exception as e:
         print(f"\n❌ Integration test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

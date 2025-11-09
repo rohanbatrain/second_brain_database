@@ -6,25 +6,44 @@ and resilience patterns implemented for the family management system.
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from second_brain_database.utils.error_handling import (
-    CircuitBreaker, BulkheadSemaphore, ErrorContext, ErrorSeverity,
-    RetryConfig, RetryStrategy, handle_errors, validate_input,
-    create_user_friendly_error, sanitize_sensitive_data,
-    CircuitBreakerOpenError, BulkheadCapacityError, RetryExhaustedError,
-    ValidationError
-)
-from second_brain_database.utils.error_recovery import (
-    ErrorRecoveryManager, RecoveryStrategy, RecoveryStatus,
-    recover_from_database_error, recover_from_redis_error,
-    recover_with_graceful_degradation
+    BulkheadCapacityError,
+    BulkheadSemaphore,
+    CircuitBreaker,
+    CircuitBreakerOpenError,
+    ErrorContext,
+    ErrorSeverity,
+    RetryConfig,
+    RetryExhaustedError,
+    RetryStrategy,
+    ValidationError,
+    create_user_friendly_error,
+    handle_errors,
+    sanitize_sensitive_data,
+    validate_input,
 )
 from second_brain_database.utils.error_monitoring import (
-    ErrorMonitor, ErrorEvent, ErrorPattern, Alert, AlertType,
-    EscalationLevel, record_error_event, error_monitor
+    Alert,
+    AlertType,
+    ErrorEvent,
+    ErrorMonitor,
+    ErrorPattern,
+    EscalationLevel,
+    error_monitor,
+    record_error_event,
+)
+from second_brain_database.utils.error_recovery import (
+    ErrorRecoveryManager,
+    RecoveryStatus,
+    RecoveryStrategy,
+    recover_from_database_error,
+    recover_from_redis_error,
+    recover_with_graceful_degradation,
 )
 
 
@@ -38,6 +57,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_closed_state(self, circuit_breaker):
         """Test circuit breaker in closed state allows calls."""
+
         async def success_func():
             return "success"
 
@@ -48,6 +68,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_opens_on_failures(self, circuit_breaker):
         """Test circuit breaker opens after threshold failures."""
+
         async def failure_func():
             raise Exception("Test failure")
 
@@ -65,6 +86,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_half_open_recovery(self, circuit_breaker):
         """Test circuit breaker recovery through half-open state."""
+
         async def failure_func():
             raise Exception("Test failure")
 
@@ -127,7 +149,7 @@ class TestBulkheadSemaphore:
         assert stats["active_count"] == 2
         assert stats["total_requests"] == 3
         assert stats["rejected_requests"] == 1
-        assert stats["rejection_rate"] == 1/3
+        assert stats["rejection_rate"] == 1 / 3
 
 
 class TestErrorHandlingDecorator:
@@ -135,10 +157,8 @@ class TestErrorHandlingDecorator:
 
     async def test_successful_operation(self):
         """Test decorator with successful operation."""
-        @handle_errors(
-            operation_name="test_operation",
-            user_friendly_errors=True
-        )
+
+        @handle_errors(operation_name="test_operation", user_friendly_errors=True)
         async def success_func():
             return "success"
 
@@ -151,11 +171,7 @@ class TestErrorHandlingDecorator:
 
         @handle_errors(
             operation_name="test_retry",
-            retry_config=RetryConfig(
-                max_attempts=3,
-                strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
-                initial_delay=0.1
-            )
+            retry_config=RetryConfig(max_attempts=3, strategy=RetryStrategy.EXPONENTIAL_BACKOFF, initial_delay=0.1),
         )
         async def flaky_func():
             nonlocal call_count
@@ -170,10 +186,8 @@ class TestErrorHandlingDecorator:
 
     async def test_circuit_breaker_integration(self):
         """Test circuit breaker integration in decorator."""
-        @handle_errors(
-            operation_name="test_circuit_breaker",
-            circuit_breaker="test_cb"
-        )
+
+        @handle_errors(operation_name="test_circuit_breaker", circuit_breaker="test_cb")
         async def failure_func():
             raise Exception("Persistent failure")
 
@@ -188,11 +202,7 @@ class TestErrorHandlingDecorator:
 
     async def test_user_friendly_error_creation(self):
         """Test user-friendly error message creation."""
-        context = ErrorContext(
-            operation="test_operation",
-            user_id="test_user",
-            request_id="test_request"
-        )
+        context = ErrorContext(operation="test_operation", user_id="test_user", request_id="test_request")
 
         error = ValidationError("Invalid input data")
         user_error = create_user_friendly_error(error, context)
@@ -210,18 +220,8 @@ class TestInputValidation:
     def test_basic_validation(self):
         """Test basic input validation."""
         schema = {
-            "name": {
-                "required": True,
-                "type": str,
-                "min_length": 3,
-                "max_length": 50
-            },
-            "age": {
-                "required": False,
-                "type": int,
-                "min_value": 0,
-                "max_value": 150
-            }
+            "name": {"required": True, "type": str, "min_length": 3, "max_length": 50},
+            "age": {"required": False, "type": int, "min_value": 0, "max_value": 150},
         }
 
         context = ErrorContext(operation="test_validation")
@@ -251,10 +251,7 @@ class TestInputValidation:
             "password": "secret123",
             "token": "abc123xyz",
             "email": "john@example.com",
-            "nested": {
-                "api_key": "key123",
-                "public_info": "safe_data"
-            }
+            "nested": {"api_key": "key123", "public_info": "safe_data"},
         }
 
         sanitized = sanitize_sensitive_data(sensitive_data)
@@ -356,17 +353,11 @@ class TestErrorMonitoring:
 
     async def test_error_event_recording(self, error_monitor):
         """Test error event recording and pattern detection."""
-        context = ErrorContext(
-            operation="test_operation",
-            user_id="test_user",
-            family_id="test_family"
-        )
+        context = ErrorContext(operation="test_operation", user_id="test_user", family_id="test_family")
 
         error = ValueError("Test error")
 
-        await error_monitor.record_error(
-            error, context, ErrorSeverity.MEDIUM
-        )
+        await error_monitor.record_error(error, context, ErrorSeverity.MEDIUM)
 
         assert len(error_monitor.error_events) == 1
         event = error_monitor.error_events[0]
@@ -420,18 +411,21 @@ class TestIntegrationScenarios:
             circuit_breaker="family_operations",
             bulkhead="family_creation",
             retry_config=RetryConfig(max_attempts=3),
-            user_friendly_errors=True
+            user_friendly_errors=True,
         )
         async def mock_create_family(user_id: str, name: str = None):
             # Simulate various failure scenarios
             if user_id == "rate_limited_user":
                 from second_brain_database.managers.family_manager import RateLimitExceeded
+
                 raise RateLimitExceeded("Rate limit exceeded")
             elif user_id == "limit_exceeded_user":
                 from second_brain_database.managers.family_manager import FamilyLimitExceeded
+
                 raise FamilyLimitExceeded("Family limit exceeded")
             elif user_id == "db_error_user":
                 from pymongo.errors import PyMongoError
+
                 raise PyMongoError("Database connection failed")
             else:
                 return {"family_id": "test_family", "name": name or "Test Family"}
@@ -455,24 +449,17 @@ class TestIntegrationScenarios:
 
     async def test_error_monitoring_integration(self):
         """Test error monitoring integration with actual operations."""
-        context = ErrorContext(
-            operation="integration_test",
-            user_id="test_user"
-        )
+        context = ErrorContext(operation="integration_test", user_id="test_user")
 
         # Record various error types
-        await record_error_event(
-            ValueError("Validation failed"),
-            context,
-            ErrorSeverity.MEDIUM
-        )
+        await record_error_event(ValueError("Validation failed"), context, ErrorSeverity.MEDIUM)
 
         await record_error_event(
             ConnectionError("Database unavailable"),
             context,
             ErrorSeverity.HIGH,
             recovery_attempted=True,
-            recovery_successful=False
+            recovery_successful=False,
         )
 
         # Check that errors were recorded

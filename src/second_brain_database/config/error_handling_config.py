@@ -6,31 +6,34 @@ recovery, and resilience systems. It includes settings for circuit breakers,
 bulkheads, retry strategies, monitoring thresholds, and alerting parameters.
 """
 
-from typing import Dict, List, Any
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List
 
 from second_brain_database.config import settings
 
 
 class CircuitBreakerProfile(Enum):
     """Predefined circuit breaker profiles for different service types."""
+
     CONSERVATIVE = "conservative"  # Low failure threshold, long recovery time
-    BALANCED = "balanced"         # Moderate settings for most services
-    AGGRESSIVE = "aggressive"     # High failure threshold, quick recovery
+    BALANCED = "balanced"  # Moderate settings for most services
+    AGGRESSIVE = "aggressive"  # High failure threshold, quick recovery
 
 
 class RetryProfile(Enum):
     """Predefined retry profiles for different operation types."""
-    QUICK = "quick"              # Few attempts, short delays
-    STANDARD = "standard"        # Moderate attempts and delays
-    PERSISTENT = "persistent"    # Many attempts, longer delays
-    CRITICAL = "critical"        # Maximum attempts for critical operations
+
+    QUICK = "quick"  # Few attempts, short delays
+    STANDARD = "standard"  # Moderate attempts and delays
+    PERSISTENT = "persistent"  # Many attempts, longer delays
+    CRITICAL = "critical"  # Maximum attempts for critical operations
 
 
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breakers."""
+
     failure_threshold: int
     recovery_timeout: int  # seconds
     expected_exception: str = "Exception"
@@ -40,6 +43,7 @@ class CircuitBreakerConfig:
 @dataclass
 class BulkheadConfig:
     """Configuration for bulkhead semaphores."""
+
     capacity: int
     timeout: float = 5.0  # seconds
 
@@ -47,6 +51,7 @@ class BulkheadConfig:
 @dataclass
 class RetryConfig:
     """Configuration for retry mechanisms."""
+
     max_attempts: int
     initial_delay: float  # seconds
     backoff_factor: float
@@ -60,6 +65,7 @@ class RetryConfig:
 @dataclass
 class MonitoringConfig:
     """Configuration for error monitoring and alerting."""
+
     error_window_size: int = 100
     time_window_minutes: int = 15
     error_rate_threshold: float = 0.05  # 5%
@@ -84,19 +90,33 @@ class ErrorHandlingConfig:
     def _load_from_settings(self):
         """Load configuration from application settings."""
         # Override defaults with settings if available
-        if hasattr(settings, 'ERROR_HANDLING_CONFIG'):
+        if hasattr(settings, "ERROR_HANDLING_CONFIG"):
             config = settings.ERROR_HANDLING_CONFIG
 
             # Update monitoring config
-            if 'monitoring' in config:
-                mon_config = config['monitoring']
-                self.monitoring.error_window_size = mon_config.get('error_window_size', self.monitoring.error_window_size)
-                self.monitoring.time_window_minutes = mon_config.get('time_window_minutes', self.monitoring.time_window_minutes)
-                self.monitoring.error_rate_threshold = mon_config.get('error_rate_threshold', self.monitoring.error_rate_threshold)
-                self.monitoring.critical_error_rate_threshold = mon_config.get('critical_error_rate_threshold', self.monitoring.critical_error_rate_threshold)
-                self.monitoring.anomaly_detection_threshold = mon_config.get('anomaly_detection_threshold', self.monitoring.anomaly_detection_threshold)
-                self.monitoring.alert_cooldown_minutes = mon_config.get('alert_cooldown_minutes', self.monitoring.alert_cooldown_minutes)
-                self.monitoring.escalation_delay_minutes = mon_config.get('escalation_delay_minutes', self.monitoring.escalation_delay_minutes)
+            if "monitoring" in config:
+                mon_config = config["monitoring"]
+                self.monitoring.error_window_size = mon_config.get(
+                    "error_window_size", self.monitoring.error_window_size
+                )
+                self.monitoring.time_window_minutes = mon_config.get(
+                    "time_window_minutes", self.monitoring.time_window_minutes
+                )
+                self.monitoring.error_rate_threshold = mon_config.get(
+                    "error_rate_threshold", self.monitoring.error_rate_threshold
+                )
+                self.monitoring.critical_error_rate_threshold = mon_config.get(
+                    "critical_error_rate_threshold", self.monitoring.critical_error_rate_threshold
+                )
+                self.monitoring.anomaly_detection_threshold = mon_config.get(
+                    "anomaly_detection_threshold", self.monitoring.anomaly_detection_threshold
+                )
+                self.monitoring.alert_cooldown_minutes = mon_config.get(
+                    "alert_cooldown_minutes", self.monitoring.alert_cooldown_minutes
+                )
+                self.monitoring.escalation_delay_minutes = mon_config.get(
+                    "escalation_delay_minutes", self.monitoring.escalation_delay_minutes
+                )
 
     def get_circuit_breaker_config(self, service_name: str) -> CircuitBreakerConfig:
         """Get circuit breaker configuration for a specific service."""
@@ -106,46 +126,45 @@ class ErrorHandlingConfig:
                 failure_threshold=5,
                 recovery_timeout=60,
                 expected_exception="PyMongoError",
-                profile=CircuitBreakerProfile.CONSERVATIVE
+                profile=CircuitBreakerProfile.CONSERVATIVE,
             ),
             "redis": CircuitBreakerConfig(
                 failure_threshold=3,
                 recovery_timeout=30,
                 expected_exception="ConnectionError",
-                profile=CircuitBreakerProfile.BALANCED
+                profile=CircuitBreakerProfile.BALANCED,
             ),
             "email": CircuitBreakerConfig(
                 failure_threshold=10,
                 recovery_timeout=120,
                 expected_exception="EmailError",
-                profile=CircuitBreakerProfile.AGGRESSIVE
+                profile=CircuitBreakerProfile.AGGRESSIVE,
             ),
             "family_operations": CircuitBreakerConfig(
                 failure_threshold=5,
                 recovery_timeout=45,
                 expected_exception="FamilyError",
-                profile=CircuitBreakerProfile.BALANCED
+                profile=CircuitBreakerProfile.BALANCED,
             ),
             "sbd_operations": CircuitBreakerConfig(
                 failure_threshold=3,
                 recovery_timeout=30,
                 expected_exception="SBDError",
-                profile=CircuitBreakerProfile.CONSERVATIVE
+                profile=CircuitBreakerProfile.CONSERVATIVE,
             ),
             "external_api": CircuitBreakerConfig(
                 failure_threshold=8,
                 recovery_timeout=90,
                 expected_exception="HTTPError",
-                profile=CircuitBreakerProfile.AGGRESSIVE
-            )
+                profile=CircuitBreakerProfile.AGGRESSIVE,
+            ),
         }
 
         # Return specific config or default
-        return service_configs.get(service_name, CircuitBreakerConfig(
-            failure_threshold=5,
-            recovery_timeout=60,
-            profile=CircuitBreakerProfile.BALANCED
-        ))
+        return service_configs.get(
+            service_name,
+            CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60, profile=CircuitBreakerProfile.BALANCED),
+        )
 
     def get_bulkhead_config(self, resource_name: str) -> BulkheadConfig:
         """Get bulkhead configuration for a specific resource."""
@@ -158,14 +177,11 @@ class ErrorHandlingConfig:
             "family_invitations": BulkheadConfig(capacity=10, timeout=10.0),
             "sbd_transactions": BulkheadConfig(capacity=8, timeout=20.0),
             "file_uploads": BulkheadConfig(capacity=3, timeout=60.0),
-            "external_api_calls": BulkheadConfig(capacity=12, timeout=30.0)
+            "external_api_calls": BulkheadConfig(capacity=12, timeout=30.0),
         }
 
         # Return specific config or default
-        return resource_configs.get(resource_name, BulkheadConfig(
-            capacity=10,
-            timeout=5.0
-        ))
+        return resource_configs.get(resource_name, BulkheadConfig(capacity=10, timeout=5.0))
 
     def get_retry_config(self, operation_type: str) -> RetryConfig:
         """Get retry configuration for a specific operation type."""
@@ -179,7 +195,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["PyMongoError", "ConnectionError", "TimeoutError"],
                 non_retryable_exceptions=["ValidationError", "AuthenticationError"],
-                profile=RetryProfile.STANDARD
+                profile=RetryProfile.STANDARD,
             ),
             "redis_operation": RetryConfig(
                 max_attempts=3,
@@ -189,7 +205,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["ConnectionError", "TimeoutError"],
                 non_retryable_exceptions=["ValidationError"],
-                profile=RetryProfile.QUICK
+                profile=RetryProfile.QUICK,
             ),
             "email_sending": RetryConfig(
                 max_attempts=5,
@@ -199,7 +215,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["SMTPException", "ConnectionError"],
                 non_retryable_exceptions=["ValidationError", "AuthenticationError"],
-                profile=RetryProfile.PERSISTENT
+                profile=RetryProfile.PERSISTENT,
             ),
             "family_operation": RetryConfig(
                 max_attempts=3,
@@ -209,7 +225,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["PyMongoError", "ConnectionError"],
                 non_retryable_exceptions=["FamilyLimitExceeded", "ValidationError", "RateLimitExceeded"],
-                profile=RetryProfile.STANDARD
+                profile=RetryProfile.STANDARD,
             ),
             "sbd_transaction": RetryConfig(
                 max_attempts=2,
@@ -219,7 +235,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["ConnectionError", "TimeoutError"],
                 non_retryable_exceptions=["InsufficientFundsError", "ValidationError"],
-                profile=RetryProfile.QUICK
+                profile=RetryProfile.QUICK,
             ),
             "external_api_call": RetryConfig(
                 max_attempts=4,
@@ -229,7 +245,7 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["HTTPError", "ConnectionError", "TimeoutError"],
                 non_retryable_exceptions=["AuthenticationError", "ValidationError"],
-                profile=RetryProfile.STANDARD
+                profile=RetryProfile.STANDARD,
             ),
             "critical_operation": RetryConfig(
                 max_attempts=5,
@@ -239,19 +255,22 @@ class ErrorHandlingConfig:
                 strategy="exponential_backoff",
                 retryable_exceptions=["Exception"],  # Retry most exceptions for critical ops
                 non_retryable_exceptions=["ValidationError", "AuthenticationError"],
-                profile=RetryProfile.CRITICAL
-            )
+                profile=RetryProfile.CRITICAL,
+            ),
         }
 
         # Return specific config or default
-        return operation_configs.get(operation_type, RetryConfig(
-            max_attempts=3,
-            initial_delay=1.0,
-            backoff_factor=2.0,
-            max_delay=30.0,
-            strategy="exponential_backoff",
-            profile=RetryProfile.STANDARD
-        ))
+        return operation_configs.get(
+            operation_type,
+            RetryConfig(
+                max_attempts=3,
+                initial_delay=1.0,
+                backoff_factor=2.0,
+                max_delay=30.0,
+                strategy="exponential_backoff",
+                profile=RetryProfile.STANDARD,
+            ),
+        )
 
     def get_timeout_config(self, operation_type: str) -> float:
         """Get timeout configuration for a specific operation type."""
@@ -270,7 +289,7 @@ class ErrorHandlingConfig:
             "user_authentication": 15.0,
             "password_reset": 30.0,
             "backup_operation": 600.0,  # 10 minutes
-            "maintenance_task": 1800.0  # 30 minutes
+            "maintenance_task": 1800.0,  # 30 minutes
         }
 
         # Return specific timeout or default
@@ -284,41 +303,44 @@ class ErrorHandlingConfig:
                 "enabled": True,
                 "fallback_message": "Family creation is temporarily unavailable. Please try again later.",
                 "degraded_features": ["sbd_account_creation", "email_notifications"],
-                "available_features": ["basic_family_info"]
+                "available_features": ["basic_family_info"],
             },
             "family_invitations": {
                 "enabled": True,
                 "fallback_message": "Family invitations are temporarily unavailable. Please try again later.",
                 "degraded_features": ["email_sending", "real_time_notifications"],
-                "available_features": ["invitation_queuing"]
+                "available_features": ["invitation_queuing"],
             },
             "sbd_transactions": {
                 "enabled": True,
                 "fallback_message": "SBD transactions are temporarily unavailable. Please try again later.",
                 "degraded_features": ["real_time_processing", "transaction_notifications"],
-                "available_features": ["balance_viewing", "transaction_queuing"]
+                "available_features": ["balance_viewing", "transaction_queuing"],
             },
             "email_service": {
                 "enabled": True,
                 "fallback_message": "Email service is temporarily unavailable. Emails will be queued for later delivery.",
                 "degraded_features": ["immediate_delivery"],
-                "available_features": ["email_queuing", "local_notifications"]
+                "available_features": ["email_queuing", "local_notifications"],
             },
             "user_authentication": {
                 "enabled": False,  # Critical service, no fallback
                 "fallback_message": "Authentication service is temporarily unavailable. Please try again later.",
                 "degraded_features": [],
-                "available_features": []
-            }
+                "available_features": [],
+            },
         }
 
         # Return specific config or default
-        return fallback_configs.get(operation_type, {
-            "enabled": True,
-            "fallback_message": "Service is temporarily unavailable. Please try again later.",
-            "degraded_features": ["advanced_features"],
-            "available_features": ["basic_operations"]
-        })
+        return fallback_configs.get(
+            operation_type,
+            {
+                "enabled": True,
+                "fallback_message": "Service is temporarily unavailable. Please try again later.",
+                "degraded_features": ["advanced_features"],
+                "available_features": ["basic_operations"],
+            },
+        )
 
     def get_alerting_config(self) -> Dict[str, Any]:
         """Get alerting and escalation configuration."""
@@ -328,60 +350,44 @@ class ErrorHandlingConfig:
                     "name": "Development Team",
                     "delay_minutes": 0,
                     "channels": ["slack", "email"],
-                    "severity_threshold": "warning"
+                    "severity_threshold": "warning",
                 },
                 "level_2": {
                     "name": "Operations Team",
                     "delay_minutes": 30,
                     "channels": ["pagerduty", "slack", "email"],
-                    "severity_threshold": "error"
+                    "severity_threshold": "error",
                 },
                 "level_3": {
                     "name": "Management",
                     "delay_minutes": 60,
                     "channels": ["phone", "email"],
-                    "severity_threshold": "critical"
+                    "severity_threshold": "critical",
                 },
                 "level_4": {
                     "name": "Executive",
                     "delay_minutes": 120,
                     "channels": ["phone", "sms"],
-                    "severity_threshold": "critical"
-                }
+                    "severity_threshold": "critical",
+                },
             },
             "alert_channels": {
-                "slack": {
-                    "enabled": True,
-                    "webhook_url": None,  # Set via environment
-                    "channel": "#alerts"
-                },
+                "slack": {"enabled": True, "webhook_url": None, "channel": "#alerts"},  # Set via environment
                 "email": {
                     "enabled": True,
                     "smtp_config": None,  # Use existing email config
-                    "recipients": []  # Set via environment
+                    "recipients": [],  # Set via environment
                 },
-                "pagerduty": {
-                    "enabled": False,
-                    "integration_key": None,  # Set via environment
-                    "service_key": None
-                },
-                "phone": {
-                    "enabled": False,
-                    "provider": "twilio",
-                    "numbers": []  # Set via environment
-                },
-                "sms": {
-                    "enabled": False,
-                    "provider": "twilio",
-                    "numbers": []  # Set via environment
-                }
+                "pagerduty": {"enabled": False, "integration_key": None, "service_key": None},  # Set via environment
+                "phone": {"enabled": False, "provider": "twilio", "numbers": []},  # Set via environment
+                "sms": {"enabled": False, "provider": "twilio", "numbers": []},  # Set via environment
             },
             "alert_suppression": {
                 "enabled": True,
                 "duplicate_window_minutes": 30,
                 "max_alerts_per_hour": 10,
-                "burst_threshold": 5
-            }
+                "burst_threshold": 5,
+            },
         }
 
 

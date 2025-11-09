@@ -13,11 +13,11 @@ The resources below are commented out to prevent duplicates. The new resources i
 DO NOT RE-ENABLE THESE RESOURCES. Use resources/user_resources.py and resources/system_resources.py instead.
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
+from ...managers.logging_manager import get_logger
 from .modern_server import mcp
 
 logger = get_logger(prefix="[MCP_Resources_DEPRECATED]")
@@ -83,7 +83,9 @@ def register_example_resources():
     This function is kept for backwards compatibility but does nothing.
     """
     logger.warning("resources_registration.py is DEPRECATED - use resources/ directory instead")
-    logger.info("Production resources are registered from resources/user_resources.py and resources/system_resources.py")
+    logger.info(
+        "Production resources are registered from resources/user_resources.py and resources/system_resources.py"
+    )
 
 
 # Auto-register resources when module is imported (DEPRECATED - does nothing now)

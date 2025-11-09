@@ -7,27 +7,29 @@ for MCP tool execution.
 """
 
 import asyncio
-from typing import Optional, Dict, Any, Callable
-from fastapi import Request, HTTPException
+from typing import Any, Callable, Dict, Optional
 
-from ...managers.logging_manager import get_logger
+from fastapi import HTTPException, Request
+from fastmcp.server.auth.auth import AccessToken, AuthProvider
+
 from ...config import settings
+from ...managers.logging_manager import get_logger
 from .context import (
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
-    extract_client_info_from_request
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    extract_client_info_from_request,
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
 from .exceptions import MCPAuthenticationError
 
 logger = get_logger(prefix="[MCP_Auth]")
 
 
-class FastMCPJWTAuthProvider:
+class FastMCPJWTAuthProvider(AuthProvider):
     """
     FastMCP 2.x compliant JWT authentication provider.
 
@@ -36,18 +38,19 @@ class FastMCPJWTAuthProvider:
     """
 
     def __init__(self):
+        super().__init__(base_url=None, required_scopes=[])
         self.name = "FastMCPJWTAuth"
         logger.info("Initialized FastMCP 2.x JWT authentication provider")
 
-    async def authenticate(self, token: str) -> Dict[str, Any]:
+    async def verify_token(self, token: str) -> Optional[AccessToken]:
         """
-        FastMCP 2.x authentication interface.
+        FastMCP 2.x token verification interface.
 
         Args:
             token: Bearer token from Authorization header
 
         Returns:
-            Dictionary with user claims/context
+            AccessToken object if valid, None if invalid
 
         Raises:
             Exception: If authentication fails
@@ -56,24 +59,29 @@ class FastMCPJWTAuthProvider:
             # Use existing JWT validation
             authenticated_user = await self._validate_jwt_token(token)
 
-            # Return user claims in FastMCP format
-            return {
-                "sub": str(authenticated_user["_id"]),
-                "username": authenticated_user.get("username"),
-                "email": authenticated_user.get("email"),
-                "role": authenticated_user.get("role", "user"),
-                "permissions": authenticated_user.get("permissions", []),
-                "family_memberships": authenticated_user.get("family_memberships", []),
-                "workspaces": authenticated_user.get("workspaces", [])
-            }
+            # Return AccessToken in FastMCP format
+            return AccessToken(
+                token=token,
+                sub=str(authenticated_user["_id"]),
+                scopes=[],
+                metadata={
+                    "username": authenticated_user.get("username"),
+                    "email": authenticated_user.get("email"),
+                    "role": authenticated_user.get("role", "user"),
+                    "permissions": authenticated_user.get("permissions", []),
+                    "family_memberships": authenticated_user.get("family_memberships", []),
+                    "workspaces": authenticated_user.get("workspaces", []),
+                }
+            )
 
         except Exception as e:
             logger.error("FastMCP JWT authentication failed: %s", e)
-            raise
+            return None
 
     async def _validate_jwt_token(self, token: str) -> Dict[str, Any]:
         """Validate JWT token using existing system."""
         from ...routes.auth.services.auth.login import get_current_user
+
         return await get_current_user(token)
 
 
@@ -118,17 +126,10 @@ class SecondBrainAuthProvider:
                     return {
                         "success": True,
                         "user_id": "dev-user",
-                        "metadata": {
-                            "username": "development-user",
-                            "role": "admin",
-                            "mode": "development"
-                        }
+                        "metadata": {"username": "development-user", "role": "admin", "mode": "development"},
                     }
 
-                raise HTTPException(
-                    status_code=401,
-                    detail="Missing or invalid Authorization header"
-                )
+                raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
             token = authorization.split(" ")[1]
 
@@ -142,7 +143,7 @@ class SecondBrainAuthProvider:
                 ip_address=client_info["ip_address"],
                 user_agent=client_info["user_agent"],
                 token_type="jwt",
-                token_id=None
+                token_id=None,
             )
 
             await self._set_mcp_context(user_context, request)
@@ -151,7 +152,7 @@ class SecondBrainAuthProvider:
                 "MCP authenticated user: %s (%s) with %d permissions",
                 user_context.username,
                 user_context.user_id,
-                len(user_context.permissions)
+                len(user_context.permissions),
             )
 
             return {
@@ -162,19 +163,15 @@ class SecondBrainAuthProvider:
                     "email": user_context.email,
                     "role": user_context.role,
                     "mode": "jwt",
-                    "permissions": user_context.permissions
-                }
+                    "permissions": user_context.permissions,
+                },
             }
 
         except HTTPException:
             raise
         except Exception as e:
             logger.error("MCP authentication error: %s", e)
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
+            return {"success": False, "error": str(e)}
 
     async def _authenticate_with_jwt(self, token: str) -> Dict[str, Any]:
         """
@@ -200,15 +197,12 @@ class SecondBrainAuthProvider:
             authenticated_user = await get_current_user(token)
 
             if not authenticated_user:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid authentication token"
-                )
+                raise HTTPException(status_code=401, detail="Invalid authentication token")
 
             logger.debug(
                 "JWT authentication successful for user: %s (%s)",
                 authenticated_user.get("username"),
-                authenticated_user.get("_id")
+                authenticated_user.get("_id"),
             )
 
             return authenticated_user
@@ -217,10 +211,7 @@ class SecondBrainAuthProvider:
             raise
         except Exception as e:
             logger.error("JWT authentication failed: %s", e)
-            raise HTTPException(
-                status_code=401,
-                detail="JWT authentication failed"
-            )
+            raise HTTPException(status_code=401, detail="JWT authentication failed")
 
     async def _create_development_user_context(self, request: Request) -> MCPUserContext:
         """
@@ -252,9 +243,8 @@ class SecondBrainAuthProvider:
             trusted_user_agents=["MCP-Development-Client"],
             token_type="development",
             token_id="dev-token",
-            authenticated_at=datetime.now(timezone.utc)
+            authenticated_at=datetime.now(timezone.utc),
         )
-
 
     async def _set_mcp_context(self, user_context: MCPUserContext, request: Request) -> None:
         """
@@ -269,16 +259,11 @@ class SecondBrainAuthProvider:
 
         # Create and set request context
         request_context = create_mcp_request_context(
-            operation_type="tool",  # Default, will be updated by tool decorators
-            parameters={}
+            operation_type="tool", parameters={}  # Default, will be updated by tool decorators
         )
         set_mcp_request_context(request_context)
 
-        logger.debug(
-            "Set MCP context for user %s (%s mode)",
-            user_context.user_id,
-            user_context.token_type
-        )
+        logger.debug("Set MCP context for user %s (%s mode)", user_context.user_id, user_context.token_type)
 
 
 class MCPAuthenticationMiddleware:
@@ -307,6 +292,7 @@ class MCPAuthenticationMiddleware:
             try:
                 # Create a FastAPI Request object for authentication
                 from fastapi import Request
+
                 request = Request(scope, receive)
 
                 # Authenticate the request

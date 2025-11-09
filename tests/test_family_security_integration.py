@@ -5,14 +5,15 @@ This test verifies that family operations correctly use the existing
 SecurityManager instead of a redundant FamilySecurityManager.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi import Request, HTTPException
+
+from fastapi import HTTPException, Request
+import pytest
 
 from second_brain_database.routes.family.dependencies import (
+    _get_family_rate_limits,
     enforce_family_security,
     get_current_family_user,
-    _get_family_rate_limits
 )
 
 
@@ -45,14 +46,10 @@ class TestFamilySecurityIntegration:
         mock_request.client.host = "127.0.0.1"
         mock_request.headers = {"user-agent": "test-agent"}
 
-        mock_user = {
-            "_id": "test_user_id",
-            "username": "testuser",
-            "is_verified": True
-        }
+        mock_user = {"_id": "test_user_id", "username": "testuser", "is_verified": True}
 
         # Mock the security manager methods
-        with patch('second_brain_database.routes.family.dependencies.security_manager') as mock_security_manager:
+        with patch("second_brain_database.routes.family.dependencies.security_manager") as mock_security_manager:
             mock_security_manager.check_ip_lockdown = AsyncMock()
             mock_security_manager.check_user_agent_lockdown = AsyncMock()
             mock_security_manager.check_rate_limit = AsyncMock()
@@ -60,14 +57,14 @@ class TestFamilySecurityIntegration:
             mock_security_manager.get_client_user_agent.return_value = "test-agent"
 
             # Mock log_security_event
-            with patch('second_brain_database.routes.family.dependencies.log_security_event') as mock_log:
+            with patch("second_brain_database.routes.family.dependencies.log_security_event") as mock_log:
                 # Call the function
                 result = await enforce_family_security(
                     request=mock_request,
                     operation="create_family",
                     require_2fa=False,
                     x_temp_token=None,
-                    current_user=mock_user
+                    current_user=mock_user,
                 )
 
                 # Verify SecurityManager methods were called
@@ -77,7 +74,7 @@ class TestFamilySecurityIntegration:
                     request=mock_request,
                     action="family_create_family",
                     rate_limit_requests=2,  # create_family specific limit
-                    rate_limit_period=3600
+                    rate_limit_period=3600,
                 )
 
                 # Verify security event was logged
@@ -100,13 +97,10 @@ class TestFamilySecurityIntegration:
         mock_request.url.path = "/family/invite"
         mock_request.client.host = "192.168.1.1"
 
-        mock_user = {
-            "_id": "test_user_id",
-            "username": "testuser"
-        }
+        mock_user = {"_id": "test_user_id", "username": "testuser"}
 
         # Mock security manager to raise rate limit exception
-        with patch('second_brain_database.routes.family.dependencies.security_manager') as mock_security_manager:
+        with patch("second_brain_database.routes.family.dependencies.security_manager") as mock_security_manager:
             mock_security_manager.check_ip_lockdown = AsyncMock()
             mock_security_manager.check_user_agent_lockdown = AsyncMock()
             mock_security_manager.check_rate_limit = AsyncMock(
@@ -120,7 +114,7 @@ class TestFamilySecurityIntegration:
                     operation="invite_member",
                     require_2fa=False,
                     x_temp_token=None,
-                    current_user=mock_user
+                    current_user=mock_user,
                 )
 
             assert exc_info.value.status_code == 429
@@ -134,18 +128,10 @@ class TestFamilySecurityIntegration:
         mock_request.url.path = "/family/list"
         mock_request.client.host = "127.0.0.1"
 
-        mock_user = {
-            "_id": "test_user_id",
-            "username": "testuser",
-            "role": "user",
-            "is_verified": True
-        }
+        mock_user = {"_id": "test_user_id", "username": "testuser", "role": "user", "is_verified": True}
 
-        with patch('second_brain_database.routes.family.dependencies.log_security_event') as mock_log:
-            result = await get_current_family_user(
-                request=mock_request,
-                current_user=mock_user
-            )
+        with patch("second_brain_database.routes.family.dependencies.log_security_event") as mock_log:
+            result = await get_current_family_user(request=mock_request, current_user=mock_user)
 
             # Verify security event was logged
             mock_log.assert_called_once()

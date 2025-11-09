@@ -6,16 +6,16 @@ that allow users to bypass IP and User Agent lockdown restrictions for a limited
 or add IPs/User Agents to their trusted list via email action buttons.
 """
 
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.redis_manager import redis_manager
-from second_brain_database.utils.logging_utils import log_security_event, log_performance
+from second_brain_database.utils.logging_utils import log_performance, log_security_event
 
 logger = get_logger(prefix="[Temporary Access]")
 
@@ -30,10 +30,7 @@ REDIS_USER_AGENT_TOKEN_PREFIX = "temp_ua_token"
 
 @log_performance("store_token_in_redis")
 async def store_token_in_redis(
-    token_hash: str,
-    token_data: Dict[str, Any],
-    expiration_minutes: int,
-    prefix: str
+    token_hash: str, token_data: Dict[str, Any], expiration_minutes: int, prefix: str
 ) -> None:
     """
     Store a temporary access token in Redis with automatic expiration.
@@ -50,8 +47,7 @@ async def store_token_in_redis(
     expiration_seconds = expiration_minutes * 60
 
     await redis_conn.set(key, value, ex=expiration_seconds)
-    logger.debug("Stored token in Redis with key %s, expires in %d minutes",
-                key[:20] + "...", expiration_minutes)
+    logger.debug("Stored token in Redis with key %s, expires in %d minutes", key[:20] + "...", expiration_minutes)
 
 
 @log_performance("get_token_from_redis")
@@ -86,12 +82,7 @@ async def get_token_from_redis(token_hash: str, prefix: str) -> Optional[Dict[st
 
 
 @log_performance("generate_temporary_ip_access_token")
-async def generate_temporary_ip_access_token(
-    user_email: str,
-    ip_address: str,
-    action: str,
-    endpoint: str
-) -> str:
+async def generate_temporary_ip_access_token(user_email: str, ip_address: str, action: str, endpoint: str) -> str:
     """
     Generate a temporary access token for IP-based actions.
 
@@ -125,16 +116,11 @@ async def generate_temporary_ip_access_token(
         "action": action,
         "endpoint": endpoint,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": expires_at.isoformat()
+        "expires_at": expires_at.isoformat(),
     }
 
     # Store token in Redis with automatic expiration
-    await store_token_in_redis(
-        token_hash,
-        token_data,
-        expiration_minutes,
-        REDIS_IP_TOKEN_PREFIX
-    )
+    await store_token_in_redis(token_hash, token_data, expiration_minutes, REDIS_IP_TOKEN_PREFIX)
 
     # Log token generation
     log_security_event(
@@ -146,12 +132,11 @@ async def generate_temporary_ip_access_token(
             "action": action,
             "endpoint": endpoint,
             "expires_at": expires_at.isoformat(),
-            "token_hash": token_hash[:8] + "..."  # Log only first 8 chars for security
-        }
+            "token_hash": token_hash[:8] + "...",  # Log only first 8 chars for security
+        },
     )
 
-    logger.info("Generated temporary IP access token for user %s, IP %s, action %s",
-                user_email, ip_address, action)
+    logger.info("Generated temporary IP access token for user %s, IP %s, action %s", user_email, ip_address, action)
 
     return token
 
@@ -185,12 +170,13 @@ async def validate_and_use_temporary_ip_token(token: str) -> Optional[Dict[str, 
         details={
             "action": token_data.get("action"),
             "endpoint": token_data.get("endpoint"),
-            "token_hash": token_hash[:8] + "..."
-        }
+            "token_hash": token_hash[:8] + "...",
+        },
     )
 
-    logger.info("Used temporary IP access token for user %s, action %s",
-                token_data.get("user_email"), token_data.get("action"))
+    logger.info(
+        "Used temporary IP access token for user %s, action %s", token_data.get("user_email"), token_data.get("action")
+    )
 
     return token_data
 
@@ -224,13 +210,12 @@ async def execute_allow_once_ip_access(token_data: Dict[str, Any]) -> bool:
         "ip_address": ip_address,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
-        "reason": "allow_once_token"
+        "reason": "allow_once_token",
     }
 
     users_collection = db_manager.get_collection("users")
     result = await users_collection.update_one(
-        {"email": user_email},
-        {"$push": {"temporary_ip_bypasses": bypass_entry}}
+        {"email": user_email}, {"$push": {"temporary_ip_bypasses": bypass_entry}}
     )
 
     if result.modified_count == 0:
@@ -243,10 +228,7 @@ async def execute_allow_once_ip_access(token_data: Dict[str, Any]) -> bool:
         user_id=user_email,
         ip_address=ip_address,
         success=True,
-        details={
-            "expires_at": bypass_entry["expires_at"],
-            "endpoint": token_data.get("endpoint")
-        }
+        details={"expires_at": bypass_entry["expires_at"], "endpoint": token_data.get("endpoint")},
     )
 
     logger.info("Created temporary IP bypass for user %s, IP %s", user_email, ip_address)
@@ -286,10 +268,7 @@ async def execute_add_to_trusted_ip_list(token_data: Dict[str, Any]) -> bool:
         return True
 
     # Add IP to trusted list
-    result = await users_collection.update_one(
-        {"email": user_email},
-        {"$addToSet": {"trusted_ips": ip_address}}
-    )
+    result = await users_collection.update_one({"email": user_email}, {"$addToSet": {"trusted_ips": ip_address}})
 
     if result.modified_count == 0:
         logger.error("Failed to add IP to trusted list for user %s", user_email)
@@ -304,8 +283,8 @@ async def execute_add_to_trusted_ip_list(token_data: Dict[str, Any]) -> bool:
         details={
             "endpoint": token_data.get("endpoint"),
             "previous_trusted_count": len(trusted_ips),
-            "new_trusted_count": len(trusted_ips) + 1
-        }
+            "new_trusted_count": len(trusted_ips) + 1,
+        },
     )
 
     logger.info("Added IP %s to trusted list for user %s via token", ip_address, user_email)
@@ -314,12 +293,10 @@ async def execute_add_to_trusted_ip_list(token_data: Dict[str, Any]) -> bool:
 
 # User Agent temporary access functions
 
+
 @log_performance("generate_temporary_user_agent_access_token")
 async def generate_temporary_user_agent_access_token(
-    user_email: str,
-    user_agent: str,
-    action: str,
-    endpoint: str
+    user_email: str, user_agent: str, action: str, endpoint: str
 ) -> str:
     """
     Generate a temporary access token for User Agent-based actions.
@@ -354,16 +331,11 @@ async def generate_temporary_user_agent_access_token(
         "action": action,
         "endpoint": endpoint,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": expires_at.isoformat()
+        "expires_at": expires_at.isoformat(),
     }
 
     # Store token in Redis with automatic expiration
-    await store_token_in_redis(
-        token_hash,
-        token_data,
-        expiration_minutes,
-        REDIS_USER_AGENT_TOKEN_PREFIX
-    )
+    await store_token_in_redis(token_hash, token_data, expiration_minutes, REDIS_USER_AGENT_TOKEN_PREFIX)
 
     # Log token generation
     log_security_event(
@@ -375,12 +347,16 @@ async def generate_temporary_user_agent_access_token(
             "action": action,
             "endpoint": endpoint,
             "expires_at": expires_at.isoformat(),
-            "token_hash": token_hash[:8] + "..."  # Log only first 8 chars for security
-        }
+            "token_hash": token_hash[:8] + "...",  # Log only first 8 chars for security
+        },
     )
 
-    logger.info("Generated temporary User Agent access token for user %s, User Agent %s, action %s",
-                user_email, user_agent[:50] + "..." if len(user_agent) > 50 else user_agent, action)
+    logger.info(
+        "Generated temporary User Agent access token for user %s, User Agent %s, action %s",
+        user_email,
+        user_agent[:50] + "..." if len(user_agent) > 50 else user_agent,
+        action,
+    )
 
     return token
 
@@ -414,12 +390,15 @@ async def validate_and_use_temporary_user_agent_token(token: str) -> Optional[Di
             "user_agent": token_data.get("user_agent"),
             "action": token_data.get("action"),
             "endpoint": token_data.get("endpoint"),
-            "token_hash": token_hash[:8] + "..."
-        }
+            "token_hash": token_hash[:8] + "...",
+        },
     )
 
-    logger.info("Used temporary User Agent access token for user %s, action %s",
-                token_data.get("user_email"), token_data.get("action"))
+    logger.info(
+        "Used temporary User Agent access token for user %s, action %s",
+        token_data.get("user_email"),
+        token_data.get("action"),
+    )
 
     return token_data
 
@@ -450,13 +429,12 @@ async def execute_allow_once_user_agent_access(token_data: Dict[str, Any]) -> bo
         "user_agent": user_agent,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=ALLOW_ONCE_DURATION_MINUTES)).isoformat(),
-        "reason": "allow_once_token"
+        "reason": "allow_once_token",
     }
 
     users_collection = db_manager.get_collection("users")
     result = await users_collection.update_one(
-        {"email": user_email},
-        {"$push": {"temporary_user_agent_bypasses": bypass_entry}}
+        {"email": user_email}, {"$push": {"temporary_user_agent_bypasses": bypass_entry}}
     )
 
     if result.modified_count == 0:
@@ -471,12 +449,15 @@ async def execute_allow_once_user_agent_access(token_data: Dict[str, Any]) -> bo
         details={
             "user_agent": user_agent,
             "expires_at": bypass_entry["expires_at"],
-            "endpoint": token_data.get("endpoint")
-        }
+            "endpoint": token_data.get("endpoint"),
+        },
     )
 
-    logger.info("Created temporary User Agent bypass for user %s, User Agent %s",
-                user_email, user_agent[:50] + "..." if len(user_agent) > 50 else user_agent)
+    logger.info(
+        "Created temporary User Agent bypass for user %s, User Agent %s",
+        user_email,
+        user_agent[:50] + "..." if len(user_agent) > 50 else user_agent,
+    )
     return True
 
 
@@ -514,8 +495,7 @@ async def execute_add_to_trusted_user_agent_list(token_data: Dict[str, Any]) -> 
 
     # Add User Agent to trusted list
     result = await users_collection.update_one(
-        {"email": user_email},
-        {"$addToSet": {"trusted_user_agents": user_agent}}
+        {"email": user_email}, {"$addToSet": {"trusted_user_agents": user_agent}}
     )
 
     if result.modified_count == 0:
@@ -531,8 +511,8 @@ async def execute_add_to_trusted_user_agent_list(token_data: Dict[str, Any]) -> 
             "user_agent": user_agent,
             "endpoint": token_data.get("endpoint"),
             "previous_trusted_count": len(trusted_user_agents),
-            "new_trusted_count": len(trusted_user_agents) + 1
-        }
+            "new_trusted_count": len(trusted_user_agents) + 1,
+        },
     )
 
     logger.info("Added User Agent to trusted list for user %s via token", user_email)

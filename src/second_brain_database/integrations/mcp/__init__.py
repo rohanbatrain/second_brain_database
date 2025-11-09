@@ -11,19 +11,19 @@ Following FastMCP 2.x patterns:
 - Production-ready ASGI application
 """
 
-from .modern_server import mcp, create_modern_mcp_server
-from .exceptions import (
-    MCPSecurityError,
-    MCPAuthenticationError,
-    MCPAuthorizationError,
-    MCPValidationError,
-    MCPRateLimitError,
-    MCPToolError,
-)
-
 # Import modules to register tools, resources, and prompts
 # This follows FastMCP 2.x patterns where decorators are executed on import
 from . import tools_registration
+from .exceptions import (
+    MCPAuthenticationError,
+    MCPAuthorizationError,
+    MCPRateLimitError,
+    MCPSecurityError,
+    MCPToolError,
+    MCPValidationError,
+)
+from .modern_server import create_modern_mcp_server, mcp
+
 # DEPRECATED: Old registration files replaced by organized modules in prompts/ and resources/
 # from . import resources_registration  # Replaced by resources/user_resources.py, resources/system_resources.py
 # from . import prompts_registration    # Replaced by prompts/guidance_prompts.py

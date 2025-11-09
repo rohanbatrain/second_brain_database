@@ -12,13 +12,13 @@ Requirements: 10.2, 10.3, 10.5, 10.6
 """
 
 import asyncio
-import gc
-import time
-import uuid
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+import gc
 import sys
+import time
+from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
 import pytest
 
@@ -115,11 +115,7 @@ class MockScalabilityFamilyManager:
     def __init__(self):
         self.created_families = []
         self.operation_count = 0
-        self.query_latencies = {
-            "user_lookup": 0.001,
-            "family_count": 0.002,
-            "family_insert": 0.005
-        }
+        self.query_latencies = {"user_lookup": 0.001, "family_count": 0.002, "family_insert": 0.005}
 
     async def create_family(self, user_id: str, name: str = None, request_context: Dict = None) -> Dict[str, Any]:
         """Mock family creation with simulated latency."""
@@ -139,12 +135,8 @@ class MockScalabilityFamilyManager:
             "admin_user_ids": [user_id],
             "member_count": 1,
             "created_at": datetime.now(timezone.utc),
-            "sbd_account": {
-                "account_username": sbd_username,
-                "balance": 0,
-                "is_frozen": False
-            },
-            "transaction_safe": True
+            "sbd_account": {"account_username": sbd_username, "balance": 0, "is_frozen": False},
+            "transaction_safe": True,
         }
 
         self.created_families.append(family_data)
@@ -198,7 +190,7 @@ class TestScalabilityAndResources:
                     result = await family_manager_with_monitoring.create_family(
                         user_id=user_id,
                         name=f"Family {user_id}",
-                        request_context={"ip_address": f"10.0.{instance_id}.1", "user_agent": "test"}
+                        request_context={"ip_address": f"10.0.{instance_id}.1", "user_agent": "test"},
                     )
                     successful_operations += 1
 
@@ -215,14 +207,12 @@ class TestScalabilityAndResources:
                 "duration": instance_duration,
                 "successful_operations": successful_operations,
                 "failed_operations": failed_operations,
-                "throughput": successful_operations / instance_duration if instance_duration > 0 else 0
+                "throughput": successful_operations / instance_duration if instance_duration > 0 else 0,
             }
 
         # Execute load across multiple instances concurrently
         start_time = time.time()
-        instance_results = await asyncio.gather(*[
-            simulate_instance_load(i) for i in range(num_instances)
-        ])
+        instance_results = await asyncio.gather(*[simulate_instance_load(i) for i in range(num_instances)])
         total_duration = time.time() - start_time
 
         # Analyze scaling metrics
@@ -283,7 +273,7 @@ class TestScalabilityAndResources:
                     await family_manager_with_monitoring.create_family(
                         user_id=user_id,
                         name=f"Memory Test Family {user_id}",
-                        request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                        request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                     )
                     return True
                 except Exception:
@@ -295,13 +285,15 @@ class TestScalabilityAndResources:
 
             # Sample memory after batch
             batch_end_memory = resource_monitor.get_memory_usage_mb()
-            memory_samples.append({
-                "batch": batch,
-                "start_memory": batch_start_memory,
-                "end_memory": batch_end_memory,
-                "growth": batch_end_memory - batch_start_memory,
-                "successful_operations": successful_in_batch
-            })
+            memory_samples.append(
+                {
+                    "batch": batch,
+                    "start_memory": batch_start_memory,
+                    "end_memory": batch_end_memory,
+                    "growth": batch_end_memory - batch_start_memory,
+                    "successful_operations": successful_in_batch,
+                }
+            )
 
             # Force garbage collection between batches
             gc.collect()
@@ -350,12 +342,7 @@ class TestScalabilityAndResources:
         Requirements: 10.3, 10.5
         """
         # Track query performance metrics
-        query_times = {
-            "user_lookup": [],
-            "family_count": [],
-            "family_insert": [],
-            "total_operation": []
-        }
+        query_times = {"user_lookup": [], "family_count": [], "family_insert": [], "total_operation": []}
 
         # Override create_family to track timing
         original_create_family = family_manager_with_monitoring.create_family
@@ -389,7 +376,7 @@ class TestScalabilityAndResources:
                 result = await family_manager_with_monitoring.create_family(
                     user_id=user_id,
                     name=f"Performance Test Family {user_id}",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
                 duration = time.time() - start_time
                 query_times["total_operation"].append(duration)
@@ -417,23 +404,26 @@ class TestScalabilityAndResources:
                 "avg": sum(times) / len(times),
                 "max": max(times),
                 "min": min(times),
-                "p95": times_sorted[int(len(times_sorted) * 0.95)] if len(times_sorted) > 0 else 0
+                "p95": times_sorted[int(len(times_sorted) * 0.95)] if len(times_sorted) > 0 else 0,
             }
 
-        performance_stats = {
-            query_type: calculate_stats(times)
-            for query_type, times in query_times.items()
-        }
+        performance_stats = {query_type: calculate_stats(times) for query_type, times in query_times.items()}
 
         # Validate performance requirements
         # User lookup should be fast (< 10ms average)
-        assert performance_stats["user_lookup"]["avg"] < 0.01, f"User lookup too slow: {performance_stats['user_lookup']['avg']:.3f}s"
+        assert (
+            performance_stats["user_lookup"]["avg"] < 0.01
+        ), f"User lookup too slow: {performance_stats['user_lookup']['avg']:.3f}s"
 
         # Family operations should complete reasonably fast (< 100ms average)
-        assert performance_stats["total_operation"]["avg"] < 0.1, f"Operations too slow: {performance_stats['total_operation']['avg']:.3f}s"
+        assert (
+            performance_stats["total_operation"]["avg"] < 0.1
+        ), f"Operations too slow: {performance_stats['total_operation']['avg']:.3f}s"
 
         # 95th percentile should be reasonable (< 200ms)
-        assert performance_stats["total_operation"]["p95"] < 0.2, f"P95 too slow: {performance_stats['total_operation']['p95']:.3f}s"
+        assert (
+            performance_stats["total_operation"]["p95"] < 0.2
+        ), f"P95 too slow: {performance_stats['total_operation']['p95']:.3f}s"
 
         # Overall throughput should be acceptable
         throughput = len(successful_ops) / total_duration
@@ -588,7 +578,7 @@ class TestScalabilityAndResources:
                     result = await family_manager_with_monitoring.create_family(
                         user_id=user_id,
                         name=f"Constrained Family {user_id}",
-                        request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                        request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                     )
                     duration = time.time() - start_time
                     return {"success": True, "duration": duration}
@@ -598,9 +588,7 @@ class TestScalabilityAndResources:
 
             # Execute operations under memory pressure
             start_time = time.time()
-            constrained_results = await asyncio.gather(*[
-                create_family_under_pressure(uid) for uid in user_ids
-            ])
+            constrained_results = await asyncio.gather(*[create_family_under_pressure(uid) for uid in user_ids])
             constrained_duration = time.time() - start_time
 
             # Analyze performance under constraints
@@ -618,9 +606,7 @@ class TestScalabilityAndResources:
             normal_user_ids = [f"normal_user_{i}" for i in range(constrained_operations)]
 
             start_time = time.time()
-            normal_results = await asyncio.gather(*[
-                create_family_under_pressure(uid) for uid in normal_user_ids
-            ])
+            normal_results = await asyncio.gather(*[create_family_under_pressure(uid) for uid in normal_user_ids])
             normal_duration = time.time() - start_time
 
             successful_normal = [r for r in normal_results if r.get("success")]
@@ -631,7 +617,9 @@ class TestScalabilityAndResources:
 
             # System should still function under pressure (at least 70% success rate)
             success_rate_constrained = len(successful_constrained) / len(constrained_results)
-            assert success_rate_constrained > 0.7, f"Success rate too low under pressure: {success_rate_constrained:.2f}"
+            assert (
+                success_rate_constrained > 0.7
+            ), f"Success rate too low under pressure: {success_rate_constrained:.2f}"
 
             # Performance degradation should be reasonable (not more than 3x slower)
             performance_ratio = avg_constrained_duration / avg_normal_duration if avg_normal_duration > 0 else 1
@@ -690,10 +678,7 @@ class TestScalabilityAndResources:
                     await family_manager_with_monitoring.create_family(
                         user_id=user_id,
                         name=f"LB Family {user_id}",
-                        request_context={
-                            "ip_address": f"10.0.{node_id}.100",
-                            "user_agent": "load_balancer_test"
-                        }
+                        request_context={"ip_address": f"10.0.{node_id}.100", "user_agent": "load_balancer_test"},
                     )
                     successful += 1
                 except Exception:
@@ -710,15 +695,14 @@ class TestScalabilityAndResources:
                 "successful": successful,
                 "failed": failed,
                 "duration": node_duration,
-                "throughput": successful / node_duration if node_duration > 0 else 0
+                "throughput": successful / node_duration if node_duration > 0 else 0,
             }
 
         # Execute load balancing simulation
         start_time = time.time()
-        node_results = await asyncio.gather(*[
-            simulate_node_processing(i, node_operations[i])
-            for i in range(num_nodes)
-        ])
+        node_results = await asyncio.gather(
+            *[simulate_node_processing(i, node_operations[i]) for i in range(num_nodes)]
+        )
         total_duration = time.time() - start_time
 
         # Analyze load balancing effectiveness
@@ -737,7 +721,7 @@ class TestScalabilityAndResources:
         # Throughput should be consistent across nodes
         avg_throughput = sum(throughputs) / len(throughputs)
         throughput_variance = sum((t - avg_throughput) ** 2 for t in throughputs) / len(throughputs)
-        throughput_std_dev = throughput_variance ** 0.5
+        throughput_std_dev = throughput_variance**0.5
 
         # Validate load balancing
         assert load_balance_ratio > 0.8, f"Load not balanced: {load_balance_ratio:.2f}"
@@ -755,7 +739,9 @@ class TestScalabilityAndResources:
         print(f"  - Throughput std dev: {throughput_std_dev:.2f}")
 
         for result in node_results:
-            print(f"    Node {result['node_id']}: {result['successful']}/{result['operations']} ops, {result['throughput']:.2f} ops/sec")
+            print(
+                f"    Node {result['node_id']}: {result['successful']}/{result['operations']} ops, {result['throughput']:.2f} ops/sec"
+            )
 
 
 if __name__ == "__main__":

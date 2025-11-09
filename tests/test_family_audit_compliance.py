@@ -15,18 +15,18 @@ Requirements tested:
 """
 
 import asyncio
-import pytest
+from datetime import datetime, timedelta, timezone
 import time
-from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any, List
 
+import pytest
 from src.second_brain_database.managers.family_audit_manager import FamilyAuditManager
 from src.second_brain_database.managers.family_monitoring import (
+    AlertSeverity,
     FamilyMonitor,
-    FamilyOperationType,
     FamilyOperationContext,
-    AlertSeverity
+    FamilyOperationType,
 )
 
 
@@ -54,14 +54,14 @@ class TestFamilyAuditCompliance:
             "ip_address": "192.168.1.1",
             "user_agent": "TestAgent/1.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "metadata": {"test": "audit_data"}
+            "metadata": {"test": "audit_data"},
         }
 
     @pytest.mark.asyncio
     async def test_comprehensive_audit_logging(self, family_audit_manager):
         """Test comprehensive audit logging for all family operations."""
         # Mock database collection
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -71,28 +71,28 @@ class TestFamilyAuditCompliance:
                     "operation_type": "family_create",
                     "family_id": "fam_test123",
                     "user_id": "user_test456",
-                    "details": {"family_name": "Test Family", "initial_balance": 1000}
+                    "details": {"family_name": "Test Family", "initial_balance": 1000},
                 },
                 {
                     "operation_type": "member_invite",
                     "family_id": "fam_test123",
                     "user_id": "admin_test789",
                     "target_user_id": "user_invited123",
-                    "details": {"relationship_type": "child", "invitation_method": "email"}
+                    "details": {"relationship_type": "child", "invitation_method": "email"},
                 },
                 {
                     "operation_type": "sbd_spend",
                     "family_id": "fam_test123",
                     "user_id": "user_test456",
-                    "details": {"amount": 50, "recipient": "user_recipient789", "reason": "allowance"}
+                    "details": {"amount": 50, "recipient": "user_recipient789", "reason": "allowance"},
                 },
                 {
                     "operation_type": "admin_promote",
                     "family_id": "fam_test123",
                     "user_id": "admin_test789",
                     "target_user_id": "user_promoted123",
-                    "details": {"previous_role": "member", "new_role": "admin", "reason": "succession_plan"}
-                }
+                    "details": {"previous_role": "member", "new_role": "admin", "reason": "succession_plan"},
+                },
             ]
 
             for operation in operations_to_test:
@@ -103,7 +103,7 @@ class TestFamilyAuditCompliance:
                     target_user_id=operation.get("target_user_id"),
                     details=operation["details"],
                     ip_address="192.168.1.1",
-                    user_agent="TestAgent/1.0"
+                    user_agent="TestAgent/1.0",
                 )
 
             # Verify audit records were created
@@ -115,8 +115,14 @@ class TestFamilyAuditCompliance:
 
                 # Check required fields
                 required_fields = [
-                    "audit_id", "operation_type", "family_id", "user_id",
-                    "timestamp", "ip_address", "user_agent", "details"
+                    "audit_id",
+                    "operation_type",
+                    "family_id",
+                    "user_id",
+                    "timestamp",
+                    "ip_address",
+                    "user_agent",
+                    "details",
                 ]
                 for field in required_fields:
                     assert field in audit_record
@@ -130,7 +136,7 @@ class TestFamilyAuditCompliance:
     async def test_sensitive_data_access_logging(self, family_audit_manager):
         """Test logging of sensitive data access with proper attribution."""
         # Mock database collection
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -144,9 +150,9 @@ class TestFamilyAuditCompliance:
                     "accessed_data": {
                         "sbd_balance": 5000,
                         "transaction_history": "accessed",
-                        "spending_limits": "viewed"
+                        "spending_limits": "viewed",
                     },
-                    "access_reason": "admin_review"
+                    "access_reason": "admin_review",
                 },
                 {
                     "operation_type": "sensitive_data_access",
@@ -157,9 +163,9 @@ class TestFamilyAuditCompliance:
                     "accessed_data": {
                         "email": "accessed",
                         "relationship_details": "viewed",
-                        "invitation_history": "reviewed"
+                        "invitation_history": "reviewed",
                     },
-                    "access_reason": "member_support"
+                    "access_reason": "member_support",
                 },
                 {
                     "operation_type": "sensitive_data_access",
@@ -169,10 +175,10 @@ class TestFamilyAuditCompliance:
                     "accessed_data": {
                         "audit_records_count": 150,
                         "date_range": "2024-01-01 to 2024-01-31",
-                        "export_format": "json"
+                        "export_format": "json",
                     },
-                    "access_reason": "compliance_audit"
-                }
+                    "access_reason": "compliance_audit",
+                },
             ]
 
             for operation in sensitive_operations:
@@ -184,7 +190,7 @@ class TestFamilyAuditCompliance:
                     accessed_data=operation["accessed_data"],
                     access_reason=operation["access_reason"],
                     ip_address="192.168.1.1",
-                    user_agent="AdminPanel/1.0"
+                    user_agent="AdminPanel/1.0",
                 )
 
             # Verify sensitive access logs were created
@@ -205,7 +211,7 @@ class TestFamilyAuditCompliance:
     async def test_admin_action_recording(self, family_audit_manager):
         """Test comprehensive admin action recording with context."""
         # Mock database collection
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -220,13 +226,9 @@ class TestFamilyAuditCompliance:
                         "removal_reason": "policy_violation",
                         "violation_details": "inappropriate_spending",
                         "prior_warnings": 2,
-                        "admin_notes": "Repeated violations after warnings"
+                        "admin_notes": "Repeated violations after warnings",
                     },
-                    "impact": {
-                        "relationships_affected": 3,
-                        "pending_transactions": 1,
-                        "sbd_balance_transferred": 25
-                    }
+                    "impact": {"relationships_affected": 3, "pending_transactions": 1, "sbd_balance_transferred": 25},
                 },
                 {
                     "action_type": "account_freeze",
@@ -236,13 +238,9 @@ class TestFamilyAuditCompliance:
                         "freeze_reason": "suspicious_activity",
                         "activity_details": "unusual_spending_pattern",
                         "investigation_id": "inv_123456",
-                        "expected_duration": "72_hours"
+                        "expected_duration": "72_hours",
                     },
-                    "impact": {
-                        "affected_members": 5,
-                        "frozen_balance": 2500,
-                        "pending_requests": 3
-                    }
+                    "impact": {"affected_members": 5, "frozen_balance": 2500, "pending_requests": 3},
                 },
                 {
                     "action_type": "permission_modification",
@@ -254,13 +252,10 @@ class TestFamilyAuditCompliance:
                         "previous_limit": 100,
                         "new_limit": 50,
                         "modification_reason": "budget_adjustment",
-                        "requested_by": "user_modified789"
+                        "requested_by": "user_modified789",
                     },
-                    "impact": {
-                        "immediate_effect": True,
-                        "pending_transactions_affected": 0
-                    }
-                }
+                    "impact": {"immediate_effect": True, "pending_transactions_affected": 0},
+                },
             ]
 
             for action in admin_actions:
@@ -272,7 +267,7 @@ class TestFamilyAuditCompliance:
                     context=action["context"],
                     impact=action["impact"],
                     ip_address="192.168.1.100",
-                    user_agent="AdminDashboard/2.0"
+                    user_agent="AdminDashboard/2.0",
                 )
 
             # Verify admin action logs were created
@@ -294,7 +289,7 @@ class TestFamilyAuditCompliance:
     async def test_compliance_report_generation(self, family_audit_manager):
         """Test compliance report generation functionality."""
         # Mock database operations for report generation
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -306,7 +301,7 @@ class TestFamilyAuditCompliance:
                     "family_id": "fam_test123",
                     "user_id": "user_test456",
                     "timestamp": "2024-01-15T10:00:00Z",
-                    "security_level": "standard"
+                    "security_level": "standard",
                 },
                 {
                     "audit_id": "audit_002",
@@ -315,7 +310,7 @@ class TestFamilyAuditCompliance:
                     "user_id": "admin_test789",
                     "timestamp": "2024-01-15T11:00:00Z",
                     "security_level": "sensitive",
-                    "data_type": "financial_data"
+                    "data_type": "financial_data",
                 },
                 {
                     "audit_id": "audit_003",
@@ -324,8 +319,8 @@ class TestFamilyAuditCompliance:
                     "admin_id": "admin_test789",
                     "timestamp": "2024-01-15T12:00:00Z",
                     "security_level": "admin",
-                    "action_type": "member_removal"
-                }
+                    "action_type": "member_removal",
+                },
             ]
 
             mock_audit_collection.find.return_value.to_list.return_value = mock_audit_data
@@ -337,7 +332,7 @@ class TestFamilyAuditCompliance:
                 "end_date": "2024-01-31T23:59:59Z",
                 "include_sensitive": True,
                 "include_admin_actions": True,
-                "report_format": "detailed"
+                "report_format": "detailed",
             }
 
             report = await family_audit_manager.generate_compliance_report(**report_params)
@@ -371,7 +366,7 @@ class TestFamilyAuditCompliance:
     async def test_suspicious_activity_detection(self, family_audit_manager, family_monitor):
         """Test suspicious activity detection and flagging."""
         # Mock database and alert systems
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -387,22 +382,22 @@ class TestFamilyAuditCompliance:
                             "operation_type": "admin_action",
                             "admin_id": "admin_suspicious123",
                             "action_type": "member_removal",
-                            "timestamp": datetime.now(timezone.utc)
+                            "timestamp": datetime.now(timezone.utc),
                         },
                         {
                             "operation_type": "admin_action",
                             "admin_id": "admin_suspicious123",
                             "action_type": "permission_modification",
-                            "timestamp": datetime.now(timezone.utc) + timedelta(minutes=1)
+                            "timestamp": datetime.now(timezone.utc) + timedelta(minutes=1),
                         },
                         {
                             "operation_type": "admin_action",
                             "admin_id": "admin_suspicious123",
                             "action_type": "account_freeze",
-                            "timestamp": datetime.now(timezone.utc) + timedelta(minutes=2)
-                        }
+                            "timestamp": datetime.now(timezone.utc) + timedelta(minutes=2),
+                        },
                     ],
-                    "expected_flags": ["rapid_admin_actions", "privilege_escalation_risk"]
+                    "expected_flags": ["rapid_admin_actions", "privilege_escalation_risk"],
                 },
                 {
                     "pattern_type": "unusual_access_pattern",
@@ -412,17 +407,17 @@ class TestFamilyAuditCompliance:
                             "user_id": "user_suspicious456",
                             "data_type": "financial_data",
                             "timestamp": datetime.now(timezone.utc),
-                            "ip_address": "192.168.1.1"
+                            "ip_address": "192.168.1.1",
                         },
                         {
                             "operation_type": "sensitive_data_access",
                             "user_id": "user_suspicious456",
                             "data_type": "financial_data",
                             "timestamp": datetime.now(timezone.utc) + timedelta(minutes=5),
-                            "ip_address": "10.0.0.1"  # Different IP
-                        }
+                            "ip_address": "10.0.0.1",  # Different IP
+                        },
                     ],
-                    "expected_flags": ["ip_address_anomaly", "rapid_data_access"]
+                    "expected_flags": ["ip_address_anomaly", "rapid_data_access"],
                 },
                 {
                     "pattern_type": "off_hours_activity",
@@ -431,11 +426,11 @@ class TestFamilyAuditCompliance:
                             "operation_type": "sbd_spend",
                             "user_id": "user_night_owl789",
                             "timestamp": datetime.now(timezone.utc).replace(hour=3, minute=30),  # 3:30 AM
-                            "amount": 500
+                            "amount": 500,
                         }
                     ],
-                    "expected_flags": ["off_hours_activity", "large_transaction_off_hours"]
-                }
+                    "expected_flags": ["off_hours_activity", "large_transaction_off_hours"],
+                },
             ]
 
             for pattern in suspicious_patterns:
@@ -447,28 +442,24 @@ class TestFamilyAuditCompliance:
                         admin_id=event.get("admin_id"),
                         timestamp=event["timestamp"],
                         ip_address=event.get("ip_address", "192.168.1.1"),
-                        metadata=event
+                        metadata=event,
                     )
 
                 # Verify suspicious activity was flagged
                 flagged_activities = await family_audit_manager.get_flagged_activities(
-                    family_id="fam_test123",
-                    time_window_hours=24
+                    family_id="fam_test123", time_window_hours=24
                 )
 
                 # Check that expected flags were generated
                 for expected_flag in pattern["expected_flags"]:
-                    flag_found = any(
-                        expected_flag in activity.get("flags", [])
-                        for activity in flagged_activities
-                    )
+                    flag_found = any(expected_flag in activity.get("flags", []) for activity in flagged_activities)
                     assert flag_found, f"Expected flag '{expected_flag}' not found"
 
     @pytest.mark.asyncio
     async def test_audit_data_security_access_control(self, family_audit_manager):
         """Test audit data security and role-based access controls."""
         # Mock database operations
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_db.get_collection.return_value = mock_audit_collection
 
@@ -480,7 +471,7 @@ class TestFamilyAuditCompliance:
                     "family_id": "fam_test123",
                     "requested_data": "family_audit_logs",
                     "should_allow": True,
-                    "allowed_fields": ["operation_type", "timestamp", "user_id", "details"]
+                    "allowed_fields": ["operation_type", "timestamp", "user_id", "details"],
                 },
                 {
                     "user_role": "family_member",
@@ -489,7 +480,7 @@ class TestFamilyAuditCompliance:
                     "requested_data": "family_audit_logs",
                     "should_allow": True,
                     "allowed_fields": ["operation_type", "timestamp"],  # Limited fields
-                    "restricted_fields": ["ip_address", "user_agent", "admin_notes"]
+                    "restricted_fields": ["ip_address", "user_agent", "admin_notes"],
                 },
                 {
                     "user_role": "system_admin",
@@ -498,7 +489,7 @@ class TestFamilyAuditCompliance:
                     "requested_data": "comprehensive_audit_logs",
                     "should_allow": True,
                     "allowed_fields": ["*"],  # All fields
-                    "includes_sensitive": True
+                    "includes_sensitive": True,
                 },
                 {
                     "user_role": "external_user",
@@ -506,8 +497,8 @@ class TestFamilyAuditCompliance:
                     "family_id": "fam_test123",
                     "requested_data": "family_audit_logs",
                     "should_allow": False,
-                    "expected_error": "INSUFFICIENT_PERMISSIONS"
-                }
+                    "expected_error": "INSUFFICIENT_PERMISSIONS",
+                },
             ]
 
             for scenario in access_scenarios:
@@ -516,7 +507,7 @@ class TestFamilyAuditCompliance:
                         requesting_user_id=scenario["user_id"],
                         user_role=scenario["user_role"],
                         family_id=scenario["family_id"],
-                        data_type=scenario["requested_data"]
+                        data_type=scenario["requested_data"],
                     )
 
                     if scenario["should_allow"]:
@@ -556,26 +547,26 @@ class TestFamilyAuditCompliance:
     async def test_audit_trail_completeness_validation(self, family_audit_manager):
         """Test audit trail completeness and integrity validation."""
         # Mock database operations
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_families_collection = AsyncMock()
 
             mock_db.get_collection.side_effect = lambda name: {
                 "family_audit_logs": mock_audit_collection,
-                "families": mock_families_collection
+                "families": mock_families_collection,
             }[name]
 
             # Mock family operations data
             family_operations = [
                 {"operation_id": "op_001", "operation_type": "family_create", "timestamp": "2024-01-15T10:00:00Z"},
                 {"operation_id": "op_002", "operation_type": "member_invite", "timestamp": "2024-01-15T11:00:00Z"},
-                {"operation_id": "op_003", "operation_type": "sbd_spend", "timestamp": "2024-01-15T12:00:00Z"}
+                {"operation_id": "op_003", "operation_type": "sbd_spend", "timestamp": "2024-01-15T12:00:00Z"},
             ]
 
             # Mock corresponding audit logs (missing one)
             audit_logs = [
                 {"operation_id": "op_001", "audit_id": "audit_001", "timestamp": "2024-01-15T10:00:00Z"},
-                {"operation_id": "op_002", "audit_id": "audit_002", "timestamp": "2024-01-15T11:00:00Z"}
+                {"operation_id": "op_002", "audit_id": "audit_002", "timestamp": "2024-01-15T11:00:00Z"},
                 # Missing audit log for op_003
             ]
 
@@ -584,9 +575,7 @@ class TestFamilyAuditCompliance:
 
             # Validate audit trail completeness
             validation_result = await family_audit_manager.validate_audit_trail_completeness(
-                family_id="fam_test123",
-                start_date="2024-01-15T00:00:00Z",
-                end_date="2024-01-15T23:59:59Z"
+                family_id="fam_test123", start_date="2024-01-15T00:00:00Z", end_date="2024-01-15T23:59:59Z"
             )
 
             # Verify validation results
@@ -607,13 +596,13 @@ class TestFamilyAuditCompliance:
     async def test_audit_log_retention_and_archival(self, family_audit_manager):
         """Test audit log retention policies and archival processes."""
         # Mock database operations
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             mock_audit_collection = AsyncMock()
             mock_archive_collection = AsyncMock()
 
             mock_db.get_collection.side_effect = lambda name: {
                 "family_audit_logs": mock_audit_collection,
-                "family_audit_archive": mock_archive_collection
+                "family_audit_archive": mock_archive_collection,
             }[name]
 
             # Mock old audit logs that should be archived
@@ -622,25 +611,21 @@ class TestFamilyAuditCompliance:
                     "audit_id": "audit_old_001",
                     "timestamp": (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),
                     "operation_type": "family_create",
-                    "retention_category": "standard"
+                    "retention_category": "standard",
                 },
                 {
                     "audit_id": "audit_old_002",
                     "timestamp": (datetime.now(timezone.utc) - timedelta(days=450)).isoformat(),
                     "operation_type": "sensitive_data_access",
-                    "retention_category": "sensitive"
-                }
+                    "retention_category": "sensitive",
+                },
             ]
 
             mock_audit_collection.find.return_value.to_list.return_value = old_logs
 
             # Execute retention policy
             retention_result = await family_audit_manager.apply_retention_policy(
-                retention_periods={
-                    "standard": 365,  # 1 year
-                    "sensitive": 2555,  # 7 years
-                    "admin": 1825  # 5 years
-                }
+                retention_periods={"standard": 365, "sensitive": 2555, "admin": 1825}  # 1 year  # 7 years  # 5 years
             )
 
             # Verify retention policy application

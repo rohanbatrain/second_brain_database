@@ -4,19 +4,20 @@ Test script to verify family management system setup.
 """
 
 import asyncio
-import sys
 from datetime import datetime
+import sys
+
 
 async def test_family_models():
     """Test that family models can be imported and used."""
     try:
         from src.second_brain_database.routes.family.models import (
             CreateFamilyRequest,
-            FamilyResponse,
-            InviteMemberRequest,
             FamilyDocument,
+            FamilyResponse,
+            InvitationStatus,
+            InviteMemberRequest,
             NotificationType,
-            InvitationStatus
         )
 
         print("✅ Successfully imported family models")
@@ -35,6 +36,7 @@ async def test_family_models():
         print(f"❌ Failed to import or use family models: {e}")
         return False
 
+
 async def test_database_connection():
     """Test database connection and collection creation."""
     try:
@@ -45,11 +47,11 @@ async def test_database_connection():
 
         # Try to create family collections
         collections_to_create = [
-            'families',
-            'family_relationships',
-            'family_invitations',
-            'family_notifications',
-            'family_token_requests'
+            "families",
+            "family_relationships",
+            "family_invitations",
+            "family_notifications",
+            "family_token_requests",
         ]
 
         created_collections = []
@@ -69,7 +71,13 @@ async def test_database_connection():
         all_collections = await db_manager.database.list_collection_names()
 
         # Check for all expected family management collections
-        expected_collections = {'families', 'family_relationships', 'family_invitations', 'family_notifications', 'family_token_requests'}
+        expected_collections = {
+            "families",
+            "family_relationships",
+            "family_invitations",
+            "family_notifications",
+            "family_token_requests",
+        }
         found_collections = set(all_collections)
         family_management_collections = expected_collections.intersection(found_collections)
         missing_collections = expected_collections - found_collections
@@ -91,6 +99,7 @@ async def test_database_connection():
         print(f"❌ Database test failed: {e}")
         return False
 
+
 async def test_migration_script():
     """Test that migration script can be imported."""
     try:
@@ -106,6 +115,7 @@ async def test_migration_script():
         print(f"❌ Failed to import migration script: {e}")
         return False
 
+
 async def main():
     """Run all tests."""
     print("🧪 Testing Family Management System Setup")
@@ -114,7 +124,7 @@ async def main():
     tests = [
         ("Family Models", test_family_models),
         ("Database Connection", test_database_connection),
-        ("Migration Script", test_migration_script)
+        ("Migration Script", test_migration_script),
     ]
 
     results = []
@@ -147,6 +157,7 @@ async def main():
     else:
         print("⚠️  Some tests failed. Please check the output above.")
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(main())

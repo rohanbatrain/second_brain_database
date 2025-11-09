@@ -1,59 +1,88 @@
 """Document processing with Docling integration.
 
-Handles:
-- PDF, DOCX, PPTX, HTML document conversion
-- OCR and image extraction
-- Markdown/JSON export
-- Integration with AI agents
+This module provides professional document processing capabilities using Docling,
+focusing on format conversion, OCR, table extraction, and layout analysis.
+
+Features:
+- Multi-format document processing (PDF, DOCX, PPTX, HTML, XLSX, MD, CSV)
+- Advanced OCR with configurable languages and engines
+- Table structure recognition and extraction
+- Image and figure detection
+- Layout analysis and content structuring
+- Clean separation from vector search operations
+
+Architecture:
+- Pure document processing without search/vector logic
+- Configurable processing pipelines
+- Comprehensive error handling and logging
+- Async processing with proper resource management
 """
-from typing import Dict, Any, Optional, List, BinaryIO
-from pathlib import Path
-import tempfile
+
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
+import tempfile
+from typing import Any, Dict, List, Optional
 
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.document_converter import DocumentConverter, PdfFormatOption
 
-from ..managers.logging_manager import get_logger
-from ..database import db_manager
 from ..config import settings
+from ..database import db_manager
+from ..managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[DoclingProcessor]")
 
 
 class DocumentProcessor:
-    """Production document processor using Docling."""
+    """Professional document processor using Docling for multi-format document processing."""
 
     def __init__(self):
         """Initialize Docling converter with production settings."""
-        # Configure PDF pipeline with OCR
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = True
-        pipeline_options.do_table_structure = True
-        pipeline_options.table_structure_options.do_cell_matching = True
+        # Configure pipeline options for all supported formats
+        format_options = {}
 
-        # Initialize converter
+        # PDF with advanced OCR and layout analysis
+        if settings.DOCLING_ENABLED:
+            pdf_pipeline = PdfPipelineOptions()
+            pdf_pipeline.do_ocr = settings.DOCLING_OCR_ENABLED
+            pdf_pipeline.do_table_structure = settings.DOCLING_TABLE_EXTRACTION
+            pdf_pipeline.table_structure_options.do_cell_matching = True
+            format_options[InputFormat.PDF] = PdfFormatOption(
+                pipeline_options=pdf_pipeline, backend=PyPdfiumDocumentBackend
+            )
+
+        # Initialize converter with all supported formats
+        # Based on official Docling documentation: https://docling-project.github.io/docling/usage/supported_formats/
+        allowed_formats = [
+            # Document formats
+            InputFormat.PDF, InputFormat.DOCX, InputFormat.XLSX, InputFormat.PPTX,
+            InputFormat.HTML, InputFormat.MD, InputFormat.CSV,
+            # Image formats (for OCR)
+            InputFormat.IMAGE,
+            # Additional formats supported by Docling
+            InputFormat.ASCIIDOC,
+            InputFormat.VTT,  # Video text tracks
+            InputFormat.XML_JATS,  # Scientific publishing XML
+            InputFormat.XML_USPTO,  # Patent XML
+        ]
+
         self.converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(
-                    pipeline_options=pipeline_options,
-                    backend=PyPdfiumDocumentBackend
-                )
-            }
+            allowed_formats=allowed_formats,
+            format_options=format_options
         )
 
-        logger.info("Docling DocumentProcessor initialized")
+        logger.info("Docling DocumentProcessor initialized with multi-format support")
 
     async def process_document(
         self,
         file_data: bytes,
         filename: str,
         user_id: str,
-        extract_images: bool = True,
-        output_format: str = "markdown"
+        extract_images: bool = None,
+        output_format: str = None,
     ) -> Dict[str, Any]:
         """Process document and extract structured content.
 
@@ -61,24 +90,31 @@ class DocumentProcessor:
             file_data: Document bytes
             filename: Original filename
             user_id: User ID for tracking
-            extract_images: Whether to extract images
-            output_format: Output format (markdown, json, text)
+            extract_images: Whether to extract images (uses config default if None)
+            output_format: Output format (uses config default if None)
 
         Returns:
             Processing result with extracted content
         """
+        if extract_images is None:
+            extract_images = settings.DOCLING_IMAGE_EXTRACTION
+        if output_format is None:
+            output_format = settings.DOCLING_EXPORT_FORMAT
+
         try:
+            # Validate file format
+            suffix = Path(filename).suffix.lower()
+            supported_formats = settings.DOCLING_SUPPORTED_FORMATS.split(",")
+            if suffix and suffix[1:] not in supported_formats:
+                raise ValueError(f"Unsupported file format: {suffix}. Supported: {supported_formats}")
+
             # Save to temp file
-            suffix = Path(filename).suffix
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(file_data)
                 tmp_path = tmp.name
 
             # Convert document
-            result = await asyncio.to_thread(
-                self.converter.convert,
-                tmp_path
-            )
+            result = await asyncio.to_thread(self.converter.convert, tmp_path)
 
             # Extract content based on format
             if output_format == "markdown":
@@ -88,18 +124,19 @@ class DocumentProcessor:
             else:
                 content = result.document.export_to_text()
 
-            # Extract metadata
+            # Extract enhanced metadata
             metadata = {
                 "filename": filename,
                 "file_size": len(file_data),
                 "page_count": len(result.document.pages),
-                "has_tables": any(
-                    page.tables for page in result.document.pages
-                ),
-                "has_images": any(
-                    page.images for page in result.document.pages
-                ),
-                "format": suffix[1:] if suffix else "unknown"
+                "has_tables": any(page.tables for page in result.document.pages),
+                "has_images": any(page.images for page in result.document.pages),
+                "format": suffix[1:] if suffix else "unknown",
+                "processing_options": {
+                    "ocr_enabled": settings.DOCLING_OCR_ENABLED,
+                    "table_extraction": settings.DOCLING_TABLE_EXTRACTION,
+                    "layout_analysis": settings.DOCLING_LAYOUT_ANALYSIS,
+                },
             }
 
             # Extract images if requested
@@ -107,12 +144,14 @@ class DocumentProcessor:
             if extract_images:
                 for page_idx, page in enumerate(result.document.pages):
                     for img_idx, image in enumerate(page.images):
-                        images.append({
-                            "page": page_idx + 1,
-                            "index": img_idx,
-                            "bbox": image.bbox if hasattr(image, 'bbox') else None,
-                            "size": image.size if hasattr(image, 'size') else None
-                        })
+                        images.append(
+                            {
+                                "page": page_idx + 1,
+                                "index": img_idx,
+                                "bbox": image.bbox if hasattr(image, "bbox") else None,
+                                "size": image.size if hasattr(image, "size") else None,
+                            }
+                        )
 
             # Store in MongoDB
             doc_id = await self._store_document(
@@ -120,7 +159,7 @@ class DocumentProcessor:
                 filename=filename,
                 content=content,
                 metadata=metadata,
-                images=images
+                images=images,
             )
 
             # Cleanup temp file
@@ -131,7 +170,7 @@ class DocumentProcessor:
                 "content": content,
                 "metadata": metadata,
                 "images": images,
-                "processed_at": datetime.now(timezone.utc).isoformat()
+                "processed_at": datetime.now(timezone.utc).isoformat(),
             }
 
             logger.info(
@@ -139,8 +178,8 @@ class DocumentProcessor:
                 extra={
                     "user_id": user_id,
                     "pages": metadata["page_count"],
-                    "format": metadata["format"]
-                }
+                    "format": metadata["format"],
+                },
             )
 
             return result_data
@@ -155,7 +194,7 @@ class DocumentProcessor:
         filename: str,
         content: Any,
         metadata: Dict[str, Any],
-        images: List[Dict[str, Any]]
+        images: List[Dict[str, Any]],
     ) -> Any:
         """Store processed document in MongoDB.
 
@@ -178,17 +217,13 @@ class DocumentProcessor:
             "metadata": metadata,
             "images": images,
             "created_at": datetime.now(timezone.utc),
-            "indexed": False
+            "indexed": False,  # Will be set by vector search manager
         }
 
         result = await collection.insert_one(doc)
         return result.inserted_id
 
-    async def extract_tables(
-        self,
-        file_data: bytes,
-        filename: str
-    ) -> List[Dict[str, Any]]:
+    async def extract_tables(self, file_data: bytes, filename: str) -> List[Dict[str, Any]]:
         """Extract tables from document.
 
         Args:
@@ -204,21 +239,22 @@ class DocumentProcessor:
                 tmp.write(file_data)
                 tmp_path = tmp.name
 
-            result = await asyncio.to_thread(
-                self.converter.convert,
-                tmp_path
-            )
+            result = await asyncio.to_thread(self.converter.convert, tmp_path)
 
             tables = []
             for page_idx, page in enumerate(result.document.pages):
                 for table_idx, table in enumerate(page.tables):
-                    tables.append({
-                        "page": page_idx + 1,
-                        "index": table_idx,
-                        "rows": table.num_rows if hasattr(table, 'num_rows') else 0,
-                        "cols": table.num_cols if hasattr(table, 'num_cols') else 0,
-                        "data": table.export_to_dataframe().to_dict() if hasattr(table, 'export_to_dataframe') else None
-                    })
+                    tables.append(
+                        {
+                            "page": page_idx + 1,
+                            "index": table_idx,
+                            "rows": table.num_rows if hasattr(table, "num_rows") else 0,
+                            "cols": table.num_cols if hasattr(table, "num_cols") else 0,
+                            "data": (
+                                table.export_to_dataframe().to_dict() if hasattr(table, "export_to_dataframe") else None
+                            ),
+                        }
+                    )
 
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -230,81 +266,34 @@ class DocumentProcessor:
             logger.error(f"Error extracting tables: {e}", exc_info=True)
             return []
 
-    async def chunk_for_rag(
-        self,
-        document_id: str,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200
-    ) -> List[Dict[str, Any]]:
-        """Chunk document for RAG/vector search.
+    async def get_document_content(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve processed document content from database.
 
         Args:
             document_id: MongoDB document ID
-            chunk_size: Characters per chunk
-            chunk_overlap: Overlap between chunks
 
         Returns:
-            List of text chunks with metadata
+            Document content and metadata, or None if not found
         """
         try:
             from bson import ObjectId
 
-            # Get document
             collection = db_manager.get_collection("processed_documents")
             doc = await collection.find_one({"_id": ObjectId(document_id)})
 
             if not doc:
-                raise ValueError(f"Document {document_id} not found")
+                return None
 
-            content = doc["content"]
-            if isinstance(content, dict):
-                # JSON format, extract text
-                content = str(content)
-
-            # Simple chunking (can be enhanced with semantic chunking)
-            chunks = []
-            start = 0
-            chunk_idx = 0
-
-            while start < len(content):
-                end = start + chunk_size
-                chunk_text = content[start:end]
-
-                chunks.append({
-                    "document_id": document_id,
-                    "chunk_index": chunk_idx,
-                    "text": chunk_text,
-                    "start_char": start,
-                    "end_char": end,
-                    "metadata": {
-                        "filename": doc["filename"],
-                        "user_id": doc["user_id"],
-                        "created_at": doc["created_at"]
-                    }
-                })
-
-                start = end - chunk_overlap
-                chunk_idx += 1
-
-            # Store chunks for vector search
-            chunks_collection = db_manager.get_collection("document_chunks")
-            if chunks:
-                await chunks_collection.insert_many(chunks)
-
-            # Mark document as indexed
-            await collection.update_one(
-                {"_id": ObjectId(document_id)},
-                {"$set": {"indexed": True, "chunk_count": len(chunks)}}
-            )
-
-            logger.info(f"Created {len(chunks)} chunks for document {document_id}")
-
-            return chunks
+            return {
+                "document_id": str(doc["_id"]),
+                "filename": doc.get("filename"),
+                "content": doc.get("content"),
+                "metadata": doc.get("metadata", {}),
+                "images": doc.get("images", []),
+                "created_at": doc.get("created_at"),
+                "indexed": doc.get("indexed", False),
+            }
 
         except Exception as e:
-            logger.error(f"Error chunking document: {e}", exc_info=True)
-            raise
-
-
-# Global processor instance
-document_processor = DocumentProcessor()
+            logger.error(f"Error retrieving document content: {e}")
+            return None

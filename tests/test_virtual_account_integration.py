@@ -4,12 +4,13 @@ Test script to verify virtual SBD token account system integration.
 This script tests the key components of task 3: Build virtual SBD token account system.
 """
 
-import sys
 import asyncio
 from datetime import datetime, timezone
+import sys
 
 # Add src to path
-sys.path.append('src')
+sys.path.append("src")
+
 
 async def test_virtual_account_system():
     """Test the virtual SBD token account system components."""
@@ -20,10 +21,11 @@ async def test_virtual_account_system():
         # Test 1: Import family manager and constants
         print("\n1. Testing imports and constants...")
         from second_brain_database.managers.family_manager import (
-            family_manager,
             RESERVED_PREFIXES,
-            VIRTUAL_ACCOUNT_PREFIX
+            VIRTUAL_ACCOUNT_PREFIX,
+            family_manager,
         )
+
         print(f"✅ Family manager imported successfully")
         print(f"✅ Reserved prefixes: {RESERVED_PREFIXES}")
         print(f"✅ Virtual account prefix: {VIRTUAL_ACCOUNT_PREFIX}")
@@ -31,11 +33,11 @@ async def test_virtual_account_system():
         # Test 2: Check key methods exist
         print("\n2. Testing key method availability...")
         required_methods = [
-            '_create_virtual_sbd_account_transactional',
-            'validate_family_spending',
-            'is_virtual_family_account',
-            'validate_username_against_reserved_prefixes',
-            'cleanup_virtual_account'
+            "_create_virtual_sbd_account_transactional",
+            "validate_family_spending",
+            "is_virtual_family_account",
+            "validate_username_against_reserved_prefixes",
+            "cleanup_virtual_account",
         ]
 
         for method in required_methods:
@@ -53,7 +55,7 @@ async def test_virtual_account_system():
             ("admin_test", False, "Should reject admin_ prefix"),
             ("system_test", False, "Should reject system_ prefix"),
             ("regular_user", True, "Should accept regular username"),
-            ("user123", True, "Should accept alphanumeric username")
+            ("user123", True, "Should accept alphanumeric username"),
         ]
 
         for username, should_be_valid, description in test_cases:
@@ -67,6 +69,7 @@ async def test_virtual_account_system():
         print("\n4. Testing SBD token integration...")
         try:
             from second_brain_database.routes.sbd_tokens.routes import family_manager as sbd_family_manager
+
             print("✅ SBD token routes import family_manager")
         except ImportError as e:
             print(f"❌ SBD token routes missing family_manager: {e}")
@@ -75,9 +78,9 @@ async def test_virtual_account_system():
         print("\n5. Testing user registration integration...")
         try:
             # Check if the registration file contains the family_manager import
-            with open('src/second_brain_database/routes/auth/services/auth/registration.py', 'r') as f:
+            with open("src/second_brain_database/routes/auth/services/auth/registration.py", "r") as f:
                 content = f.read()
-                if 'family_manager.validate_username_against_reserved_prefixes' in content:
+                if "family_manager.validate_username_against_reserved_prefixes" in content:
                     print("✅ User registration integrates with family_manager validation")
                 else:
                     print("❌ User registration missing family_manager integration")
@@ -88,7 +91,7 @@ async def test_virtual_account_system():
         print("\n6. Testing virtual account detection...")
         test_usernames = [
             ("family_smiths", "Should be detected as virtual family account"),
-            ("regular_user", "Should not be detected as virtual family account")
+            ("regular_user", "Should not be detected as virtual family account"),
         ]
 
         for username, description in test_usernames:
@@ -113,8 +116,10 @@ async def test_virtual_account_system():
     except Exception as e:
         print(f"\n❌ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(test_virtual_account_system())

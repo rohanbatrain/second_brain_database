@@ -9,10 +9,11 @@ static user approach and the new JWT-based approach.
 
 import asyncio
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
 
 print("🚀 MCP Authentication Concept Test")
 print("=" * 50)
+
 
 def demonstrate_old_vs_new_approach():
     """Demonstrate the difference between old and new authentication approaches."""
@@ -43,6 +44,7 @@ def demonstrate_old_vs_new_approach():
     print("4. Tools operate with REAL user context")
     print("5. ✅ Full access to user's actual data, families, and permissions")
 
+
 def demonstrate_authentication_flow():
     """Demonstrate the corrected authentication flow."""
 
@@ -69,12 +71,8 @@ def demonstrate_authentication_flow():
         "email": "john@example.com",
         "role": "user",
         "permissions": ["family:read", "profile:write"],
-        "family_memberships": [
-            {"family_id": "507f1f77bcf86cd799439012", "role": "admin"}
-        ],
-        "workspaces": [
-            {"_id": "507f1f77bcf86cd799439013", "name": "Personal", "role": "owner"}
-        ]
+        "family_memberships": [{"family_id": "507f1f77bcf86cd799439012", "role": "admin"}],
+        "workspaces": [{"_id": "507f1f77bcf86cd799439013", "name": "Personal", "role": "owner"}],
     }
 
     print(f"\n👤 3. Real User Data Retrieved:")
@@ -98,6 +96,7 @@ def demonstrate_authentication_flow():
     print(f"   ✓ Tools can access user's families and workspaces")
     print(f"   ✓ All operations are properly audited")
 
+
 def demonstrate_fastmcp_compliance():
     """Demonstrate FastMCP 2.x compliance."""
 
@@ -109,6 +108,7 @@ def demonstrate_fastmcp_compliance():
     print("✅ Proper context management with contextvars")
     print("✅ Security-first approach with real user validation")
     print("✅ Production-ready error handling and logging")
+
 
 def demonstrate_benefits():
     """Demonstrate the benefits of the corrected approach."""
@@ -135,6 +135,7 @@ def demonstrate_benefits():
     print("   • Matches documentation recommendations")
     print("   • Production-ready implementation")
 
+
 def main():
     """Run the concept demonstration."""
 
@@ -153,6 +154,7 @@ def main():
 
     print("\n🎉 The MCP authentication now works correctly!")
     print("   Users get their real data, permissions, and family access.")
+
 
 if __name__ == "__main__":
     main()

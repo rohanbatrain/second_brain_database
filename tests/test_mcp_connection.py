@@ -7,9 +7,11 @@ and demonstrates how external clients can interact with it.
 """
 
 import asyncio
-import httpx
 import json
-from typing import Dict, Any
+from typing import Any, Dict
+
+import httpx
+
 
 class MCPClient:
     """Simple MCP client for testing connections."""
@@ -21,10 +23,7 @@ class MCPClient:
 
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for MCP requests."""
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
@@ -33,11 +32,7 @@ class MCPClient:
 
     def _create_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Create an MCP JSON-RPC request."""
-        request = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "id": self.session_id
-        }
+        request = {"jsonrpc": "2.0", "method": method, "id": self.session_id}
 
         if params:
             request["params"] = params
@@ -51,12 +46,7 @@ class MCPClient:
 
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(
-                    self.base_url,
-                    json=request,
-                    headers=self._get_headers(),
-                    timeout=30.0
-                )
+                response = await client.post(self.base_url, json=request, headers=self._get_headers(), timeout=30.0)
 
                 print(f"📤 Request: {method}")
                 print(f"   Status: {response.status_code}")
@@ -82,14 +72,14 @@ class MCPClient:
 
         # Test 1: Initialize
         print("\n1️⃣ Testing Initialize...")
-        await self.send_request("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "test-client",
-                "version": "1.0.0"
-            }
-        })
+        await self.send_request(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0.0"},
+            },
+        )
 
         # Test 2: List Tools
         print("\n2️⃣ Testing List Tools...")
@@ -102,6 +92,7 @@ class MCPClient:
         # Test 4: Get Server Info (if available)
         print("\n4️⃣ Testing Server Info...")
         await self.send_request("server/info")
+
 
 async def main():
     """Main test function."""
@@ -123,6 +114,7 @@ async def main():
     print("   Transport: STDIO (recommended for local AI clients)")
     print("   Start with: python start_mcp_server.py --transport stdio")
     print("   🔑 Auth Token: dev-token (for HTTP transport only)")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

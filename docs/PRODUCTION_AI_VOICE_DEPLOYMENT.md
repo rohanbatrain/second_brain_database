@@ -1,26 +1,47 @@
-# Production Deployment: LangChain + LiveKit Voice
+# AI and Voice Functionality - REMOVED
 
-## Components Implemented
+## Status: ❌ DEPRECATED
 
-### 1. LangChain/LangGraph Integration ✅
-- **Tools**: 138+ MCP tools wrapped for LangChain
-  - Family tools (30+)
-  - Shop tools (35+)
-  - Auth tools (30+)
-  - Workspace tools (25+)
-  - Admin tools (23+)
+**All AI orchestration and voice processing functionality has been completely removed from the Second Brain Database project as of the latest codebase cleanup.**
+
+This document is maintained for historical reference only. The features described below are no longer available in the codebase.
+
+## What Was Previously Implemented (Now Removed)
+
+### 1. LangChain/LangGraph Integration ❌ REMOVED
+- **Tools**: 138+ MCP tools that were wrapped for LangChain
 - **Memory**: Redis-backed conversation history
 - **Orchestrator**: ChatOllama with dynamic tool loading
 - **Workflows**: Multi-step and shopping StateGraphs
 - **Routes**: `/api/ai/*` endpoints with SSE streaming
 
-### 2. LiveKit Voice Integration ✅
+### 2. LiveKit Voice Integration ❌ REMOVED
 - **Agent**: Production voice agent with Agents framework
 - **STT**: Deepgram Nova-2
 - **TTS**: Silero
 - **VAD**: Silero voice activity detection
 - **Routes**: `/api/voice/*` for room management
 - **Worker**: Separate process for voice handling
+
+## Current Status
+
+The Second Brain Database now focuses on:
+- ✅ **Document Intelligence**: Advanced document processing and analysis
+- ✅ **Family Management**: Multi-user family accounts with shared workspaces
+- ✅ **MCP Server Integration**: Model Context Protocol server for external AI clients
+- ✅ **Background Processing**: Celery-based task queue for document operations
+- ✅ **Security & Authentication**: JWT-based authentication with comprehensive security
+
+## Migration Notes
+
+If AI or voice functionality is needed in the future:
+1. Implement as separate external services
+2. Use the MCP protocol to interact with Second Brain Database
+3. Maintain proper separation of concerns between AI/voice services and core database functionality
+
+## Contact
+
+For questions about the current codebase or re-implementing AI/voice features, refer to the main README.md and project documentation.
 
 ## Quick Start
 

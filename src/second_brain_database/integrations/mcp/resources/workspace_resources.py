@@ -5,18 +5,19 @@ Comprehensive information resources for workspace entities and team collaboratio
 Provides workspace information, member data, and project details through MCP resources.
 """
 
-import json
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+import json
+from typing import Any, Dict, List, Optional
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..modern_server import mcp
-from ..security import get_mcp_user_context
+from ....managers.logging_manager import get_logger
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
+from ..security import get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_WorkspaceResources]")
+
 
 @mcp.resource("workspace://{workspace_id}/info", tags={"production", "resources", "secure", "workspace"})
 async def get_workspace_info_resource(workspace_id: str) -> str:
@@ -41,17 +42,13 @@ async def get_workspace_info_resource(workspace_id: str) -> str:
             "owner_id": user_context.user_id,
             "member_count": 5,
             "project_count": 3,
-            "settings": {
-                "visibility": "private",
-                "collaboration_enabled": True,
-                "notifications_enabled": True
-            }
+            "settings": {"visibility": "private", "collaboration_enabled": True, "notifications_enabled": True},
         }
 
         result = {
             "workspace": workspace_info,
             "resource_type": "workspace_info",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.utcnow().isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -59,7 +56,7 @@ async def get_workspace_info_resource(workspace_id: str) -> str:
             user_context=user_context,
             resource_type="workspace",
             resource_id=workspace_id,
-            metadata={"workspace_name": workspace_info["name"]}
+            metadata={"workspace_name": workspace_info["name"]},
         )
 
         return json.dumps(result, indent=2, default=str)
@@ -90,15 +87,15 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
                 "username": f"user_{user_context.user_id}",
                 "role": "owner",
                 "joined_at": datetime.utcnow().isoformat(),
-                "permissions": ["read", "write", "admin"]
+                "permissions": ["read", "write", "admin"],
             },
             {
                 "user_id": "user_002",
                 "username": "user_002",
                 "role": "member",
                 "joined_at": datetime.utcnow().isoformat(),
-                "permissions": ["read", "write"]
-            }
+                "permissions": ["read", "write"],
+            },
         ]
 
         result = {
@@ -106,7 +103,7 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
             "members": members,
             "total_members": len(members),
             "resource_type": "workspace_members",
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.utcnow().isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -114,7 +111,7 @@ async def get_workspace_members_resource(workspace_id: str) -> str:
             user_context=user_context,
             resource_type="workspace",
             resource_id=workspace_id,
-            metadata={"member_count": len(members)}
+            metadata={"member_count": len(members)},
         )
 
         return json.dumps(result, indent=2, default=str)

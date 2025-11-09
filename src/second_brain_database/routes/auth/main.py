@@ -1,15 +1,18 @@
-from fastapi import Request
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-from typing import Optional
 import os
+from typing import Optional
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 # Initialize Jinja2 templates. Templates are located in the "templates" folder next to this file.
 _templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=_templates_dir)
 
 
-def render_email_verification_page(request: Request, success: bool = True, message: Optional[str] = None) -> HTMLResponse:
+def render_email_verification_page(
+    request: Request, success: bool = True, message: Optional[str] = None
+) -> HTMLResponse:
     """
     Render the email verification page using Jinja2 templates.
 

@@ -4,14 +4,15 @@ Simple test script to verify account name functionality in family endpoints.
 """
 
 import asyncio
-import sys
 import os
+import sys
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from second_brain_database.managers.family_manager import FamilyManager
 from second_brain_database.database import DatabaseManager
+from second_brain_database.managers.family_manager import FamilyManager
+
 
 async def test_account_name_functionality():
     """Test that account names are properly included in responses."""
@@ -26,22 +27,16 @@ async def test_account_name_functionality():
     # Simulate family data with and without name field
     family_with_name = {
         "family_id": "test_family_1",
-        "sbd_account": {
-            "account_username": "testuser123",
-            "name": "My Family Account"
-        }
+        "sbd_account": {"account_username": "testuser123", "name": "My Family Account"},
     }
 
-    family_without_name = {
-        "family_id": "test_family_2",
-        "sbd_account": {
-            "account_username": "testuser456"
-        }
-    }
+    family_without_name = {"family_id": "test_family_2", "sbd_account": {"account_username": "testuser456"}}
 
     # Test account name extraction
     account_name_1 = family_with_name["sbd_account"].get("name", family_with_name["sbd_account"]["account_username"])
-    account_name_2 = family_without_name["sbd_account"].get("name", family_without_name["sbd_account"]["account_username"])
+    account_name_2 = family_without_name["sbd_account"].get(
+        "name", family_without_name["sbd_account"]["account_username"]
+    )
 
     print("Testing account name extraction:")
     print(f"Family with name field: '{account_name_1}' (expected: 'My Family Account')")
@@ -60,7 +55,7 @@ async def test_account_name_functionality():
         "current_balance": 100.0,
         "transactions": [],
         "total_transactions": 0,
-        "has_more": False
+        "has_more": False,
     }
 
     print("\nTesting response structure:")
@@ -73,6 +68,7 @@ async def test_account_name_functionality():
     print("✅ Response structure includes both account_name and account_username!")
 
     print("\n🎉 All tests passed! Account name functionality is working correctly.")
+
 
 if __name__ == "__main__":
     asyncio.run(test_account_name_functionality())

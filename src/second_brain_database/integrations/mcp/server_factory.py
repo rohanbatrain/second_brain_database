@@ -6,15 +6,16 @@ monitoring, and error handling.
 """
 
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
+from ...managers.logging_manager import get_logger
+from .exceptions import MCPServerError
 from .modern_server import create_modern_mcp_server
 from .simple_auth import authenticate_mcp_request, create_mcp_context_middleware
-from .exceptions import MCPServerError
 
 logger = get_logger(prefix="[MCP_Factory]")
 
@@ -50,7 +51,7 @@ class MCPServerFactory:
             self.logger.info("Creating MCP server with %s transport", transport)
 
             # Update transport in settings if needed
-            if hasattr(settings, 'MCP_TRANSPORT'):
+            if hasattr(settings, "MCP_TRANSPORT"):
                 settings.MCP_TRANSPORT = transport
 
             # Create authentication provider
@@ -112,11 +113,7 @@ class MCPServerFactory:
         Set up CORS middleware for HTTP transport.
         """
         try:
-            origins = [
-                origin.strip()
-                for origin in settings.MCP_HTTP_CORS_ORIGINS.split(",")
-                if origin.strip()
-            ]
+            origins = [origin.strip() for origin in settings.MCP_HTTP_CORS_ORIGINS.split(",") if origin.strip()]
 
             if not origins:
                 origins = ["*"]
@@ -138,13 +135,13 @@ class MCPServerFactory:
 
         try:
             # Get tool count
-            tool_count = len(getattr(self._server_instance, '_tools', {}))
+            tool_count = len(getattr(self._server_instance, "_tools", {}))
 
             # Get resource count
-            resource_count = len(getattr(self._server_instance, '_resources', {}))
+            resource_count = len(getattr(self._server_instance, "_resources", {}))
 
             # Get prompt count
-            prompt_count = len(getattr(self._server_instance, '_prompts', {}))
+            prompt_count = len(getattr(self._server_instance, "_prompts", {}))
 
             return {
                 "available": True,
@@ -158,15 +155,12 @@ class MCPServerFactory:
                 "auth_provider": self._auth_provider.name if self._auth_provider else None,
                 "middleware_count": len(self._middleware_stack),
                 "security_enabled": settings.MCP_SECURITY_ENABLED,
-                "debug_mode": settings.MCP_DEBUG_MODE
+                "debug_mode": settings.MCP_DEBUG_MODE,
             }
 
         except Exception as e:
             self.logger.error("Failed to get server info: %s", e)
-            return {
-                "available": False,
-                "error": str(e)
-            }
+            return {"available": False, "error": str(e)}
 
     def validate_configuration(self) -> Dict[str, Any]:
         """
@@ -190,7 +184,7 @@ class MCPServerFactory:
             if settings.MCP_SECURITY_ENABLED and not settings.MCP_REQUIRE_AUTH:
                 warnings.append("Security enabled but authentication not required")
 
-            if settings.MCP_REQUIRE_AUTH and not hasattr(settings, 'MCP_AUTH_TOKEN'):
+            if settings.MCP_REQUIRE_AUTH and not hasattr(settings, "MCP_AUTH_TOKEN"):
                 issues.append("Authentication required but no MCP_AUTH_TOKEN configured")
 
         # Check database configuration
@@ -216,8 +210,8 @@ class MCPServerFactory:
                 "security_enabled": settings.MCP_SECURITY_ENABLED,
                 "auth_required": settings.MCP_REQUIRE_AUTH,
                 "environment": settings.ENVIRONMENT,
-                "debug_mode": settings.MCP_DEBUG_MODE
-            }
+                "debug_mode": settings.MCP_DEBUG_MODE,
+            },
         }
 
     async def health_check(self) -> Dict[str, Any]:
@@ -227,14 +221,11 @@ class MCPServerFactory:
         Returns:
             Dictionary with health check results
         """
-        health = {
-            "healthy": True,
-            "components": {},
-            "timestamp": None
-        }
+        health = {"healthy": True, "components": {}, "timestamp": None}
 
         try:
             from datetime import datetime, timezone
+
             health["timestamp"] = datetime.now(timezone.utc).isoformat()
 
             # Check server instance
@@ -246,13 +237,17 @@ class MCPServerFactory:
 
             # Check authentication
             if self._auth_provider:
-                health["components"]["auth"] = {"status": "healthy", "details": f"Auth provider: {self._auth_provider.name}"}
+                health["components"]["auth"] = {
+                    "status": "healthy",
+                    "details": f"Auth provider: {self._auth_provider.name}",
+                }
             else:
                 health["components"]["auth"] = {"status": "info", "details": "No authentication (development mode)"}
 
             # Check database connectivity
             try:
                 from ...managers.database_manager import database_manager
+
                 await database_manager.health_check()
                 health["components"]["database"] = {"status": "healthy", "details": "MongoDB connection OK"}
             except Exception as e:
@@ -262,6 +257,7 @@ class MCPServerFactory:
             # Check Redis connectivity
             try:
                 from ...managers.redis_manager import redis_manager
+
                 redis_conn = await redis_manager.get_redis()
                 await redis_conn.ping()
                 health["components"]["redis"] = {"status": "healthy", "details": "Redis connection OK"}
@@ -272,11 +268,7 @@ class MCPServerFactory:
 
         except Exception as e:
             self.logger.error("Health check failed: %s", e)
-            return {
-                "healthy": False,
-                "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            return {"healthy": False, "error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 # Global factory instance

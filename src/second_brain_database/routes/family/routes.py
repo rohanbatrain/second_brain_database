@@ -16,6 +16,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
+from second_brain_database.managers.family_audit_manager import (
+    ComplianceReportError,
+    FamilyAuditError,
+    family_audit_manager,
+)
 from second_brain_database.managers.family_manager import (
     AccountFrozen,
     AdminActionError,
@@ -32,23 +37,18 @@ from second_brain_database.managers.family_manager import (
     ValidationError,
     family_manager,
 )
-from second_brain_database.utils.error_handling import (
-    ErrorContext, ErrorSeverity, create_user_friendly_error, sanitize_sensitive_data
-)
-from second_brain_database.utils.error_monitoring import record_error_event
-from second_brain_database.managers.family_audit_manager import (
-    FamilyAuditError,
-    ComplianceReportError,
-    family_audit_manager,
-)
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
+from second_brain_database.models.family_models import (
+    DenyPurchaseRequest,
+    FamilyMemberResponse,
+    PurchaseRequestResponse,
+)
 from second_brain_database.routes.auth import enforce_all_lockdowns
 from second_brain_database.routes.family.models import (
     AdminActionLogEntry,
     AdminActionRequest,
     AdminActionResponse,
-    AdminActionsLogRequest,
     AdminActionsLogResponse,
     BackupAdminRequest,
     BackupAdminResponse,
@@ -59,33 +59,31 @@ from second_brain_database.routes.family.models import (
     FamilyResponse,
     FreezeAccountRequest,
     InitiateRecoveryRequest,
-    InviteMemberRequest,
     InvitationResponse,
+    InviteMemberRequest,
     LimitEnforcementResponse,
     MarkNotificationsReadRequest,
+    ModifyRelationshipRequest,
+    ModifyRelationshipResponse,
     NotificationListResponse,
     NotificationPreferencesResponse,
     ReceivedInvitationResponse,
     RecoveryInitiationResponse,
     RecoveryVerificationResponse,
+    RelationshipDetailsResponse,
     RespondToInvitationRequest,
     ReviewTokenRequestRequest,
     SBDAccountResponse,
     TokenRequestResponse,
-    UpdateNotificationPreferencesRequest,
     UpdateFamilyLimitsRequest,
     UpdateFamilyLimitsResponse,
+    UpdateNotificationPreferencesRequest,
     UpdateSpendingPermissionsRequest,
     UsageTrackingResponse,
     VerifyRecoveryRequest,
-    ModifyRelationshipRequest,
-    ModifyRelationshipResponse,
-    RelationshipDetailsResponse,
 )
-from second_brain_database.models.family_models import DenyPurchaseRequest, FamilyMemberResponse, PurchaseRequestResponse
-
-# Import health check router
-from second_brain_database.routes.family.health import router as health_router
+from second_brain_database.utils.error_handling import ErrorContext, ErrorSeverity, create_user_friendly_error
+from second_brain_database.utils.error_monitoring import record_error_event
 
 logger = get_logger(prefix="[Family Routes]")
 
@@ -94,9 +92,7 @@ router = APIRouter(prefix="/family", tags=["Family"])
 
 @router.post("/create", response_model=FamilyResponse, status_code=status.HTTP_201_CREATED)
 async def create_family(
-    request: Request,
-    family_request: CreateFamilyRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_request: CreateFamilyRequest, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> FamilyResponse:
     """
     Create a new family with the current user as administrator.
@@ -117,10 +113,7 @@ async def create_family(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_create_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"family_create_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     # Create error context for comprehensive error handling
@@ -129,10 +122,7 @@ async def create_family(
         user_id=user_id,
         request_id=getattr(request.state, "request_id", None) if hasattr(request, "state") else None,
         ip_address=getattr(request.client, "host", "unknown") if request.client else "unknown",
-        metadata={
-            "family_name": family_request.name,
-            "endpoint": "/family/create"
-        }
+        metadata={"family_name": family_request.name, "endpoint": "/family/create"},
     )
 
     try:
@@ -140,17 +130,12 @@ async def create_family(
         request_context = {
             "request": request,
             "request_id": error_context.request_id,
-            "ip_address": error_context.ip_address
+            "ip_address": error_context.ip_address,
         }
 
-        family_data = await family_manager.create_family(
-            user_id,
-            family_request.name,
-            request_context
-        )
+        family_data = await family_manager.create_family(user_id, family_request.name, request_context)
 
-        logger.info("Family created successfully: %s by user %s",
-                   family_data["family_id"], user_id)
+        logger.info("Family created successfully: %s by user %s", family_data["family_id"], user_id)
 
         return FamilyResponse(
             family_id=family_data["family_id"],
@@ -163,8 +148,8 @@ async def create_family(
             usage_stats={
                 "current_members": family_data["member_count"],
                 "max_members_allowed": 5,  # Default limit
-                "can_add_members": True
-            }
+                "can_add_members": True,
+            },
         )
 
     except FamilyLimitExceeded as e:
@@ -174,19 +159,12 @@ async def create_family(
         logger.warning("Family creation failed - limit exceeded for user %s: %s", user_id, e)
 
         # Check if error has user-friendly response from error handling system
-        if hasattr(e, 'user_friendly_response'):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=e.user_friendly_response['error']
-            )
+        if hasattr(e, "user_friendly_response"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.user_friendly_response["error"])
         else:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "FAMILY_LIMIT_EXCEEDED",
-                    "message": str(e),
-                    "upgrade_required": True
-                }
+                detail={"error": "FAMILY_LIMIT_EXCEEDED", "message": str(e), "upgrade_required": True},
             )
 
     except ValidationError as e:
@@ -197,10 +175,7 @@ async def create_family(
 
         # Create user-friendly error response
         user_friendly_error = create_user_friendly_error(e, error_context)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=user_friendly_error['error']
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=user_friendly_error["error"])
 
     except RateLimitExceeded as e:
         # Record error for monitoring
@@ -213,8 +188,8 @@ async def create_family(
             detail={
                 "error": "RATE_LIMIT_EXCEEDED",
                 "message": "You are creating families too quickly. Please wait and try again.",
-                "retry_after": 3600  # 1 hour
-            }
+                "retry_after": 3600,  # 1 hour
+            },
         )
 
     except FamilyError as e:
@@ -224,18 +199,11 @@ async def create_family(
         logger.error("Family creation failed for user %s: %s", user_id, e)
 
         # Check if error has user-friendly response from error handling system
-        if hasattr(e, 'user_friendly_response'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=e.user_friendly_response['error']
-            )
+        if hasattr(e, "user_friendly_response"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.user_friendly_response["error"])
         else:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "FAMILY_CREATION_FAILED",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "FAMILY_CREATION_FAILED", "message": str(e)}
             )
 
     except Exception as e:
@@ -246,16 +214,12 @@ async def create_family(
 
         # Create user-friendly error response for unexpected errors
         user_friendly_error = create_user_friendly_error(e, error_context)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=user_friendly_error['error']
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=user_friendly_error["error"])
 
 
 @router.get("/my-families", response_model=List[FamilyResponse])
 async def get_my_families(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[FamilyResponse]:
     """
     Get all families that the current user belongs to.
@@ -273,10 +237,7 @@ async def get_my_families(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_list_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"family_list_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -286,20 +247,22 @@ async def get_my_families(
 
         family_responses = []
         for family in families:
-            family_responses.append(FamilyResponse(
-                family_id=family["family_id"],
-                name=family["name"],
-                admin_user_ids=family["admin_user_ids"],
-                member_count=family["member_count"],
-                created_at=family["created_at"],
-                is_admin=family["is_admin"],
-                sbd_account=family["sbd_account"],
-                usage_stats={
-                    "current_members": family["member_count"],
-                    "max_members_allowed": 5,  # Default limit
-                    "can_add_members": family["is_admin"]
-                }
-            ))
+            family_responses.append(
+                FamilyResponse(
+                    family_id=family["family_id"],
+                    name=family["name"],
+                    admin_user_ids=family["admin_user_ids"],
+                    member_count=family["member_count"],
+                    created_at=family["created_at"],
+                    is_admin=family["is_admin"],
+                    sbd_account=family["sbd_account"],
+                    usage_stats={
+                        "current_members": family["member_count"],
+                        "max_members_allowed": 5,  # Default limit
+                        "can_add_members": family["is_admin"],
+                    },
+                )
+            )
 
         return family_responses
 
@@ -307,10 +270,7 @@ async def get_my_families(
         logger.error("Failed to get families for user %s: %s", user_id, e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "FAMILY_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve family information"
-            }
+            detail={"error": "FAMILY_RETRIEVAL_FAILED", "message": "Failed to retrieve family information"},
         )
 
 
@@ -318,7 +278,21 @@ async def get_my_families(
     "/wallet/purchase-requests",
     response_model=List[PurchaseRequestResponse],
     tags=["Family Wallet"],
-    summary="Get pending purchase requests",
+    summary="Get pending purchase requests for a family",
+    description="""
+    Retrieve pending purchase requests for a specific family.
+
+    This endpoint allows family members to view purchase requests.
+    Administrators can see all requests within the family, while regular members can only see their own.
+
+    **Access Control:**
+    - **Admins:** Can view all purchase requests for the family.
+    - **Members:** Can only view their own purchase requests.
+
+    **Use Cases:**
+    - Admins can monitor and manage pending purchases.
+    - Members can track the status of their own requests.
+    """,
 )
 async def get_purchase_requests(
     family_id: str,
@@ -342,6 +316,20 @@ async def get_purchase_requests(
     response_model=PurchaseRequestResponse,
     tags=["Family Wallet"],
     summary="Approve a purchase request",
+    description="""
+    Approve a family member's purchase request.
+
+    This endpoint allows a family administrator to approve a pending purchase request.
+    Approving the request will trigger the purchase of the item and deduct the corresponding
+    amount of SBD tokens from the family wallet.
+
+    **Access Control:**
+    - Only family administrators can approve purchase requests.
+
+    **Use Cases:**
+    - Admins can approve valid purchase requests from family members.
+    - Triggers the fulfillment of the purchase.
+    """,
 )
 async def approve_purchase_request(
     request_id: str,
@@ -376,6 +364,19 @@ async def approve_purchase_request(
     response_model=PurchaseRequestResponse,
     tags=["Family Wallet"],
     summary="Deny a purchase request",
+    description="""
+    Deny a family member's purchase request.
+
+    This endpoint allows a family administrator to deny a pending purchase request.
+    A reason for the denial can be provided, which will be visible to the member who made the request.
+
+    **Access Control:**
+    - Only family administrators can deny purchase requests.
+
+    **Use Cases:**
+    - Admins can reject inappropriate or invalid purchase requests.
+    - Provide feedback to members on why a request was denied.
+    """,
 )
 async def deny_purchase_request(
     request_id: str,
@@ -461,23 +462,17 @@ async def deny_purchase_request(
                             "status": "pending",
                             "expires_at": "2025-10-28T14:30:00Z",
                             "created_at": "2025-10-21T14:30:00Z",
-                            "invitation_token": "tok_xyz789abc123"
+                            "invitation_token": "tok_xyz789abc123",
                         }
                     ]
                 }
-            }
+            },
         },
-        401: {
-            "description": "Unauthorized - Invalid or missing authentication token"
-        },
-        429: {
-            "description": "Rate limit exceeded - Too many requests"
-        },
-        500: {
-            "description": "Internal server error - Failed to retrieve invitations"
-        }
+        401: {"description": "Unauthorized - Invalid or missing authentication token"},
+        429: {"description": "Rate limit exceeded - Too many requests"},
+        500: {"description": "Internal server error - Failed to retrieve invitations"},
     },
-    tags=["Family Invitations"]
+    tags=["Family Invitations"],
 )
 async def get_my_invitations(
     request: Request,
@@ -486,7 +481,7 @@ async def get_my_invitations(
         None,
         description="Filter by invitation status",
         example="pending",
-        pattern="^(pending|accepted|declined|expired|cancelled)$"
+        pattern="^(pending|accepted|declined|expired|cancelled)$",
     ),
 ) -> List[ReceivedInvitationResponse]:
     """
@@ -504,23 +499,18 @@ async def get_my_invitations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "INVALID_STATUS_FILTER",
-                "message": f"Invalid status '{status}'. Must be one of: pending, accepted, declined, expired, cancelled"
-            }
+                "message": f"Invalid status '{status}'. Must be one of: pending, accepted, declined, expired, cancelled",
+            },
         )
 
     # Rate limit: 60 requests per hour for listing received invitations (increased)
     await security_manager.check_rate_limit(
-        request,
-        f"received_invitations_{user_id}",
-        rate_limit_requests=60,
-        rate_limit_period=3600
+        request, f"received_invitations_{user_id}", rate_limit_requests=60, rate_limit_period=3600
     )
 
     try:
         invitations = await family_manager.get_received_invitations(
-            user_id=user_id,
-            user_email=user_email,
-            status_filter=status
+            user_id=user_id, user_email=user_email, status_filter=status
         )
 
         # Filter invitations based on required conditions:
@@ -538,9 +528,8 @@ async def get_my_invitations(
             # Check inviter OR family info
             inviter_username = invitation.get("inviter_username", "Unknown")
             family_name = invitation.get("family_name", "Unknown Family")
-            has_inviter_or_family_info = (
-                (inviter_username and inviter_username != "Unknown") or
-                (family_name and family_name != "Unknown Family")
+            has_inviter_or_family_info = (inviter_username and inviter_username != "Unknown") or (
+                family_name and family_name != "Unknown Family"
             )
 
             # Check expired state
@@ -549,6 +538,7 @@ async def get_my_invitations(
             is_expired = False
             if expires_at:
                 from datetime import datetime, timezone
+
                 # Handle both aware and naive datetimes
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -556,48 +546,52 @@ async def get_my_invitations(
 
             # If expired and status is not pending, skip this invitation
             if is_expired and invitation_status != "pending":
-                logger.debug("Skipping invitation %s: expired with non-pending status %s",
-                           invitation.get("invitation_id"), invitation_status)
+                logger.debug(
+                    "Skipping invitation %s: expired with non-pending status %s",
+                    invitation.get("invitation_id"),
+                    invitation_status,
+                )
                 continue
 
             # Apply all required conditions
             if not (has_recipient_info and has_inviter_or_family_info):
-                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
-                           invitation.get("invitation_id"), has_recipient_info, has_inviter_or_family_info)
+                logger.debug(
+                    "Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
+                    invitation.get("invitation_id"),
+                    has_recipient_info,
+                    has_inviter_or_family_info,
+                )
                 continue
 
             filtered_invitations.append(invitation)
 
         logger.info(
             "User %s retrieved %d received invitations (%d passed validation, status_filter=%s)",
-            user_id, len(filtered_invitations), len(invitations), status or "all"
+            user_id,
+            len(filtered_invitations),
+            len(invitations),
+            status or "all",
         )
 
         return [ReceivedInvitationResponse(**inv) for inv in filtered_invitations]
 
     except FamilyError as e:
-        logger.error(
-            "Failed to fetch received invitations for user %s: %s",
-            user_id, e, exc_info=True
-        )
+        logger.error("Failed to fetch received invitations for user %s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "FAILED_TO_FETCH_INVITATIONS",
-                "message": "Unable to retrieve family invitations. Please try again later."
-            }
+                "message": "Unable to retrieve family invitations. Please try again later.",
+            },
         )
     except Exception as e:
-        logger.error(
-            "Unexpected error fetching received invitations for user %s: %s",
-            user_id, e, exc_info=True
-        )
+        logger.error("Unexpected error fetching received invitations for user %s: %s", user_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "INTERNAL_SERVER_ERROR",
-                "message": "An unexpected error occurred. Please try again later."
-            }
+                "message": "An unexpected error occurred. Please try again later.",
+            },
         )
 
 
@@ -606,7 +600,7 @@ async def invite_family_member(
     request: Request,
     family_id: str,
     invite_request: InviteMemberRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> InvitationResponse:
     """
     Invite a user to join a family by email address or username.
@@ -629,21 +623,26 @@ async def invite_family_member(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_invite_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_invite_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
         invitation_data = await family_manager.invite_member(
-            family_id, user_id, invite_request.identifier, invite_request.relationship_type,
-            invite_request.identifier_type, {"request": request}
+            family_id,
+            user_id,
+            invite_request.identifier,
+            invite_request.relationship_type,
+            invite_request.identifier_type,
+            {"request": request},
         )
 
-        logger.info("Family invitation sent: %s to %s (%s) for family %s",
-                   invitation_data["invitation_id"], invite_request.identifier,
-                   invite_request.identifier_type, family_id)
+        logger.info(
+            "Family invitation sent: %s to %s (%s) for family %s",
+            invitation_data["invitation_id"],
+            invite_request.identifier,
+            invite_request.identifier_type,
+            family_id,
+        )
 
         # Use authoritative created_at and token returned by the manager when available
         return InvitationResponse(
@@ -661,48 +660,28 @@ async def invite_family_member(
     except FamilyNotFound:
         logger.warning("Family not found for invitation: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for family invitation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except InvalidRelationship as e:
         logger.warning("Invalid relationship type in invitation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVALID_RELATIONSHIP",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "INVALID_RELATIONSHIP", "message": str(e)}
         )
     except FamilyLimitExceeded as e:
         logger.warning("Family member limit exceeded: %s", e)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "MEMBER_LIMIT_EXCEEDED",
-                "message": str(e),
-                "upgrade_required": True
-            }
+            detail={"error": "MEMBER_LIMIT_EXCEEDED", "message": str(e), "upgrade_required": True},
         )
     except FamilyError as e:
         logger.error("Family invitation failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVITATION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "INVITATION_FAILED", "message": str(e)}
         )
 
 
@@ -711,7 +690,7 @@ async def respond_to_invitation(
     request: Request,
     invitation_id: str,
     response_request: RespondToInvitationRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
     Respond to a family invitation (accept or decline).
@@ -732,64 +711,43 @@ async def respond_to_invitation(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_invitation_response_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"family_invitation_response_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
-        response_data = await family_manager.respond_to_invitation(
-            invitation_id, user_id, response_request.action
-        )
+        response_data = await family_manager.respond_to_invitation(invitation_id, user_id, response_request.action)
 
-        logger.info("Family invitation %s: %s by user %s",
-                   response_request.action, invitation_id, user_id)
+        logger.info("Family invitation %s: %s by user %s", response_request.action, invitation_id, user_id)
 
         return JSONResponse(
             content={
                 "status": "success",
                 "action": response_request.action,
                 "message": response_data["message"],
-                "data": response_data
+                "data": response_data,
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except InvitationNotFound as e:
         logger.warning("Invitation not found or expired: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "INVITATION_NOT_FOUND",
-                "message": str(e)
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "INVITATION_NOT_FOUND", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for invitation response: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Family invitation response failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "RESPONSE_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "RESPONSE_FAILED", "message": str(e)}
         )
 
 
 @router.get("/invitation/{invitation_token}/accept")
-async def accept_invitation_by_token(
-    request: Request,
-    invitation_token: str
-) -> JSONResponse:
+async def accept_invitation_by_token(request: Request, invitation_token: str) -> JSONResponse:
     """
     Accept a family invitation using the email token link.
 
@@ -804,16 +762,11 @@ async def accept_invitation_by_token(
     """
     # Apply IP-based rate limiting for unauthenticated endpoint
     await security_manager.check_rate_limit(
-        request,
-        f"invitation_accept_token_{request.client.host}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"invitation_accept_token_{request.client.host}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
-        response_data = await family_manager.respond_to_invitation_by_token(
-            invitation_token, "accept"
-        )
+        response_data = await family_manager.respond_to_invitation_by_token(invitation_token, "accept")
 
         logger.info("Family invitation accepted via token: %s", invitation_token[:8] + "...")
 
@@ -824,9 +777,9 @@ async def accept_invitation_by_token(
                 "message": response_data["message"],
                 "family_id": response_data.get("family_id"),
                 "redirect_url": "/login?message=invitation_accepted",
-                "data": response_data
+                "data": response_data,
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except InvitationNotFound as e:
@@ -836,26 +789,19 @@ async def accept_invitation_by_token(
             detail={
                 "error": "INVITATION_NOT_FOUND",
                 "message": str(e),
-                "redirect_url": "/login?error=invitation_invalid"
-            }
+                "redirect_url": "/login?error=invitation_invalid",
+            },
         )
     except FamilyError as e:
         logger.error("Family invitation acceptance failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVITATION_FAILED",
-                "message": str(e),
-                "redirect_url": "/login?error=invitation_failed"
-            }
+            detail={"error": "INVITATION_FAILED", "message": str(e), "redirect_url": "/login?error=invitation_failed"},
         )
 
 
 @router.get("/invitation/{invitation_token}/decline")
-async def decline_invitation_by_token(
-    request: Request,
-    invitation_token: str
-) -> JSONResponse:
+async def decline_invitation_by_token(request: Request, invitation_token: str) -> JSONResponse:
     """
     Decline a family invitation using the email token link.
 
@@ -869,16 +815,11 @@ async def decline_invitation_by_token(
     """
     # Apply IP-based rate limiting for unauthenticated endpoint
     await security_manager.check_rate_limit(
-        request,
-        f"invitation_decline_token_{request.client.host}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"invitation_decline_token_{request.client.host}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
-        response_data = await family_manager.respond_to_invitation_by_token(
-            invitation_token, "decline"
-        )
+        response_data = await family_manager.respond_to_invitation_by_token(invitation_token, "decline")
 
         logger.info("Family invitation declined via token: %s", invitation_token[:8] + "...")
 
@@ -887,9 +828,9 @@ async def decline_invitation_by_token(
                 "status": "success",
                 "action": "declined",
                 "message": response_data["message"],
-                "redirect_url": "/login?message=invitation_declined"
+                "redirect_url": "/login?message=invitation_declined",
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except InvitationNotFound as e:
@@ -899,18 +840,14 @@ async def decline_invitation_by_token(
             detail={
                 "error": "INVITATION_NOT_FOUND",
                 "message": str(e),
-                "redirect_url": "/login?error=invitation_invalid"
-            }
+                "redirect_url": "/login?error=invitation_invalid",
+            },
         )
     except FamilyError as e:
         logger.error("Family invitation decline failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVITATION_FAILED",
-                "message": str(e),
-                "redirect_url": "/login?error=invitation_failed"
-            }
+            detail={"error": "INVITATION_FAILED", "message": str(e), "redirect_url": "/login?error=invitation_failed"},
         )
 
 
@@ -919,7 +856,7 @@ async def get_family_invitations(
     request: Request,
     family_id: str,
     status_filter: Optional[str] = None,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> List[InvitationResponse]:
     """
     Get all invitations for a family.
@@ -941,10 +878,7 @@ async def get_family_invitations(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_invitations_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"family_invitations_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -963,9 +897,8 @@ async def get_family_invitations(
             # 2. Has inviter OR family info (inviter_username not "Unknown" OR family_name not "Unknown Family")
             inviter_username = invitation.get("inviter_username", "Unknown")
             family_name = invitation.get("family_name", "Unknown Family")
-            has_inviter_or_family_info = (
-                (inviter_username and inviter_username != "Unknown") or
-                (family_name and family_name != "Unknown Family")
+            has_inviter_or_family_info = (inviter_username and inviter_username != "Unknown") or (
+                family_name and family_name != "Unknown Family"
             )
 
             # 3. Not in bad expired state: if expired and status is not pending, skip it
@@ -974,6 +907,7 @@ async def get_family_invitations(
             is_expired = False
             if expires_at:
                 from datetime import datetime, timezone
+
                 # Handle both aware and naive datetimes
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -981,63 +915,70 @@ async def get_family_invitations(
 
             # If expired and status is not pending, skip this invitation
             if is_expired and invitation_status != "pending":
-                logger.debug("Skipping invitation %s: expired with non-pending status %s",
-                           invitation["invitation_id"], invitation_status)
+                logger.debug(
+                    "Skipping invitation %s: expired with non-pending status %s",
+                    invitation["invitation_id"],
+                    invitation_status,
+                )
                 continue
 
             # Apply all required conditions
             if not (has_recipient_info and has_inviter_or_family_info):
-                logger.debug("Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
-                           invitation["invitation_id"], has_recipient_info, has_inviter_or_family_info)
+                logger.debug(
+                    "Skipping invitation %s: missing required fields (recipient=%s, inviter/family=%s)",
+                    invitation["invitation_id"],
+                    has_recipient_info,
+                    has_inviter_or_family_info,
+                )
                 continue
 
-            invitation_responses.append(InvitationResponse(
-                invitation_id=invitation["invitation_id"],
-                family_name=family_name,
-                inviter_username=inviter_username,
-                invitee_email=invitation.get("invitee_email"),
-                invitee_username=invitation.get("invitee_username"),
-                relationship_type=invitation["relationship_type"],
-                status=invitation["status"],
-                expires_at=invitation["expires_at"],
-                created_at=invitation["created_at"]
-            ))
+            invitation_responses.append(
+                InvitationResponse(
+                    invitation_id=invitation["invitation_id"],
+                    family_name=family_name,
+                    inviter_username=inviter_username,
+                    invitee_email=invitation.get("invitee_email"),
+                    invitee_username=invitation.get("invitee_username"),
+                    relationship_type=invitation["relationship_type"],
+                    status=invitation["status"],
+                    expires_at=invitation["expires_at"],
+                    created_at=invitation["created_at"],
+                )
+            )
 
-        logger.info("Filtered invitations: %d out of %d passed validation for family %s",
-                   len(invitation_responses), len(invitations), family_id)
+        logger.info(
+            "Filtered invitations: %d out of %d passed validation for family %s",
+            len(invitation_responses),
+            len(invitations),
+            family_id,
+        )
 
         return invitation_responses
 
     except FamilyNotFound:
         logger.warning("Family not found for invitations: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
-        logger.info("User %s does not have admin permissions to view invitations for family %s, returning empty list", user_id, family_id)
+        logger.info(
+            "User %s does not have admin permissions to view invitations for family %s, returning empty list",
+            user_id,
+            family_id,
+        )
         # Return empty list instead of 403 to allow graceful handling in client
         return []
     except FamilyError as e:
         logger.error("Failed to get family invitations: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "INVITATIONS_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve invitations"
-            }
+            detail={"error": "INVITATIONS_RETRIEVAL_FAILED", "message": "Failed to retrieve invitations"},
         )
 
 
 @router.post("/{family_id}/invitations/{invitation_id}/resend")
 async def resend_invitation(
-    request: Request,
-    family_id: str,
-    invitation_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, invitation_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Resend a family invitation email.
@@ -1058,10 +999,7 @@ async def resend_invitation(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"invitation_resend_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"invitation_resend_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -1074,46 +1012,31 @@ async def resend_invitation(
                 "status": "success",
                 "message": resend_data["message"],
                 "email_sent": resend_data["email_sent"],
-                "resent_at": resend_data["resent_at"].isoformat()
+                "resent_at": resend_data["resent_at"].isoformat(),
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except InvitationNotFound as e:
         logger.warning("Invitation not found for resend: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "INVITATION_NOT_FOUND",
-                "message": str(e)
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "INVITATION_NOT_FOUND", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for invitation resend: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to resend invitation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "RESEND_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "RESEND_FAILED", "message": str(e)}
         )
 
 
 @router.delete("/{family_id}/invitations/{invitation_id}")
 async def cancel_invitation(
-    request: Request,
-    family_id: str,
-    invitation_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, invitation_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Cancel a pending family invitation.
@@ -1134,10 +1057,7 @@ async def cancel_invitation(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"invitation_cancel_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"invitation_cancel_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -1149,67 +1069,50 @@ async def cancel_invitation(
             content={
                 "status": "success",
                 "message": cancel_data["message"],
-                "cancelled_at": cancel_data["cancelled_at"].isoformat()
+                "cancelled_at": cancel_data["cancelled_at"].isoformat(),
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except InvitationNotFound as e:
         logger.warning("Invitation not found for cancellation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "INVITATION_NOT_FOUND",
-                "message": str(e)
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "INVITATION_NOT_FOUND", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for invitation cancellation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to cancel invitation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "CANCELLATION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "CANCELLATION_FAILED", "message": str(e)}
         )
 
 
 @router.post("/admin/cleanup-expired-invitations")
 async def cleanup_expired_invitations(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Clean up expired family invitations (admin only).
 
-    This endpoint manually triggers the cleanup of expired invitations.
-    Normally this would be handled by a scheduled task.
+    This endpoint manually triggers a cleanup process to remove expired family invitations from the system.
+    This is an administrative task that is normally handled by a scheduled background job.
 
-    **Rate Limiting:** 2 requests per hour per user
+    **Access Control:**
+    - This endpoint is intended for administrative use.
 
-    **Requirements:**
-    - User must be authenticated (no specific admin check for now)
-
-    **Returns:**
-    - Cleanup statistics and results
+    **Use Cases:**
+    - Manually reclaim storage space by removing expired invitations.
+    - Force a cleanup outside of the regular schedule for maintenance purposes.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"invitation_cleanup_{user_id}",
-        rate_limit_requests=2,
-        rate_limit_period=3600
+        request, f"invitation_cleanup_{user_id}", rate_limit_requests=2, rate_limit_period=3600
     )
 
     try:
@@ -1224,19 +1127,15 @@ async def cleanup_expired_invitations(
                 "expired_count": cleanup_data["expired_count"],
                 "cleaned_count": cleanup_data["cleaned_count"],
                 "total_processed": cleanup_data["total_processed"],
-                "timestamp": cleanup_data["timestamp"].isoformat()
+                "timestamp": cleanup_data["timestamp"].isoformat(),
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyError as e:
         logger.error("Failed to cleanup expired invitations: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "CLEANUP_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"error": "CLEANUP_FAILED", "message": str(e)}
         )
 
 
@@ -1246,7 +1145,7 @@ async def manage_admin_role(
     family_id: str,
     user_id: str,
     admin_request: AdminActionRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> AdminActionResponse:
     """
     Promote a member to admin or demote an admin to member.
@@ -1269,23 +1168,17 @@ async def manage_admin_role(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"admin_action_{admin_user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"admin_action_{admin_user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
         if admin_request.action == "promote":
-            result = await family_manager.promote_to_admin(
-                family_id, admin_user_id, user_id, {"request": request}
-            )
+            result = await family_manager.promote_to_admin(family_id, admin_user_id, user_id, {"request": request})
 
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
 
-            logger.info("User promoted to admin: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("User promoted to admin: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return AdminActionResponse(
                 family_id=result["family_id"],
@@ -1297,19 +1190,16 @@ async def manage_admin_role(
                 performed_by_username=current_user["username"],
                 performed_at=result["promoted_at"],
                 message=result["message"],
-                transaction_safe=result["transaction_safe"]
+                transaction_safe=result["transaction_safe"],
             )
 
         elif admin_request.action == "demote":
-            result = await family_manager.demote_from_admin(
-                family_id, admin_user_id, user_id, {"request": request}
-            )
+            result = await family_manager.demote_from_admin(family_id, admin_user_id, user_id, {"request": request})
 
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
 
-            logger.info("Admin demoted to member: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("Admin demoted to member: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return AdminActionResponse(
                 family_id=result["family_id"],
@@ -1321,54 +1211,34 @@ async def manage_admin_role(
                 performed_by_username=current_user["username"],
                 performed_at=result["demoted_at"],
                 message=result["message"],
-                transaction_safe=result["transaction_safe"]
+                transaction_safe=result["transaction_safe"],
             )
 
     except FamilyNotFound:
         logger.warning("Family not found for admin action: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for admin action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except AdminActionError as e:
         logger.warning("Admin action validation failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "ADMIN_ACTION_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "ADMIN_ACTION_ERROR", "message": str(e)}
         )
     except MultipleAdminsRequired as e:
         logger.warning("Multiple admins required for action: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "MULTIPLE_ADMINS_REQUIRED",
-                "message": str(e),
-                "minimum_admins_required": 2
-            }
+            detail={"error": "MULTIPLE_ADMINS_REQUIRED", "message": str(e), "minimum_admins_required": 2},
         )
     except FamilyError as e:
         logger.error("Admin action failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "ADMIN_ACTION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "ADMIN_ACTION_FAILED", "message": str(e)}
         )
 
 
@@ -1378,7 +1248,7 @@ async def manage_backup_admin(
     family_id: str,
     user_id: str,
     backup_request: BackupAdminRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> BackupAdminResponse:
     """
     Designate or remove a backup administrator.
@@ -1400,10 +1270,7 @@ async def manage_backup_admin(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"backup_admin_{admin_user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"backup_admin_{admin_user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -1415,8 +1282,7 @@ async def manage_backup_admin(
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
 
-            logger.info("Backup admin designated: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("Backup admin designated: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return BackupAdminResponse(
                 family_id=result["family_id"],
@@ -1428,19 +1294,16 @@ async def manage_backup_admin(
                 performed_by_username=current_user["username"],
                 performed_at=result["designated_at"],
                 message=result["message"],
-                transaction_safe=result["transaction_safe"]
+                transaction_safe=result["transaction_safe"],
             )
 
         elif backup_request.action == "remove":
-            result = await family_manager.remove_backup_admin(
-                family_id, admin_user_id, user_id, {"request": request}
-            )
+            result = await family_manager.remove_backup_admin(family_id, admin_user_id, user_id, {"request": request})
 
             # Get user info for response
             target_user = await family_manager._get_user_by_id(user_id)
 
-            logger.info("Backup admin removed: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("Backup admin removed: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return BackupAdminResponse(
                 family_id=result["family_id"],
@@ -1452,44 +1315,28 @@ async def manage_backup_admin(
                 performed_by_username=current_user["username"],
                 performed_at=result["removed_at"],
                 message=result["message"],
-                transaction_safe=result["transaction_safe"]
+                transaction_safe=result["transaction_safe"],
             )
 
     except FamilyNotFound:
         logger.warning("Family not found for backup admin action: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for backup admin action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except family_manager.BackupAdminError as e:
         logger.warning("Backup admin action validation failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "BACKUP_ADMIN_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "BACKUP_ADMIN_ERROR", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Backup admin action failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "BACKUP_ADMIN_ACTION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "BACKUP_ADMIN_ACTION_FAILED", "message": str(e)}
         )
 
 
@@ -1499,7 +1346,7 @@ async def get_admin_actions_log(
     family_id: str,
     limit: int = 50,
     offset: int = 0,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> AdminActionsLogResponse:
     """
     Get the admin actions log for a family.
@@ -1519,95 +1366,71 @@ async def get_admin_actions_log(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"admin_log_{admin_user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"admin_log_{admin_user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     # Validate pagination parameters
     if limit < 1 or limit > 100:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVALID_LIMIT",
-                "message": "Limit must be between 1 and 100"
-            }
+            detail={"error": "INVALID_LIMIT", "message": "Limit must be between 1 and 100"},
         )
 
     if offset < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVALID_OFFSET",
-                "message": "Offset must be non-negative"
-            }
+            detail={"error": "INVALID_OFFSET", "message": "Offset must be non-negative"},
         )
 
     try:
-        result = await family_manager.get_admin_actions_log(
-            family_id, admin_user_id, limit, offset
-        )
+        result = await family_manager.get_admin_actions_log(family_id, admin_user_id, limit, offset)
 
         logger.debug("Retrieved admin actions log for family %s", family_id)
 
         # Convert to response model
         log_entries = []
         for action in result["actions"]:
-            log_entries.append(AdminActionLogEntry(
-                action_id=action["action_id"],
-                family_id=action["family_id"],
-                admin_user_id=action["admin_user_id"],
-                admin_username=action["admin_username"],
-                target_user_id=action["target_user_id"],
-                target_username=action["target_username"],
-                action_type=action["action_type"],
-                details=action["details"],
-                created_at=action["created_at"],
-                ip_address=action.get("ip_address"),
-                user_agent=action.get("user_agent")
-            ))
+            log_entries.append(
+                AdminActionLogEntry(
+                    action_id=action["action_id"],
+                    family_id=action["family_id"],
+                    admin_user_id=action["admin_user_id"],
+                    admin_username=action["admin_username"],
+                    target_user_id=action["target_user_id"],
+                    target_username=action["target_username"],
+                    action_type=action["action_type"],
+                    details=action["details"],
+                    created_at=action["created_at"],
+                    ip_address=action.get("ip_address"),
+                    user_agent=action.get("user_agent"),
+                )
+            )
 
         return AdminActionsLogResponse(
-            family_id=result["family_id"],
-            actions=log_entries,
-            pagination=result["pagination"]
+            family_id=result["family_id"], actions=log_entries, pagination=result["pagination"]
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for admin actions log: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for admin actions log: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get admin actions log: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "ADMIN_LOG_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve admin actions log"
-            }
+            detail={"error": "ADMIN_LOG_RETRIEVAL_FAILED", "message": "Failed to retrieve admin actions log"},
         )
 
 
 @router.get("/limits", response_model=FamilyLimitsResponse)
 async def get_family_limits(
-    request: Request,
-    include_billing_metrics: bool = False,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, include_billing_metrics: bool = False, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> FamilyLimitsResponse:
     """
     Get the current user's family limits and usage information.
@@ -1630,23 +1453,14 @@ async def get_family_limits(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_limits_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=3600
+        request, f"family_limits_{user_id}", rate_limit_requests=30, rate_limit_period=3600
     )
 
     try:
         # Get comprehensive limits data with billing metrics if requested
-        limits_data = await family_manager.check_family_limits(
-            user_id,
-            include_billing_metrics=include_billing_metrics
-        )
+        limits_data = await family_manager.check_family_limits(user_id, include_billing_metrics=include_billing_metrics)
 
-        logger.debug(
-            "Retrieved family limits for user %s (billing_metrics=%s)",
-            user_id, include_billing_metrics
-        )
+        logger.debug("Retrieved family limits for user %s (billing_metrics=%s)", user_id, include_billing_metrics)
 
         return FamilyLimitsResponse(
             max_families_allowed=limits_data["max_families_allowed"],
@@ -1657,7 +1471,7 @@ async def get_family_limits(
             upgrade_required=limits_data["upgrade_required"],
             limit_status=limits_data["limit_status"],
             billing_metrics=limits_data.get("billing_metrics"),
-            upgrade_messaging=limits_data["upgrade_messaging"]
+            upgrade_messaging=limits_data["upgrade_messaging"],
         )
 
     except FamilyError as e:
@@ -1667,8 +1481,8 @@ async def get_family_limits(
             detail={
                 "error": "LIMITS_RETRIEVAL_FAILED",
                 "message": "Failed to retrieve family limits",
-                "context": {"user_id": user_id}
-            }
+                "context": {"user_id": user_id},
+            },
         )
 
 
@@ -1678,7 +1492,7 @@ async def get_usage_tracking_data(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     granularity: str = "daily",
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> UsageTrackingResponse:
     """
     Get family usage tracking data for billing integration.
@@ -1704,40 +1518,31 @@ async def get_usage_tracking_data(
 
     # Apply rate limiting for usage tracking (more restrictive)
     await security_manager.check_rate_limit(
-        request,
-        f"family_usage_tracking_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_usage_tracking_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         # Parse date parameters
         if start_date:
             try:
-                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "start_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "start_date must be in ISO format"},
                 )
         else:
             start_dt = datetime.now(timezone.utc) - timedelta(days=30)
 
         if end_date:
             try:
-                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "end_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "end_date must be in ISO format"},
                 )
         else:
             end_dt = datetime.now(timezone.utc)
@@ -1748,18 +1553,19 @@ async def get_usage_tracking_data(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "INVALID_GRANULARITY",
-                    "message": "granularity must be 'daily', 'weekly', or 'monthly'"
-                }
+                    "message": "granularity must be 'daily', 'weekly', or 'monthly'",
+                },
             )
 
         # Get usage tracking data
-        usage_data = await family_manager.get_usage_tracking_data(
-            user_id, start_dt, end_dt, granularity
-        )
+        usage_data = await family_manager.get_usage_tracking_data(user_id, start_dt, end_dt, granularity)
 
         logger.debug(
             "Retrieved usage tracking data for user %s (period: %s to %s, granularity: %s)",
-            user_id, start_dt.isoformat(), end_dt.isoformat(), granularity
+            user_id,
+            start_dt.isoformat(),
+            end_dt.isoformat(),
+            granularity,
         )
 
         return UsageTrackingResponse(**usage_data)
@@ -1771,16 +1577,14 @@ async def get_usage_tracking_data(
             detail={
                 "error": "USAGE_TRACKING_FAILED",
                 "message": "Failed to retrieve usage tracking data",
-                "context": {"user_id": user_id}
-            }
+                "context": {"user_id": user_id},
+            },
         )
 
 
 @router.put("/limits", response_model=UpdateFamilyLimitsResponse)
 async def update_family_limits(
-    request: Request,
-    limits_update: UpdateFamilyLimitsRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, limits_update: UpdateFamilyLimitsRequest, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> UpdateFamilyLimitsResponse:
     """
     Update family limits for the current user.
@@ -1804,10 +1608,7 @@ async def update_family_limits(
 
     # Apply rate limiting for limit updates (more restrictive)
     await security_manager.check_rate_limit(
-        request,
-        f"family_limits_update_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"family_limits_update_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -1820,15 +1621,14 @@ async def update_family_limits(
 
         # Update family limits
         update_result = await family_manager.update_family_limits(
-            user_id,
-            new_limits,
-            updated_by=user_id,
-            reason="User-initiated limits update"
+            user_id, new_limits, updated_by=user_id, reason="User-initiated limits update"
         )
 
         logger.info(
             "Updated family limits for user %s: families=%d, members=%d",
-            user_id, limits_update.max_families_allowed, limits_update.max_members_per_family
+            user_id,
+            limits_update.max_families_allowed,
+            limits_update.max_members_per_family,
         )
 
         return UpdateFamilyLimitsResponse(**update_result)
@@ -1837,18 +1637,13 @@ async def update_family_limits(
         logger.error("Failed to update family limits for user %s: %s", user_id, e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "LIMITS_UPDATE_FAILED",
-                "message": str(e),
-                "context": {"user_id": user_id}
-            }
+            detail={"error": "LIMITS_UPDATE_FAILED", "message": str(e), "context": {"user_id": user_id}},
         )
 
 
 @router.get("/limits/enforcement", response_model=LimitEnforcementResponse)
 async def get_limit_enforcement_status(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> LimitEnforcementResponse:
     """
     Get detailed limit enforcement status and validation results.
@@ -1868,10 +1663,7 @@ async def get_limit_enforcement_status(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_limit_enforcement_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"family_limit_enforcement_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -1889,8 +1681,8 @@ async def get_limit_enforcement_status(
             detail={
                 "error": "ENFORCEMENT_STATUS_FAILED",
                 "message": "Failed to retrieve limit enforcement status",
-                "context": {"user_id": user_id}
-            }
+                "context": {"user_id": user_id},
+            },
         )
 
 
@@ -1899,31 +1691,30 @@ async def freeze_family_account(
     request: Request,
     family_id: str,
     freeze_request: FreezeAccountRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
-    Freeze or unfreeze the family SBD account.
+    Freeze or unfreeze a family's SBD account.
 
-    Only family administrators can freeze/unfreeze the account.
-    Freezing prevents all spending from the family account while allowing deposits.
+    This endpoint allows a family administrator to freeze or unfreeze the family's shared SBD token account.
+    When an account is frozen, no spending is allowed, but deposits can still be made.
 
-    **Rate Limiting:** 5 requests per hour per user
+    **Access Control:**
+    - Only family administrators can freeze or unfreeze the account.
 
-    **Requirements:**
-    - User must be a family administrator
-    - Account must not already be in the requested state
+    **Actions:**
+    - `freeze`: Freezes the account, preventing all spending. A reason is required.
+    - `unfreeze`: Unfreezes the account, re-enabling spending.
 
-    **Returns:**
-    - Freeze/unfreeze confirmation and status
+    **Use Cases:**
+    - Temporarily halt spending during a dispute or for security reasons.
+    - Regain control over the family's finances.
     """
     admin_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_freeze_{admin_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"family_freeze_{admin_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -1931,18 +1722,12 @@ async def freeze_family_account(
             if not freeze_request.reason:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "REASON_REQUIRED",
-                        "message": "Reason is required when freezing an account"
-                    }
+                    detail={"error": "REASON_REQUIRED", "message": "Reason is required when freezing an account"},
                 )
 
-            result = await family_manager.freeze_family_account(
-                family_id, admin_id, freeze_request.reason
-            )
+            result = await family_manager.freeze_family_account(family_id, admin_id, freeze_request.reason)
 
-            logger.info("Family account frozen: %s by admin %s, reason: %s",
-                       family_id, admin_id, freeze_request.reason)
+            logger.info("Family account frozen: %s by admin %s, reason: %s", family_id, admin_id, freeze_request.reason)
 
             return JSONResponse(
                 content={
@@ -1953,9 +1738,9 @@ async def freeze_family_account(
                     "frozen_by_username": current_user["username"],
                     "frozen_at": result["frozen_at"].isoformat(),
                     "reason": result["freeze_reason"],
-                    "data": result
+                    "data": result,
                 },
-                status_code=status.HTTP_200_OK
+                status_code=status.HTTP_200_OK,
             )
 
         elif freeze_request.action == "unfreeze":
@@ -1971,82 +1756,64 @@ async def freeze_family_account(
                     "unfrozen_by": admin_id,
                     "unfrozen_by_username": current_user["username"],
                     "unfrozen_at": result["unfrozen_at"].isoformat(),
-                    "data": result
+                    "data": result,
                 },
-                status_code=status.HTTP_200_OK
+                status_code=status.HTTP_200_OK,
             )
 
     except FamilyNotFound:
         logger.warning("Family not found for freeze action: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for freeze action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Family freeze action failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "FREEZE_ACTION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "FREEZE_ACTION_FAILED", "message": str(e)}
         )
 
 
 @router.post("/{family_id}/account/emergency-unfreeze")
 async def initiate_emergency_unfreeze(
-    request: Request,
-    family_id: str,
-    emergency_request: dict,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, emergency_request: dict, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
-    Initiate an emergency unfreeze request for the family account.
+    Initiate an emergency unfreeze request for a family's SBD account.
 
-    Emergency unfreeze allows family members to collaborate to unfreeze an account
-    when administrators are unavailable. Requires approval from multiple family members.
+    This endpoint allows a family member to initiate an emergency unfreeze process if the account is frozen
+    and the administrators are unavailable. The process requires approval from multiple family members.
 
-    **Rate Limiting:** 2 requests per hour per user
+    **Access Control:**
+    - Any member of the family can initiate an emergency unfreeze.
 
-    **Requirements:**
-    - User must be a family member
-    - Account must be frozen
-    - No other emergency request pending
+    **Conditions:**
+    - The family account must be currently frozen.
+    - There must not be another emergency unfreeze request already in progress.
 
-    **Returns:**
-    - Emergency request details and approval requirements
+    **Use Cases:**
+    - Unfreeze the family account when administrators are unreachable.
+    - Restore access to funds in an emergency situation.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"emergency_unfreeze_{user_id}",
-        rate_limit_requests=2,
-        rate_limit_period=3600
+        request, f"emergency_unfreeze_{user_id}", rate_limit_requests=2, rate_limit_period=3600
     )
 
     try:
         reason = emergency_request.get("reason", "Emergency situation")
 
-        result = await family_manager.initiate_emergency_unfreeze(
-            family_id, user_id, reason
-        )
+        result = await family_manager.initiate_emergency_unfreeze(family_id, user_id, reason)
 
-        logger.info("Emergency unfreeze initiated: %s by user %s for family %s",
-                   result["request_id"], user_id, family_id)
+        logger.info(
+            "Emergency unfreeze initiated: %s by user %s for family %s", result["request_id"], user_id, family_id
+        )
 
         return JSONResponse(
             content={
@@ -2056,70 +1823,54 @@ async def initiate_emergency_unfreeze(
                 "required_approvals": result["required_approvals"],
                 "current_approvals": result["current_approvals"],
                 "expires_at": result["expires_at"].isoformat(),
-                "data": result
+                "data": result,
             },
-            status_code=status.HTTP_201_CREATED
+            status_code=status.HTTP_201_CREATED,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for emergency unfreeze: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for emergency unfreeze: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Emergency unfreeze initiation failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "EMERGENCY_UNFREEZE_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "EMERGENCY_UNFREEZE_FAILED", "message": str(e)}
         )
 
 
 @router.post("/emergency-unfreeze/{request_id}/approve")
 async def approve_emergency_unfreeze(
-    request: Request,
-    request_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, request_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Approve an emergency unfreeze request.
 
-    Family members can approve emergency unfreeze requests. When enough approvals
-    are collected, the account is automatically unfrozen.
+    This endpoint allows a family member to approve a pending emergency unfreeze request.
+    Once enough approvals are gathered, the family account will be automatically unfrozen.
 
-    **Rate Limiting:** 10 requests per hour per user
+    **Access Control:**
+    - Any member of the family can approve the request, except for the user who initiated it.
 
-    **Requirements:**
-    - User must be a family member
-    - Request must be pending and not expired
-    - User must not have already approved or rejected
+    **Conditions:**
+    - The emergency unfreeze request must be pending and not expired.
+    - The user must not have already approved or rejected the request.
 
-    **Returns:**
-    - Approval status and execution result if threshold met
+    **Use Cases:**
+    - Collaborate with other family members to unfreeze the account.
+    - Restore access to funds when administrators are unavailable.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"emergency_approve_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"emergency_approve_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -2136,61 +1887,49 @@ async def approve_emergency_unfreeze(
                 "required_approvals": result["required_approvals"],
                 "threshold_met": result["threshold_met"],
                 "executed": result.get("executed", False),
-                "data": result
+                "data": result,
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyError as e:
         logger.error("Emergency unfreeze approval failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "APPROVAL_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "APPROVAL_FAILED", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for emergency approval: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
 
 
 @router.post("/emergency-unfreeze/{request_id}/reject")
 async def reject_emergency_unfreeze(
-    request: Request,
-    request_id: str,
-    rejection_data: dict,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, request_id: str, rejection_data: dict, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Reject an emergency unfreeze request.
 
-    Family members can reject emergency unfreeze requests with an optional reason.
+    This endpoint allows a family member to reject a pending emergency unfreeze request.
+    A reason for the rejection can be provided.
 
-    **Rate Limiting:** 10 requests per hour per user
+    **Access Control:**
+    - Any member of the family can reject the request, except for the user who initiated it.
 
-    **Requirements:**
-    - User must be a family member
-    - Request must be pending and not expired
-    - User must not have already approved or rejected
+    **Conditions:**
+    - The emergency unfreeze request must be pending and not expired.
+    - The user must not have already approved or rejected the request.
 
-    **Returns:**
-    - Rejection confirmation
+    **Use Cases:**
+    - Prevent an emergency unfreeze if it is deemed unnecessary or fraudulent.
+    - Provide a reason for the rejection to other family members.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"emergency_reject_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"emergency_reject_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -2206,107 +1945,79 @@ async def reject_emergency_unfreeze(
                 "message": result["message"],
                 "rejected": result["rejected"],
                 "reason": result["reason"],
-                "data": result
+                "data": result,
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyError as e:
         logger.error("Emergency unfreeze rejection failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "REJECTION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "REJECTION_FAILED", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for emergency rejection: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
 
 
 @router.get("/{family_id}/emergency-unfreeze")
 async def get_emergency_unfreeze_requests(
-    request: Request,
-    family_id: str,
-    status: Optional[str] = None,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, status: Optional[str] = None, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Get emergency unfreeze requests for a family.
 
-    Returns all emergency unfreeze requests with optional status filtering.
+    This endpoint retrieves a list of emergency unfreeze requests for a given family,
+    allowing members to view the status of ongoing requests.
 
-    **Rate Limiting:** 20 requests per hour per user
+    **Access Control:**
+    - Any member of the family can view the emergency unfreeze requests.
 
-    **Requirements:**
-    - User must be a family member
+    **Query Parameters:**
+    - `status` (optional): Filter requests by status (e.g., "pending", "approved", "rejected").
 
-    **Returns:**
-    - List of emergency requests with details
+    **Use Cases:**
+    - Monitor the progress of an emergency unfreeze request.
+    - View the history of past emergency unfreeze requests.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"emergency_requests_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"emergency_requests_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
-        requests = await family_manager.get_emergency_unfreeze_requests(
-            family_id, user_id, status
-        )
+        requests = await family_manager.get_emergency_unfreeze_requests(family_id, user_id, status)
 
         logger.debug("Retrieved %d emergency requests for family %s", len(requests), family_id)
 
         return JSONResponse(
-            content={
-                "status": "success",
-                "count": len(requests),
-                "requests": requests
-            },
-            status_code=status.HTTP_200_OK
+            content={"status": "success", "count": len(requests), "requests": requests}, status_code=status.HTTP_200_OK
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for emergency requests: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for emergency requests: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get emergency requests: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "REQUESTS_RETRIEVAL_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "REQUESTS_RETRIEVAL_FAILED", "message": str(e)},
         )
 
 
 # Notification endpoints
+
 
 @router.get("/{family_id}/notifications", response_model=NotificationListResponse)
 async def get_family_notifications(
@@ -2315,7 +2026,7 @@ async def get_family_notifications(
     limit: int = 20,
     offset: int = 0,
     status_filter: Optional[str] = None,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> NotificationListResponse:
     """
     Get family notifications for the current user with pagination and filtering.
@@ -2339,10 +2050,7 @@ async def get_family_notifications(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_notifications_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=60
+        request, f"family_notifications_{user_id}", rate_limit_requests=30, rate_limit_period=60
     )
 
     # Validate parameters
@@ -2359,22 +2067,17 @@ async def get_family_notifications(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "INVALID_STATUS_FILTER",
-                "message": f"Status filter must be one of: {', '.join(valid_status_filters)}"
-            }
+                "message": f"Status filter must be one of: {', '.join(valid_status_filters)}",
+            },
         )
 
     try:
         result = await family_manager.get_family_notifications(
-            family_id=family_id,
-            user_id=user_id,
-            limit=limit,
-            offset=offset,
-            status_filter=status_filter
+            family_id=family_id, user_id=user_id, limit=limit, offset=offset, status_filter=status_filter
         )
 
         logger.info(
-            "Retrieved %d notifications for user %s in family %s",
-            len(result["notifications"]), user_id, family_id
+            "Retrieved %d notifications for user %s in family %s", len(result["notifications"]), user_id, family_id
         )
 
         return NotificationListResponse(**result)
@@ -2382,29 +2085,18 @@ async def get_family_notifications(
     except FamilyNotFound:
         logger.warning("Family not found for notifications: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for notifications: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family notifications: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "NOTIFICATIONS_RETRIEVAL_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "NOTIFICATIONS_RETRIEVAL_FAILED", "message": str(e)},
         )
 
 
@@ -2413,7 +2105,7 @@ async def mark_notifications_read(
     request: Request,
     family_id: str,
     mark_request: MarkNotificationsReadRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
     Mark specific notifications as read for the current user.
@@ -2434,161 +2126,117 @@ async def mark_notifications_read(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"mark_notifications_read_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=60
+        request, f"mark_notifications_read_{user_id}", rate_limit_requests=20, rate_limit_period=60
     )
 
     # Validate request
     if not mark_request.notification_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "EMPTY_NOTIFICATION_LIST",
-                "message": "At least one notification ID is required"
-            }
+            detail={"error": "EMPTY_NOTIFICATION_LIST", "message": "At least one notification ID is required"},
         )
 
     if len(mark_request.notification_ids) > 50:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "TOO_MANY_NOTIFICATIONS",
-                "message": "Cannot mark more than 50 notifications at once"
-            }
+            detail={"error": "TOO_MANY_NOTIFICATIONS", "message": "Cannot mark more than 50 notifications at once"},
         )
 
     try:
         result = await family_manager.mark_notifications_read(
-            family_id=family_id,
-            user_id=user_id,
-            notification_ids=mark_request.notification_ids
+            family_id=family_id, user_id=user_id, notification_ids=mark_request.notification_ids
         )
 
         logger.info(
-            "Marked %d notifications as read for user %s in family %s",
-            result["marked_count"], user_id, family_id
+            "Marked %d notifications as read for user %s in family %s", result["marked_count"], user_id, family_id
         )
 
         return JSONResponse(
             content={
                 "message": f"Successfully marked {result['marked_count']} notifications as read",
                 "marked_count": result["marked_count"],
-                "updated_notifications": result["updated_notifications"]
+                "updated_notifications": result["updated_notifications"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for marking notifications: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for marking notifications: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to mark notifications as read: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "MARK_READ_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"error": "MARK_READ_FAILED", "message": str(e)}
         )
 
 
 @router.post("/{family_id}/notifications/mark-all-read")
 async def mark_all_notifications_read(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
-    Mark all notifications as read for the current user in the specified family.
+    Mark all of a user's notifications in a family as read.
 
-    Updates all unread notifications for the user in the family and resets
-    their unread notification count to zero.
+    This endpoint provides a convenient way for a user to mark all of their unread notifications
+    within a specific family as read in a single action.
 
-    **Rate Limiting:** 10 requests per minute per user
+    **Access Control:**
+    - Any member of the family can mark their own notifications as read.
 
-    **Returns:**
-    - Number of notifications marked as read
-    - Confirmation message
+    **Use Cases:**
+    - Quickly clear the unread notification count for a family.
+    - A "mark all as read" button in the notifications interface.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"mark_all_notifications_read_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=60
+        request, f"mark_all_notifications_read_{user_id}", rate_limit_requests=10, rate_limit_period=60
     )
 
     try:
-        result = await family_manager.mark_all_notifications_read(
-            family_id=family_id,
-            user_id=user_id
-        )
+        result = await family_manager.mark_all_notifications_read(family_id=family_id, user_id=user_id)
 
         logger.info(
-            "Marked all %d notifications as read for user %s in family %s",
-            result["marked_count"], user_id, family_id
+            "Marked all %d notifications as read for user %s in family %s", result["marked_count"], user_id, family_id
         )
 
         return JSONResponse(
             content={
                 "message": f"Successfully marked all {result['marked_count']} notifications as read",
-                "marked_count": result["marked_count"]
+                "marked_count": result["marked_count"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for marking all notifications: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for marking all notifications: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to mark all notifications as read: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "MARK_ALL_READ_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "MARK_ALL_READ_FAILED", "message": str(e)},
         )
 
 
 @router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)
 async def get_notification_preferences(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> NotificationPreferencesResponse:
     """
     Get notification preferences for the current user.
@@ -2607,10 +2255,7 @@ async def get_notification_preferences(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"get_notification_preferences_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=60
+        request, f"get_notification_preferences_{user_id}", rate_limit_requests=30, rate_limit_period=60
     )
 
     try:
@@ -2624,10 +2269,7 @@ async def get_notification_preferences(
         logger.error("Failed to get notification preferences: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "PREFERENCES_RETRIEVAL_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "PREFERENCES_RETRIEVAL_FAILED", "message": str(e)},
         )
 
 
@@ -2635,7 +2277,7 @@ async def get_notification_preferences(
 async def update_notification_preferences(
     request: Request,
     preferences_request: UpdateNotificationPreferencesRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> NotificationPreferencesResponse:
     """
     Update notification preferences for the current user.
@@ -2659,10 +2301,7 @@ async def update_notification_preferences(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"update_notification_preferences_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=60
+        request, f"update_notification_preferences_{user_id}", rate_limit_requests=10, rate_limit_period=60
     )
 
     try:
@@ -2675,15 +2314,9 @@ async def update_notification_preferences(
         if preferences_request.sms_notifications is not None:
             preferences["sms_notifications"] = preferences_request.sms_notifications
 
-        result = await family_manager.update_notification_preferences(
-            user_id=user_id,
-            preferences=preferences
-        )
+        result = await family_manager.update_notification_preferences(user_id=user_id, preferences=preferences)
 
-        logger.info(
-            "Updated notification preferences for user %s: %s",
-            user_id, preferences
-        )
+        logger.info("Updated notification preferences for user %s: %s", user_id, preferences)
 
         # Get full preferences including unread count
         full_result = await family_manager.get_notification_preferences(user_id=user_id)
@@ -2693,31 +2326,25 @@ async def update_notification_preferences(
     except ValidationError as e:
         logger.warning("Invalid notification preferences: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVALID_PREFERENCES",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "INVALID_PREFERENCES", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to update notification preferences: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "PREFERENCES_UPDATE_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "PREFERENCES_UPDATE_FAILED", "message": str(e)},
         )
 
 
 # Token Request Endpoints
+
 
 @router.post("/{family_id}/token-requests", response_model=TokenRequestResponse, status_code=status.HTTP_201_CREATED)
 async def create_token_request(
     request: Request,
     family_id: str,
     token_request: CreateTokenRequestRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> TokenRequestResponse:
     """
     Create a token request from the family account.
@@ -2740,10 +2367,7 @@ async def create_token_request(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"token_request_create_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"token_request_create_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -2752,12 +2376,15 @@ async def create_token_request(
             user_id=user_id,
             amount=token_request.amount,
             reason=token_request.reason,
-            request_context={"request": request}
+            request_context={"request": request},
         )
 
         logger.info(
             "Token request created: %s for %d tokens by user %s in family %s",
-            request_data["request_id"], token_request.amount, user_id, family_id
+            request_data["request_id"],
+            token_request.amount,
+            user_id,
+            family_id,
         )
 
         return TokenRequestResponse(
@@ -2769,26 +2396,18 @@ async def create_token_request(
             auto_approved=request_data["auto_approved"],
             created_at=request_data["created_at"],
             expires_at=request_data["expires_at"],
-            admin_comments=None
+            admin_comments=None,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for token request: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for token request: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except AccountFrozen as e:
         logger.warning("Token request blocked - account frozen: %s", e)
@@ -2798,8 +2417,8 @@ async def create_token_request(
                 "error": "ACCOUNT_FROZEN",
                 "message": str(e),
                 "frozen_by": e.context.get("frozen_by"),
-                "frozen_at": e.context.get("frozen_at")
-            }
+                "frozen_at": e.context.get("frozen_at"),
+            },
         )
     except ValidationError as e:
         logger.warning("Invalid token request data: %s", e)
@@ -2809,8 +2428,8 @@ async def create_token_request(
                 "error": "VALIDATION_ERROR",
                 "message": str(e),
                 "field": e.context.get("field"),
-                "value": e.context.get("value")
-            }
+                "value": e.context.get("value"),
+            },
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for token request: %s", e)
@@ -2819,25 +2438,20 @@ async def create_token_request(
             detail={
                 "error": "RATE_LIMIT_EXCEEDED",
                 "message": str(e),
-                "retry_after": e.context.get("window_seconds", 3600)
-            }
+                "retry_after": e.context.get("window_seconds", 3600),
+            },
         )
     except FamilyError as e:
         logger.error("Failed to create token request: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "TOKEN_REQUEST_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "TOKEN_REQUEST_FAILED", "message": str(e)},
         )
 
 
 @router.get("/{family_id}/token-requests/pending", response_model=List[TokenRequestResponse])
 async def get_pending_token_requests(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[TokenRequestResponse]:
     """
     Get all pending token requests for a family (admin only).
@@ -2857,10 +2471,7 @@ async def get_pending_token_requests(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"pending_token_requests_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"pending_token_requests_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -2870,48 +2481,39 @@ async def get_pending_token_requests(
 
         response_requests = []
         for req in pending_requests:
-            response_requests.append(TokenRequestResponse(
-                request_id=req["request_id"],
-                requester_username=req["requester_username"],
-                from_user_id=req.get("requester_user_id"),
-                from_username=req.get("requester_username"),
-                amount=req["amount"],
-                reason=req["reason"],
-                status=req["status"],
-                auto_approved=req["auto_approved"],
-                created_at=req["created_at"],
-                expires_at=req["expires_at"],
-                admin_comments=None
-            ))
+            response_requests.append(
+                TokenRequestResponse(
+                    request_id=req["request_id"],
+                    requester_username=req["requester_username"],
+                    from_user_id=req.get("requester_user_id"),
+                    from_username=req.get("requester_username"),
+                    amount=req["amount"],
+                    reason=req["reason"],
+                    status=req["status"],
+                    auto_approved=req["auto_approved"],
+                    created_at=req["created_at"],
+                    expires_at=req["expires_at"],
+                    admin_comments=None,
+                )
+            )
 
         return response_requests
 
     except FamilyNotFound:
         logger.warning("Family not found for pending requests: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for pending requests: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get pending token requests: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "REQUESTS_RETRIEVAL_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "REQUESTS_RETRIEVAL_FAILED", "message": str(e)},
         )
 
 
@@ -2921,7 +2523,7 @@ async def review_token_request(
     family_id: str,
     request_id: str,
     review_request: ReviewTokenRequestRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
     Review a token request (approve or deny) - admin only.
@@ -2943,10 +2545,7 @@ async def review_token_request(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"token_request_review_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"token_request_review_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -2955,12 +2554,15 @@ async def review_token_request(
             admin_id=user_id,
             action=review_request.action,
             comments=review_request.comments,
-            request_context={"request": request}
+            request_context={"request": request},
         )
 
         logger.info(
             "Token request %s: %s by admin %s (amount: %d)",
-            review_request.action, request_id, user_id, review_data["amount"]
+            review_request.action,
+            request_id,
+            user_id,
+            review_data["amount"],
         )
 
         return JSONResponse(
@@ -2974,9 +2576,9 @@ async def review_token_request(
                 "reviewed_at": review_data["reviewed_at"].isoformat(),
                 "processed_at": review_data["processed_at"].isoformat() if review_data["processed_at"] else None,
                 "amount": review_data["amount"],
-                "requester_user_id": review_data["requester_user_id"]
+                "requester_user_id": review_data["requester_user_id"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except TokenRequestNotFound as e:
@@ -2987,17 +2589,13 @@ async def review_token_request(
                 "error": "TOKEN_REQUEST_NOT_FOUND",
                 "message": str(e),
                 "request_id": e.context.get("request_id"),
-                "status": e.context.get("status")
-            }
+                "status": e.context.get("status"),
+            },
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for token request review: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except ValidationError as e:
         logger.warning("Invalid token request review data: %s", e)
@@ -3007,8 +2605,8 @@ async def review_token_request(
                 "error": "VALIDATION_ERROR",
                 "message": str(e),
                 "field": e.context.get("field"),
-                "value": e.context.get("value")
-            }
+                "value": e.context.get("value"),
+            },
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for token request review: %s", e)
@@ -3017,26 +2615,19 @@ async def review_token_request(
             detail={
                 "error": "RATE_LIMIT_EXCEEDED",
                 "message": str(e),
-                "retry_after": e.context.get("window_seconds", 3600)
-            }
+                "retry_after": e.context.get("window_seconds", 3600),
+            },
         )
     except FamilyError as e:
         logger.error("Failed to review token request: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "REVIEW_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"error": "REVIEW_FAILED", "message": str(e)}
         )
 
 
 @router.get("/{family_id}/token-requests/my-requests", response_model=List[TokenRequestResponse])
 async def get_my_token_requests(
-    request: Request,
-    family_id: str,
-    limit: int = 20,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, limit: int = 20, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[TokenRequestResponse]:
     """
     Get the current user's token request history for a family.
@@ -3065,67 +2656,53 @@ async def get_my_token_requests(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"my_token_requests_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=3600
+        request, f"my_token_requests_{user_id}", rate_limit_requests=30, rate_limit_period=3600
     )
 
     try:
         user_requests = await family_manager.get_user_token_requests(family_id, user_id, limit)
 
-        logger.debug("Retrieved %d token requests for user %s in family %s",
-                    len(user_requests), user_id, family_id)
+        logger.debug("Retrieved %d token requests for user %s in family %s", len(user_requests), user_id, family_id)
 
         response_requests = []
         for req in user_requests:
-            response_requests.append(TokenRequestResponse(
-                request_id=req["request_id"],
-                requester_username=current_user["username"],
-                amount=req["amount"],
-                reason=req["reason"],
-                status=req["status"],
-                auto_approved=req["auto_approved"],
-                created_at=req["created_at"],
-                expires_at=req["expires_at"],
-                admin_comments=req.get("admin_comments")
-            ))
+            response_requests.append(
+                TokenRequestResponse(
+                    request_id=req["request_id"],
+                    requester_username=current_user["username"],
+                    amount=req["amount"],
+                    reason=req["reason"],
+                    status=req["status"],
+                    auto_approved=req["auto_approved"],
+                    created_at=req["created_at"],
+                    expires_at=req["expires_at"],
+                    admin_comments=req.get("admin_comments"),
+                )
+            )
 
         return response_requests
 
     except FamilyNotFound:
         logger.warning("Family not found for user requests: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for user requests: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get user token requests: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "REQUESTS_RETRIEVAL_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "REQUESTS_RETRIEVAL_FAILED", "message": str(e)},
         )
 
 
 @router.post("/admin/cleanup-expired-token-requests")
 async def cleanup_expired_token_requests(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Clean up expired token requests (admin utility).
@@ -3145,10 +2722,7 @@ async def cleanup_expired_token_requests(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"token_request_cleanup_{user_id}",
-        rate_limit_requests=2,
-        rate_limit_period=3600
+        request, f"token_request_cleanup_{user_id}", rate_limit_requests=2, rate_limit_period=3600
     )
 
     try:
@@ -3162,29 +2736,24 @@ async def cleanup_expired_token_requests(
                 "message": "Token request cleanup completed",
                 "expired_count": cleanup_data["expired_count"],
                 "cleanup_timestamp": cleanup_data["cleanup_timestamp"].isoformat(),
-                "requests_processed": cleanup_data["requests_processed"]
+                "requests_processed": cleanup_data["requests_processed"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyError as e:
         logger.error("Failed to cleanup expired token requests: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "CLEANUP_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"error": "CLEANUP_FAILED", "message": str(e)}
         )
 
 
 # Family Member Management Endpoints
 
+
 @router.get("/{family_id}", response_model=FamilyResponse)
 async def get_family_details(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> FamilyResponse:
     """
     Get detailed information about a specific family.
@@ -3204,10 +2773,7 @@ async def get_family_details(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_details_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=3600
+        request, f"family_details_{user_id}", rate_limit_requests=30, rate_limit_period=3600
     )
 
     try:
@@ -3223,43 +2789,30 @@ async def get_family_details(
             created_at=family_data["created_at"],
             is_admin=family_data["is_admin"],
             sbd_account=family_data["sbd_account"],
-            usage_stats=family_data["usage_stats"]
+            usage_stats=family_data["usage_stats"],
         )
 
     except FamilyNotFound:
         logger.warning("Family not found: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for family details: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family details: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "FAMILY_DETAILS_FAILED",
-                "message": "Failed to retrieve family details"
-            }
+            detail={"error": "FAMILY_DETAILS_FAILED", "message": "Failed to retrieve family details"},
         )
 
 
 @router.get("/{family_id}/members", response_model=List[FamilyMemberResponse])
 async def get_family_members(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[FamilyMemberResponse]:
     """
     Get all members of a family with their relationship information.
@@ -3279,10 +2832,7 @@ async def get_family_members(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_members_{user_id}",
-        rate_limit_requests=3600,
-        rate_limit_period=3600
+        request, f"family_members_{user_id}", rate_limit_requests=3600, rate_limit_period=3600
     )
 
     try:
@@ -3305,53 +2855,41 @@ async def get_family_members(
                 if primary_relationship == "member" and member["relationships"]:
                     primary_relationship = member["relationships"][0].get("relationship_type", "member")
 
-            member_responses.append(FamilyMemberResponse(
-                user_id=member["user_id"],
-                username=member["username"],
-                email=member["email"],
-                relationship_type=primary_relationship,
-                role=member["role"],
-                joined_at=member["joined_at"],
-                spending_permissions=member["spending_permissions"]
-            ))
+            member_responses.append(
+                FamilyMemberResponse(
+                    user_id=member["user_id"],
+                    username=member["username"],
+                    email=member["email"],
+                    relationship_type=primary_relationship,
+                    role=member["role"],
+                    joined_at=member["joined_at"],
+                    spending_permissions=member["spending_permissions"],
+                )
+            )
 
         return member_responses
 
     except FamilyNotFound:
         logger.warning("Family not found for members: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for family members: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family members: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "MEMBERS_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve family members"
-            }
+            detail={"error": "MEMBERS_RETRIEVAL_FAILED", "message": "Failed to retrieve family members"},
         )
 
 
 @router.delete("/{family_id}/members/{member_id}")
 async def remove_family_member(
-    request: Request,
-    family_id: str,
-    member_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, member_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Remove a member from the family.
@@ -3373,19 +2911,13 @@ async def remove_family_member(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"remove_member_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"remove_member_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
-        removal_data = await family_manager.remove_family_member(
-            family_id, user_id, member_id, {"request": request}
-        )
+        removal_data = await family_manager.remove_family_member(family_id, user_id, member_id, {"request": request})
 
-        logger.info("Family member removed: %s from %s by admin %s",
-                   member_id, family_id, user_id)
+        logger.info("Family member removed: %s from %s by admin %s", member_id, family_id, user_id)
 
         return JSONResponse(
             content={
@@ -3396,57 +2928,42 @@ async def remove_family_member(
                 "relationships_cleaned": removal_data["relationships_cleaned"],
                 "permissions_revoked": removal_data["permissions_revoked"],
                 "removed_at": removal_data["removed_at"].isoformat(),
-                "transaction_safe": removal_data["transaction_safe"]
+                "transaction_safe": removal_data["transaction_safe"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for member removal: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for member removal: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except MultipleAdminsRequired as e:
         logger.warning("Cannot remove last admin: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "MULTIPLE_ADMINS_REQUIRED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "MULTIPLE_ADMINS_REQUIRED", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to remove family member: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "MEMBER_REMOVAL_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "MEMBER_REMOVAL_FAILED", "message": str(e)}
         )
 
 
 # Relationship Management Endpoints
+
 
 @router.put("/{family_id}/relationships", response_model=ModifyRelationshipResponse)
 async def modify_family_relationship(
     request: Request,
     family_id: str,
     relationship_request: ModifyRelationshipRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> ModifyRelationshipResponse:
     """
     Modify the relationship type between two family members.
@@ -3469,10 +2986,7 @@ async def modify_family_relationship(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"modify_relationship_{admin_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"modify_relationship_{admin_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -3482,12 +2996,16 @@ async def modify_family_relationship(
             relationship_request.user_a_id,
             relationship_request.user_b_id,
             relationship_request.new_relationship_type,
-            {"request": request}
+            {"request": request},
         )
 
-        logger.info("Family relationship modified: %s between %s and %s by admin %s",
-                   result["relationship_id"], relationship_request.user_a_id,
-                   relationship_request.user_b_id, admin_id)
+        logger.info(
+            "Family relationship modified: %s between %s and %s by admin %s",
+            result["relationship_id"],
+            relationship_request.user_a_id,
+            relationship_request.user_b_id,
+            admin_id,
+        )
 
         return ModifyRelationshipResponse(
             relationship_id=result["relationship_id"],
@@ -3499,26 +3017,18 @@ async def modify_family_relationship(
             new_reciprocal_type=result["new_reciprocal_type"],
             modified_by=result["modified_by"],
             modified_at=result["modified_at"],
-            transaction_safe=result["transaction_safe"]
+            transaction_safe=result["transaction_safe"],
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for relationship modification: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for relationship modification: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except InvalidRelationship as e:
         logger.warning("Invalid relationship type in modification: %s", e)
@@ -3527,8 +3037,8 @@ async def modify_family_relationship(
             detail={
                 "error": "INVALID_RELATIONSHIP",
                 "message": str(e),
-                "valid_types": list(e.context.get("valid_types", []))
-            }
+                "valid_types": list(e.context.get("valid_types", [])),
+            },
         )
     except ValidationError as e:
         logger.warning("Validation error in relationship modification: %s", e)
@@ -3538,8 +3048,8 @@ async def modify_family_relationship(
                 "error": "VALIDATION_ERROR",
                 "message": str(e),
                 "field": e.context.get("field"),
-                "constraint": e.context.get("constraint")
-            }
+                "constraint": e.context.get("constraint"),
+            },
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for relationship modification: %s", e)
@@ -3548,8 +3058,8 @@ async def modify_family_relationship(
             detail={
                 "error": "RATE_LIMIT_EXCEEDED",
                 "message": str(e),
-                "retry_after": e.context.get("window_seconds", 3600)
-            }
+                "retry_after": e.context.get("window_seconds", 3600),
+            },
         )
     except TransactionError as e:
         logger.error("Transaction error in relationship modification: %s", e)
@@ -3558,25 +3068,20 @@ async def modify_family_relationship(
             detail={
                 "error": "TRANSACTION_ERROR",
                 "message": "Failed to modify relationship due to database error",
-                "rollback_successful": e.context.get("rollback_successful", False)
-            }
+                "rollback_successful": e.context.get("rollback_successful", False),
+            },
         )
     except FamilyError as e:
         logger.error("Failed to modify family relationship: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "RELATIONSHIP_MODIFICATION_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "RELATIONSHIP_MODIFICATION_FAILED", "message": str(e)},
         )
 
 
 @router.get("/{family_id}/relationships", response_model=List[RelationshipDetailsResponse])
 async def get_family_relationships(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> List[RelationshipDetailsResponse]:
     """
     Get all relationships within a family.
@@ -3596,10 +3101,7 @@ async def get_family_relationships(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"get_relationships_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"get_relationships_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
@@ -3609,54 +3111,42 @@ async def get_family_relationships(
 
         relationship_responses = []
         for rel in relationships:
-            relationship_responses.append(RelationshipDetailsResponse(
-                relationship_id=rel["relationship_id"],
-                family_id=rel["family_id"],
-                user_a=rel["user_a"],
-                user_b=rel["user_b"],
-                status=rel["status"],
-                created_by=rel["created_by"],
-                created_at=rel["created_at"],
-                updated_at=rel["updated_at"]
-            ))
+            relationship_responses.append(
+                RelationshipDetailsResponse(
+                    relationship_id=rel["relationship_id"],
+                    family_id=rel["family_id"],
+                    user_a=rel["user_a"],
+                    user_b=rel["user_b"],
+                    status=rel["status"],
+                    created_by=rel["created_by"],
+                    created_at=rel["created_at"],
+                    updated_at=rel["updated_at"],
+                )
+            )
 
         return relationship_responses
 
     except FamilyNotFound:
         logger.warning("Family not found for relationships: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for viewing relationships: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family relationships: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "RELATIONSHIPS_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve relationships"
-            }
+            detail={"error": "RELATIONSHIPS_RETRIEVAL_FAILED", "message": "Failed to retrieve relationships"},
         )
 
 
 @router.put("/{family_id}")
 async def update_family_settings(
-    request: Request,
-    family_id: str,
-    family_update: dict,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, family_update: dict, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Update family settings and configuration.
@@ -3677,10 +3167,7 @@ async def update_family_settings(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"update_family_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"update_family_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -3697,54 +3184,36 @@ async def update_family_settings(
                 "family_id": update_data["family_id"],
                 "updated_fields": update_data["updated_fields"],
                 "updated_at": update_data["updated_at"].isoformat(),
-                "transaction_safe": update_data["transaction_safe"]
+                "transaction_safe": update_data["transaction_safe"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for settings update: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for family update: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except ValidationError as e:
         logger.warning("Validation error in family update: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "VALIDATION_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "VALIDATION_ERROR", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to update family settings: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "FAMILY_UPDATE_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "FAMILY_UPDATE_FAILED", "message": str(e)}
         )
 
 
 @router.delete("/{family_id}")
 async def delete_family(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
     Delete a family and clean up all associated resources.
@@ -3766,16 +3235,11 @@ async def delete_family(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"delete_family_{user_id}",
-        rate_limit_requests=2,
-        rate_limit_period=3600
+        request, f"delete_family_{user_id}", rate_limit_requests=2, rate_limit_period=3600
     )
 
     try:
-        deletion_data = await family_manager.delete_family(
-            family_id, user_id, {"request": request}
-        )
+        deletion_data = await family_manager.delete_family(family_id, user_id, {"request": request})
 
         logger.info("Family deleted: %s by admin %s", family_id, user_id)
 
@@ -3788,56 +3252,39 @@ async def delete_family(
                 "relationships_cleaned": deletion_data["relationships_cleaned"],
                 "sbd_account_handled": deletion_data["sbd_account_handled"],
                 "deleted_at": deletion_data["deleted_at"].isoformat(),
-                "transaction_safe": deletion_data["transaction_safe"]
+                "transaction_safe": deletion_data["transaction_safe"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for deletion: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for family deletion: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except AccountFrozen as e:
         logger.warning("Cannot delete family with non-empty SBD account: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "ACCOUNT_NOT_EMPTY",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "ACCOUNT_NOT_EMPTY", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to delete family: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "FAMILY_DELETION_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "FAMILY_DELETION_FAILED", "message": str(e)}
         )
 
 
 # SBD Account Management Endpoints
 
+
 @router.get("/{family_id}/sbd-account", response_model=SBDAccountResponse)
 async def get_family_sbd_account(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> SBDAccountResponse:
     """
     Get family SBD account details including balance and spending permissions.
@@ -3857,10 +3304,7 @@ async def get_family_sbd_account(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_sbd_account_{user_id}",
-        rate_limit_requests=30,
-        rate_limit_period=3600
+        request, f"family_sbd_account_{user_id}", rate_limit_requests=30, rate_limit_period=3600
     )
 
     try:
@@ -3876,35 +3320,24 @@ async def get_family_sbd_account(
             frozen_at=account_data.get("frozen_at"),
             spending_permissions=account_data["spending_permissions"],
             notification_settings=account_data["notification_settings"],
-            recent_transactions=account_data.get("recent_transactions", [])
+            recent_transactions=account_data.get("recent_transactions", []),
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for SBD account request: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for SBD account access: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family SBD account: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "SBD_ACCOUNT_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve SBD account information"
-            }
+            detail={"error": "SBD_ACCOUNT_RETRIEVAL_FAILED", "message": "Failed to retrieve SBD account information"},
         )
 
 
@@ -3913,7 +3346,7 @@ async def update_spending_permissions(
     request: Request,
     family_id: str,
     permissions_request: UpdateSpendingPermissionsRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
     Update spending permissions for a family member.
@@ -3934,10 +3367,7 @@ async def update_spending_permissions(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_update_permissions_{admin_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_update_permissions_{admin_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -3946,49 +3376,35 @@ async def update_spending_permissions(
             family_id,
             admin_id,
             permissions_request.user_id,
-            {
-                "spending_limit": permissions_request.spending_limit,
-                "can_spend": permissions_request.can_spend
-            }
+            {"spending_limit": permissions_request.spending_limit, "can_spend": permissions_request.can_spend},
         )
 
         # Retrieve full updated account to return to frontend (frontend expects full SBDAccount shape)
         account_data = await family_manager.get_family_sbd_account(family_id, admin_id)
 
-        logger.info("Updated spending permissions for user %s in family %s by admin %s",
-                   permissions_request.user_id, family_id, admin_id)
-
-        return JSONResponse(
-            content=account_data,
-            status_code=status.HTTP_200_OK
+        logger.info(
+            "Updated spending permissions for user %s in family %s by admin %s",
+            permissions_request.user_id,
+            family_id,
+            admin_id,
         )
+
+        return JSONResponse(content=account_data, status_code=status.HTTP_200_OK)
 
     except FamilyNotFound:
         logger.warning("Family not found for permissions update: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for spending permissions update: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to update spending permissions: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "PERMISSIONS_UPDATE_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "PERMISSIONS_UPDATE_FAILED", "message": str(e)}
         )
 
 
@@ -3998,39 +3414,42 @@ async def get_family_transactions(
     family_id: str,
     skip: int = 0,
     limit: int = 20,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
-    Get family SBD account transaction history.
+    Get the transaction history for a family's SBD account.
 
-    Returns paginated transaction history for the family's shared SBD account
-    with member attribution and detailed transaction information.
+    This endpoint retrieves a paginated list of transactions for the specified family's shared SBD account.
+    It includes details about each transaction, such as the amount, type, and the member involved.
 
-    **Rate Limiting:** 20 requests per hour per user
+    **Access Control:**
+    - Any member of the family can view the transaction history.
 
-    **Requirements:**
-    - User must be a family member
+    **Query Parameters:**
+    - `skip` (optional): The number of transactions to skip for pagination. Defaults to 0.
+    - `limit` (optional): The maximum number of transactions to return. Defaults to 20.
 
-    **Returns:**
-    - Paginated transaction history with member details
+    **Use Cases:**
+    - Review the family's spending history.
+    - Track deposits and withdrawals from the family account.
+    - Provide a detailed statement of account activity.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_transactions_{user_id}",
-        rate_limit_requests=20,
-        rate_limit_period=3600
+        request, f"family_transactions_{user_id}", rate_limit_requests=20, rate_limit_period=3600
     )
 
     try:
-        transactions_data = await family_manager.get_family_transactions(
-            family_id, user_id, skip, limit
-        )
+        transactions_data = await family_manager.get_family_transactions(family_id, user_id, skip, limit)
 
-        logger.debug("Retrieved %d transactions for family %s by user %s",
-                    len(transactions_data["transactions"]), family_id, user_id)
+        logger.debug(
+            "Retrieved %d transactions for family %s by user %s",
+            len(transactions_data["transactions"]),
+            family_id,
+            user_id,
+        )
 
         return JSONResponse(
             content={
@@ -4044,39 +3463,28 @@ async def get_family_transactions(
                         "skip": skip,
                         "limit": limit,
                         "total": transactions_data["total_transactions"],
-                        "has_more": transactions_data["has_more"]
-                    }
-                }
+                        "has_more": transactions_data["has_more"],
+                    },
+                },
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for transactions request: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for transaction history: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family transactions: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "TRANSACTIONS_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve transaction history"
-            }
+            detail={"error": "TRANSACTIONS_RETRIEVAL_FAILED", "message": "Failed to retrieve transaction history"},
         )
 
 
@@ -4085,46 +3493,41 @@ async def freeze_unfreeze_account(
     request: Request,
     family_id: str,
     freeze_request: FreezeAccountRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
-    Freeze or unfreeze the family SBD account.
+    Freeze or unfreeze a family's SBD account.
 
-    Allows family administrators to temporarily freeze the shared account
-    to prevent spending during disputes or emergencies. Deposits continue
-    to work but all spending is blocked.
+    This endpoint allows a family administrator to freeze or unfreeze the family's shared SBD token account.
+    When an account is frozen, no spending is allowed, but deposits can still be made.
 
-    **Rate Limiting:** 5 requests per hour per user
+    **Access Control:**
+    - Only family administrators can freeze or unfreeze the account.
 
-    **Requirements:**
-    - User must be a family administrator
-    - Reason required for freezing
+    **Actions:**
+    - `freeze`: Freezes the account, preventing all spending. A reason is required.
+    - `unfreeze`: Unfreezes the account, re-enabling spending.
 
-    **Returns:**
-    - Account freeze status and details
+    **Use Cases:**
+    - Temporarily halt spending during a dispute or for security reasons.
+    - Regain control over the family's finances.
     """
     admin_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_freeze_account_{admin_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"family_freeze_account_{admin_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
         if freeze_request.action == "freeze":
-            result = await family_manager.freeze_family_account(
-                family_id, admin_id, freeze_request.reason
-            )
+            result = await family_manager.freeze_family_account(family_id, admin_id, freeze_request.reason)
             message = "Family account frozen successfully"
         else:
             result = await family_manager.unfreeze_family_account(family_id, admin_id)
             message = "Family account unfrozen successfully"
 
-        logger.info("Family account %s: %s by admin %s",
-                   freeze_request.action, family_id, admin_id)
+        logger.info("Family account %s: %s by admin %s", freeze_request.action, family_id, admin_id)
 
         return JSONResponse(
             content={
@@ -4135,80 +3538,61 @@ async def freeze_unfreeze_account(
                     "is_frozen": result["is_frozen"],
                     "frozen_by": result.get("frozen_by"),
                     "frozen_at": result.get("frozen_at").isoformat() if result.get("frozen_at") else None,
-                    "reason": result.get("reason")
-                }
+                    "reason": result.get("reason"),
+                },
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for account freeze: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for account freeze: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to %s family account: %s", freeze_request.action, e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "ACCOUNT_FREEZE_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "ACCOUNT_FREEZE_FAILED", "message": str(e)}
         )
 
 
 @router.post("/{family_id}/sbd-account/validate-spending")
 async def validate_spending_permission(
-    request: Request,
-    family_id: str,
-    amount: int,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, amount: int, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
-    Validate if the current user can spend the specified amount from family account.
+    Validate if a user can spend a certain amount from the family account.
 
-    Checks spending permissions, limits, and account status before allowing
-    a transaction. Used by the SBD token system for permission validation.
+    This endpoint checks if the current user has permission to spend a specified amount
+    from the family's shared SBD account. It considers the user's spending limit,
+    the account's frozen status, and the current balance.
 
-    **Rate Limiting:** 50 requests per hour per user
+    **Access Control:**
+    - Any member of the family can validate their spending permission.
 
-    **Requirements:**
-    - User must be a family member
-    - Amount must be positive
+    **Parameters:**
+    - `amount`: The amount of SBD tokens the user wants to spend.
 
-    **Returns:**
-    - Validation result with detailed permission information
+    **Use Cases:**
+    - Pre-authorize a purchase from the family account.
+    - Check if a user has sufficient permissions before showing them purchase options.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_validate_spending_{user_id}",
-        rate_limit_requests=50,
-        rate_limit_period=3600
+        request, f"family_validate_spending_{user_id}", rate_limit_requests=50, rate_limit_period=3600
     )
 
     if amount <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "INVALID_AMOUNT",
-                "message": "Amount must be positive"
-            }
+            detail={"error": "INVALID_AMOUNT", "message": "Amount must be positive"},
         )
 
     try:
@@ -4224,8 +3608,13 @@ async def validate_spending_permission(
         # Get detailed permission information
         permissions = family_data["sbd_account"]["spending_permissions"].get(user_id, {})
 
-        logger.debug("Spending validation for user %s in family %s: amount=%d, can_spend=%s",
-                    user_id, family_id, amount, can_spend)
+        logger.debug(
+            "Spending validation for user %s in family %s: amount=%d, can_spend=%s",
+            user_id,
+            family_id,
+            amount,
+            can_spend,
+        )
 
         response_data = {
             "status": "success",
@@ -4237,13 +3626,13 @@ async def validate_spending_permission(
                 "user_permissions": {
                     "spending_limit": permissions.get("spending_limit", 0),
                     "can_spend": permissions.get("can_spend", False),
-                    "role": permissions.get("role", "member")
+                    "role": permissions.get("role", "member"),
                 },
                 "account_status": {
                     "is_frozen": family_data["sbd_account"]["is_frozen"],
-                    "current_balance": await family_manager.get_family_sbd_balance(family_username)
-                }
-            }
+                    "current_balance": await family_manager.get_family_sbd_balance(family_username),
+                },
+            },
         }
 
         if not can_spend:
@@ -4256,107 +3645,81 @@ async def validate_spending_permission(
                 response_data["data"]["denial_message"] = "You don't have permission to spend from this family account"
             elif permissions.get("spending_limit", 0) != -1 and amount > permissions.get("spending_limit", 0):
                 response_data["data"]["denial_reason"] = "SPENDING_LIMIT_EXCEEDED"
-                response_data["data"]["denial_message"] = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                response_data["data"][
+                    "denial_message"
+                ] = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
             else:
                 response_data["data"]["denial_reason"] = "INSUFFICIENT_BALANCE"
                 response_data["data"]["denial_message"] = "Insufficient balance in family account"
 
-        return JSONResponse(
-            content=response_data,
-            status_code=status.HTTP_200_OK
-        )
+        return JSONResponse(content=response_data, status_code=status.HTTP_200_OK)
 
     except FamilyNotFound:
         logger.warning("Family not found for spending validation: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for spending validation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to validate spending permission: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "VALIDATION_FAILED",
-                "message": "Failed to validate spending permission"
-            }
+            detail={"error": "VALIDATION_FAILED", "message": "Failed to validate spending permission"},
         )
 
 
 @router.get("/{family_id}/sbd-account/available-balance")
 async def get_family_available_balance(
-    request: Request,
-    family_id: str,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    request: Request, family_id: str, current_user: dict = Depends(enforce_all_lockdowns)
 ) -> JSONResponse:
     """
-    Get available balance information for a family SBD account.
+    Get the available SBD token balance for a user within a family.
 
-    Returns comprehensive available balance information including total balance,
-    available balance considering user permissions, account status, and spending limits.
+    This endpoint calculates the available balance for the current user from the family's shared account.
+    It takes into account the total family balance, the user's spending limit, and the account's frozen status.
 
-    **Rate Limiting:** 1 request per second per user
+    **Access Control:**
+    - Any member of the family can view their available balance.
 
-    **Requirements:**
-    - User must be a family member
-
-    **Returns:**
-    - Available balance information with permission details and account status
+    **Use Cases:**
+    - Display the user's available funds before making a purchase.
+    - Help users understand their spending capacity within the family.
     """
     user_id = str(current_user["_id"])
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_available_balance_{user_id}",
-        rate_limit_requests=1,
-        rate_limit_period=1
+        request, f"family_available_balance_{user_id}", rate_limit_requests=1, rate_limit_period=1
     )
 
     try:
         available_balance_data = await family_manager.get_family_available_balance(family_id, user_id)
 
-        logger.debug("Retrieved available balance for family %s by user %s: %d available of %d total",
-                    family_id, user_id, available_balance_data["available_balance"],
-                    available_balance_data["total_balance"])
+        logger.debug(
+            "Retrieved available balance for family %s by user %s: %d available of %d total",
+            family_id,
+            user_id,
+            available_balance_data["available_balance"],
+            available_balance_data["total_balance"],
+        )
 
         return JSONResponse(
-            content={
-                "status": "success",
-                "data": available_balance_data
-            },
-            status_code=status.HTTP_200_OK
+            content={"status": "success", "data": available_balance_data}, status_code=status.HTTP_200_OK
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for available balance request: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for available balance access: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to get family available balance: %s", e)
@@ -4364,8 +3727,8 @@ async def get_family_available_balance(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "AVAILABLE_BALANCE_RETRIEVAL_FAILED",
-                "message": "Failed to retrieve available balance information"
-            }
+                "message": "Failed to retrieve available balance information",
+            },
         )
 
 
@@ -4374,7 +3737,7 @@ async def direct_transfer_tokens(
     request: Request,
     family_id: str,
     transfer_request: DirectTransferRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> JSONResponse:
     """
     Directly transfer SBD tokens from family account to a recipient (admin-only).
@@ -4398,10 +3761,7 @@ async def direct_transfer_tokens(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_direct_transfer_{admin_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_direct_transfer_{admin_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -4412,48 +3772,41 @@ async def direct_transfer_tokens(
             transfer_request.recipient_type,
             transfer_request.recipient_identifier,
             transfer_request.amount,
-            transfer_request.reason
+            transfer_request.reason,
         )
 
-        logger.info("Direct token transfer completed: %s - %d tokens from family %s to %s by admin %s",
-                   transfer_result["transaction_id"], transfer_request.amount, family_id,
-                   transfer_result["recipient_username"], admin_id)
+        logger.info(
+            "Direct token transfer completed: %s - %d tokens from family %s to %s by admin %s",
+            transfer_result["transaction_id"],
+            transfer_request.amount,
+            family_id,
+            transfer_result["recipient_username"],
+            admin_id,
+        )
 
         return JSONResponse(
             content={
                 "status": "success",
                 "message": f"Successfully transferred {transfer_request.amount} tokens",
-                "data": transfer_result
+                "data": transfer_result,
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
 
     except FamilyNotFound:
         logger.warning("Family not found for direct transfer: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for direct transfer: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Failed to perform direct token transfer: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "DIRECT_TRANSFER_FAILED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "DIRECT_TRANSFER_FAILED", "message": str(e)}
         )
 
 
@@ -4463,7 +3816,7 @@ async def manage_backup_admin(
     family_id: str,
     user_id: str,
     backup_request: BackupAdminRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> BackupAdminResponse:
     """
     Designate or remove backup administrator for account recovery.
@@ -4486,10 +3839,7 @@ async def manage_backup_admin(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"backup_admin_action_{admin_user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"backup_admin_action_{admin_user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -4498,65 +3848,41 @@ async def manage_backup_admin(
                 family_id, admin_user_id, user_id, {"request": request}
             )
 
-            logger.info("Backup admin designated: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("Backup admin designated: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return BackupAdminResponse(**result)
 
         elif backup_request.action == "remove":
-            result = await family_manager.remove_backup_admin(
-                family_id, admin_user_id, user_id, {"request": request}
-            )
+            result = await family_manager.remove_backup_admin(family_id, admin_user_id, user_id, {"request": request})
 
-            logger.info("Backup admin removed: %s by %s in family %s",
-                       user_id, admin_user_id, family_id)
+            logger.info("Backup admin removed: %s by %s in family %s", user_id, admin_user_id, family_id)
 
             return BackupAdminResponse(**result)
 
     except FamilyNotFound:
         logger.warning("Family not found for backup admin action: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for backup admin action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except ValidationError as e:
         logger.warning("Invalid backup admin action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "VALIDATION_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "VALIDATION_ERROR", "message": str(e)}
         )
     except BackupAdminError as e:
         logger.error("Backup admin action failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "BACKUP_ADMIN_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "BACKUP_ADMIN_ERROR", "message": str(e)}
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for backup admin action: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
 
 
@@ -4565,7 +3891,7 @@ async def initiate_account_recovery(
     request: Request,
     family_id: str,
     recovery_request: InitiateRecoveryRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> RecoveryInitiationResponse:
     """
     Initiate account recovery process when admin accounts are compromised or deleted.
@@ -4588,10 +3914,7 @@ async def initiate_account_recovery(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"recovery_initiate_{user_id}",
-        rate_limit_requests=2,
-        rate_limit_period=3600
+        request, f"recovery_initiate_{user_id}", rate_limit_requests=2, rate_limit_period=3600
     )
 
     try:
@@ -4599,55 +3922,40 @@ async def initiate_account_recovery(
             family_id, user_id, recovery_request.recovery_reason, {"request": request}
         )
 
-        logger.info("Account recovery initiated: %s for family %s by %s",
-                   result.get("recovery_id", "auto_promotion"), family_id, user_id)
+        logger.info(
+            "Account recovery initiated: %s for family %s by %s",
+            result.get("recovery_id", "auto_promotion"),
+            family_id,
+            user_id,
+        )
 
         return RecoveryInitiationResponse(**result)
 
     except FamilyNotFound:
         logger.warning("Family not found for recovery initiation: %s", family_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "FAMILY_NOT_FOUND",
-                "message": "Family not found"
-            }
+            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": "Family not found"}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for recovery initiation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except ValidationError as e:
         logger.warning("Invalid recovery initiation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "VALIDATION_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "VALIDATION_ERROR", "message": str(e)}
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for recovery initiation: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Recovery initiation failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "RECOVERY_INITIATION_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "RECOVERY_INITIATION_FAILED", "message": str(e)},
         )
 
 
@@ -4656,7 +3964,7 @@ async def verify_account_recovery(
     request: Request,
     recovery_id: str,
     verify_request: VerifyRecoveryRequest,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ) -> RecoveryVerificationResponse:
     """
     Verify account recovery request by providing verification code.
@@ -4680,10 +3988,7 @@ async def verify_account_recovery(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"recovery_verify_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"recovery_verify_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -4698,41 +4003,28 @@ async def verify_account_recovery(
     except ValidationError as e:
         logger.warning("Invalid recovery verification: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "VALIDATION_ERROR",
-                "message": str(e)
-            }
+            status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "VALIDATION_ERROR", "message": str(e)}
         )
     except InsufficientPermissions as e:
         logger.warning("Insufficient permissions for recovery verification: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "INSUFFICIENT_PERMISSIONS",
-                "message": str(e)
-            }
+            status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
         )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for recovery verification: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
     except FamilyError as e:
         logger.error("Recovery verification failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "RECOVERY_VERIFICATION_FAILED",
-                "message": str(e)
-            }
+            detail={"error": "RECOVERY_VERIFICATION_FAILED", "message": str(e)},
         )
 
+
 # SBD Token Audit and Compliance Endpoints
+
 
 @router.get("/{family_id}/sbd-transactions/history")
 async def get_family_sbd_transaction_history(
@@ -4744,7 +4036,7 @@ async def get_family_sbd_transaction_history(
     include_audit_trail: bool = True,
     limit: int = 100,
     offset: int = 0,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     """
     Get comprehensive family SBD transaction history with audit trails and family context.
@@ -4777,8 +4069,7 @@ async def get_family_sbd_transaction_history(
     try:
         # Rate limiting
         await security_manager.check_rate_limit(
-            request, f"family_audit_history_{current_user['username']}",
-            rate_limit_requests=20, rate_limit_period=300
+            request, f"family_audit_history_{current_user['username']}", rate_limit_requests=20, rate_limit_period=300
         )
 
         user_id = str(current_user["_id"])
@@ -4790,33 +4081,29 @@ async def get_family_sbd_transaction_history(
         if start_date:
             try:
                 from datetime import datetime
-                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+
+                parsed_start_date = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "start_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "start_date must be in ISO format"},
                 )
 
         if end_date:
             try:
                 from datetime import datetime
-                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+                parsed_end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "end_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "end_date must be in ISO format"},
                 )
 
         # Parse transaction types
         parsed_transaction_types = None
         if transaction_types:
-            parsed_transaction_types = [t.strip() for t in transaction_types.split(',')]
+            parsed_transaction_types = [t.strip() for t in transaction_types.split(",")]
 
         # Validate limit
         if limit > 1000:
@@ -4831,66 +4118,45 @@ async def get_family_sbd_transaction_history(
             transaction_types=parsed_transaction_types,
             include_audit_trail=include_audit_trail,
             limit=limit,
-            offset=offset
+            offset=offset,
         )
 
         logger.info(
             "Family SBD transaction history retrieved: %d records for family %s by user %s",
-            len(result["transactions"]), family_id, user_id
+            len(result["transactions"]),
+            family_id,
+            user_id,
         )
 
-        return JSONResponse(
-            content={
-                "status": "success",
-                "data": result
-            }
-        )
+        return JSONResponse(content={"status": "success", "data": result})
 
     except FamilyAuditError as e:
         if e.error_code == "INSUFFICIENT_PERMISSIONS":
             logger.warning("Insufficient permissions for transaction history: %s", e)
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "INSUFFICIENT_PERMISSIONS",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INSUFFICIENT_PERMISSIONS", "message": str(e)}
             )
         elif "not found" in str(e).lower():
             logger.warning("Family not found for transaction history: %s", e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "FAMILY_NOT_FOUND",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": str(e)}
             )
         else:
             logger.error("Failed to retrieve transaction history: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": "AUDIT_RETRIEVAL_FAILED",
-                    "message": str(e)
-                }
+                detail={"error": "AUDIT_RETRIEVAL_FAILED", "message": str(e)},
             )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for transaction history: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
     except Exception as e:
         logger.error("Unexpected error retrieving transaction history: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "INTERNAL_SERVER_ERROR",
-                "message": "Failed to retrieve transaction history"
-            }
+            detail={"error": "INTERNAL_SERVER_ERROR", "message": "Failed to retrieve transaction history"},
         )
 
 
@@ -4902,7 +4168,7 @@ async def generate_family_compliance_report(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     export_format: str = "json",
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     """
     Generate comprehensive compliance report for family SBD transactions.
@@ -4933,8 +4199,10 @@ async def generate_family_compliance_report(
     try:
         # Rate limiting for compliance reports (more restrictive)
         await security_manager.check_rate_limit(
-            request, f"family_compliance_report_{current_user['username']}",
-            rate_limit_requests=5, rate_limit_period=3600
+            request,
+            f"family_compliance_report_{current_user['username']}",
+            rate_limit_requests=5,
+            rate_limit_period=3600,
         )
 
         user_id = str(current_user["_id"])
@@ -4946,8 +4214,8 @@ async def generate_family_compliance_report(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "INVALID_REPORT_TYPE",
-                    "message": f"report_type must be one of: {', '.join(valid_report_types)}"
-                }
+                    "message": f"report_type must be one of: {', '.join(valid_report_types)}",
+                },
             )
 
         # Validate export format
@@ -4957,8 +4225,8 @@ async def generate_family_compliance_report(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "INVALID_EXPORT_FORMAT",
-                    "message": f"export_format must be one of: {', '.join(valid_formats)}"
-                }
+                    "message": f"export_format must be one of: {', '.join(valid_formats)}",
+                },
             )
 
         # Parse dates
@@ -4968,27 +4236,23 @@ async def generate_family_compliance_report(
         if start_date:
             try:
                 from datetime import datetime
-                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+
+                parsed_start_date = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "start_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "start_date must be in ISO format"},
                 )
 
         if end_date:
             try:
                 from datetime import datetime
-                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+                parsed_end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "end_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "end_date must be in ISO format"},
                 )
 
         # Generate compliance report
@@ -4998,20 +4262,17 @@ async def generate_family_compliance_report(
             report_type=report_type,
             start_date=parsed_start_date,
             end_date=parsed_end_date,
-            export_format=export_format
+            export_format=export_format,
         )
 
         logger.info(
             "Compliance report generated: %s for family %s by admin %s",
-            report["report_metadata"]["report_id"], family_id, user_id
+            report["report_metadata"]["report_id"],
+            family_id,
+            user_id,
         )
 
-        return JSONResponse(
-            content={
-                "status": "success",
-                "data": report
-            }
-        )
+        return JSONResponse(content={"status": "success", "data": report})
 
     except ComplianceReportError as e:
         if "admin" in str(e).lower() or "permission" in str(e).lower():
@@ -5020,63 +4281,42 @@ async def generate_family_compliance_report(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
-                    "message": "Only family admins can generate compliance reports"
-                }
+                    "message": "Only family admins can generate compliance reports",
+                },
             )
         elif "not found" in str(e).lower():
             logger.warning("Family not found for compliance report: %s", e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "FAMILY_NOT_FOUND",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": str(e)}
             )
         else:
             logger.error("Failed to generate compliance report: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": "COMPLIANCE_REPORT_FAILED",
-                    "message": str(e)
-                }
+                detail={"error": "COMPLIANCE_REPORT_FAILED", "message": str(e)},
             )
     except FamilyAuditError as e:
         if e.error_code == "INSUFFICIENT_ADMIN_PERMISSIONS":
             logger.warning("Insufficient admin permissions for compliance report: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
-                    "message": str(e)
-                }
+                detail={"error": "INSUFFICIENT_ADMIN_PERMISSIONS", "message": str(e)},
             )
         else:
             logger.error("Audit error generating compliance report: %s", e)
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": "AUDIT_ERROR",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"error": "AUDIT_ERROR", "message": str(e)}
             )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for compliance report: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
     except Exception as e:
         logger.error("Unexpected error generating compliance report: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "INTERNAL_SERVER_ERROR",
-                "message": "Failed to generate compliance report"
-            }
+            detail={"error": "INTERNAL_SERVER_ERROR", "message": "Failed to generate compliance report"},
         )
 
 
@@ -5086,7 +4326,7 @@ async def verify_audit_trail_integrity(
     family_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    current_user: dict = Depends(enforce_all_lockdowns)
+    current_user: dict = Depends(enforce_all_lockdowns),
 ):
     """
     Verify integrity of family audit trail records.
@@ -5114,8 +4354,10 @@ async def verify_audit_trail_integrity(
     try:
         # Rate limiting for integrity checks
         await security_manager.check_rate_limit(
-            request, f"family_audit_integrity_{current_user['username']}",
-            rate_limit_requests=10, rate_limit_period=3600
+            request,
+            f"family_audit_integrity_{current_user['username']}",
+            rate_limit_requests=10,
+            rate_limit_period=3600,
         )
 
         user_id = str(current_user["_id"])
@@ -5129,8 +4371,8 @@ async def verify_audit_trail_integrity(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail={
                         "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
-                        "message": "Only family admins can verify audit trail integrity"
-                    }
+                        "message": "Only family admins can verify audit trail integrity",
+                    },
                 )
             raise
 
@@ -5141,32 +4383,29 @@ async def verify_audit_trail_integrity(
         if start_date:
             try:
                 from datetime import datetime
-                parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+
+                parsed_start_date = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "start_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "start_date must be in ISO format"},
                 )
 
         if end_date:
             try:
                 from datetime import datetime
-                parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+                parsed_end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "INVALID_DATE_FORMAT",
-                        "message": "end_date must be in ISO format"
-                    }
+                    detail={"error": "INVALID_DATE_FORMAT", "message": "end_date must be in ISO format"},
                 )
 
         # Set default date range if not provided (last 30 days)
         if not parsed_start_date and not parsed_end_date:
             from datetime import datetime, timedelta, timezone
+
             parsed_end_date = datetime.now(timezone.utc)
             parsed_start_date = parsed_end_date - timedelta(days=30)
 
@@ -5177,7 +4416,9 @@ async def verify_audit_trail_integrity(
 
         logger.info(
             "Audit trail integrity check completed for family %s by admin %s: %s",
-            family_id, user_id, "PASSED" if integrity_results["integrity_verified"] else "FAILED"
+            family_id,
+            user_id,
+            "PASSED" if integrity_results["integrity_verified"] else "FAILED",
         )
 
         return JSONResponse(
@@ -5187,10 +4428,10 @@ async def verify_audit_trail_integrity(
                     "family_id": family_id,
                     "verification_period": {
                         "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
-                        "end_date": parsed_end_date.isoformat() if parsed_end_date else None
+                        "end_date": parsed_end_date.isoformat() if parsed_end_date else None,
                     },
-                    "integrity_results": integrity_results
-                }
+                    "integrity_results": integrity_results,
+                },
             }
         )
 
@@ -5199,44 +4440,27 @@ async def verify_audit_trail_integrity(
             logger.warning("Insufficient admin permissions for integrity check: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "INSUFFICIENT_ADMIN_PERMISSIONS",
-                    "message": str(e)
-                }
+                detail={"error": "INSUFFICIENT_ADMIN_PERMISSIONS", "message": str(e)},
             )
         elif "not found" in str(e).lower():
             logger.warning("Family not found for integrity check: %s", e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "FAMILY_NOT_FOUND",
-                    "message": str(e)
-                }
+                status_code=status.HTTP_404_NOT_FOUND, detail={"error": "FAMILY_NOT_FOUND", "message": str(e)}
             )
         else:
             logger.error("Failed to verify audit trail integrity: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": "INTEGRITY_CHECK_FAILED",
-                    "message": str(e)
-                }
+                detail={"error": "INTEGRITY_CHECK_FAILED", "message": str(e)},
             )
     except RateLimitExceeded as e:
         logger.warning("Rate limit exceeded for integrity check: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT_EXCEEDED",
-                "message": str(e)
-            }
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"error": "RATE_LIMIT_EXCEEDED", "message": str(e)}
         )
     except Exception as e:
         logger.error("Unexpected error during integrity check: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "INTERNAL_SERVER_ERROR",
-                "message": "Failed to verify audit trail integrity"
-            }
+            detail={"error": "INTERNAL_SERVER_ERROR", "message": "Failed to verify audit trail integrity"},
         )

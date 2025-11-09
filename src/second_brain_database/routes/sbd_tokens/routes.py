@@ -6,8 +6,8 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
 from second_brain_database.database import db_manager
-from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.family_audit_manager import family_audit_manager
+from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
@@ -19,6 +19,18 @@ router = APIRouter()
 
 @router.get("/sbd_tokens")
 async def get_my_sbd_tokens(request: Request = None, current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Get the SBD token balance for the authenticated user.
+
+    This endpoint retrieves the current SBD token balance for the user who is currently authenticated.
+
+    Args:
+        request (Request): The incoming request object.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary containing the username and their SBD token balance.
+    """
     await security_manager.check_rate_limit(
         request, f"sbd_tokens_read_{current_user['username']}", rate_limit_requests=10, rate_limit_period=60
     )
@@ -33,7 +45,28 @@ async def get_my_sbd_tokens(request: Request = None, current_user: dict = Depend
 
 
 @router.post("/sbd_tokens/send")
-async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+async def send_sbd_tokens(
+    request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """
+    Send SBD tokens from one user to another.
+
+    This endpoint facilitates the transfer of SBD tokens between users. It supports sending from a personal account
+    or a family account. If sending from a family account, it validates the user's spending permissions.
+    The transaction is performed atomically using a database transaction when possible.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the transfer details:
+            - `to_user` (str): The username of the recipient.
+            - `amount` (int): The number of tokens to send.
+            - `note` (str, optional): A note to attach to the transaction.
+            - `transaction_id` (str, optional): A unique ID for the transaction.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful transfer, including the transaction ID.
+    """
     from_user = current_user["username"]
     to_user = data.get("to_user")
     amount = data.get("amount")
@@ -66,7 +99,9 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                     elif not permissions.get("can_spend", False):
                         error_detail = "You don't have permission to spend from this family account"
                     elif permissions.get("spending_limit", 0) != -1 and amount > permissions.get("spending_limit", 0):
-                        error_detail = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                        error_detail = (
+                            f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                        )
                     else:
                         error_detail = "Family spending validation failed"
                 else:
@@ -74,28 +109,31 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
             except Exception:
                 error_detail = "You don't have permission to spend from this family account, the amount exceeds your limit, or the account is frozen"
 
-            logger.warning("[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s",
-                         user_id, from_user, amount)
-            return JSONResponse({
-                "status": "error",
-                "detail": error_detail
-            }, status_code=403)
+            logger.warning(
+                "[SBD TOKENS SEND] Family spending validation failed for user %s, account %s, amount %s",
+                user_id,
+                from_user,
+                amount,
+            )
+            return JSONResponse({"status": "error", "detail": error_detail}, status_code=403)
 
     # Prevent sending to reserved username patterns (family_ or team_)
     if to_user.lower().startswith("family_") or to_user.lower().startswith("team_"):
         # Check if it's a valid virtual family account
         if to_user.lower().startswith("family_") and not await family_manager.is_virtual_family_account(to_user):
             logger.warning("[SBD TOKENS SEND] Attempt to send to non-existent family account: %s", to_user)
-            return JSONResponse({
-                "status": "error",
-                "detail": "Family account does not exist. Family accounts can only be created through the family system."
-            }, status_code=400)
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "detail": "Family account does not exist. Family accounts can only be created through the family system.",
+                },
+                status_code=400,
+            )
         elif to_user.lower().startswith("team_"):
             logger.warning("[SBD TOKENS SEND] Attempt to send to reserved team account: %s", to_user)
-            return JSONResponse({
-                "status": "error",
-                "detail": "Team accounts are reserved and not yet implemented."
-            }, status_code=400)
+            return JSONResponse(
+                {"status": "error", "detail": "Team accounts are reserved and not yet implemented."}, status_code=400
+            )
     users_collection = db_manager.get_collection("users")
     is_replica_set = False
     try:
@@ -153,15 +191,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
 
                         # Enhanced family member attribution with audit context
                         enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
-                            send_txn, family_id, user_id, username, {
+                            send_txn,
+                            family_id,
+                            user_id,
+                            username,
+                            {
                                 "transaction_type": "send",
                                 "recipient": to_user,
                                 "original_note": note,
                                 "request_context": {
                                     "ip_address": getattr(request, "client", {}).get("host"),
-                                    "user_agent": request.headers.get("user-agent")
-                                }
-                            }
+                                    "user_agent": request.headers.get("user-agent"),
+                                },
+                            },
                         )
                         send_txn.update(enhanced_send_txn)
                     elif note:
@@ -191,15 +233,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
 
                         # Enhanced family member attribution for receive transaction
                         enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
-                            receive_txn, family_id, user_id, username, {
+                            receive_txn,
+                            family_id,
+                            user_id,
+                            username,
+                            {
                                 "transaction_type": "receive",
                                 "sender": from_user,
                                 "original_note": note,
                                 "request_context": {
                                     "ip_address": getattr(request, "client", {}).get("host"),
-                                    "user_agent": request.headers.get("user-agent")
-                                }
-                            }
+                                    "user_agent": request.headers.get("user-agent"),
+                                },
+                            },
                         )
                         receive_txn.update(enhanced_receive_txn)
                     elif note:
@@ -227,17 +273,18 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                                     "request_metadata": {
                                         "ip_address": getattr(request, "client", {}).get("host"),
                                         "user_agent": request.headers.get("user-agent"),
-                                        "timestamp": now_iso
+                                        "timestamp": now_iso,
                                     },
                                     "transaction_flow": "family_to_external",
-                                    "compliance_flags": ["family_spending"]
+                                    "compliance_flags": ["family_spending"],
                                 },
-                                session=session
+                                session=session,
                             )
                         except Exception as audit_error:
                             logger.warning(
                                 "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
-                                transaction_id, audit_error
+                                transaction_id,
+                                audit_error,
                             )
 
                     logger.info(
@@ -292,15 +339,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
 
                 # Enhanced family member attribution with audit context
                 enhanced_send_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
-                    send_txn, family_id, user_id, username, {
+                    send_txn,
+                    family_id,
+                    user_id,
+                    username,
+                    {
                         "transaction_type": "send",
                         "recipient": to_user,
                         "original_note": note,
                         "request_context": {
                             "ip_address": getattr(request, "client", {}).get("host"),
-                            "user_agent": request.headers.get("user-agent")
-                        }
-                    }
+                            "user_agent": request.headers.get("user-agent"),
+                        },
+                    },
                 )
                 send_txn.update(enhanced_send_txn)
             elif note:
@@ -327,15 +378,19 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
 
                 # Enhanced family member attribution for receive transaction
                 enhanced_receive_txn = await family_audit_manager.enhance_transaction_with_family_attribution(
-                    receive_txn, family_id, user_id, username, {
+                    receive_txn,
+                    family_id,
+                    user_id,
+                    username,
+                    {
                         "transaction_type": "receive",
                         "sender": from_user,
                         "original_note": note,
                         "request_context": {
                             "ip_address": getattr(request, "client", {}).get("host"),
-                            "user_agent": request.headers.get("user-agent")
-                        }
-                    }
+                            "user_agent": request.headers.get("user-agent"),
+                        },
+                    },
                 )
                 receive_txn.update(enhanced_receive_txn)
             elif note:
@@ -362,16 +417,17 @@ async def send_sbd_tokens(request: Request, data: dict = Body(...), current_user
                             "request_metadata": {
                                 "ip_address": getattr(request, "client", {}).get("host"),
                                 "user_agent": request.headers.get("user-agent"),
-                                "timestamp": now_iso
+                                "timestamp": now_iso,
                             },
                             "transaction_flow": "family_to_external",
-                            "compliance_flags": ["family_spending", "non_replica_set"]
-                        }
+                            "compliance_flags": ["family_spending", "non_replica_set"],
+                        },
                     )
                 except Exception as audit_error:
                     logger.warning(
                         "[SBD TOKENS SEND] Failed to log audit trail for transaction %s: %s",
-                        transaction_id, audit_error
+                        transaction_id,
+                        audit_error,
                     )
 
             logger.info(
@@ -400,6 +456,21 @@ async def get_my_sbd_tokens_transactions(
     limit: int = Query(5, ge=1, le=100),  # Default limit is now 5
     current_user: dict = Depends(enforce_all_lockdowns),
 ):
+    """
+    Get the SBD token transaction history for the authenticated user.
+
+    This endpoint retrieves a paginated list of the user's SBD token transactions,
+    sorted in reverse chronological order.
+
+    Args:
+        request (Request): The incoming request object.
+        skip (int, optional): The number of transactions to skip for pagination. Defaults to 0.
+        limit (int, optional): The maximum number of transactions to return. Defaults to 5.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary containing the username and a list of their transactions.
+    """
     username = current_user["username"]
     await security_manager.check_rate_limit(
         request, f"sbd_tokens_txn_{username}", rate_limit_requests=10, rate_limit_period=60
@@ -423,6 +494,19 @@ async def get_my_sbd_tokens_transactions(
 
 @router.patch("/sbd_tokens/transaction/note")
 async def add_note_to_transaction(data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Add or update a note for a specific SBD token transaction.
+
+    This endpoint allows a user to add a personal note to one of their own SBD token transactions.
+    The note can be used to add context or a memo to the transaction for future reference.
+
+    Args:
+        data (dict): A dictionary containing the `transaction_id` and the `note` to add.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful update, including the transaction ID and the new note.
+    """
     transaction_id = data.get("transaction_id")
     note = data.get("note")
     if not transaction_id or not note:

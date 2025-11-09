@@ -10,12 +10,12 @@ This script tests the key functionality implemented in task 3:
 """
 
 import asyncio
-import sys
-import os
 from datetime import datetime, timezone
+import os
+import sys
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from second_brain_database.managers.family_manager import family_manager
 
@@ -33,8 +33,14 @@ async def test_username_validation():
 
     # Test invalid usernames (reserved prefixes)
     invalid_usernames = [
-        "family_test", "team_alpha", "admin_user", "system_bot",
-        "bot_helper", "service_api", "family", "123456"
+        "family_test",
+        "team_alpha",
+        "admin_user",
+        "system_bot",
+        "bot_helper",
+        "service_api",
+        "family",
+        "123456",
     ]
     for username in invalid_usernames:
         is_valid, error_msg = await family_manager.validate_username_against_reserved_prefixes(username)
@@ -54,7 +60,7 @@ async def test_collision_resistant_naming():
         "Brown & Associates",
         "Family@#$%^&*()",
         "A",  # Very short name
-        "This is a very long family name that exceeds normal limits"  # Very long name
+        "This is a very long family name that exceeds normal limits",  # Very long name
     ]
 
     for family_name in test_names:
@@ -111,7 +117,7 @@ async def test_security_event_severity():
         ("account_frozen", "high"),
         ("permissions_updated", "medium"),
         ("routine_transaction", "low"),
-        ("unknown_event", "low")
+        ("unknown_event", "low"),
     ]
 
     for event_type, expected_severity in test_events:
@@ -142,6 +148,7 @@ async def main():
     except Exception as e:
         print(f"✗ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

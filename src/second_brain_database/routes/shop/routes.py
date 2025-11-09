@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import time
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -38,37 +38,44 @@ SHOP_COLLECTION = "shop"
 # Payment method models
 class PaymentMethod(BaseModel):
     """Payment method selection for shop purchases."""
+
     type: str = Field(..., description="Payment type: 'personal' or 'family'")
     family_id: Optional[str] = Field(None, description="Family ID if using family tokens")
 
 
 class PurchaseRequest(BaseModel):
     """Base purchase request with payment method."""
+
     payment_method: PaymentMethod = Field(..., description="Payment method selection")
 
 
 class ThemePurchaseRequest(PurchaseRequest):
     """Theme purchase request with payment method."""
+
     theme_id: str = Field(..., description="Theme ID to purchase")
 
 
 class AvatarPurchaseRequest(PurchaseRequest):
     """Avatar purchase request with payment method."""
+
     avatar_id: str = Field(..., description="Avatar ID to purchase")
 
 
 class BannerPurchaseRequest(PurchaseRequest):
     """Banner purchase request with payment method."""
+
     banner_id: str = Field(..., description="Banner ID to purchase")
 
 
 class BundlePurchaseRequest(PurchaseRequest):
     """Bundle purchase request with payment method."""
+
     bundle_id: str = Field(..., description="Bundle ID to purchase")
 
 
 class CartCheckoutRequest(BaseModel):
     """Cart checkout request with payment method."""
+
     payment_method: PaymentMethod = Field(..., description="Payment method selection")
 
 
@@ -105,29 +112,27 @@ async def get_user_payment_options(user_id: str, username: str) -> Dict[str, Any
                 can_spend = user_permissions.get("can_spend", False) and not sbd_account["is_frozen"]
 
                 if can_spend:
-                    family_balances.append({
-                        "family_id": family_id,
-                        "family_name": family["name"],
-                        "balance": sbd_account["balance"],
-                        "spending_limit": user_permissions.get("spending_limit", 0),
-                        "is_frozen": sbd_account["is_frozen"]
-                    })
+                    family_balances.append(
+                        {
+                            "family_id": family_id,
+                            "family_name": family["name"],
+                            "balance": sbd_account["balance"],
+                            "spending_limit": user_permissions.get("spending_limit", 0),
+                            "is_frozen": sbd_account["is_frozen"],
+                        }
+                    )
             except Exception as e:
                 logger.warning("Failed to get family SBD account for family %s: %s", family_id, e)
                 continue
     except Exception as e:
         logger.warning("Failed to get user families for payment options: %s", e)
 
-    return {
-        "personal": {
-            "balance": personal_balance,
-            "available": True
-        },
-        "family": family_balances
-    }
+    return {"personal": {"balance": personal_balance, "available": True}, "family": family_balances}
 
 
-async def validate_payment_method(payment_method: PaymentMethod, user_id: str, username: str, amount: int) -> Dict[str, Any]:
+async def validate_payment_method(
+    payment_method: PaymentMethod, user_id: str, username: str, amount: int
+) -> Dict[str, Any]:
     """
     Validate payment method and check if user can make the purchase.
 
@@ -157,25 +162,17 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
                 status_code=400,
                 detail={
                     "error": "INSUFFICIENT_PERSONAL_TOKENS",
-                    "message": f"Insufficient personal tokens. Required: {amount}, Available: {balance}"
-                }
+                    "message": f"Insufficient personal tokens. Required: {amount}, Available: {balance}",
+                },
             )
 
-        return {
-            "valid": True,
-            "payment_type": "personal",
-            "account_username": username,
-            "balance": balance
-        }
+        return {"valid": True, "payment_type": "personal", "account_username": username, "balance": balance}
 
     elif payment_method.type == "family":
         if not payment_method.family_id:
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "error": "MISSING_FAMILY_ID",
-                    "message": "Family ID is required for family token payments"
-                }
+                detail={"error": "MISSING_FAMILY_ID", "message": "Family ID is required for family token payments"},
             )
 
         try:
@@ -184,9 +181,7 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
             family_username = family_data["sbd_account"]["account_username"]
 
             # Validate family spending permission
-            can_spend = await family_manager.validate_family_spending(
-                family_username, user_id, amount
-            )
+            can_spend = await family_manager.validate_family_spending(family_username, user_id, amount)
 
             if not can_spend:
                 # Get detailed error information
@@ -197,16 +192,14 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
                 elif not permissions.get("can_spend", False):
                     error_detail = "You don't have permission to spend from this family account"
                 elif permissions.get("spending_limit", 0) != -1 and amount > permissions.get("spending_limit", 0):
-                    error_detail = f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                    error_detail = (
+                        f"Amount exceeds your spending limit of {permissions.get('spending_limit', 0)} tokens"
+                    )
                 else:
                     error_detail = "Family spending validation failed"
 
                 raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "FAMILY_SPENDING_DENIED",
-                        "message": error_detail
-                    }
+                    status_code=403, detail={"error": "FAMILY_SPENDING_DENIED", "message": error_detail}
                 )
 
             # Get family account balance
@@ -219,7 +212,7 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
                 "family_id": payment_method.family_id,
                 "family_name": family_data["name"],
                 "balance": balance,
-                "user_permissions": permissions
+                "user_permissions": permissions,
             }
 
         except Exception as e:
@@ -228,10 +221,7 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
             logger.error("Failed to validate family payment method: %s", e)
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "error": "FAMILY_VALIDATION_FAILED",
-                    "message": "Failed to validate family payment method"
-                }
+                detail={"error": "FAMILY_VALIDATION_FAILED", "message": "Failed to validate family payment method"},
             )
 
     else:
@@ -239,13 +229,18 @@ async def validate_payment_method(payment_method: PaymentMethod, user_id: str, u
             status_code=400,
             detail={
                 "error": "INVALID_PAYMENT_TYPE",
-                "message": f"Invalid payment type: {payment_method.type}. Must be 'personal' or 'family'"
-            }
+                "message": f"Invalid payment type: {payment_method.type}. Must be 'personal' or 'family'",
+            },
         )
 
 
-async def process_payment(payment_details: Dict[str, Any], amount: int, item_details: Dict[str, Any],
-                         current_user: Dict[str, Any], transaction_id: str) -> Dict[str, Any]:
+async def process_payment(
+    payment_details: Dict[str, Any],
+    amount: int,
+    item_details: Dict[str, Any],
+    current_user: Dict[str, Any],
+    transaction_id: str,
+) -> Dict[str, Any]:
     """
     Process payment using the validated payment method.
 
@@ -299,10 +294,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
         )
 
         if result.modified_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Insufficient SBD tokens or race condition"
-            )
+            raise HTTPException(status_code=400, detail="Insufficient SBD tokens or race condition")
 
         # Add to shop account
         await users_collection.update_one(
@@ -318,7 +310,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
             "payment_type": "personal",
             "from_account": username,
             "amount": amount,
-            "transaction_id": transaction_id
+            "transaction_id": transaction_id,
         }
 
     elif payment_details["payment_type"] == "family":
@@ -339,7 +331,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
             "family_member_id": user_id,
             "family_member_username": username,
             "shop_item_type": item_type,
-            "shop_item_id": item_id
+            "shop_item_id": item_id,
         }
 
         receive_txn = {
@@ -352,7 +344,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
             "family_member_id": user_id,
             "family_member_username": username,
             "shop_item_type": item_type,
-            "shop_item_id": item_id
+            "shop_item_id": item_id,
         }
 
         # Deduct from family account
@@ -365,10 +357,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
         )
 
         if result.modified_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Insufficient family tokens or race condition"
-            )
+            raise HTTPException(status_code=400, detail="Insufficient family tokens or race condition")
 
         # Add to shop account
         await users_collection.update_one(
@@ -393,8 +382,8 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
                     "shop_item_type": item_type,
                     "shop_item_id": item_id,
                     "shop_item_name": item_details.get("name", "Unknown Item"),
-                    "to_account": "emotion_tracker_shop"
-                }
+                    "to_account": "emotion_tracker_shop",
+                },
             )
         except Exception as e:
             logger.warning("Failed to send family notification for shop purchase: %s", e)
@@ -406,7 +395,7 @@ async def process_payment(payment_details: Dict[str, Any], amount: int, item_det
             "family_name": family_name,
             "amount": amount,
             "transaction_id": transaction_id,
-            "family_member": username
+            "family_member": username,
         }
 
     else:
@@ -469,10 +458,7 @@ async def get_or_create_shop_doc(username):
 
 
 @router.get("/shop/payment-options", tags=["Shop"], summary="Get available payment options")
-async def get_payment_options(
-    request: Request,
-    current_user: dict = Depends(enforce_all_lockdowns)
-):
+async def get_payment_options(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
     """
     Get available payment options for the current user including personal and family token balances.
 
@@ -494,19 +480,12 @@ async def get_payment_options(
 
         return {
             "status": "success",
-            "data": {
-                "user_id": user_id,
-                "username": username,
-                "payment_options": payment_options
-            }
+            "data": {"user_id": user_id, "username": username, "payment_options": payment_options},
         }
 
     except Exception as e:
         logger.error("Failed to get payment options for user %s: %s", username, e)
-        return JSONResponse(
-            {"status": "error", "detail": "Failed to retrieve payment options"},
-            status_code=500
-        )
+        return JSONResponse({"status": "error", "detail": "Failed to retrieve payment options"}, status_code=500)
 
 
 BUNDLE_CONTENTS = {
@@ -690,12 +669,8 @@ BUNDLE_CONTENTS = {
                                     "note": "Bought from shop",
                                     "price": 250,
                                 },
-                                "payment": {
-                                    "payment_type": "personal",
-                                    "from_account": "username",
-                                    "amount": 250
-                                }
-                            }
+                                "payment": {"payment_type": "personal", "from_account": "username", "amount": 250},
+                            },
                         },
                         "family_purchase": {
                             "summary": "Successful family token purchase",
@@ -715,9 +690,9 @@ BUNDLE_CONTENTS = {
                                     "from_account": "family_smiths",
                                     "family_name": "Smith Family",
                                     "amount": 250,
-                                    "family_member": "username"
-                                }
-                            }
+                                    "family_member": "username",
+                                },
+                            },
                         },
                         "legacy_purchase": {
                             "summary": "Legacy format purchase (backward compatible)",
@@ -731,9 +706,9 @@ BUNDLE_CONTENTS = {
                                     "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
                                     "note": "Bought from shop",
                                     "price": 250,
-                                }
-                            }
-                        }
+                                },
+                            },
+                        },
                     }
                 }
             },
@@ -754,11 +729,23 @@ BUNDLE_CONTENTS = {
                         },
                         "insufficient_personal_funds": {
                             "summary": "Not enough personal SBD tokens",
-                            "value": {"status": "error", "detail": {"error": "INSUFFICIENT_PERSONAL_TOKENS", "message": "Insufficient personal tokens. Required: 250, Available: 100"}},
+                            "value": {
+                                "status": "error",
+                                "detail": {
+                                    "error": "INSUFFICIENT_PERSONAL_TOKENS",
+                                    "message": "Insufficient personal tokens. Required: 250, Available: 100",
+                                },
+                            },
                         },
                         "invalid_payment_method": {
                             "summary": "Invalid payment method",
-                            "value": {"status": "error", "detail": {"error": "INVALID_PAYMENT_TYPE", "message": "Invalid payment type: invalid. Must be 'personal' or 'family'"}},
+                            "value": {
+                                "status": "error",
+                                "detail": {
+                                    "error": "INVALID_PAYMENT_TYPE",
+                                    "message": "Invalid payment type: invalid. Must be 'personal' or 'family'",
+                                },
+                            },
                         },
                     }
                 }
@@ -772,19 +759,34 @@ BUNDLE_CONTENTS = {
                     "examples": {
                         "access_denied": {
                             "summary": "Invalid client",
-                            "value": {"status": "error", "detail": "Shop access denied: invalid client"}
+                            "value": {"status": "error", "detail": "Shop access denied: invalid client"},
                         },
                         "family_spending_denied": {
                             "summary": "Family spending permission denied",
-                            "value": {"status": "error", "detail": {"error": "FAMILY_SPENDING_DENIED", "message": "You don't have permission to spend from this family account"}}
-                        }
+                            "value": {
+                                "status": "error",
+                                "detail": {
+                                    "error": "FAMILY_SPENDING_DENIED",
+                                    "message": "You don't have permission to spend from this family account",
+                                },
+                            },
+                        },
                     }
                 }
             },
         },
         404: {
             "description": "Theme not found",
-            "content": {"application/json": {"examples": {"not_found": {"summary": "Theme not found", "value": {"status": "error", "detail": "Theme not found"}}}}},
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "not_found": {
+                            "summary": "Theme not found",
+                            "value": {"status": "error", "detail": "Theme not found"},
+                        }
+                    }
+                }
+            },
         },
         500: {"description": "Internal server error", "model": StandardErrorResponse},
     },
@@ -887,7 +889,11 @@ async def buy_theme(
         try:
             payment_details = await validate_payment_method(payment_method, user_id, username, price)
         except HTTPException as e:
-            if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+            if (
+                e.status_code == 403
+                and isinstance(e.detail, dict)
+                and e.detail.get("error") == "FAMILY_SPENDING_DENIED"
+            ):
                 logger.info(
                     "[%s] Family spending denied for user %s, creating purchase request.",
                     request_id,
@@ -902,7 +908,7 @@ async def buy_theme(
                             "item_id": theme_id,
                             "name": theme_details["name"],
                             "item_type": "theme",
-                            "image_url": None, # Or get it from somewhere if available
+                            "image_url": None,  # Or get it from somewhere if available
                         },
                         cost=price,
                         request_context={
@@ -969,11 +975,13 @@ async def buy_theme(
         if payment_result.get("payment_type") == "family":
             # Store on family virtual account and include audit fields
             target_username = payment_result.get("from_account")
-            theme_entry_to_store.update({
-                "purchased_by_user_id": user_id,
-                "purchased_by_username": username,
-                "family_transaction_id": transaction_id,
-            })
+            theme_entry_to_store.update(
+                {
+                    "purchased_by_user_id": user_id,
+                    "purchased_by_username": username,
+                    "family_transaction_id": transaction_id,
+                }
+            )
 
         result = await users_collection.update_one(
             {"username": target_username},
@@ -993,11 +1001,11 @@ async def buy_theme(
         if result.modified_count == 0:
             logger.error(
                 "[%s] POST /shop/themes/buy failed to add theme to user - User: %s, Theme: %s",
-                request_id, username, theme_id
+                request_id,
+                username,
+                theme_id,
             )
-            return JSONResponse(
-                {"status": "error", "detail": "Failed to add theme to user account"}, status_code=500
-            )
+            return JSONResponse({"status": "error", "detail": "Failed to add theme to user account"}, status_code=500)
 
         duration = time.time() - start_time
         logger.info(
@@ -1039,6 +1047,37 @@ async def buy_theme(
 
 @router.post("/shop/avatars/buy", tags=["Shop"], summary="Buy an avatar with SBD tokens")
 async def buy_avatar(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Purchase an avatar using SBD tokens from a personal or family account.
+
+    This endpoint allows a user to purchase an avatar. It supports two payment methods:
+    - **Personal:** Uses the user's own SBD token balance.
+    - **Family:** Uses a shared family SBD token account. If the user does not have
+      sufficient permissions to spend the required amount, a purchase request is
+      created for an administrator to approve.
+
+    **Purchase Process:**
+    1. Validates the avatar ID and user authentication.
+    2. Validates the selected payment method.
+    3. Checks if the user already owns the avatar.
+    4. Verifies sufficient SBD token balance and spending permissions.
+    5. If payment is from a family account and permissions are insufficient, a purchase
+       request is created for admin approval.
+    6. Otherwise, the tokens are deducted and the avatar is added to the user's or family's
+       owned collection.
+    7. A transaction record is created, and for family purchases, a notification is sent.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the purchase details:
+            - `avatar_id` (str): The ID of the avatar to purchase.
+            - `payment_method` (PaymentMethod): The selected payment method.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful purchase, or a pending approval status
+              if a family purchase request was created.
+    """
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user_id = str(current_user["_id"])
@@ -1092,7 +1131,7 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
                         "item_id": avatar_id,
                         "name": avatar_details["name"],
                         "item_type": "avatar",
-                        "image_url": None, # Or get it from somewhere if available
+                        "image_url": None,  # Or get it from somewhere if available
                     },
                     cost=price,
                     request_context={
@@ -1129,7 +1168,9 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
     }
 
     try:
-        logger.info(f"[AVATAR BUY] User: {username} attempting to buy avatar_id={avatar_id} for price={price} using {payment_method.type}")
+        logger.info(
+            f"[AVATAR BUY] User: {username} attempting to buy avatar_id={avatar_id} for price={price} using {payment_method.type}"
+        )
 
         # Process payment
         payment_result = await process_payment(payment_details, price, avatar_details, current_user, transaction_id)
@@ -1139,11 +1180,13 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
         avatar_entry_to_store = dict(avatar_entry)
         if payment_result.get("payment_type") == "family":
             target_username = payment_result.get("from_account")
-            avatar_entry_to_store.update({
-                "purchased_by_user_id": user_id,
-                "purchased_by_username": username,
-                "family_transaction_id": transaction_id,
-            })
+            avatar_entry_to_store.update(
+                {
+                    "purchased_by_user_id": user_id,
+                    "purchased_by_username": username,
+                    "family_transaction_id": transaction_id,
+                }
+            )
 
         result = await users_collection.update_one(
             {"username": target_username},
@@ -1155,9 +1198,7 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
 
         if result.modified_count == 0:
             logger.error(f"[AVATAR BUY] Failed to add avatar to user {username} buying avatar_id={avatar_id}")
-            return JSONResponse(
-                {"status": "error", "detail": "Failed to add avatar to user account"}, status_code=500
-            )
+            return JSONResponse({"status": "error", "detail": "Failed to add avatar to user account"}, status_code=500)
 
         logger.info(
             f"[AVATAR BUY] User: {username} successfully bought avatar_id={avatar_id} (txn_id={transaction_id}) using {payment_method.type}"
@@ -1181,6 +1222,37 @@ async def buy_avatar(request: Request, data: dict = Body(...), current_user: dic
 
 @router.post("/shop/banners/buy", tags=["Shop"], summary="Buy a banner with SBD tokens")
 async def buy_banner(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Purchase a banner using SBD tokens from a personal or family account.
+
+    This endpoint allows a user to purchase a banner. It supports two payment methods:
+    - **Personal:** Uses the user's own SBD token balance.
+    - **Family:** Uses a shared family SBD token account. If the user does not have
+      sufficient permissions to spend the required amount, a purchase request is
+      created for an administrator to approve.
+
+    **Purchase Process:**
+    1. Validates the banner ID and user authentication.
+    2. Validates the selected payment method.
+    3. Checks if the user already owns the banner.
+    4. Verifies sufficient SBD token balance and spending permissions.
+    5. If payment is from a family account and permissions are insufficient, a purchase
+       request is created for admin approval.
+    6. Otherwise, the tokens are deducted and the banner is added to the user's or family's
+       owned collection.
+    7. A transaction record is created, and for family purchases, a notification is sent.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the purchase details:
+            - `banner_id` (str): The ID of the banner to purchase.
+            - `payment_method` (PaymentMethod): The selected payment method.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful purchase, or a pending approval status
+              if a family purchase request was created.
+    """
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user_id = str(current_user["_id"])
@@ -1234,7 +1306,7 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
                         "item_id": banner_id,
                         "name": banner_details["name"],
                         "item_type": "banner",
-                        "image_url": None, # Or get it from somewhere if available
+                        "image_url": None,  # Or get it from somewhere if available
                     },
                     cost=price,
                     request_context={
@@ -1271,7 +1343,9 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
     }
 
     try:
-        logger.info(f"[BANNER BUY] User: {username} attempting to buy banner_id={banner_id} for price={price} using {payment_method.type}")
+        logger.info(
+            f"[BANNER BUY] User: {username} attempting to buy banner_id={banner_id} for price={price} using {payment_method.type}"
+        )
 
         # Process payment
         payment_result = await process_payment(payment_details, price, banner_details, current_user, transaction_id)
@@ -1281,11 +1355,13 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
         banner_entry_to_store = dict(banner_entry)
         if payment_result.get("payment_type") == "family":
             target_username = payment_result.get("from_account")
-            banner_entry_to_store.update({
-                "purchased_by_user_id": user_id,
-                "purchased_by_username": username,
-                "family_transaction_id": transaction_id,
-            })
+            banner_entry_to_store.update(
+                {
+                    "purchased_by_user_id": user_id,
+                    "purchased_by_username": username,
+                    "family_transaction_id": transaction_id,
+                }
+            )
 
         result = await users_collection.update_one(
             {"username": target_username},
@@ -1297,9 +1373,7 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
 
         if result.modified_count == 0:
             logger.error(f"[BANNER BUY] Failed to add banner to user {username} buying banner_id={banner_id}")
-            return JSONResponse(
-                {"status": "error", "detail": "Failed to add banner to user account"}, status_code=500
-            )
+            return JSONResponse({"status": "error", "detail": "Failed to add banner to user account"}, status_code=500)
 
         logger.info(
             f"[BANNER BUY] User: {username} successfully bought banner_id={banner_id} (txn_id={transaction_id}) using {payment_method.type}"
@@ -1323,6 +1397,38 @@ async def buy_banner(request: Request, data: dict = Body(...), current_user: dic
 
 @router.post("/shop/bundles/buy", tags=["Shop"], summary="Buy a bundle with SBD tokens")
 async def buy_bundle(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Purchase a bundle of items using SBD tokens from a personal or family account.
+
+    This endpoint allows a user to purchase a bundle of items, such as avatars or themes.
+    It supports two payment methods:
+    - **Personal:** Uses the user's own SBD token balance.
+    - **Family:** Uses a shared family SBD token account. If the user does not have
+      sufficient permissions to spend the required amount, a purchase request is
+      created for an administrator to approve.
+
+    **Purchase Process:**
+    1. Validates the bundle ID and user authentication.
+    2. Validates the selected payment method.
+    3. Checks if the user already owns the bundle.
+    4. Verifies sufficient SBD token balance and spending permissions.
+    5. If payment is from a family account and permissions are insufficient, a purchase
+       request is created for admin approval.
+    6. Otherwise, the tokens are deducted and the bundle and its contents are added to the
+       user's or family's owned collection.
+    7. A transaction record is created, and for family purchases, a notification is sent.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the purchase details:
+            - `bundle_id` (str): The ID of the bundle to purchase.
+            - `payment_method` (PaymentMethod): The selected payment method.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful purchase, or a pending approval status
+              if a family purchase request was created.
+    """
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user_id = str(current_user["_id"])
@@ -1379,7 +1485,7 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
                         "item_id": bundle_id,
                         "name": bundle_details["name"],
                         "item_type": "bundle",
-                        "image_url": None, # Or get it from somewhere if available
+                        "image_url": None,  # Or get it from somewhere if available
                     },
                     cost=price,
                     request_context={
@@ -1416,7 +1522,9 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
     }
 
     try:
-        logger.info(f"[BUNDLE BUY] User: {username} attempting to buy bundle_id={bundle_id} for price={price} using {payment_method.type}")
+        logger.info(
+            f"[BUNDLE BUY] User: {username} attempting to buy bundle_id={bundle_id} for price={price} using {payment_method.type}"
+        )
 
         # Process payment
         payment_result = await process_payment(payment_details, price, bundle_details, current_user, transaction_id)
@@ -1426,11 +1534,13 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
         bundle_entry_to_store = dict(bundle_entry)
         if payment_result.get("payment_type") == "family":
             target_username = payment_result.get("from_account")
-            bundle_entry_to_store.update({
-                "purchased_by_user_id": user_id,
-                "purchased_by_username": username,
-                "family_transaction_id": transaction_id,
-            })
+            bundle_entry_to_store.update(
+                {
+                    "purchased_by_user_id": user_id,
+                    "purchased_by_username": username,
+                    "family_transaction_id": transaction_id,
+                }
+            )
 
         result = await users_collection.update_one(
             {"username": target_username},
@@ -1440,9 +1550,7 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
 
         if result.modified_count == 0:
             logger.error(f"[BUNDLE BUY] Failed to add bundle to user {username} buying bundle_id={bundle_id}")
-            return JSONResponse(
-                {"status": "error", "detail": "Failed to add bundle to user account"}, status_code=500
-            )
+            return JSONResponse({"status": "error", "detail": "Failed to add bundle to user account"}, status_code=500)
 
         # Auto-populate bundle contents (avatars, themes, banners)
         update_operations = {}
@@ -1498,11 +1606,7 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
         )
 
         # Return format based on request type for backward compatibility
-        response = {
-            "status": "success",
-            "bundle": bundle_entry,
-            "bundle_contents": bundle_contents
-        }
+        response = {"status": "success", "bundle": bundle_entry, "bundle_contents": bundle_contents}
 
         # Only include payment details if new format was used
         if "payment_method" in data:
@@ -1567,6 +1671,26 @@ async def buy_bundle(request: Request, data: dict = Body(...), current_user: dic
 
 @router.post("/shop/cart/add", tags=["shop"], summary="Add an item to the cart by ID")
 async def add_to_cart(request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Add an item to the user's shopping cart for a specific application.
+
+    This endpoint adds a specified item to the user's cart. The cart is specific to the
+    application making the request, identified by the `User-Agent` header.
+
+    **Item Types:**
+    - `theme`
+    - `avatar`
+    - `bundle`
+    - `banner`
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the `item_id` and `item_type`.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful addition of the item to the cart.
+    """
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
@@ -1609,6 +1733,20 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
 async def remove_from_cart(
     request: Request, data: dict = Body(...), current_user: dict = Depends(enforce_all_lockdowns)
 ):
+    """
+    Remove an item from the user's shopping cart for a specific application.
+
+    This endpoint removes a specified item from the user's cart. The cart is specific to the
+    application making the request, identified by the `User-Agent` header.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the `item_id` and `item_type` of the item to remove.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful removal of the item from the cart.
+    """
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     username = current_user["username"]
     item_id = data.get("item_id")
@@ -1688,6 +1826,36 @@ async def get_cart(request: Request, current_user: dict = Depends(enforce_all_lo
 
 @router.post("/shop/cart/checkout", tags=["shop"], summary="Checkout a specific app cart with payment method selection")
 async def checkout_cart(request: Request, data: dict = Body({}), current_user: dict = Depends(enforce_all_lockdowns)):
+    """
+    Checkout the user's shopping cart for a specific application.
+
+    This endpoint processes the checkout for all items in the user's cart for the application
+    making the request. It supports two payment methods:
+    - **Personal:** Uses the user's own SBD token balance.
+    - **Family:** Uses a shared family SBD token account. If the user does not have
+      sufficient permissions to spend the required amount, a purchase request is
+      created for each item in the cart for an administrator to approve.
+
+    **Checkout Process:**
+    1. Calculates the total price of all items in the cart.
+    2. Validates the selected payment method.
+    3. Verifies sufficient SBD token balance and spending permissions.
+    4. If payment is from a family account and permissions are insufficient, a purchase
+       request is created for each item for admin approval.
+    5. Otherwise, the total amount is deducted and the items are added to the user's or
+       family's owned collection.
+    6. The cart for the application is cleared.
+    7. A transaction record is created, and for family purchases, a notification is sent.
+
+    Args:
+        request (Request): The incoming request object.
+        data (dict): A dictionary containing the `payment_method`.
+        current_user (dict): The authenticated user, injected by Depends.
+
+    Returns:
+        dict: A dictionary confirming the successful checkout, or a pending approval status
+              if purchase requests were created.
+    """
     shop_collection = db_manager.get_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
@@ -1731,10 +1899,16 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
         try:
             payment_details = await validate_payment_method(payment_method, user_id, username, total_price)
         except HTTPException as e:
-            if e.status_code == 403 and isinstance(e.detail, dict) and e.detail.get("error") == "FAMILY_SPENDING_DENIED":
+            if (
+                e.status_code == 403
+                and isinstance(e.detail, dict)
+                and e.detail.get("error") == "FAMILY_SPENDING_DENIED"
+            ):
                 client_ip = security_manager.get_client_ip(request)
                 request_id_base = str(uuid4())[:8]
-                logger.info(f"[CART CHECKOUT] Family spending denied for user {username}, creating purchase requests for cart items.")
+                logger.info(
+                    f"[CART CHECKOUT] Family spending denied for user {username}, creating purchase requests for cart items."
+                )
 
                 purchase_requests = []
                 try:
@@ -1770,7 +1944,9 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
                         status_code=202,
                     )
                 except Exception as pr_e:
-                    logger.error(f"[CART CHECKOUT ERROR] Failed to create purchase requests for user {username}: {pr_e}")
+                    logger.error(
+                        f"[CART CHECKOUT ERROR] Failed to create purchase requests for user {username}: {pr_e}"
+                    )
                     # Fallback to the original error
                     return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
 
@@ -1786,12 +1962,14 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
             "type": "cart",
             "cart_id": f"{app_name}_cart",
             "name": f"Cart checkout for {app_name}",
-            "items": items_to_checkout
+            "items": items_to_checkout,
         }
 
         # Process payment using the selected method
         try:
-            payment_result = await process_payment(payment_details, total_price, cart_details, current_user, transaction_id)
+            payment_result = await process_payment(
+                payment_details, total_price, cart_details, current_user, transaction_id
+            )
         except HTTPException as e:
             return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     else:
@@ -1822,13 +2000,15 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
             },
         )
         if result.modified_count == 0:
-            return JSONResponse({"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400)
+            return JSONResponse(
+                {"status": "error", "detail": "Insufficient SBD tokens or race condition"}, status_code=400
+            )
 
         payment_result = {
             "payment_type": "personal",
             "from_account": username,
             "amount": total_price,
-            "transaction_id": transaction_id
+            "transaction_id": transaction_id,
         }
 
     # Log receive transaction for the shop (create shop user if not exists)
@@ -1944,14 +2124,18 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
         for field, push_value in update_operations.items():
             if "$each" in push_value:
                 for entry in push_value["$each"]:
-                    entry.update({
-                        "purchased_by_user_id": user_id,
-                        "purchased_by_username": username,
-                        "family_transaction_id": transaction_id,
-                    })
+                    entry.update(
+                        {
+                            "purchased_by_user_id": user_id,
+                            "purchased_by_username": username,
+                            "family_transaction_id": transaction_id,
+                        }
+                    )
 
     for owned_field, push_value in update_operations.items():
-        await users_collection.update_one({"username": target_username}, {"$push": {owned_field: push_value}}, upsert=True)
+        await users_collection.update_one(
+            {"username": target_username}, {"$push": {owned_field: push_value}}, upsert=True
+        )
 
     # Clear the relevant cart(s)
     await shop_collection.update_one({"username": username}, {"$set": {f"carts.{app_name}": []}})

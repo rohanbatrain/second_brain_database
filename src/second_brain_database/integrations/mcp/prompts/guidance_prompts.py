@@ -6,13 +6,13 @@ shop navigation, workspace operations, security setup, and troubleshooting.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
+from ....managers.logging_manager import get_logger
+from ..context import create_mcp_audit_trail
 from ..mcp_instance import get_mcp_server
 from ..security import get_mcp_user_context
-from ..context import create_mcp_audit_trail
 
 logger = get_logger(prefix="[MCP_GuidancePrompts]")
 
@@ -40,16 +40,19 @@ if mcp_server is not None:
 
             # Get user's family information for context
             families_collection = db_manager.get_collection("families")
-            user_families = await families_collection.find({
-                "members.user_id": user_context.user_id
-            }).to_list(length=None)
+            user_families = await families_collection.find({"members.user_id": user_context.user_id}).to_list(
+                length=None
+            )
 
             # Determine user's roles and capabilities
             owned_families = [f for f in user_families if f.get("owner_id") == user_context.user_id]
-            admin_families = [f for f in user_families if any(
-                m.get("user_id") == user_context.user_id and m.get("role") == "admin"
-                for m in f.get("members", [])
-            )]
+            admin_families = [
+                f
+                for f in user_families
+                if any(
+                    m.get("user_id") == user_context.user_id and m.get("role") == "admin" for m in f.get("members", [])
+                )
+            ]
 
             # Create audit trail
             await create_mcp_audit_trail(
@@ -57,7 +60,7 @@ if mcp_server is not None:
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="family_management_guide",
-                metadata={"family_count": len(user_families)}
+                metadata={"family_count": len(user_families)},
             )
 
             prompt = f"""
@@ -172,8 +175,7 @@ Remember: Family management requires careful balance of accessibility and securi
             # Get user's current SBD balance and assets for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
-                {"_id": user_context.user_id},
-                {"sbd_balance": 1, "sbd_stats": 1}
+                {"_id": user_context.user_id}, {"sbd_balance": 1, "sbd_stats": 1}
             )
 
             current_balance = user_data.get("sbd_balance", 0) if user_data else 0
@@ -184,7 +186,7 @@ Remember: Family management requires careful balance of accessibility and securi
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="shop_navigation_guide",
-                metadata={"user_balance": current_balance}
+                metadata={"user_balance": current_balance},
             )
 
             prompt = f"""
@@ -329,16 +331,19 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
 
             # Get user's workspace information for context
             workspaces_collection = db_manager.get_collection("workspaces")
-            user_workspaces = await workspaces_collection.find({
-                "members.user_id": user_context.user_id
-            }).to_list(length=None)
+            user_workspaces = await workspaces_collection.find({"members.user_id": user_context.user_id}).to_list(
+                length=None
+            )
 
             # Determine user's roles and capabilities
             owned_workspaces = [w for w in user_workspaces if w.get("owner_id") == user_context.user_id]
-            admin_workspaces = [w for w in user_workspaces if any(
-                m.get("user_id") == user_context.user_id and m.get("role") == "admin"
-                for m in w.get("members", [])
-            )]
+            admin_workspaces = [
+                w
+                for w in user_workspaces
+                if any(
+                    m.get("user_id") == user_context.user_id and m.get("role") == "admin" for m in w.get("members", [])
+                )
+            ]
 
             # Create audit trail
             await create_mcp_audit_trail(
@@ -346,7 +351,7 @@ Remember: The digital shop is designed to enhance your Second Brain Database exp
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="workspace_management_guide",
-                metadata={"workspace_count": len(user_workspaces)}
+                metadata={"workspace_count": len(user_workspaces)},
             )
 
             prompt = f"""
@@ -504,15 +509,20 @@ Remember: Effective workspace management requires balancing team autonomy with a
             # Get user's current security status for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
-                {"_id": user_context.user_id},
-                {"two_factor": 1, "security": 1, "email_verified": 1}
+                {"_id": user_context.user_id}, {"two_factor": 1, "security": 1, "email_verified": 1}
             )
 
             # Analyze current security status
             two_fa_enabled = user_data.get("two_factor", {}).get("enabled", False) if user_data else False
             email_verified = user_data.get("email_verified", False) if user_data else False
-            ip_lockdown = user_data.get("security", {}).get("ip_lockdown", {}).get("enabled", False) if user_data else False
-            ua_lockdown = user_data.get("security", {}).get("user_agent_lockdown", {}).get("enabled", False) if user_data else False
+            ip_lockdown = (
+                user_data.get("security", {}).get("ip_lockdown", {}).get("enabled", False) if user_data else False
+            )
+            ua_lockdown = (
+                user_data.get("security", {}).get("user_agent_lockdown", {}).get("enabled", False)
+                if user_data
+                else False
+            )
 
             # Create audit trail
             await create_mcp_audit_trail(
@@ -520,7 +530,7 @@ Remember: Effective workspace management requires balancing team autonomy with a
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="security_setup_guide",
-                metadata={"two_fa_enabled": two_fa_enabled, "lockdowns_active": ip_lockdown or ua_lockdown}
+                metadata={"two_fa_enabled": two_fa_enabled, "lockdowns_active": ip_lockdown or ua_lockdown},
             )
 
             prompt = f"""
@@ -693,7 +703,7 @@ Remember: Security is an ongoing process, not a one-time setup. Regular reviews 
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="troubleshooting_guide",
-                metadata={"help_requested": True}
+                metadata={"help_requested": True},
             )
 
             prompt = f"""
@@ -923,8 +933,7 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
             # Get user account age for context
             users_collection = db_manager.get_collection("users")
             user_data = await users_collection.find_one(
-                {"_id": user_context.user_id},
-                {"created_at": 1, "email_verified": 1, "two_factor": 1}
+                {"_id": user_context.user_id}, {"created_at": 1, "email_verified": 1, "two_factor": 1}
             )
 
             account_age_days = 0
@@ -941,7 +950,7 @@ Remember: Most issues can be resolved through systematic troubleshooting. Start 
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="onboarding_guide",
-                metadata={"account_age_days": account_age_days, "is_new_user": is_new_user}
+                metadata={"account_age_days": account_age_days, "is_new_user": is_new_user},
             )
 
             prompt = f"""
@@ -1148,7 +1157,7 @@ Remember: Learning a new system takes time. Be patient with yourself, explore at
                 user_context=user_context,
                 resource_type="prompt",
                 resource_id="api_usage_guide",
-                metadata={"developer_guide": True}
+                metadata={"developer_guide": True},
             )
 
             prompt = f"""
@@ -1394,5 +1403,6 @@ API Documentation: /docs | MCP Server: {settings.MCP_SERVER_NAME}
         except Exception as e:
             logger.error("Failed to generate API usage guidance prompt: %s", e)
             return f"Error generating API usage guidance: {str(e)}"
+
 else:
     logger.warning("FastMCP not available - guidance prompts will not be registered")

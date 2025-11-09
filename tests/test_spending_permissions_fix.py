@@ -4,8 +4,9 @@ Test script to verify that the spending permissions fix is correctly implemented
 """
 
 import inspect
-import sys
 import os
+import sys
+
 
 def test_spending_permissions_fix():
     """Test that the spending permissions fix is correctly implemented."""
@@ -15,9 +16,11 @@ def test_spending_permissions_fix():
 
     try:
         # Read the family_manager.py file
-        manager_file = os.path.join(os.path.dirname(__file__), 'src', 'second_brain_database', 'managers', 'family_manager.py')
+        manager_file = os.path.join(
+            os.path.dirname(__file__), "src", "second_brain_database", "managers", "family_manager.py"
+        )
 
-        with open(manager_file, 'r') as f:
+        with open(manager_file, "r") as f:
             content = f.read()
 
         # Test 1: Verify get_family_members reads from family document
@@ -42,8 +45,7 @@ def test_spending_permissions_fix():
         # Test 3: Verify update_spending_permissions updates both locations
         print("Test 3: Checking update_spending_permissions updates both data sources...")
 
-        if ('sbd_account.spending_permissions' in content and
-            'family_memberships.$.spending_permissions' in content):
+        if "sbd_account.spending_permissions" in content and "family_memberships.$.spending_permissions" in content:
             print("✓ update_spending_permissions updates both family document and user membership")
         else:
             print("✗ update_spending_permissions does not update both data sources")
@@ -53,7 +55,11 @@ def test_spending_permissions_fix():
         print("Test 4: Checking field mapping in get_family_members...")
 
         # Look for the correct field assignments
-        get_family_members_source = content[content.find('async def get_family_members'):content.find('async def', content.find('async def get_family_members') + 1)]
+        get_family_members_source = content[
+            content.find("async def get_family_members") : content.find(
+                "async def", content.find("async def get_family_members") + 1
+            )
+        ]
 
         expected_fields = ['"role"', '"spending_limit"', '"can_spend"', '"updated_by"', '"updated_at"']
         missing_fields = []
@@ -82,8 +88,10 @@ def test_spending_permissions_fix():
     except Exception as e:
         print(f"✗ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = test_spending_permissions_fix()

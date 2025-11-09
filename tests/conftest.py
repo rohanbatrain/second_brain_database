@@ -5,14 +5,16 @@ Provides fixtures and configuration for testing MCP components
 with proper mocking of dependencies and test environment setup.
 """
 
-import pytest
 import asyncio
-import sys
 import os
-from unittest.mock import Mock, AsyncMock, patch
+import sys
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -20,6 +22,7 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
 
 @pytest.fixture
 def mock_settings():
@@ -64,7 +67,17 @@ def mock_settings():
     settings.DOCS_CACHE_ENABLED = True
     settings.DOCS_CACHE_TTL = 3600
 
+    # Add Qdrant/Vector settings to prevent Mock objects in tests
+    settings.QDRANT_HOST = "localhost"
+    settings.QDRANT_PORT = 6333
+    settings.QDRANT_HTTPS = False
+    settings.QDRANT_API_KEY = None
+    settings.QDRANT_TIMEOUT = 60
+    settings.QDRANT_ENABLED = False  # Disable for tests by default
+    settings.LLAMAINDEX_ENABLED = False  # Disable for tests by default
+
     return settings
+
 
 @pytest.fixture
 def mock_db_manager():
@@ -74,6 +87,7 @@ def mock_db_manager():
     db_manager.disconnect = AsyncMock()
     db_manager.get_collection = AsyncMock()
     return db_manager
+
 
 @pytest.fixture
 def mock_security_manager():
@@ -85,6 +99,7 @@ def mock_security_manager():
     security_manager.get_client_user_agent = Mock(return_value="TestClient/1.0")
     return security_manager
 
+
 @pytest.fixture
 def mock_redis_manager():
     """Mock Redis manager for MCP tests."""
@@ -92,6 +107,7 @@ def mock_redis_manager():
     redis_conn = AsyncMock()
     redis_manager.get_redis = AsyncMock(return_value=redis_conn)
     return redis_manager
+
 
 @pytest.fixture
 def mock_logger():
@@ -103,15 +119,19 @@ def mock_logger():
     logger.debug = Mock()
     return logger
 
+
 @pytest.fixture(autouse=True)
 def mock_dependencies(mock_settings, mock_db_manager, mock_security_manager, mock_redis_manager, mock_logger):
     """Auto-mock common dependencies for all MCP tests."""
-    with patch('second_brain_database.config.settings', mock_settings), \
-         patch('second_brain_database.database.db_manager', mock_db_manager), \
-         patch('second_brain_database.managers.security_manager.security_manager', mock_security_manager), \
-         patch('second_brain_database.managers.redis_manager.redis_manager', mock_redis_manager), \
-         patch('second_brain_database.managers.logging_manager.get_logger', return_value=mock_logger):
+    with (
+        patch("second_brain_database.config.settings", mock_settings),
+        patch("second_brain_database.database.db_manager", mock_db_manager),
+        patch("second_brain_database.managers.security_manager.security_manager", mock_security_manager),
+        patch("second_brain_database.managers.redis_manager.redis_manager", mock_redis_manager),
+        patch("second_brain_database.managers.logging_manager.get_logger", return_value=mock_logger),
+    ):
         yield
+
 
 @pytest.fixture
 def sample_fastapi_user():
@@ -122,18 +142,14 @@ def sample_fastapi_user():
         "email": "test@example.com",
         "role": "user",
         "permissions": ["family:read", "family:write", "profile:read"],
-        "workspaces": [
-            {"_id": "workspace_1", "name": "Test Workspace", "role": "member"}
-        ],
-        "family_memberships": [
-            {"family_id": "family_1", "role": "admin"},
-            {"family_id": "family_2", "role": "member"}
-        ],
+        "workspaces": [{"_id": "workspace_1", "name": "Test Workspace", "role": "member"}],
+        "family_memberships": [{"family_id": "family_1", "role": "admin"}, {"family_id": "family_2", "role": "member"}],
         "trusted_ip_lockdown": False,
         "trusted_user_agent_lockdown": False,
         "trusted_ips": [],
-        "trusted_user_agents": []
+        "trusted_user_agents": [],
     }
+
 
 @pytest.fixture
 def sample_admin_user():
@@ -149,8 +165,9 @@ def sample_admin_user():
         "trusted_ip_lockdown": False,
         "trusted_user_agent_lockdown": False,
         "trusted_ips": [],
-        "trusted_user_agents": []
+        "trusted_user_agents": [],
     }
+
 
 # Test markers
 pytest.mark.unit = pytest.mark.unit

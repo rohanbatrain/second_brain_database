@@ -7,8 +7,9 @@ in database operations including creation, updates, queries, and cleanup.
 """
 
 import asyncio
-import sys
 from datetime import datetime, timedelta
+import sys
+
 from bson import ObjectId
 
 # Add the src directory to the path
@@ -67,15 +68,15 @@ async def test_temporary_access_tokens_schema():
                 "ip_address": "192.168.1.100",
                 "expires_at": future_time,
                 "created_at": datetime.utcnow().isoformat(),
-                "used": False
+                "used": False,
             },
             {
                 "token": "temp_ip_token_2_expired",
                 "ip_address": "10.0.0.1",
                 "expires_at": past_time,  # Expired token
                 "created_at": (datetime.utcnow() - timedelta(minutes=10)).isoformat(),
-                "used": False
-            }
+                "used": False,
+            },
         ]
 
         ua_tokens = [
@@ -84,25 +85,20 @@ async def test_temporary_access_tokens_schema():
                 "user_agent": "Mozilla/5.0 (Test Browser)",
                 "expires_at": future_time,
                 "created_at": datetime.utcnow().isoformat(),
-                "used": False
+                "used": False,
             },
             {
                 "token": "temp_ua_token_2_expired",
                 "user_agent": "TestApp/1.0",
                 "expires_at": past_time,  # Expired token
                 "created_at": (datetime.utcnow() - timedelta(minutes=10)).isoformat(),
-                "used": False
-            }
+                "used": False,
+            },
         ]
 
         update_result = await users_collection.update_one(
             {"_id": test_user_id},
-            {
-                "$set": {
-                    "temporary_ip_access_tokens": ip_tokens,
-                    "temporary_user_agent_access_tokens": ua_tokens
-                }
-            }
+            {"$set": {"temporary_ip_access_tokens": ip_tokens, "temporary_user_agent_access_tokens": ua_tokens}},
         )
         assert update_result.modified_count == 1
         print("✅ Temporary access tokens added successfully")
@@ -140,9 +136,9 @@ async def test_temporary_access_tokens_schema():
             {
                 "$set": {
                     "temporary_ip_access_tokens": filtered_ip_tokens,
-                    "temporary_user_agent_access_tokens": filtered_ua_tokens
+                    "temporary_user_agent_access_tokens": filtered_ua_tokens,
                 }
-            }
+            },
         )
 
         cleaned_user = await users_collection.find_one({"_id": test_user_id})
@@ -192,12 +188,14 @@ async def test_temporary_access_tokens_schema():
         await db_manager.create_indexes()
 
         # Test query using indexed fields
-        users_with_temp_tokens = await users_collection.find({
-            "$or": [
-                {"temporary_ip_access_tokens": {"$exists": True, "$ne": []}},
-                {"temporary_user_agent_access_tokens": {"$exists": True, "$ne": []}}
-            ]
-        }).to_list(length=10)
+        users_with_temp_tokens = await users_collection.find(
+            {
+                "$or": [
+                    {"temporary_ip_access_tokens": {"$exists": True, "$ne": []}},
+                    {"temporary_user_agent_access_tokens": {"$exists": True, "$ne": []}},
+                ]
+            }
+        ).to_list(length=10)
         assert len(users_with_temp_tokens) >= 1  # Should find our test user
         print("✅ Index creation and queries work correctly for temporary access tokens")
 
@@ -216,6 +214,7 @@ async def test_temporary_access_tokens_schema():
     except Exception as e:
         print(f"\n❌ Temporary access tokens schema validation test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

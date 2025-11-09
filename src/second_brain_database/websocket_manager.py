@@ -1,5 +1,7 @@
 from typing import Dict, List
+
 from fastapi import WebSocket
+
 
 class ConnectionManager:
     def __init__(self):
@@ -25,5 +27,6 @@ class ConnectionManager:
     async def broadcast_to_users(self, message: str, user_ids: List[str]):
         for user_id in user_ids:
             await self.send_personal_message(message, user_id)
+
 
 manager = ConnectionManager()

@@ -150,7 +150,7 @@ async def resend_verification_email_service(
         logger.info(
             "Database lookup for verification resend - Collection: users, Query: %s, Found: %s",
             {"email" if email else "username": identifier},
-            user is not None
+            user is not None,
         )
 
         if not user:
@@ -186,7 +186,7 @@ async def resend_verification_email_service(
         logger.info(
             "Database update for verification token - Collection: users, User ID: %s, Modified: %d",
             str(user["_id"]),
-            update_result.modified_count
+            update_result.modified_count,
         )
 
         if update_result.modified_count == 0:

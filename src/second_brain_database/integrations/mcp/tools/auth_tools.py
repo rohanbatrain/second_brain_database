@@ -5,24 +5,27 @@ MCP tools for comprehensive user authentication, profile management, 2FA operati
 and security lockdown management using existing authentication patterns.
 """
 
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
+from ....config import settings
 from ....managers.logging_manager import get_logger
 from ....managers.security_manager import security_manager
-from ....config import settings
-from ..security import authenticated_tool, get_mcp_user_context
-from ..modern_server import mcp
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
+from ..security import authenticated_tool, get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_AuthTools]")
 
 # Pydantic models for MCP tool parameters and responses
 
+
 class UserProfile(BaseModel):
     """User profile information model."""
+
     user_id: str
     username: str
     email: Optional[str] = None
@@ -35,28 +38,36 @@ class UserProfile(BaseModel):
     last_login: Optional[datetime] = None
     profile_settings: Dict[str, Any] = Field(default_factory=dict)
 
+
 class UserPreferences(BaseModel):
     """User preferences model."""
+
     user_id: str
     preferences: Dict[str, Any] = Field(default_factory=dict)
     notification_settings: Dict[str, Any] = Field(default_factory=dict)
     privacy_settings: Dict[str, Any] = Field(default_factory=dict)
     updated_at: datetime
 
+
 class ProfileUpdateRequest(BaseModel):
     """Request model for profile updates."""
+
     username: Optional[str] = Field(None, description="New username")
     email: Optional[str] = Field(None, description="New email address")
     profile_settings: Optional[Dict[str, Any]] = Field(None, description="Profile settings to update")
 
+
 class PreferencesUpdateRequest(BaseModel):
     """Request model for preferences updates."""
+
     preferences: Optional[Dict[str, Any]] = Field(None, description="User preferences")
     notification_settings: Optional[Dict[str, Any]] = Field(None, description="Notification settings")
     privacy_settings: Optional[Dict[str, Any]] = Field(None, description="Privacy settings")
 
+
 class AuthStatus(BaseModel):
     """Authentication status model."""
+
     user_id: str
     username: str
     email: Optional[str] = None
@@ -70,18 +81,23 @@ class AuthStatus(BaseModel):
     trusted_user_agent_lockdown: bool = False
     session_info: Dict[str, Any] = Field(default_factory=dict)
 
+
 class AuthMethods(BaseModel):
     """Available authentication methods model."""
+
     password_auth: bool = True
     two_fa_available: bool = True
     two_fa_enabled: bool = False
-    webauthn_available: bool = True
+    # WebAuthn support removed globally
+    webauthn_available: bool = False
     webauthn_credentials: int = 0
     permanent_tokens_available: bool = True
     preferred_method: Optional[str] = None
 
+
 class SecurityDashboard(BaseModel):
     """Security dashboard information model."""
+
     user_id: str
     two_fa_status: Dict[str, Any] = Field(default_factory=dict)
     trusted_ip_lockdown: Dict[str, Any] = Field(default_factory=dict)
@@ -92,13 +108,15 @@ class SecurityDashboard(BaseModel):
     permanent_tokens: int = 0
     security_score: int = 0
 
+
 # Core Profile Management Tools (Task 5.1)
+
 
 @authenticated_tool(
     name="get_user_profile",
     description="Get comprehensive user profile information",
     permissions=["profile:read"],
-    rate_limit_action="profile_read"
+    rate_limit_action="profile_read",
 )
 async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -126,7 +144,8 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": target_user_id})
@@ -139,7 +158,7 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=target_user_id,
-            metadata={"target_username": user_doc.get("username")}
+            metadata={"target_username": user_doc.get("username")},
         )
 
         # Format profile response
@@ -157,7 +176,7 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
             "profile_settings": user_doc.get("profile_settings", {}),
             "permissions": user_doc.get("permissions", []),
             "workspaces": user_doc.get("workspaces", []),
-            "family_memberships": user_doc.get("family_memberships", [])
+            "family_memberships": user_doc.get("family_memberships", []),
         }
 
         logger.info("Retrieved profile for user %s by user %s", target_user_id, user_context.user_id)
@@ -172,12 +191,10 @@ async def get_user_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
     name="update_user_profile",
     description="Update user profile information with validation",
     permissions=["profile:write"],
-    rate_limit_action="profile_update"
+    rate_limit_action="profile_update",
 )
 async def update_user_profile(
-    username: Optional[str] = None,
-    email: Optional[str] = None,
-    profile_settings: Optional[Dict[str, Any]] = None
+    username: Optional[str] = None, email: Optional[str] = None, profile_settings: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Update user profile information with proper validation.
@@ -206,13 +223,13 @@ async def update_user_profile(
                 raise MCPValidationError("Username must be between 3 and 50 characters")
 
             # Check username availability
-            from ....database import db_manager
+            from second_brain_database.database import db_manager
+
             users_collection = db_manager.get_collection("users")
 
-            existing_user = await users_collection.find_one({
-                "username": username,
-                "_id": {"$ne": user_context.user_id}
-            })
+            existing_user = await users_collection.find_one(
+                {"username": username, "_id": {"$ne": user_context.user_id}}
+            )
 
             if existing_user:
                 raise MCPValidationError("Username is already taken")
@@ -223,18 +240,17 @@ async def update_user_profile(
         if email is not None:
             # Validate email format
             import re
-            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+            email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
             if not re.match(email_pattern, email):
                 raise MCPValidationError("Invalid email format")
 
             # Check email availability
-            from ....database import db_manager
+            from second_brain_database.database import db_manager
+
             users_collection = db_manager.get_collection("users")
 
-            existing_user = await users_collection.find_one({
-                "email": email,
-                "_id": {"$ne": user_context.user_id}
-            })
+            existing_user = await users_collection.find_one({"email": email, "_id": {"$ne": user_context.user_id}})
 
             if existing_user:
                 raise MCPValidationError("Email is already registered")
@@ -246,7 +262,8 @@ async def update_user_profile(
 
         if profile_settings is not None:
             # Merge with existing profile settings
-            from ....database import db_manager
+            from second_brain_database.database import db_manager
+
             users_collection = db_manager.get_collection("users")
 
             current_user = await users_collection.find_one({"_id": user_context.user_id})
@@ -263,13 +280,11 @@ async def update_user_profile(
         updates["updated_at"] = datetime.utcnow()
 
         # Update user in database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": updates}
-        )
+        result = await users_collection.update_one({"_id": user_context.user_id}, {"$set": updates})
 
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update profile")
@@ -281,7 +296,7 @@ async def update_user_profile(
             resource_type="user",
             resource_id=user_context.user_id,
             changes=changes,
-            metadata={"updated_fields": list(changes.keys())}
+            metadata={"updated_fields": list(changes.keys())},
         )
 
         # Get updated profile
@@ -293,7 +308,7 @@ async def update_user_profile(
             "email": updated_user.get("email"),
             "profile_settings": updated_user.get("profile_settings", {}),
             "updated_at": updated_user.get("updated_at"),
-            "updated_fields": list(changes.keys())
+            "updated_fields": list(changes.keys()),
         }
 
         logger.info("Updated profile for user %s, fields: %s", user_context.user_id, list(changes.keys()))
@@ -308,7 +323,7 @@ async def update_user_profile(
     name="get_user_preferences",
     description="Get user preferences and settings",
     permissions=["profile:read"],
-    rate_limit_action="profile_read"
+    rate_limit_action="profile_read",
 )
 async def get_user_preferences() -> Dict[str, Any]:
     """
@@ -321,7 +336,8 @@ async def get_user_preferences() -> Dict[str, Any]:
 
     try:
         # Get user preferences from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -333,7 +349,7 @@ async def get_user_preferences() -> Dict[str, Any]:
             operation="get_user_preferences",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format preferences response
@@ -343,7 +359,7 @@ async def get_user_preferences() -> Dict[str, Any]:
             "notification_settings": user_doc.get("notification_settings", {}),
             "privacy_settings": user_doc.get("privacy_settings", {}),
             "profile_settings": user_doc.get("profile_settings", {}),
-            "updated_at": user_doc.get("preferences_updated_at") or user_doc.get("updated_at")
+            "updated_at": user_doc.get("preferences_updated_at") or user_doc.get("updated_at"),
         }
 
         logger.info("Retrieved preferences for user %s", user_context.user_id)
@@ -358,12 +374,12 @@ async def get_user_preferences() -> Dict[str, Any]:
     name="update_user_preferences",
     description="Update user preferences and settings",
     permissions=["profile:write"],
-    rate_limit_action="profile_update"
+    rate_limit_action="profile_update",
 )
 async def update_user_preferences(
     preferences: Optional[Dict[str, Any]] = None,
     notification_settings: Optional[Dict[str, Any]] = None,
-    privacy_settings: Optional[Dict[str, Any]] = None
+    privacy_settings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Update user preferences and settings.
@@ -387,7 +403,8 @@ async def update_user_preferences(
         changes = {}
 
         # Get current user data
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         current_user = await users_collection.find_one({"_id": user_context.user_id})
@@ -419,10 +436,7 @@ async def update_user_preferences(
         updates["preferences_updated_at"] = datetime.utcnow()
 
         # Update preferences in database
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": updates}
-        )
+        result = await users_collection.update_one({"_id": user_context.user_id}, {"$set": updates})
 
         if result.modified_count == 0:
             raise MCPValidationError("Failed to update preferences")
@@ -434,7 +448,7 @@ async def update_user_preferences(
             resource_type="user",
             resource_id=user_context.user_id,
             changes=changes,
-            metadata={"updated_categories": list(changes.keys())}
+            metadata={"updated_categories": list(changes.keys())},
         )
 
         # Get updated preferences
@@ -446,11 +460,10 @@ async def update_user_preferences(
             "notification_settings": updated_user.get("notification_settings", {}),
             "privacy_settings": updated_user.get("privacy_settings", {}),
             "updated_at": updated_user.get("preferences_updated_at"),
-            "updated_categories": list(changes.keys())
+            "updated_categories": list(changes.keys()),
         }
 
-        logger.info("Updated preferences for user %s, categories: %s",
-                   user_context.user_id, list(changes.keys()))
+        logger.info("Updated preferences for user %s, categories: %s", user_context.user_id, list(changes.keys()))
         return result_data
 
     except Exception as e:
@@ -462,7 +475,7 @@ async def update_user_preferences(
     name="get_user_avatar",
     description="Get current user avatar information",
     permissions=["profile:read"],
-    rate_limit_action="profile_read"
+    rate_limit_action="profile_read",
 )
 async def get_user_avatar() -> Dict[str, Any]:
     """
@@ -475,7 +488,8 @@ async def get_user_avatar() -> Dict[str, Any]:
 
     try:
         # Get user avatar information from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -494,37 +508,39 @@ async def get_user_avatar() -> Dict[str, Any]:
             current_avatar = await avatars_collection.find_one({"_id": current_avatar_id})
 
         # Get owned and rented avatars
-        user_avatars = await user_avatars_collection.find({
-            "user_id": user_context.user_id
-        }).to_list(length=None)
+        user_avatars = await user_avatars_collection.find({"user_id": user_context.user_id}).to_list(length=None)
 
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_avatar",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format response
         result = {
             "user_id": str(user_doc["_id"]),
-            "current_avatar": {
-                "id": str(current_avatar["_id"]) if current_avatar else None,
-                "name": current_avatar.get("name") if current_avatar else None,
-                "image_url": current_avatar.get("image_url") if current_avatar else None,
-                "type": current_avatar.get("type") if current_avatar else None
-            } if current_avatar else None,
+            "current_avatar": (
+                {
+                    "id": str(current_avatar["_id"]) if current_avatar else None,
+                    "name": current_avatar.get("name") if current_avatar else None,
+                    "image_url": current_avatar.get("image_url") if current_avatar else None,
+                    "type": current_avatar.get("type") if current_avatar else None,
+                }
+                if current_avatar
+                else None
+            ),
             "owned_avatars": [
                 {
                     "id": str(avatar["avatar_id"]),
                     "ownership_type": avatar.get("ownership_type"),
                     "acquired_at": avatar.get("acquired_at"),
-                    "expires_at": avatar.get("expires_at")
+                    "expires_at": avatar.get("expires_at"),
                 }
                 for avatar in user_avatars
             ],
-            "avatar_count": len(user_avatars)
+            "avatar_count": len(user_avatars),
         }
 
         logger.info("Retrieved avatar info for user %s", user_context.user_id)
@@ -539,7 +555,7 @@ async def get_user_avatar() -> Dict[str, Any]:
     name="get_user_banner",
     description="Get current user banner information",
     permissions=["profile:read"],
-    rate_limit_action="profile_read"
+    rate_limit_action="profile_read",
 )
 async def get_user_banner() -> Dict[str, Any]:
     """
@@ -552,7 +568,8 @@ async def get_user_banner() -> Dict[str, Any]:
 
     try:
         # Get user banner information from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -571,37 +588,39 @@ async def get_user_banner() -> Dict[str, Any]:
             current_banner = await banners_collection.find_one({"_id": current_banner_id})
 
         # Get owned and rented banners
-        user_banners = await user_banners_collection.find({
-            "user_id": user_context.user_id
-        }).to_list(length=None)
+        user_banners = await user_banners_collection.find({"user_id": user_context.user_id}).to_list(length=None)
 
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_user_banner",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format response
         result = {
             "user_id": str(user_doc["_id"]),
-            "current_banner": {
-                "id": str(current_banner["_id"]) if current_banner else None,
-                "name": current_banner.get("name") if current_banner else None,
-                "image_url": current_banner.get("image_url") if current_banner else None,
-                "type": current_banner.get("type") if current_banner else None
-            } if current_banner else None,
+            "current_banner": (
+                {
+                    "id": str(current_banner["_id"]) if current_banner else None,
+                    "name": current_banner.get("name") if current_banner else None,
+                    "image_url": current_banner.get("image_url") if current_banner else None,
+                    "type": current_banner.get("type") if current_banner else None,
+                }
+                if current_banner
+                else None
+            ),
             "owned_banners": [
                 {
                     "id": str(banner["banner_id"]),
                     "ownership_type": banner.get("ownership_type"),
                     "acquired_at": banner.get("acquired_at"),
-                    "expires_at": banner.get("expires_at")
+                    "expires_at": banner.get("expires_at"),
                 }
                 for banner in user_banners
             ],
-            "banner_count": len(user_banners)
+            "banner_count": len(user_banners),
         }
 
         logger.info("Retrieved banner info for user %s", user_context.user_id)
@@ -616,7 +635,7 @@ async def get_user_banner() -> Dict[str, Any]:
     name="set_current_avatar",
     description="Set the current avatar for the user",
     permissions=["profile:write"],
-    rate_limit_action="profile_update"
+    rate_limit_action="profile_update",
 )
 async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
     """
@@ -635,14 +654,12 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
 
     try:
         # Verify user owns or has rented this avatar
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         user_avatars_collection = db_manager.get_collection("user_avatars")
         avatars_collection = db_manager.get_collection("avatars")
 
-        user_avatar = await user_avatars_collection.find_one({
-            "user_id": user_context.user_id,
-            "avatar_id": avatar_id
-        })
+        user_avatar = await user_avatars_collection.find_one({"user_id": user_context.user_id, "avatar_id": avatar_id})
 
         if not user_avatar:
             raise MCPValidationError("Avatar not owned by user")
@@ -663,10 +680,7 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
 
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
-            {"$set": {
-                "current_avatar": avatar_id,
-                "avatar_updated_at": datetime.utcnow()
-            }}
+            {"$set": {"current_avatar": avatar_id, "avatar_updated_at": datetime.utcnow()}},
         )
 
         if result.modified_count == 0:
@@ -679,10 +693,7 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id,
             changes={"current_avatar": avatar_id},
-            metadata={
-                "avatar_name": avatar.get("name"),
-                "ownership_type": user_avatar.get("ownership_type")
-            }
+            metadata={"avatar_name": avatar.get("name"), "ownership_type": user_avatar.get("ownership_type")},
         )
 
         result_data = {
@@ -691,7 +702,7 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
             "avatar_name": avatar.get("name"),
             "avatar_image_url": avatar.get("image_url"),
             "ownership_type": user_avatar.get("ownership_type"),
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
         }
 
         logger.info("Set current avatar %s for user %s", avatar_id, user_context.user_id)
@@ -706,7 +717,7 @@ async def set_current_avatar(avatar_id: str) -> Dict[str, Any]:
     name="set_current_banner",
     description="Set the current banner for the user",
     permissions=["profile:write"],
-    rate_limit_action="profile_update"
+    rate_limit_action="profile_update",
 )
 async def set_current_banner(banner_id: str) -> Dict[str, Any]:
     """
@@ -725,14 +736,12 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
 
     try:
         # Verify user owns or has rented this banner
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         user_banners_collection = db_manager.get_collection("user_banners")
         banners_collection = db_manager.get_collection("banners")
 
-        user_banner = await user_banners_collection.find_one({
-            "user_id": user_context.user_id,
-            "banner_id": banner_id
-        })
+        user_banner = await user_banners_collection.find_one({"user_id": user_context.user_id, "banner_id": banner_id})
 
         if not user_banner:
             raise MCPValidationError("Banner not owned by user")
@@ -753,10 +762,7 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
 
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
-            {"$set": {
-                "current_banner": banner_id,
-                "banner_updated_at": datetime.utcnow()
-            }}
+            {"$set": {"current_banner": banner_id, "banner_updated_at": datetime.utcnow()}},
         )
 
         if result.modified_count == 0:
@@ -769,10 +775,7 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
             resource_type="user",
             resource_id=user_context.user_id,
             changes={"current_banner": banner_id},
-            metadata={
-                "banner_name": banner.get("name"),
-                "ownership_type": user_banner.get("ownership_type")
-            }
+            metadata={"banner_name": banner.get("name"), "ownership_type": user_banner.get("ownership_type")},
         )
 
         result_data = {
@@ -781,7 +784,7 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
             "banner_name": banner.get("name"),
             "banner_image_url": banner.get("image_url"),
             "ownership_type": user_banner.get("ownership_type"),
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
         }
 
         logger.info("Set current banner %s for user %s", banner_id, user_context.user_id)
@@ -794,11 +797,12 @@ async def set_current_banner(banner_id: str) -> Dict[str, Any]:
 
 # Authentication and Security Tools (Task 5.2)
 
+
 @authenticated_tool(
     name="get_auth_status",
     description="Get current user authentication status and information",
     permissions=["auth:read"],
-    rate_limit_action="auth_read"
+    rate_limit_action="auth_read",
 )
 async def get_auth_status() -> Dict[str, Any]:
     """
@@ -811,7 +815,8 @@ async def get_auth_status() -> Dict[str, Any]:
 
     try:
         # Get user from database for complete information
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -820,6 +825,7 @@ async def get_auth_status() -> Dict[str, Any]:
 
         # Get session information from Redis if available
         from ....managers.redis_manager import redis_manager
+
         session_info = {}
 
         try:
@@ -828,6 +834,7 @@ async def get_auth_status() -> Dict[str, Any]:
             session_data = await redis_manager.get(session_key)
             if session_data:
                 import json
+
                 session_info = json.loads(session_data)
         except Exception as e:
             logger.debug("Could not retrieve session info: %s", e)
@@ -837,7 +844,7 @@ async def get_auth_status() -> Dict[str, Any]:
             operation="get_auth_status",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format authentication status
@@ -847,7 +854,7 @@ async def get_auth_status() -> Dict[str, Any]:
             "email": user_doc.get("email"),
             "role": user_doc.get("role", "user"),
             "authenticated": True,
-            "token_type": user_context.token_type if hasattr(user_context, 'token_type') else "jwt",
+            "token_type": user_context.token_type if hasattr(user_context, "token_type") else "jwt",
             "permissions": user_doc.get("permissions", []),
             "two_fa_enabled": user_doc.get("two_fa_enabled", False),
             "email_verified": user_doc.get("email_verified", False),
@@ -859,15 +866,16 @@ async def get_auth_status() -> Dict[str, Any]:
                 "ip_address": session_info.get("ip_address"),
                 "user_agent": session_info.get("user_agent"),
                 "login_time": session_info.get("login_time"),
-                "expires_at": session_info.get("expires_at")
+                "expires_at": session_info.get("expires_at"),
             },
             "security_features": {
-                "webauthn_available": True,
+                # WebAuthn support removed
+                "webauthn_available": False,
                 "permanent_tokens_available": True,
                 "two_fa_available": True,
                 "ip_lockdown_available": True,
-                "user_agent_lockdown_available": True
-            }
+                "user_agent_lockdown_available": True,
+            },
         }
 
         logger.info("Retrieved auth status for user %s", user_context.user_id)
@@ -882,7 +890,7 @@ async def get_auth_status() -> Dict[str, Any]:
     name="get_auth_methods",
     description="Get available authentication methods for the current user",
     permissions=["auth:read"],
-    rate_limit_action="auth_read"
+    rate_limit_action="auth_read",
 )
 async def get_auth_methods() -> Dict[str, Any]:
     """
@@ -895,33 +903,27 @@ async def get_auth_methods() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
         if not user_doc:
             raise MCPValidationError("User not found")
 
-        # Get WebAuthn credentials count
-        webauthn_collection = db_manager.get_collection("webauthn_credentials")
-        webauthn_count = await webauthn_collection.count_documents({
-            "user_id": user_context.user_id,
-            "active": True
-        })
+        # WebAuthn support removed: treat credentials count as zero
+        webauthn_count = 0
 
         # Get permanent tokens count
         tokens_collection = db_manager.get_collection("permanent_tokens")
-        tokens_count = await tokens_collection.count_documents({
-            "user_id": user_context.user_id,
-            "active": True
-        })
+        tokens_count = await tokens_collection.count_documents({"user_id": user_context.user_id, "active": True})
 
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_auth_methods",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format authentication methods
@@ -930,29 +932,29 @@ async def get_auth_methods() -> Dict[str, Any]:
             "password_auth": {
                 "available": True,
                 "enabled": user_doc.get("password_hash") is not None,
-                "description": "Username and password authentication"
+                "description": "Username and password authentication",
             },
             "two_fa": {
                 "available": True,
                 "enabled": user_doc.get("two_fa_enabled", False),
                 "method": user_doc.get("two_fa_method", "totp"),
                 "backup_codes_available": user_doc.get("backup_codes") is not None,
-                "description": "Two-factor authentication with TOTP or backup codes"
+                "description": "Two-factor authentication with TOTP or backup codes",
             },
             "webauthn": {
-                "available": True,
-                "enabled": webauthn_count > 0,
-                "credentials_count": webauthn_count,
-                "description": "WebAuthn/FIDO2 passwordless authentication"
+                "available": False,
+                "enabled": False,
+                "credentials_count": 0,
+                "description": "WebAuthn support removed",
             },
             "permanent_tokens": {
                 "available": True,
                 "enabled": tokens_count > 0,
                 "tokens_count": tokens_count,
-                "description": "Long-lived API tokens for programmatic access"
+                "description": "Long-lived API tokens for programmatic access",
             },
             "preferred_method": user_doc.get("preferred_auth_method", "password"),
-            "security_level": "high" if user_doc.get("two_fa_enabled") else "medium"
+            "security_level": "high" if user_doc.get("two_fa_enabled") else "medium",
         }
 
         logger.info("Retrieved auth methods for user %s", user_context.user_id)
@@ -967,7 +969,7 @@ async def get_auth_methods() -> Dict[str, Any]:
     name="validate_token",
     description="Validate the current authentication token",
     permissions=["auth:read"],
-    rate_limit_action="auth_validate"
+    rate_limit_action="auth_validate",
 )
 async def validate_token() -> Dict[str, Any]:
     """
@@ -981,7 +983,7 @@ async def validate_token() -> Dict[str, Any]:
     try:
         # The fact that we got here means the token is valid (security wrapper validated it)
         # Get additional token information
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
 
         # Check if token is blacklisted (additional validation)
         from ....routes.auth.services.auth.login import is_token_blacklisted
@@ -998,7 +1000,7 @@ async def validate_token() -> Dict[str, Any]:
             operation="validate_token",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format validation response
@@ -1006,8 +1008,8 @@ async def validate_token() -> Dict[str, Any]:
             "valid": True,
             "user_id": str(user_doc["_id"]),
             "username": user_doc.get("username"),
-            "token_type": getattr(user_context, 'token_type', 'jwt'),
-            "permissions": user_context.permissions if hasattr(user_context, 'permissions') else [],
+            "token_type": getattr(user_context, "token_type", "jwt"),
+            "permissions": user_context.permissions if hasattr(user_context, "permissions") else [],
             "validated_at": datetime.utcnow(),
             "user_active": user_doc.get("active", True),
             "user_verified": user_doc.get("email_verified", False),
@@ -1015,8 +1017,8 @@ async def validate_token() -> Dict[str, Any]:
                 "user_exists": True,
                 "user_active": user_doc.get("active", True),
                 "permissions_valid": True,
-                "token_not_blacklisted": True  # We assume this since we got here
-            }
+                "token_not_blacklisted": True,  # We assume this since we got here
+            },
         }
 
         logger.info("Validated token for user %s", user_context.user_id)
@@ -1031,7 +1033,7 @@ async def validate_token() -> Dict[str, Any]:
     name="get_security_dashboard",
     description="Get comprehensive security dashboard for the current user",
     permissions=["auth:read"],
-    rate_limit_action="auth_read"
+    rate_limit_action="auth_read",
 )
 async def get_security_dashboard() -> Dict[str, Any]:
     """
@@ -1044,7 +1046,8 @@ async def get_security_dashboard() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1052,27 +1055,28 @@ async def get_security_dashboard() -> Dict[str, Any]:
             raise MCPValidationError("User not found")
 
         # Get security-related collections
-        webauthn_collection = db_manager.get_collection("webauthn_credentials")
+        # WebAuthn support removed: webauthn_collection no longer needed
         tokens_collection = db_manager.get_collection("permanent_tokens")
         audit_collection = db_manager.get_collection("audit_logs")
 
-        # Count WebAuthn credentials
-        webauthn_count = await webauthn_collection.count_documents({
-            "user_id": user_context.user_id,
-            "active": True
-        })
+        # WebAuthn support removed: treat credentials count as zero
+        webauthn_count = 0
 
         # Count permanent tokens
-        tokens_count = await tokens_collection.count_documents({
-            "user_id": user_context.user_id,
-            "active": True
-        })
+        tokens_count = await tokens_collection.count_documents({"user_id": user_context.user_id, "active": True})
 
         # Get recent login attempts (last 10)
-        recent_logins = await audit_collection.find({
-            "user_id": user_context.user_id,
-            "operation": {"$in": ["login", "login_success", "login_failure"]},
-        }).sort("timestamp", -1).limit(10).to_list(length=10)
+        recent_logins = (
+            await audit_collection.find(
+                {
+                    "user_id": user_context.user_id,
+                    "operation": {"$in": ["login", "login_success", "login_failure"]},
+                }
+            )
+            .sort("timestamp", -1)
+            .limit(10)
+            .to_list(length=10)
+        )
 
         # Calculate security score
         security_score = 0
@@ -1113,7 +1117,7 @@ async def get_security_dashboard() -> Dict[str, Any]:
             operation="get_security_dashboard",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format security dashboard
@@ -1126,17 +1130,17 @@ async def get_security_dashboard() -> Dict[str, Any]:
                 "enabled": user_doc.get("two_fa_enabled", False),
                 "method": user_doc.get("two_fa_method", "totp"),
                 "backup_codes_available": user_doc.get("backup_codes") is not None,
-                "setup_date": user_doc.get("two_fa_setup_date")
+                "setup_date": user_doc.get("two_fa_setup_date"),
             },
             "trusted_ip_lockdown": {
                 "enabled": user_doc.get("trusted_ip_lockdown", False),
                 "trusted_ips": user_doc.get("trusted_ips", []),
-                "trusted_ip_count": len(user_doc.get("trusted_ips", []))
+                "trusted_ip_count": len(user_doc.get("trusted_ips", [])),
             },
             "trusted_user_agent_lockdown": {
                 "enabled": user_doc.get("trusted_user_agent_lockdown", False),
                 "trusted_user_agents": user_doc.get("trusted_user_agents", []),
-                "trusted_user_agent_count": len(user_doc.get("trusted_user_agents", []))
+                "trusted_user_agent_count": len(user_doc.get("trusted_user_agents", [])),
             },
             "recent_logins": [
                 {
@@ -1144,7 +1148,7 @@ async def get_security_dashboard() -> Dict[str, Any]:
                     "ip_address": login.get("metadata", {}).get("ip_address"),
                     "user_agent": login.get("metadata", {}).get("user_agent"),
                     "success": login.get("operation") == "login_success",
-                    "method": login.get("metadata", {}).get("auth_method")
+                    "method": login.get("metadata", {}).get("auth_method"),
                 }
                 for login in recent_logins
             ],
@@ -1154,12 +1158,11 @@ async def get_security_dashboard() -> Dict[str, Any]:
                 "active": user_doc.get("active", True),
                 "email_verified": user_doc.get("email_verified", False),
                 "created_at": user_doc.get("created_at"),
-                "last_login": user_doc.get("last_login")
-            }
+                "last_login": user_doc.get("last_login"),
+            },
         }
 
-        logger.info("Retrieved security dashboard for user %s (score: %d)",
-                   user_context.user_id, security_score)
+        logger.info("Retrieved security dashboard for user %s (score: %d)", user_context.user_id, security_score)
         return dashboard
 
     except Exception as e:
@@ -1171,7 +1174,7 @@ async def get_security_dashboard() -> Dict[str, Any]:
     name="check_username_availability",
     description="Check if a username is available for registration or change",
     permissions=["auth:read"],
-    rate_limit_action="auth_check"
+    rate_limit_action="auth_check",
 )
 async def check_username_availability(username: str) -> Dict[str, Any]:
     """
@@ -1195,7 +1198,8 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
 
         # Check for invalid characters
         import re
-        if not re.match(r'^[a-zA-Z0-9_-]+$', username):
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", username):
             raise MCPValidationError("Username can only contain letters, numbers, underscores, and hyphens")
 
         # Use existing Redis-cached username check
@@ -1209,7 +1213,7 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="username",
             resource_id=username,
-            metadata={"checked_username": username, "available": not username_exists}
+            metadata={"checked_username": username, "available": not username_exists},
         )
 
         # Format availability response
@@ -1219,7 +1223,7 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
             "valid_format": True,
             "checked_at": datetime.utcnow(),
             "checked_by": user_context.user_id,
-            "suggestions": []
+            "suggestions": [],
         }
 
         # If username is taken, provide suggestions
@@ -1245,7 +1249,7 @@ async def check_username_availability(username: str) -> Dict[str, Any]:
     name="check_email_availability",
     description="Check if an email address is available for registration or change",
     permissions=["auth:read"],
-    rate_limit_action="auth_check"
+    rate_limit_action="auth_check",
 )
 async def check_email_availability(email: str) -> Dict[str, Any]:
     """
@@ -1265,18 +1269,19 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
     try:
         # Validate email format
         import re
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
         if not re.match(email_pattern, email):
             raise MCPValidationError("Invalid email format")
 
         # Check if email exists in database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
-        existing_user = await users_collection.find_one({
-            "email": email,
-            "_id": {"$ne": user_context.user_id}  # Exclude current user
-        })
+        existing_user = await users_collection.find_one(
+            {"email": email, "_id": {"$ne": user_context.user_id}}  # Exclude current user
+        )
 
         email_exists = existing_user is not None
 
@@ -1286,7 +1291,7 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="email",
             resource_id=email,
-            metadata={"checked_email": email, "available": not email_exists}
+            metadata={"checked_email": email, "available": not email_exists},
         )
 
         # Format availability response
@@ -1296,7 +1301,7 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
             "valid_format": True,
             "checked_at": datetime.utcnow(),
             "checked_by": user_context.user_id,
-            "domain": email.split('@')[1] if '@' in email else None
+            "domain": email.split("@")[1] if "@" in email else None,
         }
 
         logger.info("Checked email availability: %s (available: %s)", email, not email_exists)
@@ -1311,13 +1316,9 @@ async def check_email_availability(email: str) -> Dict[str, Any]:
     name="change_password",
     description="Change user password with proper validation",
     permissions=["auth:write"],
-    rate_limit_action="auth_password_change"
+    rate_limit_action="auth_password_change",
 )
-async def change_password(
-    current_password: str,
-    new_password: str,
-    confirm_password: str
-) -> Dict[str, Any]:
+async def change_password(current_password: str, new_password: str, confirm_password: str) -> Dict[str, Any]:
     """
     Change user password with proper validation and security checks.
 
@@ -1345,7 +1346,8 @@ async def change_password(
             raise MCPValidationError("New password must be at least 8 characters long")
 
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1354,25 +1356,28 @@ async def change_password(
 
         # Verify current password
         import bcrypt
+
         current_password_hash = user_doc.get("password_hash")
 
         if not current_password_hash:
             raise MCPValidationError("No password set for this account")
 
-        if not bcrypt.checkpw(current_password.encode('utf-8'), current_password_hash.encode('utf-8')):
+        if not bcrypt.checkpw(current_password.encode("utf-8"), current_password_hash.encode("utf-8")):
             raise MCPAuthorizationError("Current password is incorrect")
 
         # Hash new password
-        new_password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        new_password_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
         # Update password in database
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
-            {"$set": {
-                "password_hash": new_password_hash,
-                "password_changed_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }}
+            {
+                "$set": {
+                    "password_hash": new_password_hash,
+                    "password_changed_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+            },
         )
 
         if result.modified_count == 0:
@@ -1384,24 +1389,25 @@ async def change_password(
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"password_changed": True}
+            metadata={"password_changed": True},
         )
 
         # Log security event
         from ....utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="password_changed",
             user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
+            ip_address=getattr(user_context, "ip_address", ""),
             success=True,
-            details={"changed_via": "mcp_tool"}
+            details={"changed_via": "mcp_tool"},
         )
 
         result_data = {
             "user_id": user_context.user_id,
             "password_changed": True,
             "changed_at": datetime.utcnow(),
-            "security_recommendation": "Consider enabling two-factor authentication for additional security"
+            "security_recommendation": "Consider enabling two-factor authentication for additional security",
         }
 
         logger.info("Password changed successfully for user %s", user_context.user_id)
@@ -1412,12 +1418,13 @@ async def change_password(
 
         # Log failed password change attempt
         from ....utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="password_change_failed",
             user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
+            ip_address=getattr(user_context, "ip_address", ""),
             success=False,
-            details={"error": str(e), "changed_via": "mcp_tool"}
+            details={"error": str(e), "changed_via": "mcp_tool"},
         )
 
         if isinstance(e, (MCPValidationError, MCPAuthorizationError)):
@@ -1428,23 +1435,29 @@ async def change_password(
 
 # 2FA Management Tools (Task 5.3)
 
+
 class TwoFAStatus(BaseModel):
     """2FA status information model."""
+
     enabled: bool = False
     method: Optional[str] = None
     backup_codes_available: bool = False
     setup_date: Optional[datetime] = None
     pending: bool = False
 
+
 class TwoFASetupResponse(BaseModel):
     """2FA setup response model."""
+
     totp_secret: str
     provisioning_uri: str
     qr_code_data: Optional[str] = None
     backup_codes: List[str] = Field(default_factory=list)
 
+
 class BackupCodesStatus(BaseModel):
     """Backup codes status model."""
+
     available: bool = False
     total_codes: int = 0
     used_codes: int = 0
@@ -1456,7 +1469,7 @@ class BackupCodesStatus(BaseModel):
     name="get_2fa_status",
     description="Get current 2FA status and information for the user",
     permissions=["auth:read"],
-    rate_limit_action="auth_2fa_read"
+    rate_limit_action="auth_2fa_read",
 )
 async def get_2fa_status() -> Dict[str, Any]:
     """
@@ -1469,7 +1482,8 @@ async def get_2fa_status() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1481,7 +1495,7 @@ async def get_2fa_status() -> Dict[str, Any]:
             operation="get_2fa_status",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Calculate backup codes status
@@ -1502,13 +1516,16 @@ async def get_2fa_status() -> Dict[str, Any]:
                 "total_codes": len(backup_codes),
                 "used_codes": len(backup_codes_used),
                 "remaining_codes": len(backup_codes) - len(backup_codes_used),
-                "last_generated": user_doc.get("backup_codes_generated_at")
+                "last_generated": user_doc.get("backup_codes_generated_at"),
             },
-            "security_level": "high" if user_doc.get("two_fa_enabled") else "medium"
+            "security_level": "high" if user_doc.get("two_fa_enabled") else "medium",
         }
 
-        logger.info("Retrieved 2FA status for user %s (enabled: %s)",
-                   user_context.user_id, user_doc.get("two_fa_enabled", False))
+        logger.info(
+            "Retrieved 2FA status for user %s (enabled: %s)",
+            user_context.user_id,
+            user_doc.get("two_fa_enabled", False),
+        )
         return status
 
     except Exception as e:
@@ -1520,7 +1537,7 @@ async def get_2fa_status() -> Dict[str, Any]:
     name="setup_2fa",
     description="Initialize 2FA setup for the user",
     permissions=["auth:write"],
-    rate_limit_action="auth_2fa_setup"
+    rate_limit_action="auth_2fa_setup",
 )
 async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
     """
@@ -1543,7 +1560,8 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             raise MCPValidationError("Only TOTP method is currently supported")
 
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1555,8 +1573,8 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             raise MCPValidationError("2FA is already enabled. Use reset_2fa to generate new codes.")
 
         # Use existing 2FA setup service
-        from ....routes.auth.services.auth.twofa import setup_2fa as setup_2fa_service
         from ....routes.auth.models import TwoFASetupRequest
+        from ....routes.auth.services.auth.twofa import setup_2fa as setup_2fa_service
 
         # Create request object
         setup_request = TwoFASetupRequest(method=method)
@@ -1570,7 +1588,7 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"method": method, "pending": True}
+            metadata={"method": method, "pending": True},
         )
 
         # Format response
@@ -1581,7 +1599,7 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
             "provisioning_uri": setup_response.provisioning_uri,
             "qr_code_data": setup_response.qr_code_data,
             "pending": True,
-            "next_step": "Use verify_2fa_code to complete setup with a code from your authenticator app"
+            "next_step": "Use verify_2fa_code to complete setup with a code from your authenticator app",
         }
 
         logger.info("Initiated 2FA setup for user %s with method %s", user_context.user_id, method)
@@ -1599,7 +1617,7 @@ async def setup_2fa(method: str = "totp") -> Dict[str, Any]:
     name="verify_2fa_code",
     description="Verify 2FA code to complete setup or authenticate",
     permissions=["auth:write"],
-    rate_limit_action="auth_2fa_verify"
+    rate_limit_action="auth_2fa_verify",
 )
 async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
     """
@@ -1627,7 +1645,8 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             raise MCPValidationError("Invalid code format. Code must be 6 digits.")
 
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1635,8 +1654,8 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             raise MCPValidationError("User not found")
 
         # Use existing 2FA verification service
-        from ....routes.auth.services.auth.twofa import verify_2fa as verify_2fa_service
         from ....routes.auth.models import TwoFAVerifyRequest
+        from ....routes.auth.services.auth.twofa import verify_2fa as verify_2fa_service
 
         # Create request object
         verify_request = TwoFAVerifyRequest(method=method, code=code)
@@ -1650,11 +1669,7 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={
-                "method": method,
-                "success": True,
-                "was_pending": user_doc.get("two_fa_pending", False)
-            }
+            metadata={"method": method, "success": True, "was_pending": user_doc.get("two_fa_pending", False)},
         )
 
         # Format response
@@ -1664,11 +1679,13 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
             "verification_successful": True,
             "two_fa_enabled": verification_result.enabled,
             "was_setup_completion": user_doc.get("two_fa_pending", False),
-            "backup_codes": verification_result.backup_codes if hasattr(verification_result, 'backup_codes') else None
+            "backup_codes": verification_result.backup_codes if hasattr(verification_result, "backup_codes") else None,
         }
 
         if verification_result.backup_codes:
-            result["backup_codes_message"] = "Save these backup codes in a secure location. They can be used if you lose access to your authenticator app."
+            result["backup_codes_message"] = (
+                "Save these backup codes in a secure location. They can be used if you lose access to your authenticator app."
+            )
 
         logger.info("Successfully verified 2FA code for user %s (method: %s)", user_context.user_id, method)
         return result
@@ -1678,12 +1695,13 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
 
         # Log failed verification attempt
         from ....utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="2fa_verification_failed",
             user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
+            ip_address=getattr(user_context, "ip_address", ""),
             success=False,
-            details={"method": method, "error": str(e)}
+            details={"method": method, "error": str(e)},
         )
 
         if "Invalid TOTP code" in str(e):
@@ -1698,7 +1716,7 @@ async def verify_2fa_code(code: str, method: str = "totp") -> Dict[str, Any]:
     name="disable_2fa",
     description="Disable 2FA for the user",
     permissions=["auth:write"],
-    rate_limit_action="auth_2fa_disable"
+    rate_limit_action="auth_2fa_disable",
 )
 async def disable_2fa() -> Dict[str, Any]:
     """
@@ -1714,7 +1732,8 @@ async def disable_2fa() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1737,24 +1756,25 @@ async def disable_2fa() -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"two_fa_disabled": True}
+            metadata={"two_fa_disabled": True},
         )
 
         # Log security event
         from ....utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="2fa_disabled",
             user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
+            ip_address=getattr(user_context, "ip_address", ""),
             success=True,
-            details={"disabled_via": "mcp_tool"}
+            details={"disabled_via": "mcp_tool"},
         )
 
         result = {
             "user_id": user_context.user_id,
             "two_fa_disabled": True,
             "disabled_at": datetime.utcnow(),
-            "security_warning": "2FA has been disabled. Your account security level is now reduced. Consider re-enabling 2FA for better security."
+            "security_warning": "2FA has been disabled. Your account security level is now reduced. Consider re-enabling 2FA for better security.",
         }
 
         logger.info("Successfully disabled 2FA for user %s", user_context.user_id)
@@ -1772,7 +1792,7 @@ async def disable_2fa() -> Dict[str, Any]:
     name="get_backup_codes_status",
     description="Get backup codes status and information",
     permissions=["auth:read"],
-    rate_limit_action="auth_2fa_read"
+    rate_limit_action="auth_2fa_read",
 )
 async def get_backup_codes_status() -> Dict[str, Any]:
     """
@@ -1788,7 +1808,8 @@ async def get_backup_codes_status() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1808,7 +1829,7 @@ async def get_backup_codes_status() -> Dict[str, Any]:
             operation="get_backup_codes_status",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         # Format backup codes status
@@ -1820,11 +1841,16 @@ async def get_backup_codes_status() -> Dict[str, Any]:
             "remaining_codes": len(backup_codes) - len(backup_codes_used),
             "last_generated": user_doc.get("backup_codes_generated_at"),
             "codes_low_warning": (len(backup_codes) - len(backup_codes_used)) <= 2,
-            "recommendation": "Generate new backup codes if you have 2 or fewer remaining" if (len(backup_codes) - len(backup_codes_used)) <= 2 else None
+            "recommendation": (
+                "Generate new backup codes if you have 2 or fewer remaining"
+                if (len(backup_codes) - len(backup_codes_used)) <= 2
+                else None
+            ),
         }
 
-        logger.info("Retrieved backup codes status for user %s (remaining: %d)",
-                   user_context.user_id, status["remaining_codes"])
+        logger.info(
+            "Retrieved backup codes status for user %s (remaining: %d)", user_context.user_id, status["remaining_codes"]
+        )
         return status
 
     except Exception as e:
@@ -1839,7 +1865,7 @@ async def get_backup_codes_status() -> Dict[str, Any]:
     name="regenerate_backup_codes",
     description="Generate new backup codes for 2FA",
     permissions=["auth:write"],
-    rate_limit_action="auth_2fa_backup_regenerate"
+    rate_limit_action="auth_2fa_backup_regenerate",
 )
 async def regenerate_backup_codes() -> Dict[str, Any]:
     """
@@ -1855,7 +1881,8 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
 
     try:
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1868,22 +1895,24 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
 
         # Generate new backup codes
         import secrets
+
         import bcrypt
 
         backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
         hashed_backup_codes = [
-            bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-            for code in backup_codes
+            bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8") for code in backup_codes
         ]
 
         # Update user with new backup codes
         result = await users_collection.update_one(
             {"_id": user_context.user_id},
-            {"$set": {
-                "backup_codes": hashed_backup_codes,
-                "backup_codes_used": [],  # Reset used codes
-                "backup_codes_generated_at": datetime.utcnow()
-            }}
+            {
+                "$set": {
+                    "backup_codes": hashed_backup_codes,
+                    "backup_codes_used": [],  # Reset used codes
+                    "backup_codes_generated_at": datetime.utcnow(),
+                }
+            },
         )
 
         if result.modified_count == 0:
@@ -1895,17 +1924,18 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"backup_codes_count": len(backup_codes)}
+            metadata={"backup_codes_count": len(backup_codes)},
         )
 
         # Log security event
         from ....utils.logging_utils import log_security_event
+
         log_security_event(
             event_type="backup_codes_regenerated",
             user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
+            ip_address=getattr(user_context, "ip_address", ""),
             success=True,
-            details={"codes_count": len(backup_codes), "regenerated_via": "mcp_tool"}
+            details={"codes_count": len(backup_codes), "regenerated_via": "mcp_tool"},
         )
 
         result_data = {
@@ -1914,11 +1944,10 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
             "codes_count": len(backup_codes),
             "generated_at": datetime.utcnow(),
             "security_warning": "Save these backup codes in a secure location. They replace your previous backup codes and can be used if you lose access to your authenticator app.",
-            "usage_note": "Each backup code can only be used once. Generate new codes when you have 2 or fewer remaining."
+            "usage_note": "Each backup code can only be used once. Generate new codes when you have 2 or fewer remaining.",
         }
 
-        logger.info("Successfully regenerated %d backup codes for user %s",
-                   len(backup_codes), user_context.user_id)
+        logger.info("Successfully regenerated %d backup codes for user %s", len(backup_codes), user_context.user_id)
         return result_data
 
     except Exception as e:
@@ -1933,7 +1962,7 @@ async def regenerate_backup_codes() -> Dict[str, Any]:
     name="reset_2fa",
     description="Reset 2FA setup and generate new secret and backup codes",
     permissions=["auth:write"],
-    rate_limit_action="auth_2fa_reset"
+    rate_limit_action="auth_2fa_reset",
 )
 async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
     """
@@ -1956,7 +1985,8 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             raise MCPValidationError("Only TOTP method is currently supported")
 
         # Get user from database
-        from ....database import db_manager
+        from second_brain_database.database import db_manager
+
         users_collection = db_manager.get_collection("users")
 
         user_doc = await users_collection.find_one({"_id": user_context.user_id})
@@ -1967,15 +1997,15 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
         if not user_doc.get("two_fa_enabled", False):
             raise MCPValidationError("2FA is not enabled. Use setup_2fa to enable 2FA first.")
 
-        # Use existing 2FA reset service
-        from ....routes.auth.services.auth.twofa import reset_2fa as reset_2fa_service
+        # Use existing 2FA setup service
         from ....routes.auth.models import TwoFASetupRequest
+        from ....routes.auth.services.auth.twofa import setup_2fa as setup_2fa_service
 
         # Create request object
-        reset_request = TwoFASetupRequest(method=method)
+        setup_request = TwoFASetupRequest(method=method)
 
-        # Call existing reset service
-        reset_response = await reset_2fa_service(user_doc, reset_request)
+        # Call existing setup service
+        setup_response = await setup_2fa_service(user_doc, setup_request)
 
         # Create audit trail
         await create_mcp_audit_trail(
@@ -1983,33 +2013,21 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"method": method, "reset_completed": True}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="2fa_reset",
-            user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
-            success=True,
-            details={"method": method, "reset_via": "mcp_tool"}
+            metadata={"method": method, "reset": True},
         )
 
         # Format response
         result = {
             "user_id": user_context.user_id,
             "method": method,
-            "totp_secret": reset_response.totp_secret,
-            "provisioning_uri": reset_response.provisioning_uri,
-            "qr_code_data": reset_response.qr_code_data,
-            "reset_completed": True,
-            "reset_at": datetime.utcnow(),
-            "security_warning": "Your 2FA has been reset with a new secret. Update your authenticator app with the new QR code or secret.",
-            "next_step": "Scan the QR code or manually enter the secret in your authenticator app"
+            "totp_secret": setup_response.totp_secret,
+            "provisioning_uri": setup_response.provisioning_uri,
+            "qr_code_data": setup_response.qr_code_data,
+            "reset_complete": True,
+            "next_step": "Use verify_2fa_code to complete reset with a code from your authenticator app",
         }
 
-        logger.info("Successfully reset 2FA for user %s with method %s", user_context.user_id, method)
+        logger.info("Reset 2FA for user %s with method %s", user_context.user_id, method)
         return result
 
     except Exception as e:
@@ -2018,857 +2036,3 @@ async def reset_2fa(method: str = "totp") -> Dict[str, Any]:
             raise
         else:
             raise MCPValidationError(f"Failed to reset 2FA: {str(e)}")
-
-
-# Security Lockdown Tools (Task 5.4)
-
-class TrustedIPsStatus(BaseModel):
-    """Trusted IPs status model."""
-    lockdown_enabled: bool = False
-    trusted_ips: List[str] = Field(default_factory=list)
-    trusted_ip_count: int = 0
-
-class TrustedUserAgentsStatus(BaseModel):
-    """Trusted User Agents status model."""
-    lockdown_enabled: bool = False
-    trusted_user_agents: List[str] = Field(default_factory=list)
-    trusted_user_agent_count: int = 0
-
-
-@authenticated_tool(
-    name="get_trusted_ips_status",
-    description="Get trusted IPs lockdown status and configuration",
-    permissions=["auth:read"],
-    rate_limit_action="auth_security_read"
-)
-async def get_trusted_ips_status() -> Dict[str, Any]:
-    """
-    Get trusted IPs lockdown status and configuration for the current user.
-
-    Returns:
-        Dictionary containing trusted IPs status and configuration
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="get_trusted_ips_status",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id
-        )
-
-        # Get trusted IPs information
-        trusted_ips = user_doc.get("trusted_ips", [])
-        lockdown_enabled = user_doc.get("trusted_ip_lockdown", False)
-
-        # Format status
-        status = {
-            "user_id": user_context.user_id,
-            "lockdown_enabled": lockdown_enabled,
-            "trusted_ips": trusted_ips,
-            "trusted_ip_count": len(trusted_ips),
-            "lockdown_setup_date": user_doc.get("trusted_ip_lockdown_setup_date"),
-            "last_updated": user_doc.get("trusted_ips_updated_at"),
-            "current_ip": getattr(user_context, 'ip_address', 'unknown'),
-            "current_ip_trusted": getattr(user_context, 'ip_address', '') in trusted_ips if trusted_ips else False,
-            "security_level": "high" if lockdown_enabled and len(trusted_ips) > 0 else "medium"
-        }
-
-        logger.info("Retrieved trusted IPs status for user %s (enabled: %s, count: %d)",
-                   user_context.user_id, lockdown_enabled, len(trusted_ips))
-        return status
-
-    except Exception as e:
-        logger.error("Failed to get trusted IPs status for user %s: %s", user_context.user_id, e)
-        raise MCPValidationError(f"Failed to retrieve trusted IPs status: {str(e)}")
-
-
-@authenticated_tool(
-    name="request_ip_lockdown",
-    description="Request to enable IP lockdown for the user",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def request_ip_lockdown() -> Dict[str, Any]:
-    """
-    Request to enable IP lockdown for the current user.
-    This will add the current IP to trusted list and enable lockdown.
-
-    Returns:
-        Dictionary containing lockdown request confirmation
-
-    Raises:
-        MCPValidationError: If lockdown is already enabled
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if lockdown is already enabled
-        if user_doc.get("trusted_ip_lockdown", False):
-            raise MCPValidationError("IP lockdown is already enabled")
-
-        # Get current IP address
-        current_ip = getattr(user_context, 'ip_address', '')
-        if not current_ip:
-            raise MCPValidationError("Cannot determine current IP address")
-
-        # Add current IP to trusted list and enable lockdown
-        trusted_ips = user_doc.get("trusted_ips", [])
-        if current_ip not in trusted_ips:
-            trusted_ips.append(current_ip)
-
-        # Update user with IP lockdown enabled
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_ip_lockdown": True,
-                "trusted_ips": trusted_ips,
-                "trusted_ip_lockdown_setup_date": datetime.utcnow(),
-                "trusted_ips_updated_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to enable IP lockdown")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="request_ip_lockdown",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_ip_lockdown": True, "trusted_ips": trusted_ips},
-            metadata={"current_ip": current_ip, "trusted_ip_count": len(trusted_ips)}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="ip_lockdown_enabled",
-            user_id=user_context.user_id,
-            ip_address=current_ip,
-            success=True,
-            details={"enabled_via": "mcp_tool", "trusted_ips_count": len(trusted_ips)}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "ip_lockdown_enabled": True,
-            "current_ip": current_ip,
-            "trusted_ips": trusted_ips,
-            "trusted_ip_count": len(trusted_ips),
-            "enabled_at": datetime.utcnow(),
-            "security_warning": "IP lockdown is now enabled. You will only be able to access your account from trusted IP addresses.",
-            "recommendation": "Make sure to add other IP addresses you use regularly to avoid being locked out."
-        }
-
-        logger.info("Successfully enabled IP lockdown for user %s with IP %s",
-                   user_context.user_id, current_ip)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to enable IP lockdown for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to enable IP lockdown: {str(e)}")
-
-
-@authenticated_tool(
-    name="confirm_ip_lockdown",
-    description="Confirm and finalize IP lockdown setup",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def confirm_ip_lockdown() -> Dict[str, Any]:
-    """
-    Confirm and finalize IP lockdown setup for the current user.
-
-    Returns:
-        Dictionary containing lockdown confirmation
-
-    Raises:
-        MCPValidationError: If lockdown is not enabled or already confirmed
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if lockdown is enabled
-        if not user_doc.get("trusted_ip_lockdown", False):
-            raise MCPValidationError("IP lockdown is not enabled")
-
-        # Update confirmation status
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_ip_lockdown_confirmed": True,
-                "trusted_ip_lockdown_confirmed_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to confirm IP lockdown")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="confirm_ip_lockdown",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_ip_lockdown_confirmed": True}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "ip_lockdown_confirmed": True,
-            "confirmed_at": datetime.utcnow(),
-            "trusted_ips": user_doc.get("trusted_ips", []),
-            "status": "IP lockdown is now fully active and confirmed"
-        }
-
-        logger.info("Successfully confirmed IP lockdown for user %s", user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to confirm IP lockdown for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to confirm IP lockdown: {str(e)}")
-
-
-@authenticated_tool(
-    name="get_trusted_user_agents_status",
-    description="Get trusted User Agents lockdown status and configuration",
-    permissions=["auth:read"],
-    rate_limit_action="auth_security_read"
-)
-async def get_trusted_user_agents_status() -> Dict[str, Any]:
-    """
-    Get trusted User Agents lockdown status and configuration for the current user.
-
-    Returns:
-        Dictionary containing trusted User Agents status and configuration
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="get_trusted_user_agents_status",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id
-        )
-
-        # Get trusted User Agents information
-        trusted_user_agents = user_doc.get("trusted_user_agents", [])
-        lockdown_enabled = user_doc.get("trusted_user_agent_lockdown", False)
-
-        # Format status
-        status = {
-            "user_id": user_context.user_id,
-            "lockdown_enabled": lockdown_enabled,
-            "trusted_user_agents": trusted_user_agents,
-            "trusted_user_agent_count": len(trusted_user_agents),
-            "lockdown_setup_date": user_doc.get("trusted_user_agent_lockdown_setup_date"),
-            "last_updated": user_doc.get("trusted_user_agents_updated_at"),
-            "current_user_agent": getattr(user_context, 'user_agent', 'unknown'),
-            "current_user_agent_trusted": getattr(user_context, 'user_agent', '') in trusted_user_agents if trusted_user_agents else False,
-            "security_level": "high" if lockdown_enabled and len(trusted_user_agents) > 0 else "medium"
-        }
-
-        logger.info("Retrieved trusted User Agents status for user %s (enabled: %s, count: %d)",
-                   user_context.user_id, lockdown_enabled, len(trusted_user_agents))
-        return status
-
-    except Exception as e:
-        logger.error("Failed to get trusted User Agents status for user %s: %s", user_context.user_id, e)
-        raise MCPValidationError(f"Failed to retrieve trusted User Agents status: {str(e)}")
-
-
-@authenticated_tool(
-    name="request_user_agent_lockdown",
-    description="Request to enable User Agent lockdown for the user",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def request_user_agent_lockdown() -> Dict[str, Any]:
-    """
-    Request to enable User Agent lockdown for the current user.
-    This will add the current User Agent to trusted list and enable lockdown.
-
-    Returns:
-        Dictionary containing lockdown request confirmation
-
-    Raises:
-        MCPValidationError: If lockdown is already enabled
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if lockdown is already enabled
-        if user_doc.get("trusted_user_agent_lockdown", False):
-            raise MCPValidationError("User Agent lockdown is already enabled")
-
-        # Get current User Agent
-        current_user_agent = getattr(user_context, 'user_agent', '')
-        if not current_user_agent:
-            raise MCPValidationError("Cannot determine current User Agent")
-
-        # Add current User Agent to trusted list and enable lockdown
-        trusted_user_agents = user_doc.get("trusted_user_agents", [])
-        if current_user_agent not in trusted_user_agents:
-            trusted_user_agents.append(current_user_agent)
-
-        # Update user with User Agent lockdown enabled
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_user_agent_lockdown": True,
-                "trusted_user_agents": trusted_user_agents,
-                "trusted_user_agent_lockdown_setup_date": datetime.utcnow(),
-                "trusted_user_agents_updated_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to enable User Agent lockdown")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="request_user_agent_lockdown",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_user_agent_lockdown": True, "trusted_user_agents": trusted_user_agents},
-            metadata={"current_user_agent": current_user_agent, "trusted_user_agent_count": len(trusted_user_agents)}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="user_agent_lockdown_enabled",
-            user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
-            success=True,
-            details={"enabled_via": "mcp_tool", "trusted_user_agents_count": len(trusted_user_agents)}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "user_agent_lockdown_enabled": True,
-            "current_user_agent": current_user_agent,
-            "trusted_user_agents": trusted_user_agents,
-            "trusted_user_agent_count": len(trusted_user_agents),
-            "enabled_at": datetime.utcnow(),
-            "security_warning": "User Agent lockdown is now enabled. You will only be able to access your account from trusted browsers/applications.",
-            "recommendation": "Make sure to add other browsers or applications you use regularly to avoid being locked out."
-        }
-
-        logger.info("Successfully enabled User Agent lockdown for user %s", user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to enable User Agent lockdown for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to enable User Agent lockdown: {str(e)}")
-
-
-@authenticated_tool(
-    name="confirm_user_agent_lockdown",
-    description="Confirm and finalize User Agent lockdown setup",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def confirm_user_agent_lockdown() -> Dict[str, Any]:
-    """
-    Confirm and finalize User Agent lockdown setup for the current user.
-
-    Returns:
-        Dictionary containing lockdown confirmation
-
-    Raises:
-        MCPValidationError: If lockdown is not enabled or already confirmed
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if lockdown is enabled
-        if not user_doc.get("trusted_user_agent_lockdown", False):
-            raise MCPValidationError("User Agent lockdown is not enabled")
-
-        # Update confirmation status
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_user_agent_lockdown_confirmed": True,
-                "trusted_user_agent_lockdown_confirmed_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to confirm User Agent lockdown")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="confirm_user_agent_lockdown",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_user_agent_lockdown_confirmed": True}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "user_agent_lockdown_confirmed": True,
-            "confirmed_at": datetime.utcnow(),
-            "trusted_user_agents": user_doc.get("trusted_user_agents", []),
-            "status": "User Agent lockdown is now fully active and confirmed"
-        }
-
-        logger.info("Successfully confirmed User Agent lockdown for user %s", user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to confirm User Agent lockdown for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to confirm User Agent lockdown: {str(e)}")
-
-
-@authenticated_tool(
-    name="allow_once_ip_access",
-    description="Allow one-time access from current IP (temporary bypass)",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_bypass"
-)
-async def allow_once_ip_access() -> Dict[str, Any]:
-    """
-    Allow one-time access from current IP address (15-minute temporary bypass).
-
-    Returns:
-        Dictionary containing temporary access confirmation
-
-    Raises:
-        MCPValidationError: If IP lockdown is not enabled
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if IP lockdown is enabled
-        if not user_doc.get("trusted_ip_lockdown", False):
-            raise MCPValidationError("IP lockdown is not enabled")
-
-        # Get current IP address
-        current_ip = getattr(user_context, 'ip_address', '')
-        if not current_ip:
-            raise MCPValidationError("Cannot determine current IP address")
-
-        # Generate temporary access token
-        from ....routes.auth.services.temporary_access import generate_temporary_ip_access_token
-
-        try:
-            token = await generate_temporary_ip_access_token(
-                user_email=user_doc.get("email", ""),
-                ip_address=current_ip,
-                action="allow_once",
-                endpoint="mcp_tool"
-            )
-        except Exception as token_error:
-            logger.error("Failed to generate temporary IP token: %s", token_error)
-            # Continue without token - just log the access
-            token = None
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="allow_once_ip_access",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            metadata={"ip_address": current_ip, "token_generated": token is not None}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="ip_temporary_access_granted",
-            user_id=user_context.user_id,
-            ip_address=current_ip,
-            success=True,
-            details={"granted_via": "mcp_tool", "duration_minutes": 15}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "ip_address": current_ip,
-            "temporary_access_granted": True,
-            "duration_minutes": 15,
-            "granted_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(minutes=15),
-            "token": token,
-            "note": "This grants temporary access for 15 minutes. Consider adding this IP to your trusted list for permanent access."
-        }
-
-        logger.info("Granted temporary IP access for user %s from IP %s", user_context.user_id, current_ip)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to grant temporary IP access for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to grant temporary IP access: {str(e)}")
-
-
-@authenticated_tool(
-    name="allow_once_user_agent_access",
-    description="Allow one-time access from current User Agent (temporary bypass)",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_bypass"
-)
-async def allow_once_user_agent_access() -> Dict[str, Any]:
-    """
-    Allow one-time access from current User Agent (15-minute temporary bypass).
-
-    Returns:
-        Dictionary containing temporary access confirmation
-
-    Raises:
-        MCPValidationError: If User Agent lockdown is not enabled
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Check if User Agent lockdown is enabled
-        if not user_doc.get("trusted_user_agent_lockdown", False):
-            raise MCPValidationError("User Agent lockdown is not enabled")
-
-        # Get current User Agent
-        current_user_agent = getattr(user_context, 'user_agent', '')
-        if not current_user_agent:
-            raise MCPValidationError("Cannot determine current User Agent")
-
-        # Generate temporary access token
-        from ....routes.auth.services.temporary_access import generate_temporary_user_agent_access_token
-
-        try:
-            token = await generate_temporary_user_agent_access_token(
-                user_email=user_doc.get("email", ""),
-                user_agent=current_user_agent,
-                action="allow_once",
-                endpoint="mcp_tool"
-            )
-        except Exception as token_error:
-            logger.error("Failed to generate temporary User Agent token: %s", token_error)
-            # Continue without token - just log the access
-            token = None
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="allow_once_user_agent_access",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            metadata={"user_agent": current_user_agent, "token_generated": token is not None}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="user_agent_temporary_access_granted",
-            user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
-            success=True,
-            details={"granted_via": "mcp_tool", "duration_minutes": 15}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "user_agent": current_user_agent,
-            "temporary_access_granted": True,
-            "duration_minutes": 15,
-            "granted_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(minutes=15),
-            "token": token,
-            "note": "This grants temporary access for 15 minutes. Consider adding this User Agent to your trusted list for permanent access."
-        }
-
-        logger.info("Granted temporary User Agent access for user %s", user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to grant temporary User Agent access for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to grant temporary User Agent access: {str(e)}")
-
-
-@authenticated_tool(
-    name="add_trusted_ip",
-    description="Add an IP address to the trusted list",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def add_trusted_ip(ip_address: str) -> Dict[str, Any]:
-    """
-    Add an IP address to the user's trusted IP list.
-
-    Args:
-        ip_address: IP address to add to trusted list
-
-    Returns:
-        Dictionary containing add confirmation
-
-    Raises:
-        MCPValidationError: If IP is invalid or already trusted
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Validate IP address format
-        import ipaddress
-        try:
-            ipaddress.ip_address(ip_address)
-        except ValueError:
-            raise MCPValidationError("Invalid IP address format")
-
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Get current trusted IPs
-        trusted_ips = user_doc.get("trusted_ips", [])
-
-        # Check if IP is already trusted
-        if ip_address in trusted_ips:
-            raise MCPValidationError("IP address is already in trusted list")
-
-        # Add IP to trusted list
-        trusted_ips.append(ip_address)
-
-        # Update user with new trusted IP
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_ips": trusted_ips,
-                "trusted_ips_updated_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to add trusted IP")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="add_trusted_ip",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_ips": trusted_ips},
-            metadata={"added_ip": ip_address, "trusted_ip_count": len(trusted_ips)}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="trusted_ip_added",
-            user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
-            success=True,
-            details={"added_ip": ip_address, "added_via": "mcp_tool"}
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "ip_address": ip_address,
-            "added_to_trusted": True,
-            "trusted_ips": trusted_ips,
-            "trusted_ip_count": len(trusted_ips),
-            "added_at": datetime.utcnow()
-        }
-
-        logger.info("Successfully added IP %s to trusted list for user %s", ip_address, user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to add trusted IP %s for user %s: %s", ip_address, user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to add trusted IP: {str(e)}")
-
-
-@authenticated_tool(
-    name="add_trusted_user_agent",
-    description="Add a User Agent to the trusted list",
-    permissions=["auth:write"],
-    rate_limit_action="auth_security_write"
-)
-async def add_trusted_user_agent(user_agent: str) -> Dict[str, Any]:
-    """
-    Add a User Agent to the user's trusted User Agent list.
-
-    Args:
-        user_agent: User Agent string to add to trusted list
-
-    Returns:
-        Dictionary containing add confirmation
-
-    Raises:
-        MCPValidationError: If User Agent is invalid or already trusted
-    """
-    user_context = get_mcp_user_context()
-
-    try:
-        # Validate User Agent
-        if not user_agent or len(user_agent.strip()) == 0:
-            raise MCPValidationError("User Agent cannot be empty")
-
-        if len(user_agent) > 500:  # Reasonable limit
-            raise MCPValidationError("User Agent string is too long")
-
-        user_agent = user_agent.strip()
-
-        # Get user from database
-        from ....database import db_manager
-        users_collection = db_manager.get_collection("users")
-
-        user_doc = await users_collection.find_one({"_id": user_context.user_id})
-        if not user_doc:
-            raise MCPValidationError("User not found")
-
-        # Get current trusted User Agents
-        trusted_user_agents = user_doc.get("trusted_user_agents", [])
-
-        # Check if User Agent is already trusted
-        if user_agent in trusted_user_agents:
-            raise MCPValidationError("User Agent is already in trusted list")
-
-        # Add User Agent to trusted list
-        trusted_user_agents.append(user_agent)
-
-        # Update user with new trusted User Agent
-        result = await users_collection.update_one(
-            {"_id": user_context.user_id},
-            {"$set": {
-                "trusted_user_agents": trusted_user_agents,
-                "trusted_user_agents_updated_at": datetime.utcnow()
-            }}
-        )
-
-        if result.modified_count == 0:
-            raise MCPValidationError("Failed to add trusted User Agent")
-
-        # Create audit trail
-        await create_mcp_audit_trail(
-            operation="add_trusted_user_agent",
-            user_context=user_context,
-            resource_type="user",
-            resource_id=user_context.user_id,
-            changes={"trusted_user_agents": trusted_user_agents},
-            metadata={"added_user_agent": user_agent, "trusted_user_agent_count": len(trusted_user_agents)}
-        )
-
-        # Log security event
-        from ....utils.logging_utils import log_security_event
-        log_security_event(
-            event_type="trusted_user_agent_added",
-            user_id=user_context.user_id,
-            ip_address=getattr(user_context, 'ip_address', ''),
-            success=True,
-            details={"added_user_agent": user_agent[:100], "added_via": "mcp_tool"}  # Truncate for logging
-        )
-
-        result_data = {
-            "user_id": user_context.user_id,
-            "user_agent": user_agent,
-            "added_to_trusted": True,
-            "trusted_user_agents": trusted_user_agents,
-            "trusted_user_agent_count": len(trusted_user_agents),
-            "added_at": datetime.utcnow()
-        }
-
-        logger.info("Successfully added User Agent to trusted list for user %s", user_context.user_id)
-        return result_data
-
-    except Exception as e:
-        logger.error("Failed to add trusted User Agent for user %s: %s", user_context.user_id, e)
-        if isinstance(e, MCPValidationError):
-            raise
-        else:
-            raise MCPValidationError(f"Failed to add trusted User Agent: {str(e)}")

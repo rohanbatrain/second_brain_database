@@ -59,8 +59,14 @@ class EmailManager:
         return False
 
     async def send_family_invitation_email(
-        self, to_email: str, inviter_username: str, family_name: str,
-        relationship_type: str, accept_link: str, decline_link: str, expires_at: str
+        self,
+        to_email: str,
+        inviter_username: str,
+        family_name: str,
+        relationship_type: str,
+        accept_link: str,
+        decline_link: str,
+        expires_at: str,
     ) -> bool:
         """
         Send a family invitation email to the specified address.
@@ -90,7 +96,11 @@ class EmailManager:
                 return True
             except RuntimeError as e:
                 self.logger.warning(
-                    "Email provider %s failed for family invitation to %s: %s", provider.__name__, to_email, e, exc_info=True
+                    "Email provider %s failed for family invitation to %s: %s",
+                    provider.__name__,
+                    to_email,
+                    e,
+                    exc_info=True,
                 )
         self.logger.error("All email providers failed to send family invitation to %s", to_email, exc_info=True)
         return False

@@ -13,9 +13,9 @@ Requirements tested: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 
 class TokenRequestWorkflowValidator:
@@ -27,13 +27,15 @@ class TokenRequestWorkflowValidator:
     def log_test_result(self, test_name: str, success: bool, details: str = ""):
         """Log test result for reporting."""
         status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "status": status,
-            "success": success,
-            "details": details,
-            "timestamp": datetime.now().isoformat()
-        })
+        self.test_results.append(
+            {
+                "test": test_name,
+                "status": status,
+                "success": success,
+                "details": details,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         print(f"{status}: {test_name}")
         if details:
             print(f"    Details: {details}")
@@ -57,7 +59,7 @@ class TokenRequestWorkflowValidator:
                 "created_at": datetime,
                 "expires_at": datetime,
                 "reviewed_at": (datetime, type(None)),
-                "processed_at": (datetime, type(None))
+                "processed_at": (datetime, type(None)),
             }
 
             # Validate required status values
@@ -77,7 +79,7 @@ class TokenRequestWorkflowValidator:
                 "created_at": datetime.now(timezone.utc),
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=168),
                 "reviewed_at": None,
-                "processed_at": None
+                "processed_at": None,
             }
 
             # Validate structure
@@ -113,42 +115,37 @@ class TokenRequestWorkflowValidator:
                     "name": "Positive amount validation",
                     "amount": 100,
                     "reason": "Valid reason for tokens",
-                    "should_pass": True
+                    "should_pass": True,
                 },
                 {
                     "name": "Zero amount validation",
                     "amount": 0,
                     "reason": "Valid reason",
                     "should_pass": False,
-                    "error": "Amount must be positive"
+                    "error": "Amount must be positive",
                 },
                 {
                     "name": "Negative amount validation",
                     "amount": -50,
                     "reason": "Valid reason",
                     "should_pass": False,
-                    "error": "Amount must be positive"
+                    "error": "Amount must be positive",
                 },
                 {
                     "name": "Empty reason validation",
                     "amount": 100,
                     "reason": "",
                     "should_pass": False,
-                    "error": "Reason must be at least 5 characters"
+                    "error": "Reason must be at least 5 characters",
                 },
                 {
                     "name": "Short reason validation",
                     "amount": 100,
                     "reason": "Hi",
                     "should_pass": False,
-                    "error": "Reason must be at least 5 characters"
+                    "error": "Reason must be at least 5 characters",
                 },
-                {
-                    "name": "Valid minimum reason",
-                    "amount": 100,
-                    "reason": "Valid",
-                    "should_pass": True
-                }
+                {"name": "Valid minimum reason", "amount": 100, "reason": "Valid", "should_pass": True},
             ]
 
             passed_validations = 0
@@ -193,30 +190,10 @@ class TokenRequestWorkflowValidator:
             auto_approval_threshold = 50
 
             test_cases = [
-                {
-                    "amount": 25,
-                    "threshold": 50,
-                    "expected_auto_approved": True,
-                    "expected_status": "auto_approved"
-                },
-                {
-                    "amount": 50,
-                    "threshold": 50,
-                    "expected_auto_approved": True,
-                    "expected_status": "auto_approved"
-                },
-                {
-                    "amount": 51,
-                    "threshold": 50,
-                    "expected_auto_approved": False,
-                    "expected_status": "pending"
-                },
-                {
-                    "amount": 100,
-                    "threshold": 50,
-                    "expected_auto_approved": False,
-                    "expected_status": "pending"
-                }
+                {"amount": 25, "threshold": 50, "expected_auto_approved": True, "expected_status": "auto_approved"},
+                {"amount": 50, "threshold": 50, "expected_auto_approved": True, "expected_status": "auto_approved"},
+                {"amount": 51, "threshold": 50, "expected_auto_approved": False, "expected_status": "pending"},
+                {"amount": 100, "threshold": 50, "expected_auto_approved": False, "expected_status": "pending"},
             ]
 
             for case in test_cases:
@@ -244,26 +221,18 @@ class TokenRequestWorkflowValidator:
 
             # Test expiration scenarios
             expiration_tests = [
-                {
-                    "name": "Future expiration",
-                    "expires_at": now + timedelta(hours=24),
-                    "is_expired": False
-                },
-                {
-                    "name": "Past expiration",
-                    "expires_at": now - timedelta(hours=1),
-                    "is_expired": True
-                },
+                {"name": "Future expiration", "expires_at": now + timedelta(hours=24), "is_expired": False},
+                {"name": "Past expiration", "expires_at": now - timedelta(hours=1), "is_expired": True},
                 {
                     "name": "Exact expiration",
                     "expires_at": now,
-                    "is_expired": True  # Should be considered expired at exact time
+                    "is_expired": True,  # Should be considered expired at exact time
                 },
                 {
                     "name": "Week-long expiration",
                     "expires_at": now + timedelta(hours=168),  # 7 days
-                    "is_expired": False
-                }
+                    "is_expired": False,
+                },
             ]
 
             for test in expiration_tests:
@@ -285,16 +254,8 @@ class TokenRequestWorkflowValidator:
         try:
             # Test review scenarios
             review_tests = [
-                {
-                    "action": "approve",
-                    "expected_status": "approved",
-                    "should_process": True
-                },
-                {
-                    "action": "deny",
-                    "expected_status": "denied",
-                    "should_process": False
-                }
+                {"action": "approve", "expected_status": "approved", "should_process": True},
+                {"action": "deny", "expected_status": "denied", "should_process": False},
             ]
 
             valid_actions = {"approve", "deny"}
@@ -332,42 +293,27 @@ class TokenRequestWorkflowValidator:
         try:
             # Define permission scenarios
             permission_tests = [
-                {
-                    "operation": "create_request",
-                    "user_role": "member",
-                    "is_family_member": True,
-                    "should_allow": True
-                },
+                {"operation": "create_request", "user_role": "member", "is_family_member": True, "should_allow": True},
                 {
                     "operation": "create_request",
                     "user_role": "non_member",
                     "is_family_member": False,
-                    "should_allow": False
+                    "should_allow": False,
                 },
-                {
-                    "operation": "review_request",
-                    "user_role": "admin",
-                    "is_family_admin": True,
-                    "should_allow": True
-                },
-                {
-                    "operation": "review_request",
-                    "user_role": "member",
-                    "is_family_admin": False,
-                    "should_allow": False
-                },
+                {"operation": "review_request", "user_role": "admin", "is_family_admin": True, "should_allow": True},
+                {"operation": "review_request", "user_role": "member", "is_family_admin": False, "should_allow": False},
                 {
                     "operation": "view_pending_requests",
                     "user_role": "admin",
                     "is_family_admin": True,
-                    "should_allow": True
+                    "should_allow": True,
                 },
                 {
                     "operation": "view_pending_requests",
                     "user_role": "member",
                     "is_family_admin": False,
-                    "should_allow": False
-                }
+                    "should_allow": False,
+                },
             ]
 
             for test in permission_tests:
@@ -380,9 +326,13 @@ class TokenRequestWorkflowValidator:
                     has_permission = False
 
                 if has_permission != test["should_allow"]:
-                    raise AssertionError(f"Permission check failed for {test['operation']} with role {test['user_role']}")
+                    raise AssertionError(
+                        f"Permission check failed for {test['operation']} with role {test['user_role']}"
+                    )
 
-            self.log_test_result(test_name, True, f"Permission requirements validated for {len(permission_tests)} scenarios")
+            self.log_test_result(
+                test_name, True, f"Permission requirements validated for {len(permission_tests)} scenarios"
+            )
 
         except Exception as e:
             self.log_test_result(test_name, False, f"Permission validation failed: {str(e)}")
@@ -399,7 +349,7 @@ class TokenRequestWorkflowValidator:
                 "user_id": str,
                 "family_id": str,
                 "request_id": str,
-                "operation_context": dict
+                "operation_context": dict,
             }
 
             # Test audit log structure
@@ -414,8 +364,8 @@ class TokenRequestWorkflowValidator:
                     "reason": "Educational expenses",
                     "auto_approved": False,
                     "ip_address": "192.168.1.1",
-                    "user_agent": "Mozilla/5.0..."
-                }
+                    "user_agent": "Mozilla/5.0...",
+                },
             }
 
             # Validate audit log structure
@@ -449,28 +399,24 @@ class TokenRequestWorkflowValidator:
                 {
                     "event": "request_created",
                     "recipients": ["requester", "all_admins"],
-                    "notification_type": "token_request_created"
+                    "notification_type": "token_request_created",
                 },
                 {
                     "event": "request_approved",
                     "recipients": ["requester", "other_admins"],
-                    "notification_type": "token_request_approved"
+                    "notification_type": "token_request_approved",
                 },
                 {
                     "event": "request_denied",
                     "recipients": ["requester", "other_admins"],
-                    "notification_type": "token_request_denied"
+                    "notification_type": "token_request_denied",
                 },
                 {
                     "event": "request_auto_approved",
                     "recipients": ["requester"],
-                    "notification_type": "token_request_auto_approved"
+                    "notification_type": "token_request_auto_approved",
                 },
-                {
-                    "event": "request_expired",
-                    "recipients": ["requester"],
-                    "notification_type": "token_request_expired"
-                }
+                {"event": "request_expired", "recipients": ["requester"], "notification_type": "token_request_expired"},
             ]
 
             # Validate notification structure
@@ -488,7 +434,9 @@ class TokenRequestWorkflowValidator:
                 if len(scenario["recipients"]) == 0:
                     raise AssertionError(f"No recipients specified for event: {scenario['event']}")
 
-            self.log_test_result(test_name, True, f"Notification requirements validated for {len(notification_scenarios)} scenarios")
+            self.log_test_result(
+                test_name, True, f"Notification requirements validated for {len(notification_scenarios)} scenarios"
+            )
 
         except Exception as e:
             self.log_test_result(test_name, False, f"Notification validation failed: {str(e)}")
@@ -500,16 +448,8 @@ class TokenRequestWorkflowValidator:
         try:
             # Define rate limiting scenarios
             rate_limits = {
-                "token_request_creation": {
-                    "limit": 10,
-                    "window": 3600,  # 1 hour
-                    "operation": "create_token_request"
-                },
-                "token_request_review": {
-                    "limit": 20,
-                    "window": 3600,  # 1 hour
-                    "operation": "review_token_request"
-                }
+                "token_request_creation": {"limit": 10, "window": 3600, "operation": "create_token_request"},  # 1 hour
+                "token_request_review": {"limit": 20, "window": 3600, "operation": "review_token_request"},  # 1 hour
             }
 
             # Validate rate limit structure
@@ -526,7 +466,9 @@ class TokenRequestWorkflowValidator:
                 if config["window"] <= 0:
                     raise AssertionError(f"Invalid rate window for {operation}: {config['window']}")
 
-            self.log_test_result(test_name, True, f"Rate limiting requirements validated for {len(rate_limits)} operations")
+            self.log_test_result(
+                test_name, True, f"Rate limiting requirements validated for {len(rate_limits)} operations"
+            )
 
         except Exception as e:
             self.log_test_result(test_name, False, f"Rate limiting validation failed: {str(e)}")

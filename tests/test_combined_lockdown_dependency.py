@@ -5,10 +5,13 @@ Test script to verify the enforce_all_lockdowns dependency function.
 
 import asyncio
 import sys
-sys.path.append('src')
 
-from unittest.mock import Mock, AsyncMock, patch
+sys.path.append("src")
+
+from unittest.mock import AsyncMock, Mock, patch
+
 from fastapi import HTTPException, Request
+
 from second_brain_database.routes.auth.dependencies import enforce_all_lockdowns
 
 
@@ -26,15 +29,17 @@ async def test_enforce_all_lockdowns():
         "username": "testuser",
         "email": "test@example.com",
         "trusted_ip_lockdown": False,
-        "trusted_user_agent_lockdown": False
+        "trusted_user_agent_lockdown": False,
     }
 
     print("Testing enforce_all_lockdowns function...")
 
     # Test 1: Both lockdowns disabled (should pass)
     print("\n1. Testing with both lockdowns disabled...")
-    with patch('second_brain_database.routes.auth.dependencies.enforce_ip_lockdown') as mock_ip_lockdown, \
-         patch('second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown') as mock_ua_lockdown:
+    with (
+        patch("second_brain_database.routes.auth.dependencies.enforce_ip_lockdown") as mock_ip_lockdown,
+        patch("second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown") as mock_ua_lockdown,
+    ):
 
         mock_ip_lockdown.return_value = mock_user
         mock_ua_lockdown.return_value = mock_user
@@ -48,8 +53,10 @@ async def test_enforce_all_lockdowns():
 
     # Test 2: IP lockdown blocks request
     print("\n2. Testing IP lockdown blocking request...")
-    with patch('second_brain_database.routes.auth.dependencies.enforce_ip_lockdown') as mock_ip_lockdown, \
-         patch('second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown') as mock_ua_lockdown:
+    with (
+        patch("second_brain_database.routes.auth.dependencies.enforce_ip_lockdown") as mock_ip_lockdown,
+        patch("second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown") as mock_ua_lockdown,
+    ):
 
         mock_ip_lockdown.side_effect = HTTPException(status_code=403, detail="IP blocked")
 
@@ -65,8 +72,10 @@ async def test_enforce_all_lockdowns():
 
     # Test 3: User Agent lockdown blocks request
     print("\n3. Testing User Agent lockdown blocking request...")
-    with patch('second_brain_database.routes.auth.dependencies.enforce_ip_lockdown') as mock_ip_lockdown, \
-         patch('second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown') as mock_ua_lockdown:
+    with (
+        patch("second_brain_database.routes.auth.dependencies.enforce_ip_lockdown") as mock_ip_lockdown,
+        patch("second_brain_database.routes.auth.dependencies.enforce_user_agent_lockdown") as mock_ua_lockdown,
+    ):
 
         mock_ip_lockdown.return_value = mock_user  # IP check passes
         mock_ua_lockdown.side_effect = HTTPException(status_code=403, detail="User Agent blocked")

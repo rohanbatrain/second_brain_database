@@ -7,26 +7,27 @@ infrastructure and provides configurable alert channels and thresholds.
 """
 
 import asyncio
-import time
-from typing import Any, Dict, List, Optional, Set, Callable, Union
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
-from enum import Enum
 from collections import defaultdict, deque
-import json
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 import hashlib
+import json
+import time
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
-from .performance_monitoring import mcp_performance_monitor, MetricType
+from ...managers.logging_manager import get_logger
+from .context import MCPUserContext, get_mcp_user_context
 from .error_recovery import mcp_recovery_manager
-from .context import get_mcp_user_context, MCPUserContext
+from .performance_monitoring import MetricType, mcp_performance_monitor
 
 logger = get_logger(prefix="[MCP_Alerting]")
 
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -35,6 +36,7 @@ class AlertSeverity(Enum):
 
 class AlertCategory(Enum):
     """Categories of alerts."""
+
     SERVER_HEALTH = "server_health"
     PERFORMANCE = "performance"
     SECURITY = "security"
@@ -48,6 +50,7 @@ class AlertCategory(Enum):
 @dataclass
 class Alert:
     """Individual alert instance."""
+
     id: str
     severity: AlertSeverity
     category: AlertCategory
@@ -73,13 +76,14 @@ class Alert:
             "metadata": self.metadata,
             "resolved": self.resolved,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
-            "resolved_by": self.resolved_by
+            "resolved_by": self.resolved_by,
         }
 
 
 @dataclass
 class AlertRule:
     """Configuration for alert rules and thresholds."""
+
     name: str
     category: AlertCategory
     severity: AlertSeverity
@@ -136,7 +140,7 @@ class LogAlertChannel(AlertChannel):
                 AlertSeverity.INFO: logger.info,
                 AlertSeverity.WARNING: logger.warning,
                 AlertSeverity.ERROR: logger.error,
-                AlertSeverity.CRITICAL: logger.critical
+                AlertSeverity.CRITICAL: logger.critical,
             }.get(alert.severity, logger.info)
 
             log_level(
@@ -148,8 +152,8 @@ class LogAlertChannel(AlertChannel):
                     "mcp_alert": True,
                     "alert_id": alert.id,
                     "alert_category": alert.category.value,
-                    "alert_metadata": alert.metadata
-                }
+                    "alert_metadata": alert.metadata,
+                },
             )
 
             return True
@@ -166,12 +170,7 @@ class LogAlertChannel(AlertChannel):
 class EmailAlertChannel(AlertChannel):
     """Alert channel that sends alerts via email."""
 
-    def __init__(
-        self,
-        name: str = "email",
-        recipients: List[str] = None,
-        enabled: bool = True
-    ):
+    def __init__(self, name: str = "email", recipients: List[str] = None, enabled: bool = True):
         super().__init__(name, enabled)
         self.recipients = recipients or []
 
@@ -228,11 +227,7 @@ class WebhookAlertChannel(AlertChannel):
     """Alert channel that sends alerts to webhook endpoints."""
 
     def __init__(
-        self,
-        name: str = "webhook",
-        webhook_url: str = "",
-        headers: Dict[str, str] = None,
-        enabled: bool = True
+        self, name: str = "webhook", webhook_url: str = "", headers: Dict[str, str] = None, enabled: bool = True
     ):
         super().__init__(name, enabled)
         self.webhook_url = webhook_url
@@ -249,15 +244,12 @@ class WebhookAlertChannel(AlertChannel):
             payload = {
                 "alert": alert.to_dict(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "mcp_server"
+                "source": "mcp_server",
             }
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    self.webhook_url,
-                    json=payload,
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=10)
+                    self.webhook_url, json=payload, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status < 400:
                         logger.debug("Webhook alert sent successfully to %s", self.webhook_url)
@@ -278,17 +270,11 @@ class WebhookAlertChannel(AlertChannel):
         try:
             import aiohttp
 
-            test_payload = {
-                "test": True,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            test_payload = {"test": True, "timestamp": datetime.now(timezone.utc).isoformat()}
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    self.webhook_url,
-                    json=test_payload,
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=5)
+                    self.webhook_url, json=test_payload, headers=self.headers, timeout=aiohttp.ClientTimeout(total=5)
                 ) as response:
                     return response.status < 400
 
@@ -328,97 +314,113 @@ class MCPAlertManager:
         self.add_channel(LogAlertChannel())
 
         # Email channel (if configured)
-        email_recipients = getattr(settings, 'MCP_ALERT_EMAIL_RECIPIENTS', [])
+        email_recipients = getattr(settings, "MCP_ALERT_EMAIL_RECIPIENTS", [])
         if email_recipients:
             self.add_channel(EmailAlertChannel(recipients=email_recipients))
 
         # Webhook channel (if configured)
-        webhook_url = getattr(settings, 'MCP_ALERT_WEBHOOK_URL', '')
+        webhook_url = getattr(settings, "MCP_ALERT_WEBHOOK_URL", "")
         if webhook_url:
             self.add_channel(WebhookAlertChannel(webhook_url=webhook_url))
 
     def _initialize_default_rules(self) -> None:
         """Initialize default alert rules."""
         # Server health alerts
-        self.add_rule(AlertRule(
-            name="mcp_server_down",
-            category=AlertCategory.SERVER_HEALTH,
-            severity=AlertSeverity.CRITICAL,
-            condition=lambda data: not data.get("server_running", True),
-            description="MCP server is not running"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="mcp_server_down",
+                category=AlertCategory.SERVER_HEALTH,
+                severity=AlertSeverity.CRITICAL,
+                condition=lambda data: not data.get("server_running", True),
+                description="MCP server is not running",
+            )
+        )
 
         # Performance alerts
-        self.add_rule(AlertRule(
-            name="high_error_rate",
-            category=AlertCategory.ERROR_RATE,
-            severity=AlertSeverity.ERROR,
-            condition=lambda data: data.get("error_rate", 0) > 10.0,
-            threshold_value=10.0,
-            time_window_minutes=5,
-            description="Error rate exceeds 10%"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_error_rate",
+                category=AlertCategory.ERROR_RATE,
+                severity=AlertSeverity.ERROR,
+                condition=lambda data: data.get("error_rate", 0) > 10.0,
+                threshold_value=10.0,
+                time_window_minutes=5,
+                description="Error rate exceeds 10%",
+            )
+        )
 
-        self.add_rule(AlertRule(
-            name="slow_response_time",
-            category=AlertCategory.PERFORMANCE,
-            severity=AlertSeverity.WARNING,
-            condition=lambda data: data.get("avg_response_time", 0) > 5.0,
-            threshold_value=5.0,
-            time_window_minutes=10,
-            description="Average response time exceeds 5 seconds"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="slow_response_time",
+                category=AlertCategory.PERFORMANCE,
+                severity=AlertSeverity.WARNING,
+                condition=lambda data: data.get("avg_response_time", 0) > 5.0,
+                threshold_value=5.0,
+                time_window_minutes=10,
+                description="Average response time exceeds 5 seconds",
+            )
+        )
 
         # Resource usage alerts
-        self.add_rule(AlertRule(
-            name="high_cpu_usage",
-            category=AlertCategory.RESOURCE_USAGE,
-            severity=AlertSeverity.WARNING,
-            condition=lambda data: data.get("cpu_usage", 0) > 80.0,
-            threshold_value=80.0,
-            time_window_minutes=5,
-            description="CPU usage exceeds 80%"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_cpu_usage",
+                category=AlertCategory.RESOURCE_USAGE,
+                severity=AlertSeverity.WARNING,
+                condition=lambda data: data.get("cpu_usage", 0) > 80.0,
+                threshold_value=80.0,
+                time_window_minutes=5,
+                description="CPU usage exceeds 80%",
+            )
+        )
 
-        self.add_rule(AlertRule(
-            name="high_memory_usage",
-            category=AlertCategory.RESOURCE_USAGE,
-            severity=AlertSeverity.WARNING,
-            condition=lambda data: data.get("memory_usage_mb", 0) > 1000,
-            threshold_value=1000,
-            time_window_minutes=5,
-            description="Memory usage exceeds 1GB"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_memory_usage",
+                category=AlertCategory.RESOURCE_USAGE,
+                severity=AlertSeverity.WARNING,
+                condition=lambda data: data.get("memory_usage_mb", 0) > 1000,
+                threshold_value=1000,
+                time_window_minutes=5,
+                description="Memory usage exceeds 1GB",
+            )
+        )
 
         # Circuit breaker alerts
-        self.add_rule(AlertRule(
-            name="circuit_breaker_open",
-            category=AlertCategory.CIRCUIT_BREAKER,
-            severity=AlertSeverity.ERROR,
-            condition=lambda data: data.get("circuit_breaker_open", False),
-            cooldown_minutes=30,
-            description="Circuit breaker is open"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="circuit_breaker_open",
+                category=AlertCategory.CIRCUIT_BREAKER,
+                severity=AlertSeverity.ERROR,
+                condition=lambda data: data.get("circuit_breaker_open", False),
+                cooldown_minutes=30,
+                description="Circuit breaker is open",
+            )
+        )
 
         # Suspicious activity alerts
-        self.add_rule(AlertRule(
-            name="rapid_failed_requests",
-            category=AlertCategory.SUSPICIOUS_ACTIVITY,
-            severity=AlertSeverity.WARNING,
-            condition=lambda data: data.get("failed_requests_per_minute", 0) > 20,
-            threshold_value=20,
-            time_window_minutes=1,
-            description="Rapid failed requests detected"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="rapid_failed_requests",
+                category=AlertCategory.SUSPICIOUS_ACTIVITY,
+                severity=AlertSeverity.WARNING,
+                condition=lambda data: data.get("failed_requests_per_minute", 0) > 20,
+                threshold_value=20,
+                time_window_minutes=1,
+                description="Rapid failed requests detected",
+            )
+        )
 
-        self.add_rule(AlertRule(
-            name="unusual_tool_usage",
-            category=AlertCategory.SUSPICIOUS_ACTIVITY,
-            severity=AlertSeverity.INFO,
-            condition=lambda data: data.get("unusual_pattern", False),
-            time_window_minutes=15,
-            description="Unusual tool usage pattern detected"
-        ))
+        self.add_rule(
+            AlertRule(
+                name="unusual_tool_usage",
+                category=AlertCategory.SUSPICIOUS_ACTIVITY,
+                severity=AlertSeverity.INFO,
+                condition=lambda data: data.get("unusual_pattern", False),
+                time_window_minutes=15,
+                description="Unusual tool usage pattern detected",
+            )
+        )
 
     def add_channel(self, channel: AlertChannel) -> None:
         """Add an alert channel."""
@@ -453,7 +455,7 @@ class MCPAlertManager:
         title: str,
         message: str,
         source: str = "mcp_server",
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Alert]:
         """
         Trigger an alert manually.
@@ -486,7 +488,7 @@ class MCPAlertManager:
             message=message,
             timestamp=datetime.now(timezone.utc),
             source=source,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         # Store alert
@@ -497,10 +499,7 @@ class MCPAlertManager:
         # Send through all enabled channels
         await self._send_alert_to_channels(alert)
 
-        logger.info(
-            "Alert triggered: [%s] %s - %s",
-            severity.value.upper(), title, message
-        )
+        logger.info("Alert triggered: [%s] %s - %s", severity.value.upper(), title, message)
 
         return alert
 
@@ -516,10 +515,7 @@ class MCPAlertManager:
             results = await asyncio.gather(*send_tasks, return_exceptions=True)
 
             success_count = sum(1 for result in results if result is True)
-            logger.debug(
-                "Alert sent to %d/%d channels successfully",
-                success_count, len(send_tasks)
-            )
+            logger.debug("Alert sent to %d/%d channels successfully", success_count, len(send_tasks))
 
     async def _send_to_channel(self, channel: AlertChannel, alert: Alert) -> bool:
         """Send alert to a specific channel with error handling."""
@@ -645,13 +641,15 @@ class MCPAlertManager:
                 summary = perf_health.get("performance_summary", {}).get("summary", {})
                 system_metrics = perf_health.get("system_metrics", {}).get("metrics", {})
 
-                metrics.update({
-                    "error_rate": summary.get("overall_error_rate", 0),
-                    "avg_response_time": 0,  # Would need to be calculated
-                    "cpu_usage": system_metrics.get("cpu_usage", {}).get("current", 0),
-                    "memory_usage_mb": system_metrics.get("memory_usage", {}).get("current", 0),
-                    "concurrent_tools": system_metrics.get("concurrent_tools", {}).get("current", 0)
-                })
+                metrics.update(
+                    {
+                        "error_rate": summary.get("overall_error_rate", 0),
+                        "avg_response_time": 0,  # Would need to be calculated
+                        "cpu_usage": system_metrics.get("cpu_usage", {}).get("current", 0),
+                        "memory_usage_mb": system_metrics.get("memory_usage", {}).get("current", 0),
+                        "concurrent_tools": system_metrics.get("concurrent_tools", {}).get("current", 0),
+                    }
+                )
 
             # Get recovery manager health
             recovery_health = await mcp_recovery_manager.get_recovery_health_status()
@@ -685,11 +683,7 @@ class MCPAlertManager:
             title=rule.name.replace("_", " ").title(),
             message=message,
             source="alert_rule",
-            metadata={
-                "rule_name": rule.name,
-                "threshold": rule.threshold_value,
-                "metrics": metrics
-            }
+            metadata={"rule_name": rule.name, "threshold": rule.threshold_value, "metrics": metrics},
         )
 
     async def _auto_resolve_alerts(self, metrics: Dict[str, Any]) -> None:
@@ -714,16 +708,9 @@ class MCPAlertManager:
         channel_status = {}
         for name, channel in self._alert_channels.items():
             try:
-                channel_status[name] = {
-                    "enabled": channel.enabled,
-                    "connected": await channel.test_connection()
-                }
+                channel_status[name] = {"enabled": channel.enabled, "connected": await channel.test_connection()}
             except Exception as e:
-                channel_status[name] = {
-                    "enabled": channel.enabled,
-                    "connected": False,
-                    "error": str(e)
-                }
+                channel_status[name] = {"enabled": channel.enabled, "connected": False, "error": str(e)}
 
         return {
             "monitoring_enabled": self._monitoring_enabled,
@@ -731,11 +718,14 @@ class MCPAlertManager:
             "total_rules": len(self._alert_rules),
             "enabled_rules": sum(1 for rule in self._alert_rules.values() if rule.enabled),
             "channels": channel_status,
-            "recent_alerts": len([
-                alert for alert in self._alert_history
-                if alert.timestamp > datetime.now(timezone.utc) - timedelta(hours=24)
-            ]),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "recent_alerts": len(
+                [
+                    alert
+                    for alert in self._alert_history
+                    if alert.timestamp > datetime.now(timezone.utc) - timedelta(hours=24)
+                ]
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     def get_active_alerts(self) -> List[Dict[str, Any]]:
@@ -746,10 +736,7 @@ class MCPAlertManager:
         """Get alert history for specified time period."""
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-        return [
-            alert.to_dict() for alert in self._alert_history
-            if alert.timestamp >= cutoff_time
-        ]
+        return [alert.to_dict() for alert in self._alert_history if alert.timestamp >= cutoff_time]
 
 
 # Global alert manager instance
@@ -760,44 +747,28 @@ mcp_alert_manager = MCPAlertManager()
 async def alert_server_failure(message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
     """Trigger server failure alert."""
     await mcp_alert_manager.trigger_alert(
-        AlertSeverity.CRITICAL,
-        AlertCategory.SERVER_HEALTH,
-        "MCP Server Failure",
-        message,
-        metadata=metadata
+        AlertSeverity.CRITICAL, AlertCategory.SERVER_HEALTH, "MCP Server Failure", message, metadata=metadata
     )
 
 
 async def alert_performance_issue(message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
     """Trigger performance issue alert."""
     await mcp_alert_manager.trigger_alert(
-        AlertSeverity.WARNING,
-        AlertCategory.PERFORMANCE,
-        "MCP Performance Issue",
-        message,
-        metadata=metadata
+        AlertSeverity.WARNING, AlertCategory.PERFORMANCE, "MCP Performance Issue", message, metadata=metadata
     )
 
 
 async def alert_security_incident(message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
     """Trigger security incident alert."""
     await mcp_alert_manager.trigger_alert(
-        AlertSeverity.ERROR,
-        AlertCategory.SECURITY,
-        "MCP Security Incident",
-        message,
-        metadata=metadata
+        AlertSeverity.ERROR, AlertCategory.SECURITY, "MCP Security Incident", message, metadata=metadata
     )
 
 
 async def alert_suspicious_activity(message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
     """Trigger suspicious activity alert."""
     await mcp_alert_manager.trigger_alert(
-        AlertSeverity.WARNING,
-        AlertCategory.SUSPICIOUS_ACTIVITY,
-        "MCP Suspicious Activity",
-        message,
-        metadata=metadata
+        AlertSeverity.WARNING, AlertCategory.SUSPICIOUS_ACTIVITY, "MCP Suspicious Activity", message, metadata=metadata
     )
 
 
@@ -805,7 +776,7 @@ async def alert_suspicious_activity(message: str, metadata: Optional[Dict[str, A
 def alert_on_failure(
     severity: AlertSeverity = AlertSeverity.ERROR,
     category: AlertCategory = AlertCategory.ERROR_RATE,
-    custom_message: Optional[str] = None
+    custom_message: Optional[str] = None,
 ):
     """
     Decorator to automatically trigger alerts when functions fail.
@@ -815,6 +786,7 @@ def alert_on_failure(
         category: Alert category
         custom_message: Custom alert message template
     """
+
     def decorator(func: Callable) -> Callable:
         async def async_wrapper(*args, **kwargs):
             try:
@@ -837,7 +809,7 @@ def alert_on_failure(
                     title=f"Function Failure: {func.__name__}",
                     message=message,
                     source="function_decorator",
-                    metadata=metadata
+                    metadata=metadata,
                 )
 
                 raise
@@ -849,14 +821,16 @@ def alert_on_failure(
                 message = custom_message or f"Function {func.__name__} failed: {str(e)}"
 
                 # Create alert task
-                asyncio.create_task(mcp_alert_manager.trigger_alert(
-                    severity=severity,
-                    category=category,
-                    title=f"Function Failure: {func.__name__}",
-                    message=message,
-                    source="function_decorator",
-                    metadata={"function": func.__name__, "error": str(e)}
-                ))
+                asyncio.create_task(
+                    mcp_alert_manager.trigger_alert(
+                        severity=severity,
+                        category=category,
+                        title=f"Function Failure: {func.__name__}",
+                        message=message,
+                        source="function_decorator",
+                        metadata={"function": func.__name__, "error": str(e)},
+                    )
+                )
 
                 raise
 

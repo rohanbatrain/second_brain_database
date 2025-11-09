@@ -11,9 +11,9 @@ This module provides modern HTTP transport capabilities following FastMCP 2.x pa
 """
 
 import asyncio
-import json
-from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+import json
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,9 +93,9 @@ class MCPHTTPServer:
                         "name": mcp.name,
                         "version": mcp.version,
                         "transport": "http",
-                        "mcp_protocol": "2024-11-05"
+                        "mcp_protocol": "2024-11-05",
                     },
-                    "components": {}
+                    "components": {},
                 }
 
                 # Check FastMCP server status
@@ -106,13 +106,10 @@ class MCPHTTPServer:
                         "status": "healthy",
                         "server_name": mcp.name,
                         "server_version": mcp.version,
-                        "auth_enabled": mcp.auth is not None
+                        "auth_enabled": mcp.auth is not None,
                     }
                 except Exception as e:
-                    health_data["components"]["mcp"] = {
-                        "status": "unhealthy",
-                        "error": str(e)
-                    }
+                    health_data["components"]["mcp"] = {"status": "unhealthy", "error": str(e)}
                     health_data["status"] = "degraded"
 
                 # Check monitoring integration
@@ -121,16 +118,10 @@ class MCPHTTPServer:
                         monitoring_health = await mcp_monitoring_integration.get_comprehensive_health_status()
                         health_data["components"]["monitoring"] = monitoring_health
                     except Exception as e:
-                        health_data["components"]["monitoring"] = {
-                            "status": "unhealthy",
-                            "error": str(e)
-                        }
+                        health_data["components"]["monitoring"] = {"status": "unhealthy", "error": str(e)}
                         health_data["status"] = "degraded"
 
-                return JSONResponse(
-                    content=health_data,
-                    status_code=200 if health_data["status"] == "healthy" else 503
-                )
+                return JSONResponse(content=health_data, status_code=200 if health_data["status"] == "healthy" else 503)
 
             except Exception as e:
                 logger.error("Health check failed: %s", e)
@@ -138,9 +129,9 @@ class MCPHTTPServer:
                     content={
                         "status": "unhealthy",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "error": str(e)
+                        "error": str(e),
                     },
-                    status_code=503
+                    status_code=503,
                 )
 
         # Add metrics route using FastMCP's custom_route decorator
@@ -149,149 +140,39 @@ class MCPHTTPServer:
             """Prometheus-compatible metrics endpoint."""
             try:
                 if not mcp_monitoring_integration:
-                    return Response(
-                        content="Monitoring not available",
-                        status_code=503
-                    )
+                    return Response(content="Monitoring not available", status_code=503)
 
                 metrics_data = await mcp_monitoring_integration.get_prometheus_metrics()
-                return Response(
-                    content=metrics_data,
-                    media_type="text/plain; version=0.0.4; charset=utf-8"
-                )
+                return Response(content=metrics_data, media_type="text/plain; version=0.0.4; charset=utf-8")
             except Exception as e:
                 logger.error("Metrics collection failed: %s", e)
-                return Response(
-                    content="Metrics unavailable",
-                    status_code=503
-                )
-
+                return Response(content="Metrics unavailable", status_code=503)
 
         # Add status route using FastMCP's custom_route decorator
         @mcp.custom_route("/status", methods=["GET"])
         async def server_status(request):
             """Server status endpoint with MCP information."""
-            return JSONResponse({
-                "name": "Second Brain Database MCP Server",
-                "version": settings.MCP_SERVER_VERSION,
-                "protocol": "MCP 2024-11-05",
-                "transport": "HTTP",
-                "fastmcp_version": "2.x",
-                "endpoints": {
-                    "mcp": "/mcp",
-                    "health": "/health",
-                    "metrics": "/metrics",
-                    "status": "/status",
-                    "ai": "/ai"
-                },
-                "features": {
-                    "authentication": mcp.auth is not None,
-                    "monitoring": mcp_monitoring_integration is not None,
-                    "cors": settings.MCP_HTTP_CORS_ENABLED,
-                    "jwt_auth": settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH,
-                    "ai_integration": True
+            return JSONResponse(
+                {
+                    "name": "Second Brain Database MCP Server",
+                    "version": settings.MCP_SERVER_VERSION,
+                    "protocol": "MCP 2024-11-05",
+                    "transport": "HTTP",
+                    "fastmcp_version": "2.x",
+                    "endpoints": {
+                        "mcp": "/mcp",
+                        "health": "/health",
+                        "metrics": "/metrics",
+                        "status": "/status",
+                    },
+                    "features": {
+                        "authentication": mcp.auth is not None,
+                        "monitoring": mcp_monitoring_integration is not None,
+                        "cors": settings.MCP_HTTP_CORS_ENABLED,
+                        "jwt_auth": settings.MCP_SECURITY_ENABLED and settings.MCP_REQUIRE_AUTH,
+                    },
                 }
-            })
-
-        # Add AI-specific routes using FastMCP's custom_route decorator
-        @mcp.custom_route("/ai/health", methods=["GET"])
-        async def ai_health_check(request):
-            """AI system health check endpoint."""
-            try:
-                # Check AI session manager availability
-                ai_health = {
-                    "status": "healthy",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "components": {
-                        "ai_session_manager": "healthy",
-                        "websocket_integration": "healthy",
-                        "ai_tools": "healthy"
-                    }
-                }
-
-                # In a real implementation, we would check actual AI components
-                # For now, we'll return a basic health status
-
-                return JSONResponse(
-                    content=ai_health,
-                    status_code=200
-                )
-
-            except Exception as e:
-                logger.error("AI health check failed: %s", e)
-                return JSONResponse(
-                    content={
-                        "status": "unhealthy",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "error": str(e)
-                    },
-                    status_code=503
-                )
-
-        @mcp.custom_route("/ai/sessions", methods=["GET", "POST"])
-        async def ai_sessions_endpoint(request):
-            """AI sessions management endpoint."""
-            try:
-                if request.method == "GET":
-                    # List AI sessions
-                    return JSONResponse({
-                        "status": "success",
-                        "sessions": [],
-                        "message": "AI session listing endpoint - implementation pending"
-                    })
-                elif request.method == "POST":
-                    # Create new AI session
-                    return JSONResponse({
-                        "status": "success",
-                        "session_id": "temp_session_id",
-                        "message": "AI session creation endpoint - implementation pending"
-                    })
-            except Exception as e:
-                logger.error("AI sessions endpoint error: %s", e)
-                return JSONResponse(
-                    content={
-                        "status": "error",
-                        "error": str(e)
-                    },
-                    status_code=500
-                )
-
-        @mcp.custom_route("/ai/sessions/{session_id}/message", methods=["POST"])
-        async def ai_session_message_endpoint(request):
-            """AI session message endpoint."""
-            try:
-                # Extract session_id from path
-                path_parts = request.url.path.split('/')
-                session_id = None
-                for i, part in enumerate(path_parts):
-                    if part == "sessions" and i + 1 < len(path_parts):
-                        session_id = path_parts[i + 1]
-                        break
-
-                if not session_id:
-                    return JSONResponse(
-                        content={
-                            "status": "error",
-                            "error": "Session ID not found in path"
-                        },
-                        status_code=400
-                    )
-
-                return JSONResponse({
-                    "status": "success",
-                    "session_id": session_id,
-                    "message": "AI message endpoint - implementation pending"
-                })
-
-            except Exception as e:
-                logger.error("AI session message endpoint error: %s", e)
-                return JSONResponse(
-                    content={
-                        "status": "error",
-                        "error": str(e)
-                    },
-                    status_code=500
-                )
+            )
 
     async def start(self, host: str = None, port: int = None):
         """Start the production-ready HTTP server using FastMCP's recommended approach."""
@@ -302,9 +183,10 @@ class MCPHTTPServer:
             port = settings.MCP_HTTP_PORT
         logger.info(
             "Starting FastMCP 2.x HTTP server on %s:%d (auth: %s, cors: %s)",
-            host, port,
+            host,
+            port,
             "enabled" if mcp.auth else "disabled",
-            "enabled" if settings.MCP_HTTP_CORS_ENABLED else "disabled"
+            "enabled" if settings.MCP_HTTP_CORS_ENABLED else "disabled",
         )
 
         # Use uvicorn to serve the ASGI app (recommended for production)

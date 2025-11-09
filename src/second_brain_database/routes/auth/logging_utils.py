@@ -184,7 +184,11 @@ class AuthLogger:
         reason: Optional[str] = None,
     ):
         """Log token operations (refresh, revoke, etc.)."""
-        details = {"operation": operation, "token_type": token_type, "timestamp": datetime.now(timezone.utc).isoformat()}
+        details = {
+            "operation": operation,
+            "token_type": token_type,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
         if reason:
             details["reason"] = reason

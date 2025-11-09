@@ -7,17 +7,18 @@ by creating test users and simulating requests with different User Agents.
 """
 
 import asyncio
-import sys
 from datetime import datetime, timedelta
-from bson import ObjectId
+import sys
 from unittest.mock import MagicMock
+
+from bson import ObjectId
 
 # Add the src directory to the path
 sys.path.insert(0, "src")
 
 from second_brain_database.database import db_manager
-from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.security_manager import security_manager
 
 logger = get_logger(prefix="[INTERACTIVE_UA_TEST]")
 
@@ -68,7 +69,7 @@ class InteractiveUserAgentTester:
             email = f"ua_test_{timestamp}@example.com"
 
         # Ask about User Agent lockdown
-        enable_lockdown = input("Enable User Agent lockdown? (y/N): ").strip().lower() == 'y'
+        enable_lockdown = input("Enable User Agent lockdown? (y/N): ").strip().lower() == "y"
 
         trusted_user_agents = []
         if enable_lockdown:
@@ -117,12 +118,14 @@ class InteractiveUserAgentTester:
             return None
 
         # Search for user
-        user = await self.users_collection.find_one({
-            "$or": [
-                {"username": {"$regex": search_term, "$options": "i"}},
-                {"email": {"$regex": search_term, "$options": "i"}}
-            ]
-        })
+        user = await self.users_collection.find_one(
+            {
+                "$or": [
+                    {"username": {"$regex": search_term, "$options": "i"}},
+                    {"email": {"$regex": search_term, "$options": "i"}},
+                ]
+            }
+        )
 
         if not user:
             print(f"❌ No user found matching '{search_term}'")
@@ -133,7 +136,7 @@ class InteractiveUserAgentTester:
         print(f"   Email: {user['email']}")
         print(f"   User Agent Lockdown: {'Enabled' if user.get('trusted_user_agent_lockdown', False) else 'Disabled'}")
 
-        trusted_uas = user.get('trusted_user_agents', [])
+        trusted_uas = user.get("trusted_user_agents", [])
         if trusted_uas:
             print(f"   Trusted User Agents: {len(trusted_uas)}")
             for i, ua in enumerate(trusted_uas, 1):
@@ -160,7 +163,7 @@ class InteractiveUserAgentTester:
                 "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
                 "curl/7.68.0",
                 "Python-urllib/3.8",
-                "BadBot/1.0"
+                "BadBot/1.0",
             ]
 
             print("\nCommon User Agent examples:")
@@ -194,9 +197,9 @@ class InteractiveUserAgentTester:
             print("✅ ACCESS GRANTED - User Agent is allowed")
 
             # Show why it was allowed
-            if not self.current_user.get('trusted_user_agent_lockdown', False):
+            if not self.current_user.get("trusted_user_agent_lockdown", False):
                 print("   Reason: User Agent lockdown is disabled")
-            elif user_agent in self.current_user.get('trusted_user_agents', []):
+            elif user_agent in self.current_user.get("trusted_user_agents", []):
                 print("   Reason: User Agent is in trusted list")
             else:
                 print("   Reason: Temporary bypass or other exception")
@@ -206,8 +209,8 @@ class InteractiveUserAgentTester:
             print(f"   Reason: {str(e)}")
 
             # Show why it was blocked
-            if self.current_user.get('trusted_user_agent_lockdown', False):
-                trusted_uas = self.current_user.get('trusted_user_agents', [])
+            if self.current_user.get("trusted_user_agent_lockdown", False):
+                trusted_uas = self.current_user.get("trusted_user_agents", [])
                 if not trusted_uas:
                     print("   Details: No trusted User Agents configured")
                 else:
@@ -222,8 +225,8 @@ class InteractiveUserAgentTester:
 
         print(f"\n⚙️  Modifying User Agent settings for: {self.current_user['username']}")
 
-        current_lockdown = self.current_user.get('trusted_user_agent_lockdown', False)
-        current_trusted = self.current_user.get('trusted_user_agents', [])
+        current_lockdown = self.current_user.get("trusted_user_agent_lockdown", False)
+        current_trusted = self.current_user.get("trusted_user_agents", [])
 
         print(f"Current lockdown status: {'Enabled' if current_lockdown else 'Disabled'}")
         print(f"Current trusted User Agents: {len(current_trusted)}")
@@ -241,8 +244,7 @@ class InteractiveUserAgentTester:
         if choice == "1":
             new_lockdown = not current_lockdown
             await self.users_collection.update_one(
-                {"_id": self.current_user["_id"]},
-                {"$set": {"trusted_user_agent_lockdown": new_lockdown}}
+                {"_id": self.current_user["_id"]}, {"$set": {"trusted_user_agent_lockdown": new_lockdown}}
             )
             self.current_user["trusted_user_agent_lockdown"] = new_lockdown
             print(f"✅ User Agent lockdown {'enabled' if new_lockdown else 'disabled'}")
@@ -251,8 +253,7 @@ class InteractiveUserAgentTester:
             new_ua = input("Enter User Agent to add: ").strip()
             if new_ua and new_ua not in current_trusted:
                 await self.users_collection.update_one(
-                    {"_id": self.current_user["_id"]},
-                    {"$push": {"trusted_user_agents": new_ua}}
+                    {"_id": self.current_user["_id"]}, {"$push": {"trusted_user_agents": new_ua}}
                 )
                 self.current_user["trusted_user_agents"].append(new_ua)
                 print(f"✅ Added trusted User Agent: {new_ua}")
@@ -273,8 +274,7 @@ class InteractiveUserAgentTester:
                 if 0 <= remove_idx < len(current_trusted):
                     ua_to_remove = current_trusted[remove_idx]
                     await self.users_collection.update_one(
-                        {"_id": self.current_user["_id"]},
-                        {"$pull": {"trusted_user_agents": ua_to_remove}}
+                        {"_id": self.current_user["_id"]}, {"$pull": {"trusted_user_agents": ua_to_remove}}
                     )
                     self.current_user["trusted_user_agents"].remove(ua_to_remove)
                     print(f"✅ Removed trusted User Agent: {ua_to_remove}")
@@ -285,10 +285,9 @@ class InteractiveUserAgentTester:
 
         elif choice == "4":
             confirm = input("Are you sure you want to clear all trusted User Agents? (y/N): ").strip().lower()
-            if confirm == 'y':
+            if confirm == "y":
                 await self.users_collection.update_one(
-                    {"_id": self.current_user["_id"]},
-                    {"$set": {"trusted_user_agents": []}}
+                    {"_id": self.current_user["_id"]}, {"$set": {"trusted_user_agents": []}}
                 )
                 self.current_user["trusted_user_agents"] = []
                 print("✅ Cleared all trusted User Agents")
@@ -310,12 +309,11 @@ class InteractiveUserAgentTester:
                 "user_agent": bypass_ua,
                 "expires_at": (datetime.utcnow() + timedelta(minutes=minutes)).isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
-                "reason": "manual_test_bypass"
+                "reason": "manual_test_bypass",
             }
 
             await self.users_collection.update_one(
-                {"_id": self.current_user["_id"]},
-                {"$push": {"temporary_user_agent_bypasses": bypass}}
+                {"_id": self.current_user["_id"]}, {"$push": {"temporary_user_agent_bypasses": bypass}}
             )
 
             if "temporary_user_agent_bypasses" not in self.current_user:
@@ -348,31 +346,31 @@ class InteractiveUserAgentTester:
         print(f"\n🔒 User Agent Lockdown Settings:")
         print(f"   Enabled: {user.get('trusted_user_agent_lockdown', False)}")
 
-        trusted_uas = user.get('trusted_user_agents', [])
+        trusted_uas = user.get("trusted_user_agents", [])
         print(f"   Trusted User Agents: {len(trusted_uas)}")
         for i, ua in enumerate(trusted_uas, 1):
             print(f"     {i}. {ua}")
 
-        bypasses = user.get('temporary_user_agent_bypasses', [])
+        bypasses = user.get("temporary_user_agent_bypasses", [])
         if bypasses:
             print(f"\n⏰ Temporary Bypasses: {len(bypasses)}")
             current_time = datetime.utcnow().isoformat()
             for i, bypass in enumerate(bypasses, 1):
-                status = "Active" if bypass.get('expires_at', '') > current_time else "Expired"
-                print(f"     {i}. {bypass.get('user_agent', 'Unknown')} - {status} (expires: {bypass.get('expires_at', 'Unknown')})")
+                status = "Active" if bypass.get("expires_at", "") > current_time else "Expired"
+                print(
+                    f"     {i}. {bypass.get('user_agent', 'Unknown')} - {status} (expires: {bypass.get('expires_at', 'Unknown')})"
+                )
 
     async def cleanup_test_data(self):
         """Clean up test users created during this session."""
         print("\n🧹 Cleaning up test data...")
 
         confirm = input("Delete all test users created with 'ua_test_user_' prefix? (y/N): ").strip().lower()
-        if confirm != 'y':
+        if confirm != "y":
             print("❌ Cancelled")
             return
 
-        result = await self.users_collection.delete_many({
-            "username": {"$regex": "^ua_test_user_"}
-        })
+        result = await self.users_collection.delete_many({"username": {"$regex": "^ua_test_user_"}})
 
         print(f"✅ Deleted {result.deleted_count} test users")
 

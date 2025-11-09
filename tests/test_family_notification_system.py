@@ -22,22 +22,22 @@ Requirements tested: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
 import time
-import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
-import pytest
 from fastapi.testclient import TestClient
 from pymongo.errors import PyMongoError
+import pytest
+from src.second_brain_database.database import db_manager
 
 # Import application components
 from src.second_brain_database.main import app
-from src.second_brain_database.database import db_manager
-from src.second_brain_database.managers.family_manager import family_manager
 from src.second_brain_database.managers.email import email_manager
+from src.second_brain_database.managers.family_manager import family_manager
 from src.second_brain_database.managers.redis_manager import redis_manager
 from src.second_brain_database.managers.security_manager import security_manager
 
@@ -48,8 +48,9 @@ TEST_CONFIG = {
     "bulk_notification_count": 50,
     "concurrent_test_count": 10,
     "email_template_validation": True,
-    "notification_delivery_timeout": 10
+    "notification_delivery_timeout": 10,
 }
+
 
 class NotificationTestFramework:
     """Test framework for notification system validation."""
@@ -79,9 +80,9 @@ class NotificationTestFramework:
                     "preferences": {
                         "email_notifications": True,
                         "push_notifications": True,
-                        "sms_notifications": False
-                    }
-                }
+                        "sms_notifications": False,
+                    },
+                },
             }
 
             users_collection = db_manager.get_collection("users")
@@ -104,9 +105,9 @@ class NotificationTestFramework:
                     "notification_settings": {
                         "notify_on_spend": True,
                         "notify_on_deposit": True,
-                        "large_transaction_threshold": 1000
-                    }
-                }
+                        "large_transaction_threshold": 1000,
+                    },
+                },
             }
 
             families_collection = db_manager.get_collection("families")
@@ -143,8 +144,10 @@ class NotificationTestFramework:
         except Exception as e:
             print(f"Error during cleanup: {e}")
 
+
 # Test framework instance
 test_framework = NotificationTestFramework()
+
 
 @pytest.fixture(scope="module", autouse=True)
 async def setup_and_cleanup():
@@ -152,6 +155,7 @@ async def setup_and_cleanup():
     await test_framework.setup_test_environment()
     yield
     await test_framework.cleanup_test_environment()
+
 
 class TestEmailIntegration:
     """Test suite for Task 5.1: Email Integration Testing."""
@@ -161,7 +165,7 @@ class TestEmailIntegration:
         print("\n=== Testing Family Invitation Email Sending ===")
 
         # Mock email sending to capture calls
-        with patch.object(email_manager, 'send_family_invitation_email') as mock_send:
+        with patch.object(email_manager, "send_family_invitation_email") as mock_send:
             mock_send.return_value = True
 
             # Test invitation email
@@ -172,7 +176,7 @@ class TestEmailIntegration:
                 relationship_type="child",
                 accept_link="https://example.com/accept/123",
                 decline_link="https://example.com/decline/123",
-                expires_at="2024-12-16 12:00:00 UTC"
+                expires_at="2024-12-16 12:00:00 UTC",
             )
 
             assert result is True
@@ -192,11 +196,9 @@ class TestEmailIntegration:
         print("\n=== Testing Email Template Validation ===")
 
         # Test verification email template
-        with patch.object(email_manager, '_send_via_console') as mock_console:
+        with patch.object(email_manager, "_send_via_console") as mock_console:
             await email_manager.send_verification_email(
-                to_email="test@example.com",
-                verification_link="https://example.com/verify/123",
-                username="test_user"
+                to_email="test@example.com", verification_link="https://example.com/verify/123", username="test_user"
             )
 
             mock_console.assert_called_once()
@@ -211,7 +213,7 @@ class TestEmailIntegration:
             assert "</html>" in call_args[2]
 
         # Test family invitation template
-        with patch.object(email_manager, '_send_via_console') as mock_console:
+        with patch.object(email_manager, "_send_via_console") as mock_console:
             await email_manager.send_family_invitation_email(
                 to_email="invite@example.com",
                 inviter_username="inviter",
@@ -219,7 +221,7 @@ class TestEmailIntegration:
                 relationship_type="sibling",
                 accept_link="https://example.com/accept/456",
                 decline_link="https://example.com/decline/456",
-                expires_at="2024-12-16 12:00:00 UTC"
+                expires_at="2024-12-16 12:00:00 UTC",
             )
 
             mock_console.assert_called_once()
@@ -242,13 +244,11 @@ class TestEmailIntegration:
         print("\n=== Testing Email Failure Handling ===")
 
         # Test single provider failure
-        with patch.object(email_manager, '_send_via_console') as mock_console:
+        with patch.object(email_manager, "_send_via_console") as mock_console:
             mock_console.side_effect = RuntimeError("Provider failed")
 
             result = await email_manager.send_verification_email(
-                to_email="fail@example.com",
-                verification_link="https://example.com/verify/fail",
-                username="fail_user"
+                to_email="fail@example.com", verification_link="https://example.com/verify/fail", username="fail_user"
             )
 
             assert result is False
@@ -270,7 +270,7 @@ class TestEmailIntegration:
             result = await email_manager.send_verification_email(
                 to_email="retry@example.com",
                 verification_link="https://example.com/verify/retry",
-                username="retry_user"
+                username="retry_user",
             )
 
             assert result is True
@@ -301,9 +301,9 @@ class TestEmailIntegration:
                 "$set": {
                     "family_notifications.preferences.email_notifications": False,
                     "family_notifications.preferences.push_notifications": True,
-                    "family_notifications.preferences.sms_notifications": False
+                    "family_notifications.preferences.sms_notifications": False,
                 }
-            }
+            },
         )
 
         # Verify preferences updated
@@ -322,10 +322,10 @@ class TestEmailIntegration:
                     "family_notifications.preferences": {
                         "email_notifications": False,
                         "push_notifications": False,
-                        "sms_notifications": False
+                        "sms_notifications": False,
                     }
                 }
-            }
+            },
         )
 
         # Verify all notifications disabled
@@ -352,7 +352,7 @@ class TestEmailIntegration:
                 "type": "bulk_test",
                 "title": f"Bulk Test Notification {i}",
                 "message": f"This is bulk test notification number {i}",
-                "data": {"test_index": i, "bulk_test": True}
+                "data": {"test_index": i, "bulk_test": True},
             }
             notifications_to_create.append((family_id, recipient_user_ids, notification_data))
 
@@ -367,10 +367,9 @@ class TestEmailIntegration:
 
         # Verify notifications were created
         notifications_collection = db_manager.get_collection("family_notifications")
-        bulk_notifications = await notifications_collection.find({
-            "family_id": family_id,
-            "type": "bulk_test"
-        }).to_list(None)
+        bulk_notifications = await notifications_collection.find({"family_id": family_id, "type": "bulk_test"}).to_list(
+            None
+        )
 
         assert len(bulk_notifications) == TEST_CONFIG["bulk_notification_count"]
 
@@ -392,6 +391,7 @@ class TestEmailIntegration:
 
         print(f"✓ Bulk notification sending test passed ({len(bulk_notifications)} notifications created)")
 
+
 class TestMultiChannelNotifications:
     """Test suite for Task 5.2: Multi-Channel Notification Testing."""
 
@@ -409,18 +409,16 @@ class TestMultiChannelNotifications:
             "type": "test_notification",
             "title": "Test Notification",
             "message": "This is a test notification for delivery testing",
-            "data": {"test": True, "delivery_test": "active"}
+            "data": {"test": True, "delivery_test": "active"},
         }
 
         await family_manager._send_family_notification(family_id, [user_id], notification_data)
 
         # Verify notification was created
         notifications_collection = db_manager.get_collection("family_notifications")
-        created_notification = await notifications_collection.find_one({
-            "family_id": family_id,
-            "type": "test_notification",
-            "recipient_user_ids": user_id
-        })
+        created_notification = await notifications_collection.find_one(
+            {"family_id": family_id, "type": "test_notification", "recipient_user_ids": user_id}
+        )
 
         assert created_notification is not None
         assert created_notification["status"] == "sent"
@@ -430,12 +428,7 @@ class TestMultiChannelNotifications:
         assert created_notification["sent_at"] is not None
 
         # Test notification retrieval
-        result = await family_manager.get_family_notifications(
-            family_id=family_id,
-            user_id=user_id,
-            limit=10,
-            offset=0
-        )
+        result = await family_manager.get_family_notifications(family_id=family_id, user_id=user_id, limit=10, offset=0)
 
         assert "notifications" in result
         assert len(result["notifications"]) > 0
@@ -472,15 +465,10 @@ class TestMultiChannelNotifications:
         assert default_preferences.get("sms_notifications") is False
 
         # Test updating channel preferences
-        new_preferences = {
-            "email_notifications": False,
-            "push_notifications": True,
-            "sms_notifications": True
-        }
+        new_preferences = {"email_notifications": False, "push_notifications": True, "sms_notifications": True}
 
         await users_collection.update_one(
-            {"_id": user["_id"]},
-            {"$set": {"family_notifications.preferences": new_preferences}}
+            {"_id": user["_id"]}, {"$set": {"family_notifications.preferences": new_preferences}}
         )
 
         # Verify preferences updated
@@ -494,14 +482,13 @@ class TestMultiChannelNotifications:
         # Test preference validation
         invalid_preferences = {
             "email_notifications": "invalid",  # Should be boolean
-            "unknown_channel": True  # Unknown channel
+            "unknown_channel": True,  # Unknown channel
         }
 
         # This should not crash but should handle gracefully
         try:
             await users_collection.update_one(
-                {"_id": user["_id"]},
-                {"$set": {"family_notifications.preferences": invalid_preferences}}
+                {"_id": user["_id"]}, {"$set": {"family_notifications.preferences": invalid_preferences}}
             )
 
             # Verify system handles invalid preferences
@@ -530,17 +517,14 @@ class TestMultiChannelNotifications:
             "type": "delivery_test",
             "title": "Delivery Confirmation Test",
             "message": "Testing delivery confirmation and read tracking",
-            "data": {"delivery_test": True, "multi_user": True}
+            "data": {"delivery_test": True, "multi_user": True},
         }
 
         await family_manager._send_family_notification(family_id, user_ids, notification_data)
 
         # Find the created notification
         notifications_collection = db_manager.get_collection("family_notifications")
-        notification = await notifications_collection.find_one({
-            "family_id": family_id,
-            "type": "delivery_test"
-        })
+        notification = await notifications_collection.find_one({"family_id": family_id, "type": "delivery_test"})
 
         assert notification is not None
         notification_id = notification["notification_id"]
@@ -553,14 +537,11 @@ class TestMultiChannelNotifications:
 
         for i, user_id in enumerate(user_ids[:2]):  # Only first 2 users read it
             await notifications_collection.update_one(
-                {"notification_id": notification_id},
-                {"$set": {f"read_by.{user_id}": read_timestamp}}
+                {"notification_id": notification_id}, {"$set": {f"read_by.{user_id}": read_timestamp}}
             )
 
         # Verify read status
-        updated_notification = await notifications_collection.find_one(
-            {"notification_id": notification_id}
-        )
+        updated_notification = await notifications_collection.find_one({"notification_id": notification_id})
 
         assert len(updated_notification["read_by"]) == 2
         assert user_ids[0] in updated_notification["read_by"]
@@ -575,7 +556,9 @@ class TestMultiChannelNotifications:
         users_collection = db_manager.get_collection("users")
 
         for user_id in user_ids:
-            user_doc = await users_collection.find_one({"_id": users[int(user_id.split('_')[-1]) if '_' in user_id else 0]["_id"]})
+            user_doc = await users_collection.find_one(
+                {"_id": users[int(user_id.split("_")[-1]) if "_" in user_id else 0]["_id"]}
+            )
             unread_count = user_doc.get("family_notifications", {}).get("unread_count", 0)
 
             # Unread count should reflect notification status
@@ -597,7 +580,7 @@ class TestMultiChannelNotifications:
         user_id = str(user["_id"])
 
         # Test database failure simulation
-        with patch.object(db_manager, 'get_collection') as mock_get_collection:
+        with patch.object(db_manager, "get_collection") as mock_get_collection:
             mock_collection = AsyncMock()
             mock_collection.insert_one.side_effect = PyMongoError("Database connection failed")
             mock_get_collection.return_value = mock_collection
@@ -608,7 +591,7 @@ class TestMultiChannelNotifications:
                     "type": "failure_test",
                     "title": "Failure Test",
                     "message": "Testing failure handling",
-                    "data": {"failure_test": True}
+                    "data": {"failure_test": True},
                 }
 
                 await family_manager._send_family_notification(family_id, [user_id], notification_data)
@@ -620,7 +603,7 @@ class TestMultiChannelNotifications:
                 print(f"Expected error handled: {e}")
 
         # Test email fallback when push notifications fail
-        with patch.object(email_manager, 'send_family_invitation_email') as mock_email:
+        with patch.object(email_manager, "send_family_invitation_email") as mock_email:
             mock_email.return_value = True
 
             # Simulate push notification failure, email should be attempted
@@ -628,7 +611,7 @@ class TestMultiChannelNotifications:
                 "type": "fallback_test",
                 "title": "Fallback Test",
                 "message": "Testing fallback mechanisms",
-                "data": {"fallback_test": True}
+                "data": {"fallback_test": True},
             }
 
             # This would normally trigger email fallback in a real implementation
@@ -658,7 +641,7 @@ class TestMultiChannelNotifications:
                     break
 
                 # Exponential backoff simulation
-                await asyncio.sleep(0.1 * (2 ** retry_count))
+                await asyncio.sleep(0.1 * (2**retry_count))
 
         print("✓ Notification failure fallback test passed")
 
@@ -684,7 +667,7 @@ class TestMultiChannelNotifications:
                     "message": message,
                     "data": data,
                     "sent_at": datetime.now(timezone.utc),
-                    "status": "delivered"
+                    "status": "delivered",
                 }
                 self.sent_notifications.append(notification)
                 return True
@@ -696,7 +679,7 @@ class TestMultiChannelNotifications:
             user_id=user_id,
             title="Push Test",
             message="Testing push notification delivery",
-            data={"type": "test", "family_id": family_id}
+            data={"type": "test", "family_id": family_id},
         )
 
         # Verify push notification was "sent"
@@ -717,7 +700,7 @@ class TestMultiChannelNotifications:
                 user_id=uid,
                 title="Batch Push Test",
                 message="Testing batch push notifications",
-                data={"type": "batch_test", "family_id": family_id}
+                data={"type": "batch_test", "family_id": family_id},
             )
 
         # Verify batch notifications
@@ -741,7 +724,7 @@ class TestMultiChannelNotifications:
                     "message": message,
                     "sent_at": datetime.now(timezone.utc),
                     "status": "delivered",
-                    "message_id": f"sms_{uuid.uuid4().hex[:8]}"
+                    "message_id": f"sms_{uuid.uuid4().hex[:8]}",
                 }
                 self.sent_messages.append(sms)
                 return sms["message_id"]
@@ -750,8 +733,7 @@ class TestMultiChannelNotifications:
 
         # Test SMS sending
         message_id = await mock_sms_service.send_sms(
-            phone_number="+1234567890",
-            message="Family notification: You have a new message in Test Family"
+            phone_number="+1234567890", message="Family notification: You have a new message in Test Family"
         )
 
         assert message_id is not None
@@ -769,12 +751,7 @@ class TestMultiChannelNotifications:
         users_collection = db_manager.get_collection("users")
         await users_collection.update_one(
             {"_id": user["_id"]},
-            {
-                "$set": {
-                    "phone_number": "+1234567890",
-                    "family_notifications.preferences.sms_notifications": True
-                }
-            }
+            {"$set": {"phone_number": "+1234567890", "family_notifications.preferences.sms_notifications": True}},
         )
 
         # Verify SMS preference
@@ -790,10 +767,7 @@ class TestMultiChannelNotifications:
 
         for i in range(10):  # Try to send 10 SMS
             if sms_count < max_sms_per_minute:
-                await mock_sms_service.send_sms(
-                    phone_number="+1234567890",
-                    message=f"Rate limit test message {i}"
-                )
+                await mock_sms_service.send_sms(phone_number="+1234567890", message=f"Rate limit test message {i}")
                 sms_count += 1
             else:
                 print(f"SMS rate limit reached at message {i}")
@@ -802,6 +776,7 @@ class TestMultiChannelNotifications:
         assert len(mock_sms_service.sent_messages) <= max_sms_per_minute + 1  # +1 for the first test message
 
         print("✓ SMS notification functionality test passed")
+
 
 async def run_notification_system_tests():
     """Run all notification system tests."""
@@ -858,14 +833,14 @@ async def run_notification_system_tests():
                 "delivery_confirmation": "PASSED",
                 "bulk_notifications": "PASSED",
                 "push_notifications": "PASSED (Mock)",
-                "sms_notifications": "PASSED (Mock)"
+                "sms_notifications": "PASSED (Mock)",
             },
             "test_environment": {
                 "users_created": len(test_framework.test_users),
                 "families_created": len(test_framework.test_families),
-                "notifications_tested": len(test_framework.test_notifications)
+                "notifications_tested": len(test_framework.test_notifications),
             },
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         print(f"\nTest Report: {json.dumps(test_report, indent=2)}")
@@ -874,12 +849,10 @@ async def run_notification_system_tests():
     except Exception as e:
         print(f"\n❌ Test suite failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return None
 
     finally:
         # Cleanup
         await test_framework.cleanup_test_environment()
-
-if __name__ == "__main__":
-    asyncio.run(run_notification_system_tests())

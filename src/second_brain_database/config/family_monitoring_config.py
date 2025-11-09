@@ -5,9 +5,10 @@ This module contains configuration settings for family system monitoring,
 alerting thresholds, and observability parameters.
 """
 
-from typing import Dict, Any
 from dataclasses import dataclass
 import os
+from typing import Any, Dict
+
 
 @dataclass
 class MonitoringThresholds:
@@ -106,60 +107,34 @@ MONITORING_CONFIGS = {
             slow_operation_threshold=3.0,
             very_slow_operation_threshold=8.0,
             high_error_rate_threshold=0.10,
-            critical_error_rate_threshold=0.20
+            critical_error_rate_threshold=0.20,
         ),
-        "alerting": AlertingConfig(
-            enable_email_alerts=False,
-            enable_slack_alerts=False,
-            alert_cooldown_period=300
-        ),
-        "metrics": MetricsConfig(
-            health_check_interval=600,
-            metrics_collection_interval=120
-        ),
-        "logging": LoggingConfig(
-            default_log_level="DEBUG",
-            enable_console_logging=True
-        )
+        "alerting": AlertingConfig(enable_email_alerts=False, enable_slack_alerts=False, alert_cooldown_period=300),
+        "metrics": MetricsConfig(health_check_interval=600, metrics_collection_interval=120),
+        "logging": LoggingConfig(default_log_level="DEBUG", enable_console_logging=True),
     },
-
     "staging": {
         "thresholds": MonitoringThresholds(
             slow_operation_threshold=2.5,
             very_slow_operation_threshold=6.0,
             high_error_rate_threshold=0.08,
-            critical_error_rate_threshold=0.15
+            critical_error_rate_threshold=0.15,
         ),
-        "alerting": AlertingConfig(
-            enable_email_alerts=True,
-            enable_slack_alerts=True,
-            alert_cooldown_period=900
-        ),
-        "metrics": MetricsConfig(
-            health_check_interval=300,
-            metrics_collection_interval=60
-        ),
-        "logging": LoggingConfig(
-            default_log_level="INFO",
-            enable_loki_logging=True
-        )
+        "alerting": AlertingConfig(enable_email_alerts=True, enable_slack_alerts=True, alert_cooldown_period=900),
+        "metrics": MetricsConfig(health_check_interval=300, metrics_collection_interval=60),
+        "logging": LoggingConfig(default_log_level="INFO", enable_loki_logging=True),
     },
-
     "production": {
         "thresholds": MonitoringThresholds(),  # Use defaults
-        "alerting": AlertingConfig(
-            enable_email_alerts=True,
-            enable_slack_alerts=True,
-            enable_pagerduty_alerts=True
-        ),
+        "alerting": AlertingConfig(enable_email_alerts=True, enable_slack_alerts=True, enable_pagerduty_alerts=True),
         "metrics": MetricsConfig(),  # Use defaults
         "logging": LoggingConfig(
             default_log_level="INFO",
             performance_log_level="INFO",
             enable_loki_logging=True,
-            enable_console_logging=False
-        )
-    }
+            enable_console_logging=False,
+        ),
+    },
 }
 
 
@@ -183,7 +158,7 @@ def get_monitoring_config(environment: str = None) -> Dict[str, Any]:
         "thresholds": config["thresholds"],
         "alerting": config["alerting"],
         "metrics": config["metrics"],
-        "logging": config["logging"]
+        "logging": config["logging"],
     }
 
 
@@ -192,44 +167,29 @@ PROMETHEUS_METRICS = {
     "family_operations_total": {
         "type": "counter",
         "description": "Total number of family operations",
-        "labels": ["operation_type", "status"]
+        "labels": ["operation_type", "status"],
     },
     "family_operation_duration_seconds": {
         "type": "histogram",
         "description": "Duration of family operations in seconds",
         "labels": ["operation_type"],
-        "buckets": [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+        "buckets": [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
     },
     "family_system_health": {
         "type": "gauge",
         "description": "Health status of family system components",
-        "labels": ["component"]
+        "labels": ["component"],
     },
-    "family_active_count": {
-        "type": "gauge",
-        "description": "Number of active families"
-    },
-    "family_members_total": {
-        "type": "gauge",
-        "description": "Total number of family members"
-    },
-    "family_invitations_pending": {
-        "type": "gauge",
-        "description": "Number of pending family invitations"
-    },
-    "family_token_requests_pending": {
-        "type": "gauge",
-        "description": "Number of pending token requests"
-    },
-    "family_sbd_balance_total": {
-        "type": "gauge",
-        "description": "Total SBD token balance across all families"
-    },
+    "family_active_count": {"type": "gauge", "description": "Number of active families"},
+    "family_members_total": {"type": "gauge", "description": "Total number of family members"},
+    "family_invitations_pending": {"type": "gauge", "description": "Number of pending family invitations"},
+    "family_token_requests_pending": {"type": "gauge", "description": "Number of pending token requests"},
+    "family_sbd_balance_total": {"type": "gauge", "description": "Total SBD token balance across all families"},
     "family_errors_total": {
         "type": "counter",
         "description": "Total number of family operation errors",
-        "labels": ["operation_type", "error_type"]
-    }
+        "labels": ["operation_type", "error_type"],
+    },
 }
 
 
@@ -239,51 +199,19 @@ HEALTH_CHECK_CONFIG = {
         "/family/health/status": {
             "description": "Comprehensive family system health check",
             "timeout": 10,
-            "critical": True
+            "critical": True,
         },
-        "/family/health/readiness": {
-            "description": "Family system readiness probe",
-            "timeout": 5,
-            "critical": True
-        },
-        "/family/health/liveness": {
-            "description": "Family system liveness probe",
-            "timeout": 3,
-            "critical": False
-        }
+        "/family/health/readiness": {"description": "Family system readiness probe", "timeout": 5, "critical": True},
+        "/family/health/liveness": {"description": "Family system liveness probe", "timeout": 3, "critical": False},
     },
     "components": {
-        "database": {
-            "description": "MongoDB connectivity for family collections",
-            "timeout": 5,
-            "critical": True
-        },
-        "redis": {
-            "description": "Redis connectivity for family caching",
-            "timeout": 3,
-            "critical": True
-        },
-        "family_collections": {
-            "description": "Family collections integrity",
-            "timeout": 10,
-            "critical": True
-        },
-        "sbd_integration": {
-            "description": "SBD token integration health",
-            "timeout": 5,
-            "critical": False
-        },
-        "email_system": {
-            "description": "Email system for invitations",
-            "timeout": 3,
-            "critical": False
-        },
-        "notification_system": {
-            "description": "Family notification system",
-            "timeout": 5,
-            "critical": False
-        }
-    }
+        "database": {"description": "MongoDB connectivity for family collections", "timeout": 5, "critical": True},
+        "redis": {"description": "Redis connectivity for family caching", "timeout": 3, "critical": True},
+        "family_collections": {"description": "Family collections integrity", "timeout": 10, "critical": True},
+        "sbd_integration": {"description": "SBD token integration health", "timeout": 5, "critical": False},
+        "email_system": {"description": "Email system for invitations", "timeout": 3, "critical": False},
+        "notification_system": {"description": "Family notification system", "timeout": 5, "critical": False},
+    },
 }
 
 
@@ -291,23 +219,18 @@ HEALTH_CHECK_CONFIG = {
 DASHBOARD_CONFIG = {
     "refresh_interval": 30,  # seconds
     "charts": [
-        {
-            "title": "Family Operations Rate",
-            "type": "line",
-            "metrics": ["family_operations_total"],
-            "time_range": "1h"
-        },
+        {"title": "Family Operations Rate", "type": "line", "metrics": ["family_operations_total"], "time_range": "1h"},
         {
             "title": "Operation Response Times",
             "type": "histogram",
             "metrics": ["family_operation_duration_seconds"],
-            "time_range": "1h"
+            "time_range": "1h",
         },
         {
             "title": "System Health Status",
             "type": "status",
             "metrics": ["family_system_health"],
-            "time_range": "current"
+            "time_range": "current",
         },
         {
             "title": "Family Statistics",
@@ -316,21 +239,16 @@ DASHBOARD_CONFIG = {
                 "family_active_count",
                 "family_members_total",
                 "family_invitations_pending",
-                "family_token_requests_pending"
+                "family_token_requests_pending",
             ],
-            "time_range": "current"
+            "time_range": "current",
         },
-        {
-            "title": "Error Rates",
-            "type": "line",
-            "metrics": ["family_errors_total"],
-            "time_range": "1h"
-        },
+        {"title": "Error Rates", "type": "line", "metrics": ["family_errors_total"], "time_range": "1h"},
         {
             "title": "SBD Token Metrics",
             "type": "stat",
             "metrics": ["family_sbd_balance_total"],
-            "time_range": "current"
-        }
-    ]
+            "time_range": "current",
+        },
+    ],
 }

@@ -1,12 +1,15 @@
-import pytest
-from fastapi.testclient import TestClient
-from second_brain_database.main import app
-from second_brain_database.database import db_manager
 import uuid
+
+from fastapi.testclient import TestClient
 import jwt
+import pytest
+
+from second_brain_database.database import db_manager
+from second_brain_database.main import app
 
 # Mark all tests in this file as asyncio
 pytestmark = pytest.mark.asyncio
+
 
 @pytest.fixture(scope="session")
 def client():
@@ -14,21 +17,39 @@ def client():
     with TestClient(app) as c:
         yield c
 
+
 # --- User Data Fixtures (can be module-scoped) ---
+
 
 @pytest.fixture(scope="module")
 def owner_user_data():
-    return {"username": f"owner_{uuid.uuid4().hex}", "email": f"owner_{uuid.uuid4().hex}@example.com", "password": "Str0ngP@ssw0rd!"}
+    return {
+        "username": f"owner_{uuid.uuid4().hex}",
+        "email": f"owner_{uuid.uuid4().hex}@example.com",
+        "password": "Str0ngP@ssw0rd!",
+    }
+
 
 @pytest.fixture(scope="module")
 def member_user_data():
-    return {"username": f"member_{uuid.uuid4().hex}", "email": f"member_{uuid.uuid4().hex}@example.com", "password": "Str0ngP@ssw0rd!"}
+    return {
+        "username": f"member_{uuid.uuid4().hex}",
+        "email": f"member_{uuid.uuid4().hex}@example.com",
+        "password": "Str0ngP@ssw0rd!",
+    }
+
 
 @pytest.fixture(scope="module")
 def non_member_user_data():
-    return {"username": f"nonmember_{uuid.uuid4().hex}", "email": f"nonmember_{uuid.uuid4().hex}@example.com", "password": "Str0ngP@ssw0rd!"}
+    return {
+        "username": f"nonmember_{uuid.uuid4().hex}",
+        "email": f"nonmember_{uuid.uuid4().hex}@example.com",
+        "password": "Str0ngP@ssw0rd!",
+    }
+
 
 # --- Verified User and Auth Header Fixtures (function-scoped) ---
+
 
 async def create_and_verify_user(client, user_data):
     """Helper function to register, verify, and login a user."""
@@ -45,8 +66,7 @@ async def create_and_verify_user(client, user_data):
     assert verify_response.status_code == 200, "Email verification failed"
 
     login_response = client.post(
-        "/auth/login",
-        data={"username": user_data["username"], "password": user_data["password"]}
+        "/auth/login", data={"username": user_data["username"], "password": user_data["password"]}
     )
     assert login_response.status_code == 200, f"Failed to log in user {user_data['username']}"
     token = login_response.json()["access_token"]
@@ -55,13 +75,16 @@ async def create_and_verify_user(client, user_data):
 
     return {"headers": {"Authorization": f"Bearer {token}"}, "user_id": user_id}
 
+
 @pytest.fixture
 async def owner_auth(client, owner_user_data):
     return await create_and_verify_user(client, owner_user_data)
 
+
 @pytest.fixture
 async def member_auth(client, member_user_data):
     return await create_and_verify_user(client, member_user_data)
+
 
 @pytest.fixture
 async def non_member_auth(client, non_member_user_data):
@@ -70,13 +93,14 @@ async def non_member_auth(client, non_member_user_data):
 
 # --- Workspace Test Fixture (function-scoped) ---
 
+
 @pytest.fixture
 async def test_workspace(client, owner_auth, member_auth):
     """Creates a workspace and adds a member for testing access control."""
     create_response = client.post(
         "/workspaces/",
         headers=owner_auth["headers"],
-        json={"name": "Shared Test Workspace", "description": "A workspace for access tests"}
+        json={"name": "Shared Test Workspace", "description": "A workspace for access tests"},
     )
     assert create_response.status_code == 201
     workspace_data = create_response.json()
@@ -85,24 +109,22 @@ async def test_workspace(client, owner_auth, member_auth):
     add_member_response = client.post(
         f"/workspaces/{workspace_id}/members",
         headers=owner_auth["headers"],
-        json={"user_id_to_add": member_auth["user_id"], "role": "editor"}
+        json={"user_id_to_add": member_auth["user_id"], "role": "editor"},
     )
     assert add_member_response.status_code == 200
 
-    return {
-        "workspace_id": workspace_id,
-        "owner_id": owner_auth["user_id"],
-        "member_id": member_auth["user_id"]
-    }
+    return {"workspace_id": workspace_id, "owner_id": owner_auth["user_id"], "member_id": member_auth["user_id"]}
+
 
 # --- Test Classes ---
+
 
 class TestWorkspaceCreation:
     async def test_create_workspace_success(self, client: TestClient, owner_auth):
         response = client.post(
             "/workspaces/",
             headers=owner_auth["headers"],
-            json={"name": "Creation Success Test", "description": "A test workspace"}
+            json={"name": "Creation Success Test", "description": "A test workspace"},
         )
         assert response.status_code == 201
         data = response.json()
@@ -112,45 +134,47 @@ class TestWorkspaceCreation:
         assert data["members"][0]["role"] == "admin"
 
     async def test_create_workspace_invalid_name(self, client: TestClient, owner_auth):
-        response = client.post(
-            "/workspaces/",
-            headers=owner_auth["headers"],
-            json={"name": "a"}
-        )
+        response = client.post("/workspaces/", headers=owner_auth["headers"], json={"name": "a"})
         assert response.status_code == 422
+
 
 class TestWorkspaceAccess:
     async def test_get_workspace_as_member_success(self, client: TestClient, owner_auth, test_workspace):
         response = client.get(f"/workspaces/{test_workspace['workspace_id']}", headers=owner_auth["headers"])
         assert response.status_code == 200
-        assert response.json()["workspace_id"] == test_workspace['workspace_id']
+        assert response.json()["workspace_id"] == test_workspace["workspace_id"]
 
     async def test_get_workspace_as_non_member_fail(self, client: TestClient, non_member_auth, test_workspace):
         response = client.get(f"/workspaces/{test_workspace['workspace_id']}", headers=non_member_auth["headers"])
         assert response.status_code == 404
         assert response.json()["detail"]["error"] == "INSUFFICIENT_PERMISSIONS"
 
+
 class TestMemberManagement:
     async def test_add_member_as_non_admin_fail(self, client: TestClient, member_auth, non_member_auth, test_workspace):
         response = client.post(
             f"/workspaces/{test_workspace['workspace_id']}/members",
-            headers=member_auth["headers"], # Using member's headers
-            json={"user_id_to_add": non_member_auth["user_id"], "role": "viewer"}
+            headers=member_auth["headers"],  # Using member's headers
+            json={"user_id_to_add": non_member_auth["user_id"], "role": "viewer"},
         )
         assert response.status_code == 400
         assert response.json()["detail"]["error"] == "INSUFFICIENT_PERMISSIONS"
 
     async def test_remove_owner_fail(self, client: TestClient, owner_auth, test_workspace):
-        response = client.delete(f"/workspaces/{test_workspace['workspace_id']}/members/{test_workspace['owner_id']}", headers=owner_auth["headers"])
+        response = client.delete(
+            f"/workspaces/{test_workspace['workspace_id']}/members/{test_workspace['owner_id']}",
+            headers=owner_auth["headers"],
+        )
         assert response.status_code == 400
         assert response.json()["detail"]["error"] == "OWNER_CANNOT_BE_REMOVED"
+
 
 class TestWorkspaceUpdate:
     async def test_update_workspace_success(self, client: TestClient, owner_auth, test_workspace):
         response = client.put(
             f"/workspaces/{test_workspace['workspace_id']}",
             headers=owner_auth["headers"],
-            json={"name": "Updated Workspace Name", "description": "Updated description"}
+            json={"name": "Updated Workspace Name", "description": "Updated description"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -161,10 +185,11 @@ class TestWorkspaceUpdate:
         response = client.put(
             f"/workspaces/{test_workspace['workspace_id']}",
             headers=member_auth["headers"],
-            json={"name": "Should Not Update"}
+            json={"name": "Should Not Update"},
         )
         assert response.status_code == 400
         assert response.json()["detail"]["error"] == "INSUFFICIENT_PERMISSIONS"
+
 
 class TestWorkspaceDeletion:
     async def test_delete_workspace_success(self, client: TestClient, owner_auth):
@@ -172,7 +197,7 @@ class TestWorkspaceDeletion:
         create_response = client.post(
             "/workspaces/",
             headers=owner_auth["headers"],
-            json={"name": "Workspace to Delete", "description": "Will be deleted"}
+            json={"name": "Workspace to Delete", "description": "Will be deleted"},
         )
         assert create_response.status_code == 201
         workspace_id = create_response.json()["workspace_id"]

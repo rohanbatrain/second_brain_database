@@ -5,21 +5,21 @@ Context management for MCP operations including user authentication,
 request tracking, and security context integration with existing FastAPI patterns.
 """
 
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 import uuid
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
+from ...managers.logging_manager import get_logger
 from .exceptions import MCPAuthenticationError, MCPAuthorizationError
 
 logger = get_logger(prefix="[MCP Context]")
 
 # Context variables for MCP request tracking
-_mcp_user_context: ContextVar[Optional['MCPUserContext']] = ContextVar('mcp_user_context', default=None)
-_mcp_request_context: ContextVar[Optional['MCPRequestContext']] = ContextVar('mcp_request_context', default=None)
+_mcp_user_context: ContextVar[Optional["MCPUserContext"]] = ContextVar("mcp_user_context", default=None)
+_mcp_request_context: ContextVar[Optional["MCPRequestContext"]] = ContextVar("mcp_request_context", default=None)
 
 
 @dataclass
@@ -63,15 +63,19 @@ class MCPUserContext:
             "email": self.email,
             "role": self.role,
             "permissions": self.permissions,
-            "workspaces": [{"id": ws.get("_id"), "name": ws.get("name"), "role": ws.get("role")} for ws in self.workspaces],
-            "family_memberships": [{"id": fm.get("family_id"), "role": fm.get("role")} for fm in self.family_memberships],
+            "workspaces": [
+                {"id": ws.get("_id"), "name": ws.get("name"), "role": ws.get("role")} for ws in self.workspaces
+            ],
+            "family_memberships": [
+                {"id": fm.get("family_id"), "role": fm.get("role")} for fm in self.family_memberships
+            ],
             "ip_address": self.ip_address,
             "user_agent": self.user_agent,
             "trusted_ip_lockdown": self.trusted_ip_lockdown,
             "trusted_user_agent_lockdown": self.trusted_user_agent_lockdown,
             "token_type": self.token_type,
             "token_id": self.token_id,
-            "authenticated_at": self.authenticated_at.isoformat()
+            "authenticated_at": self.authenticated_at.isoformat(),
         }
 
     def has_permission(self, permission: str) -> bool:
@@ -198,7 +202,7 @@ class MCPRequestContext:
             "error_type": self.error_type,
             "error_message": self.error_message,
             "security_checks_passed": self.security_checks_passed,
-            "permission_checks": self.permission_checks
+            "permission_checks": self.permission_checks,
         }
 
     def mark_completed(self, error: Optional[Exception] = None) -> None:
@@ -326,7 +330,7 @@ async def create_mcp_user_context_from_fastapi_user(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
     token_type: Optional[str] = None,
-    token_id: Optional[str] = None
+    token_id: Optional[str] = None,
 ) -> MCPUserContext:
     """
     Create MCP user context from FastAPI user object.
@@ -387,7 +391,7 @@ async def create_mcp_user_context_from_fastapi_user(
             trusted_ips=trusted_ips,
             trusted_user_agents=trusted_user_agents,
             token_type=token_type,
-            token_id=token_id
+            token_id=token_id,
         )
 
         logger.debug("Created MCP user context for user %s (%s)", user_id, username)
@@ -404,7 +408,7 @@ def create_mcp_request_context(
     tool_name: Optional[str] = None,
     resource_uri: Optional[str] = None,
     prompt_name: Optional[str] = None,
-    parameters: Optional[Dict[str, Any]] = None
+    parameters: Optional[Dict[str, Any]] = None,
 ) -> MCPRequestContext:
     """
     Create MCP request context for tracking operations.
@@ -428,15 +432,15 @@ def create_mcp_request_context(
     if parameters:
         for key, value in parameters.items():
             # Sanitize sensitive parameter names
-            if any(sensitive in key.lower() for sensitive in [
-                'password', 'token', 'secret', 'key', 'auth', 'credential'
-            ]):
-                sanitized_params[key] = '<REDACTED>'
+            if any(
+                sensitive in key.lower() for sensitive in ["password", "token", "secret", "key", "auth", "credential"]
+            ):
+                sanitized_params[key] = "<REDACTED>"
             else:
                 # Convert complex objects to strings for logging
                 if isinstance(value, (dict, list)):
                     str_value = str(value)
-                    sanitized_params[key] = str_value[:100] + '...' if len(str_value) > 100 else str_value
+                    sanitized_params[key] = str_value[:100] + "..." if len(str_value) > 100 else str_value
                 else:
                     sanitized_params[key] = value
 
@@ -446,18 +450,20 @@ def create_mcp_request_context(
         tool_name=tool_name,
         resource_uri=resource_uri,
         prompt_name=prompt_name,
-        parameters=sanitized_params
+        parameters=sanitized_params,
     )
 
-    logger.debug("Created MCP request context for %s operation: %s",
-                operation_type, tool_name or resource_uri or prompt_name or "unknown")
+    logger.debug(
+        "Created MCP request context for %s operation: %s",
+        operation_type,
+        tool_name or resource_uri or prompt_name or "unknown",
+    )
 
     return context
 
 
 async def validate_mcp_user_permissions(
-    required_permissions: List[str],
-    user_context: Optional[MCPUserContext] = None
+    required_permissions: List[str], user_context: Optional[MCPUserContext] = None
 ) -> bool:
     """
     Validate that the current user has required permissions.
@@ -492,15 +498,16 @@ async def validate_mcp_user_permissions(
     if not has_permissions:
         logger.warning(
             "User %s lacks required permissions. Required: %s, Has: %s",
-            user_context.user_id, required_permissions, user_context.permissions
+            user_context.user_id,
+            required_permissions,
+            user_context.permissions,
         )
 
     return has_permissions
 
 
 async def require_mcp_permissions(
-    required_permissions: List[str],
-    user_context: Optional[MCPUserContext] = None
+    required_permissions: List[str], user_context: Optional[MCPUserContext] = None
 ) -> MCPUserContext:
     """
     Require that the current user has specified permissions.
@@ -526,16 +533,14 @@ async def require_mcp_permissions(
         raise MCPAuthorizationError(
             f"Insufficient permissions for operation",
             required_permissions=required_permissions,
-            user_permissions=user_context.permissions
+            user_permissions=user_context.permissions,
         )
 
     return user_context
 
 
 async def validate_family_access(
-    family_id: str,
-    required_role: Optional[str] = None,
-    user_context: Optional[MCPUserContext] = None
+    family_id: str, required_role: Optional[str] = None, user_context: Optional[MCPUserContext] = None
 ) -> bool:
     """
     Validate that the current user can access a specific family.
@@ -558,9 +563,7 @@ async def validate_family_access(
 
 
 async def require_family_access(
-    family_id: str,
-    required_role: Optional[str] = None,
-    user_context: Optional[MCPUserContext] = None
+    family_id: str, required_role: Optional[str] = None, user_context: Optional[MCPUserContext] = None
 ) -> MCPUserContext:
     """
     Require that the current user can access a specific family.
@@ -591,8 +594,8 @@ async def require_family_access(
                 "family_id": family_id,
                 "required_role": required_role,
                 "user_role": user_role,
-                "is_member": user_context.is_family_member(family_id)
-            }
+                "is_member": user_context.is_family_member(family_id),
+            },
         )
 
     return user_context
@@ -602,7 +605,7 @@ async def log_mcp_operation(
     operation_name: str,
     success: bool = True,
     error: Optional[Exception] = None,
-    additional_context: Optional[Dict[str, Any]] = None
+    additional_context: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Log MCP operation with full context information.
@@ -621,7 +624,7 @@ async def log_mcp_operation(
             "operation": operation_name,
             "success": success,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "mcp_operation": True  # Flag for MCP-specific operations
+            "mcp_operation": True,  # Flag for MCP-specific operations
         }
 
         if user_context:
@@ -631,10 +634,7 @@ async def log_mcp_operation(
             log_data["request"] = request_context.to_dict()
 
         if error:
-            log_data["error"] = {
-                "type": type(error).__name__,
-                "message": str(error)
-            }
+            log_data["error"] = {"type": type(error).__name__, "message": str(error)}
 
         if additional_context:
             log_data["additional_context"] = additional_context
@@ -675,16 +675,10 @@ async def extract_client_info_from_request(request) -> Dict[str, Optional[str]]:
         ip_address = security_manager.get_client_ip(request)
         user_agent = security_manager.get_client_user_agent(request)
 
-        return {
-            "ip_address": ip_address,
-            "user_agent": user_agent
-        }
+        return {"ip_address": ip_address, "user_agent": user_agent}
     except Exception as e:
         logger.warning("Failed to extract client info from request: %s", e)
-        return {
-            "ip_address": None,
-            "user_agent": None
-        }
+        return {"ip_address": None, "user_agent": None}
 
 
 async def create_mcp_audit_trail(
@@ -693,7 +687,7 @@ async def create_mcp_audit_trail(
     resource_type: Optional[str] = None,
     resource_id: Optional[str] = None,
     changes: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Create an audit trail entry for MCP operations.
@@ -720,7 +714,7 @@ async def create_mcp_audit_trail(
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
             "token_type": user_context.token_type,
-            "token_id": user_context.token_id
+            "token_id": user_context.token_id,
         }
 
         if resource_type:
@@ -745,11 +739,7 @@ async def create_mcp_audit_trail(
 
         # Log the audit entry
         logger.info(
-            "MCP Audit: %s by user %s (%s)",
-            operation,
-            user_context.user_id,
-            user_context.username,
-            extra=audit_data
+            "MCP Audit: %s by user %s (%s)", operation, user_context.user_id, user_context.username, extra=audit_data
         )
 
     except Exception as e:
@@ -757,8 +747,7 @@ async def create_mcp_audit_trail(
 
 
 async def validate_workspace_access(
-    required_role: Optional[str] = None,
-    user_context: Optional[MCPUserContext] = None
+    required_role: Optional[str] = None, user_context: Optional[MCPUserContext] = None
 ) -> bool:
     """
     Validate that the current user can access a specific workspace.
@@ -798,9 +787,7 @@ async def validate_workspace_access(
 
 
 async def require_workspace_access(
-    workspace_id: str,
-    required_role: Optional[str] = None,
-    user_context: Optional[MCPUserContext] = None
+    workspace_id: str, required_role: Optional[str] = None, user_context: Optional[MCPUserContext] = None
 ) -> MCPUserContext:
     """
     Require that the current user can access a specific workspace.
@@ -831,8 +818,8 @@ async def require_workspace_access(
                 "workspace_id": workspace_id,
                 "required_role": required_role,
                 "user_role": user_role,
-                "is_member": user_context.is_workspace_member(workspace_id)
-            }
+                "is_member": user_context.is_workspace_member(workspace_id),
+            },
         )
 
     return user_context

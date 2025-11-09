@@ -7,40 +7,42 @@ functionality in the MCP security system.
 """
 
 import asyncio
-import pytest
-import time
 from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any, List
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-# Test imports
-from second_brain_database.integrations.mcp.security import (
-    secure_mcp_tool,
-    authenticated_tool,
-    mcp_context_manager,
-    check_mcp_rate_limit_status,
-    reset_mcp_rate_limit,
-    MCPRateLimitInfo,
-    log_mcp_security_event,
-    log_mcp_authentication_event,
-    log_mcp_authorization_event,
-    mcp_audit_logger
-)
+import pytest
+
 from second_brain_database.integrations.mcp.context import (
-    MCPUserContext,
     MCPRequestContext,
-    create_mcp_user_context_from_fastapi_user,
-    create_mcp_request_context,
-    set_mcp_user_context,
-    set_mcp_request_context,
+    MCPUserContext,
     clear_mcp_context,
+    create_mcp_request_context,
+    create_mcp_user_context_from_fastapi_user,
+    get_mcp_request_context,
     get_mcp_user_context,
-    get_mcp_request_context
+    set_mcp_request_context,
+    set_mcp_user_context,
 )
 from second_brain_database.integrations.mcp.exceptions import (
     MCPAuthenticationError,
     MCPAuthorizationError,
-    MCPRateLimitError
+    MCPRateLimitError,
+)
+
+# Test imports
+from second_brain_database.integrations.mcp.security import (
+    MCPRateLimitInfo,
+    authenticated_tool,
+    check_mcp_rate_limit_status,
+    log_mcp_authentication_event,
+    log_mcp_authorization_event,
+    log_mcp_security_event,
+    mcp_audit_logger,
+    mcp_context_manager,
+    reset_mcp_rate_limit,
+    secure_mcp_tool,
 )
 
 
@@ -59,17 +61,13 @@ class TestMCPSecurityWrappers:
             ip_address="127.0.0.1",
             user_agent="TestClient/1.0",
             token_type="jwt",
-            token_id="token_123"
+            token_id="token_123",
         )
 
     @pytest.fixture
     def mock_request_context(self):
         """Create a mock request context for testing."""
-        return create_mcp_request_context(
-            operation_type="tool",
-            tool_name="test_tool",
-            parameters={"param1": "value1"}
-        )
+        return create_mcp_request_context(operation_type="tool", tool_name="test_tool", parameters={"param1": "value1"})
 
     @pytest.fixture
     def mock_admin_context(self):
@@ -83,7 +81,7 @@ class TestMCPSecurityWrappers:
             ip_address="127.0.0.1",
             user_agent="AdminClient/1.0",
             token_type="jwt",
-            token_id="admin_token_123"
+            token_id="admin_token_123",
         )
 
     def setup_method(self):
@@ -109,6 +107,7 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_secure_mcp_tool_without_authentication(self):
         """Test secure_mcp_tool decorator without authentication."""
+
         @secure_mcp_tool(permissions=["family:read"])
         async def test_tool():
             return {"result": "success"}
@@ -150,9 +149,7 @@ class TestMCPSecurityWrappers:
         set_mcp_user_context(mock_user_context)
 
         @authenticated_tool(
-            name="test_authenticated_tool",
-            description="Test tool with authentication",
-            permissions=["family:read"]
+            name="test_authenticated_tool", description="Test tool with authentication", permissions=["family:read"]
         )
         async def test_tool():
             return {"authenticated": True}
@@ -187,10 +184,7 @@ class TestMCPSecurityWrappers:
         """Test mcp_context_manager decorator with error handling."""
         set_mcp_user_context(mock_user_context)
 
-        request_context = create_mcp_request_context(
-            operation_type="tool",
-            tool_name="error_tool"
-        )
+        request_context = create_mcp_request_context(operation_type="tool", tool_name="error_tool")
         set_mcp_request_context(request_context)
 
         @mcp_context_manager(operation_type="tool")
@@ -207,7 +201,7 @@ class TestMCPSecurityWrappers:
         assert updated_context.error_message == "Test error"
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.security.security_manager')
+    @patch("src.second_brain_database.integrations.mcp.security.security_manager")
     async def test_rate_limiting_success(self, mock_security_manager, mock_user_context):
         """Test successful rate limiting check."""
         set_mcp_user_context(mock_user_context)
@@ -226,7 +220,7 @@ class TestMCPSecurityWrappers:
         mock_security_manager.check_rate_limit.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.security.security_manager')
+    @patch("src.second_brain_database.integrations.mcp.security.security_manager")
     async def test_rate_limiting_exceeded(self, mock_security_manager, mock_user_context):
         """Test rate limiting when limit is exceeded."""
         from fastapi import HTTPException
@@ -250,8 +244,10 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_check_mcp_rate_limit_status(self, mock_user_context, mock_settings):
         """Test checking MCP rate limit status."""
-        with patch('src.second_brain_database.managers.redis_manager.redis_manager') as mock_redis, \
-             patch('src.second_brain_database.integrations.mcp.security.settings', mock_settings):
+        with (
+            patch("src.second_brain_database.managers.redis_manager.redis_manager") as mock_redis,
+            patch("src.second_brain_database.integrations.mcp.security.settings", mock_settings),
+        ):
             mock_redis_conn = AsyncMock()
             mock_redis.get_redis = AsyncMock(return_value=mock_redis_conn)
             mock_redis_conn.get = AsyncMock(return_value="5")  # Current count
@@ -268,8 +264,10 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_reset_mcp_rate_limit_admin(self, mock_admin_context, mock_settings):
         """Test resetting rate limit as admin."""
-        with patch('src.second_brain_database.managers.redis_manager.redis_manager') as mock_redis, \
-             patch('src.second_brain_database.integrations.mcp.security.settings', mock_settings):
+        with (
+            patch("src.second_brain_database.managers.redis_manager.redis_manager") as mock_redis,
+            patch("src.second_brain_database.integrations.mcp.security.settings", mock_settings),
+        ):
             mock_redis_conn = AsyncMock()
             mock_redis.get_redis = AsyncMock(return_value=mock_redis_conn)
             mock_redis_conn.delete = AsyncMock(return_value=2)  # Deleted keys count
@@ -288,11 +286,7 @@ class TestMCPSecurityWrappers:
     def test_mcp_rate_limit_info_class(self):
         """Test MCPRateLimitInfo class functionality."""
         rate_info = MCPRateLimitInfo(
-            action="test_action",
-            limit=100,
-            remaining=25,
-            reset_time=1234567890,
-            current_count=75
+            action="test_action", limit=100, remaining=25, reset_time=1234567890, current_count=75
         )
 
         assert rate_info.action == "test_action"
@@ -315,12 +309,12 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_log_mcp_security_event(self, mock_user_context):
         """Test MCP security event logging."""
-        with patch('src.second_brain_database.utils.logging_utils.log_security_event') as mock_log:
+        with patch("src.second_brain_database.utils.logging_utils.log_security_event") as mock_log:
             await log_mcp_security_event(
                 event_type="test_event",
                 user_context=mock_user_context,
                 success=True,
-                additional_details={"test": "data"}
+                additional_details={"test": "data"},
             )
 
             mock_log.assert_called_once()
@@ -332,11 +326,9 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_log_mcp_authentication_event(self, mock_user_context):
         """Test MCP authentication event logging."""
-        with patch('src.second_brain_database.integrations.mcp.security.log_mcp_security_event') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security.log_mcp_security_event") as mock_log:
             await log_mcp_authentication_event(
-                user_context=mock_user_context,
-                success=True,
-                authentication_method="jwt"
+                user_context=mock_user_context, success=True, authentication_method="jwt"
             )
 
             mock_log.assert_called_once()
@@ -347,12 +339,9 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_log_mcp_authorization_event(self, mock_user_context):
         """Test MCP authorization event logging."""
-        with patch('src.second_brain_database.integrations.mcp.security.log_mcp_security_event') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security.log_mcp_security_event") as mock_log:
             await log_mcp_authorization_event(
-                user_context=mock_user_context,
-                required_permissions=["family:read"],
-                success=True,
-                resource="test_tool"
+                user_context=mock_user_context, required_permissions=["family:read"], success=True, resource="test_tool"
             )
 
             mock_log.assert_called_once()
@@ -363,13 +352,13 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_mcp_audit_logger_tool_execution(self, mock_user_context):
         """Test MCP audit logger tool execution logging."""
-        with patch('src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution") as mock_log:
             await mcp_audit_logger.log_tool_execution(
                 tool_name="test_tool",
                 user_context=mock_user_context,
                 parameters={"param1": "value1"},
                 result={"success": True},
-                duration_ms=150.5
+                duration_ms=150.5,
             )
 
             mock_log.assert_called_once()
@@ -377,12 +366,9 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_mcp_audit_logger_resource_access(self, mock_user_context):
         """Test MCP audit logger resource access logging."""
-        with patch('src.second_brain_database.integrations.mcp.security.log_mcp_security_event') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security.log_mcp_security_event") as mock_log:
             await mcp_audit_logger.log_resource_access(
-                resource_uri="family://123/info",
-                user_context=mock_user_context,
-                access_type="read",
-                success=True
+                resource_uri="family://123/info", user_context=mock_user_context, access_type="read", success=True
             )
 
             mock_log.assert_called_once()
@@ -392,12 +378,12 @@ class TestMCPSecurityWrappers:
     @pytest.mark.asyncio
     async def test_mcp_audit_logger_prompt_generation(self, mock_user_context):
         """Test MCP audit logger prompt generation logging."""
-        with patch('src.second_brain_database.integrations.mcp.security.log_mcp_security_event') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security.log_mcp_security_event") as mock_log:
             await mcp_audit_logger.log_prompt_generation(
                 prompt_name="family_management_guide",
                 user_context=mock_user_context,
                 parameters={"context": "help"},
-                success=True
+                success=True,
             )
 
             mock_log.assert_called_once()
@@ -448,7 +434,7 @@ class TestMCPSecurityWrappers:
         async def no_audit_tool():
             return {"audit_disabled": True}
 
-        with patch('src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution') as mock_log:
+        with patch("src.second_brain_database.integrations.mcp.security._log_mcp_tool_execution") as mock_log:
             result = await no_audit_tool()
             assert result == {"audit_disabled": True}
             mock_log.assert_not_called()
@@ -466,21 +452,15 @@ class TestMCPSecurityIntegration:
             "username": "test_user",
             "email": "test@example.com",
             "role": "user",
-            "permissions": ["family:read", "profile:read"]
+            "permissions": ["family:read", "profile:read"],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
-            fastapi_user=fastapi_user,
-            ip_address="127.0.0.1",
-            user_agent="TestClient/1.0",
-            token_type="jwt"
+            fastapi_user=fastapi_user, ip_address="127.0.0.1", user_agent="TestClient/1.0", token_type="jwt"
         )
 
         # Create request context
-        request_context = create_mcp_request_context(
-            operation_type="tool",
-            tool_name="integration_test_tool"
-        )
+        request_context = create_mcp_request_context(operation_type="tool", tool_name="integration_test_tool")
 
         # Set contexts
         set_mcp_user_context(user_context)
@@ -505,6 +485,7 @@ class TestMCPSecurityIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_security_operations(self):
         """Test security wrappers under concurrent execution."""
+
         async def create_and_execute_tool(user_id: str, permissions: List[str]):
             # Create unique context for each concurrent operation
             user_context = MCPUserContext(
@@ -512,13 +493,10 @@ class TestMCPSecurityIntegration:
                 username=f"user_{user_id}",
                 permissions=permissions,
                 ip_address="127.0.0.1",
-                user_agent="ConcurrentClient/1.0"
+                user_agent="ConcurrentClient/1.0",
             )
 
-            request_context = create_mcp_request_context(
-                operation_type="tool",
-                tool_name=f"concurrent_tool_{user_id}"
-            )
+            request_context = create_mcp_request_context(operation_type="tool", tool_name=f"concurrent_tool_{user_id}")
 
             set_mcp_user_context(user_context)
             set_mcp_request_context(request_context)
@@ -535,7 +513,7 @@ class TestMCPSecurityIntegration:
         tasks = [
             create_and_execute_tool("user_1", ["family:read"]),
             create_and_execute_tool("user_2", ["profile:read"]),
-            create_and_execute_tool("user_3", ["family:read", "family:write"])
+            create_and_execute_tool("user_3", ["family:read", "family:write"]),
         ]
 
         results = await asyncio.gather(*tasks)
@@ -567,7 +545,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(malformed_context)
 
@@ -586,7 +564,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=None,  # None permissions
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
@@ -605,7 +583,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read"],
             ip_address=None,  # No IP address
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
@@ -629,7 +607,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
@@ -640,10 +618,7 @@ class TestMCPSecurityEdgeCases:
             "password": "secret123",
             "token": "jwt_token",
             "normal_param": "value",
-            "nested": {
-                "secret": "hidden_value",
-                "public": "visible_value"
-            }
+            "nested": {"secret": "hidden_value", "public": "visible_value"},
         }
 
         sanitized = _sanitize_arguments_for_logging(test_data)
@@ -665,7 +640,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
 
         async def create_concurrent_tool(tool_id: int):
@@ -696,12 +671,12 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
         # Mock rate limiting to raise an unexpected error
-        with patch('src.second_brain_database.managers.security_manager.security_manager') as mock_security:
+        with patch("src.second_brain_database.managers.security_manager.security_manager") as mock_security:
             mock_security.check_rate_limit = AsyncMock(side_effect=Exception("Unexpected error"))
 
             @secure_mcp_tool(rate_limit_action="error_test")
@@ -720,7 +695,7 @@ class TestMCPSecurityEdgeCases:
             username="test_user",
             permissions=["family:read", "family:write", "profile:read", "workspace:member"],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
         set_mcp_user_context(context)
 
@@ -749,7 +724,7 @@ class TestMCPSecurityEdgeCases:
             username="user_one",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="Client1/1.0"
+            user_agent="Client1/1.0",
         )
 
         context2 = MCPUserContext(
@@ -757,7 +732,7 @@ class TestMCPSecurityEdgeCases:
             username="user_two",
             permissions=["profile:read"],
             ip_address="192.168.1.1",
-            user_agent="Client2/1.0"
+            user_agent="Client2/1.0",
         )
 
         async def tool_with_context1():
@@ -807,7 +782,7 @@ class TestMCPSecurityIntegrationAdvanced:
             "workspaces": [],
             "family_memberships": [{"family_id": "family_1", "role": "admin"}],
             "trusted_ip_lockdown": False,
-            "trusted_user_agent_lockdown": False
+            "trusted_user_agent_lockdown": False,
         }
 
         # Create context from FastAPI user
@@ -816,7 +791,7 @@ class TestMCPSecurityIntegrationAdvanced:
             ip_address="10.0.0.1",
             user_agent="IntegrationClient/2.0",
             token_type="jwt",
-            token_id="integration_token_123"
+            token_id="integration_token_123",
         )
 
         set_mcp_user_context(user_context)
@@ -828,7 +803,7 @@ class TestMCPSecurityIntegrationAdvanced:
             return {
                 "user_id": context.user_id,
                 "family_memberships": len(context.family_memberships),
-                "has_admin_role": any(fm.get("role") == "admin" for fm in context.family_memberships)
+                "has_admin_role": any(fm.get("role") == "admin" for fm in context.family_memberships),
             }
 
         result = await fastapi_integration_tool()
@@ -845,7 +820,7 @@ class TestMCPSecurityIntegrationAdvanced:
             username="load_user",
             permissions=["family:read"],
             ip_address="127.0.0.1",
-            user_agent="LoadTestClient/1.0"
+            user_agent="LoadTestClient/1.0",
         )
 
         async def load_test_tool(iteration: int):

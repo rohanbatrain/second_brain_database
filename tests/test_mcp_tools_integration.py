@@ -7,19 +7,20 @@ including FamilyManager, SecurityManager, and other core components.
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Test imports
 from second_brain_database.integrations.mcp.context import (
-    MCPUserContext,
     MCPRequestContext,
+    MCPUserContext,
+    clear_mcp_context,
     create_mcp_user_context_from_fastapi_user,
-    set_mcp_user_context,
     set_mcp_request_context,
-    clear_mcp_context
+    set_mcp_user_context,
 )
 
 
@@ -37,10 +38,10 @@ class TestMCPToolsIntegration:
             permissions=["family:read", "family:write"],
             family_memberships=[
                 {"family_id": "family_123", "role": "admin"},
-                {"family_id": "family_456", "role": "member"}
+                {"family_id": "family_456", "role": "member"},
             ],
             ip_address="127.0.0.1",
-            user_agent="TestClient/1.0"
+            user_agent="TestClient/1.0",
         )
 
     @pytest.fixture
@@ -52,7 +53,7 @@ class TestMCPToolsIntegration:
             role="admin",
             permissions=["admin", "family:read", "family:write"],
             ip_address="127.0.0.1",
-            user_agent="AdminClient/1.0"
+            user_agent="AdminClient/1.0",
         )
 
     def setup_method(self):
@@ -64,7 +65,7 @@ class TestMCPToolsIntegration:
         clear_mcp_context()
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager')
+    @patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager")
     async def test_get_family_info_tool_integration(self, mock_family_manager_class, mock_family_user_context):
         """Test get_family_info tool integration with FamilyManager."""
         # Mock FamilyManager instance and methods
@@ -79,7 +80,7 @@ class TestMCPToolsIntegration:
             "description": "Test family description",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "member_count": 3,
-            "owner_id": "family_user_123"
+            "owner_id": "family_user_123",
         }
         mock_family_manager.get_family.return_value = mock_family
 
@@ -103,7 +104,7 @@ class TestMCPToolsIntegration:
             pytest.skip("Family tools not available for testing")
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager')
+    @patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager")
     async def test_get_family_members_tool_integration(self, mock_family_manager_class, mock_family_user_context):
         """Test get_family_members tool integration with FamilyManager."""
         # Mock FamilyManager instance
@@ -112,18 +113,8 @@ class TestMCPToolsIntegration:
 
         # Mock family members data
         mock_members = [
-            {
-                "user_id": "user_1",
-                "username": "member1",
-                "role": "admin",
-                "joined_at": datetime.now(timezone.utc)
-            },
-            {
-                "user_id": "user_2",
-                "username": "member2",
-                "role": "member",
-                "joined_at": datetime.now(timezone.utc)
-            }
+            {"user_id": "user_1", "username": "member1", "role": "admin", "joined_at": datetime.now(timezone.utc)},
+            {"user_id": "user_2", "username": "member2", "role": "member", "joined_at": datetime.now(timezone.utc)},
         ]
         mock_family_manager.validate_family_access.return_value = True
         mock_family_manager.get_family_members.return_value = mock_members
@@ -150,7 +141,7 @@ class TestMCPToolsIntegration:
             pytest.skip("Family tools not available for testing")
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager')
+    @patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager")
     async def test_create_family_tool_integration(self, mock_family_manager_class, mock_family_user_context):
         """Test create_family tool integration with FamilyManager."""
         # Mock FamilyManager instance
@@ -164,7 +155,7 @@ class TestMCPToolsIntegration:
             "name": "New Test Family",
             "description": "New family description",
             "owner_id": "family_user_123",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         mock_family_manager.create_family.return_value = mock_created_family
 
@@ -188,7 +179,7 @@ class TestMCPToolsIntegration:
             pytest.skip("Family tools not available for testing")
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.auth_tools.get_current_user_dep')
+    @patch("src.second_brain_database.integrations.mcp.tools.auth_tools.get_current_user_dep")
     async def test_get_user_profile_tool_integration(self, mock_get_user, mock_family_user_context):
         """Test get_user_profile tool integration with existing auth system."""
         # Mock user profile data
@@ -198,10 +189,7 @@ class TestMCPToolsIntegration:
             "email": "family@example.com",
             "role": "user",
             "created_at": datetime.now(timezone.utc),
-            "profile": {
-                "display_name": "Family User",
-                "bio": "Test user bio"
-            }
+            "profile": {"display_name": "Family User", "bio": "Test user bio"},
         }
         mock_get_user.return_value = mock_user_profile
 
@@ -221,7 +209,7 @@ class TestMCPToolsIntegration:
             pytest.skip("Auth tools not available for testing")
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.family_tools.SecurityManager')
+    @patch("src.second_brain_database.integrations.mcp.tools.family_tools.SecurityManager")
     async def test_security_manager_integration(self, mock_security_manager_class, mock_family_user_context):
         """Test MCP tools integration with SecurityManager."""
         # Mock SecurityManager instance
@@ -232,7 +220,7 @@ class TestMCPToolsIntegration:
         set_mcp_user_context(mock_family_user_context)
 
         # Test that security manager is properly integrated
-        with patch('src.second_brain_database.integrations.mcp.security.security_manager', mock_security_manager):
+        with patch("src.second_brain_database.integrations.mcp.security.security_manager", mock_security_manager):
             from src.second_brain_database.integrations.mcp.security import secure_mcp_tool
 
             @secure_mcp_tool(rate_limit_action="test_action")
@@ -251,16 +239,12 @@ class TestMCPToolsIntegration:
             "email": "integration@example.com",
             "role": "user",
             "permissions": ["family:read", "profile:read"],
-            "workspaces": [
-                {"_id": "workspace_1", "name": "Test Workspace", "role": "member"}
-            ],
-            "family_memberships": [
-                {"family_id": "family_1", "role": "admin"}
-            ],
+            "workspaces": [{"_id": "workspace_1", "name": "Test Workspace", "role": "member"}],
+            "family_memberships": [{"family_id": "family_1", "role": "admin"}],
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
             "trusted_ips": [],
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
         user_context = await create_mcp_user_context_from_fastapi_user(
@@ -268,7 +252,7 @@ class TestMCPToolsIntegration:
             ip_address="192.168.1.100",
             user_agent="IntegrationClient/1.0",
             token_type="jwt",
-            token_id="jwt_token_123"
+            token_id="jwt_token_123",
         )
 
         # Verify context creation
@@ -292,7 +276,7 @@ class TestMCPToolsIntegration:
         assert user_context.get_family_role("family_1") == "admin"
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.integrations.mcp.tools.family_tools.db_manager')
+    @patch("src.second_brain_database.integrations.mcp.tools.family_tools.db_manager")
     async def test_database_integration(self, mock_db_manager, mock_family_user_context):
         """Test MCP tools integration with database manager."""
         # Mock database operations
@@ -305,14 +289,14 @@ class TestMCPToolsIntegration:
             "name": "Test Family",
             "description": "Test description",
             "owner_id": "family_user_123",
-            "created_at": datetime.now(timezone.utc)
+            "created_at": datetime.now(timezone.utc),
         }
         mock_collection.find_one.return_value = mock_family_doc
 
         set_mcp_user_context(mock_family_user_context)
 
         # Test database integration through family manager
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -339,7 +323,7 @@ class TestMCPToolsIntegration:
         set_mcp_user_context(mock_family_user_context)
 
         # Test with manager that raises an exception
-        with patch('src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager') as mock_fm:
+        with patch("src.second_brain_database.integrations.mcp.tools.family_tools.FamilyManager") as mock_fm:
             mock_family_manager = AsyncMock()
             mock_fm.return_value = mock_family_manager
 
@@ -363,10 +347,7 @@ class TestMCPToolsIntegration:
         set_mcp_user_context(mock_family_user_context)
 
         # Test family access validation
-        from src.second_brain_database.integrations.mcp.context import (
-            validate_family_access,
-            require_family_access
-        )
+        from src.second_brain_database.integrations.mcp.context import require_family_access, validate_family_access
 
         # Test valid family access
         has_access = await validate_family_access("family_123", "admin", mock_family_user_context)
@@ -382,6 +363,7 @@ class TestMCPToolsIntegration:
 
         # Test require family access - should fail
         from src.second_brain_database.integrations.mcp.exceptions import MCPAuthorizationError
+
         with pytest.raises(MCPAuthorizationError):
             await require_family_access("family_999", "admin", mock_family_user_context)
 
@@ -399,7 +381,7 @@ class TestMCPAuthToolsIntegration:
             role="user",
             permissions=["profile:read", "profile:write", "auth:manage"],
             ip_address="127.0.0.1",
-            user_agent="AuthTestClient/1.0"
+            user_agent="AuthTestClient/1.0",
         )
 
     def setup_method(self):
@@ -430,7 +412,7 @@ class TestMCPAuthToolsIntegration:
             "two_fa_enabled": False,
             "trusted_ip_lockdown": False,
             "trusted_user_agent_lockdown": False,
-            "profile_settings": {"theme": "dark", "language": "en"}
+            "profile_settings": {"theme": "dark", "language": "en"},
         }
         mock_collection.find_one.return_value = mock_user_profile
 
@@ -465,7 +447,7 @@ class TestMCPAuthToolsIntegration:
         new_preferences = {
             "theme": "light",
             "notifications": {"email": True, "push": False},
-            "privacy": {"profile_visible": True}
+            "privacy": {"profile_visible": True},
         }
 
         # Test the integration pattern
@@ -474,13 +456,7 @@ class TestMCPAuthToolsIntegration:
         # Simulate update operations
         users_collection = mock_db_manager.get_collection("users")
         update_result = await users_collection.update_one(
-            {"_id": user_id},
-            {
-                "$set": {
-                    "preferences": new_preferences,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            }
+            {"_id": user_id}, {"$set": {"preferences": new_preferences, "updated_at": datetime.now(timezone.utc)}}
         )
 
         # Verify database integration
@@ -506,7 +482,7 @@ class TestMCPShopToolsIntegration:
             role="user",
             permissions=["shop:read", "shop:purchase", "assets:manage"],
             ip_address="127.0.0.1",
-            user_agent="ShopTestClient/1.0"
+            user_agent="ShopTestClient/1.0",
         )
 
     def setup_method(self):
@@ -534,7 +510,7 @@ class TestMCPShopToolsIntegration:
                 "price": 100,
                 "item_type": "theme",
                 "description": "A cool theme",
-                "featured": True
+                "featured": True,
             },
             {
                 "_id": "item_2",
@@ -542,8 +518,8 @@ class TestMCPShopToolsIntegration:
                 "price": 50,
                 "item_type": "avatar",
                 "description": "Avatar collection",
-                "featured": False
-            }
+                "featured": False,
+            },
         ]
         # Mock the find method to return items directly for simplicity
         mock_collection.find.return_value = mock_shop_items
@@ -586,19 +562,11 @@ class TestMCPShopToolsIntegration:
         mock_db_manager.get_collection.side_effect = get_collection_side_effect
 
         # Mock shop item
-        mock_item = {
-            "_id": "theme_123",
-            "name": "Premium Theme",
-            "price": 200,
-            "item_type": "theme"
-        }
+        mock_item = {"_id": "theme_123", "name": "Premium Theme", "price": 200, "item_type": "theme"}
         mock_shop_collection.find_one.return_value = mock_item
 
         # Mock user with sufficient balance
-        mock_user = {
-            "_id": "shop_user_123",
-            "sbd_balance": 500
-        }
+        mock_user = {"_id": "shop_user_123", "sbd_balance": 500}
         mock_user_collection.find_one.return_value = mock_user
         mock_user_collection.update_one.return_value = Mock(modified_count=1)
 
@@ -623,10 +591,7 @@ class TestMCPShopToolsIntegration:
 
         # Update user balance
         new_balance = user["sbd_balance"] - total_cost
-        await users_collection.update_one(
-            {"_id": user_id},
-            {"$set": {"sbd_balance": new_balance}}
-        )
+        await users_collection.update_one({"_id": user_id}, {"$set": {"sbd_balance": new_balance}})
 
         # Create transaction record
         transactions_collection = mock_db_manager.get_collection("transactions")
@@ -635,7 +600,7 @@ class TestMCPShopToolsIntegration:
             "item_id": item_id,
             "quantity": quantity,
             "total_cost": total_cost,
-            "timestamp": datetime.now(timezone.utc)
+            "timestamp": datetime.now(timezone.utc),
         }
         await transactions_collection.insert_one(transaction_doc)
 
@@ -663,10 +628,10 @@ class TestMCPWorkspaceToolsIntegration:
             permissions=["workspace:read", "workspace:write", "workspace:admin"],
             workspaces=[
                 {"_id": "workspace_1", "name": "Test Workspace", "role": "admin"},
-                {"_id": "workspace_2", "name": "Other Workspace", "role": "member"}
+                {"_id": "workspace_2", "name": "Other Workspace", "role": "member"},
             ],
             ip_address="127.0.0.1",
-            user_agent="WorkspaceTestClient/1.0"
+            user_agent="WorkspaceTestClient/1.0",
         )
 
     def setup_method(self):
@@ -683,7 +648,9 @@ class TestMCPWorkspaceToolsIntegration:
         set_mcp_user_context(mock_workspace_user_context)
 
         # Mock WorkspaceManager integration
-        with patch('src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager') as mock_workspace_manager_class:
+        with patch(
+            "src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager"
+        ) as mock_workspace_manager_class:
             mock_workspace_manager = AsyncMock()
             mock_workspace_manager_class.return_value = mock_workspace_manager
 
@@ -695,7 +662,7 @@ class TestMCPWorkspaceToolsIntegration:
                     "description": "Test workspace description",
                     "created_at": datetime.now(timezone.utc),
                     "owner_id": "workspace_user_123",
-                    "member_count": 5
+                    "member_count": 5,
                 },
                 {
                     "_id": "workspace_2",
@@ -703,8 +670,8 @@ class TestMCPWorkspaceToolsIntegration:
                     "description": "Other workspace description",
                     "created_at": datetime.now(timezone.utc),
                     "owner_id": "other_user_456",
-                    "member_count": 3
-                }
+                    "member_count": 3,
+                },
             ]
             mock_workspace_manager.get_user_workspaces.return_value = mock_workspaces
 
@@ -730,7 +697,9 @@ class TestMCPWorkspaceToolsIntegration:
         set_mcp_user_context(mock_workspace_user_context)
 
         # Mock WorkspaceManager integration
-        with patch('src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager') as mock_workspace_manager_class:
+        with patch(
+            "src.second_brain_database.integrations.mcp.tools.workspace_tools.WorkspaceManager"
+        ) as mock_workspace_manager_class:
             mock_workspace_manager = AsyncMock()
             mock_workspace_manager_class.return_value = mock_workspace_manager
 
@@ -741,7 +710,7 @@ class TestMCPWorkspaceToolsIntegration:
                 "description": "New workspace description",
                 "created_at": datetime.now(timezone.utc),
                 "owner_id": "workspace_user_123",
-                "member_count": 1
+                "member_count": 1,
             }
             mock_workspace_manager.create_workspace.return_value = mock_created_workspace
 
@@ -752,9 +721,7 @@ class TestMCPWorkspaceToolsIntegration:
 
             # Simulate what the tool would do
             workspace_manager = mock_workspace_manager_class()
-            created_workspace = await workspace_manager.create_workspace(
-                workspace_name, user_id, workspace_description
-            )
+            created_workspace = await workspace_manager.create_workspace(workspace_name, user_id, workspace_description)
 
             # Verify workspace creation was called
             mock_workspace_manager.create_workspace.assert_called_once()
@@ -773,7 +740,9 @@ class TestMCPWorkspaceToolsIntegration:
         set_mcp_user_context(mock_workspace_user_context)
 
         # Mock TeamWalletManager integration
-        with patch('src.second_brain_database.integrations.mcp.tools.workspace_tools.TeamWalletManager') as mock_wallet_manager_class:
+        with patch(
+            "src.second_brain_database.integrations.mcp.tools.workspace_tools.TeamWalletManager"
+        ) as mock_wallet_manager_class:
             mock_wallet_manager = AsyncMock()
             mock_wallet_manager_class.return_value = mock_wallet_manager
 
@@ -783,7 +752,7 @@ class TestMCPWorkspaceToolsIntegration:
                 "balance": 1000,
                 "frozen": False,
                 "created_at": datetime.now(timezone.utc),
-                "permissions": {"can_request": True, "can_approve": True}
+                "permissions": {"can_request": True, "can_approve": True},
             }
             mock_wallet_manager.get_workspace_wallet.return_value = mock_wallet
 
@@ -816,7 +785,7 @@ class TestMCPAdminToolsIntegration:
             role="admin",
             permissions=["admin", "system:read", "system:write", "user:manage"],
             ip_address="127.0.0.1",
-            user_agent="AdminTestClient/1.0"
+            user_agent="AdminTestClient/1.0",
         )
 
     def setup_method(self):
@@ -833,7 +802,7 @@ class TestMCPAdminToolsIntegration:
         set_mcp_user_context(mock_admin_user_context)
 
         # Mock database manager integration
-        with patch('src.second_brain_database.integrations.mcp.tools.admin_tools.db_manager') as mock_db_manager:
+        with patch("src.second_brain_database.integrations.mcp.tools.admin_tools.db_manager") as mock_db_manager:
             # Mock database health check
             mock_db_manager.client.admin.command.return_value = {"ok": 1}
             mock_db_manager.client.server_info.return_value = {"version": "5.0.0"}
@@ -859,9 +828,9 @@ class TestMCPAdminToolsIntegration:
                     "components": {
                         "database": {
                             "status": "healthy" if ping_result["ok"] == 1 else "unhealthy",
-                            "version": server_info["version"]
+                            "version": server_info["version"],
                         }
-                    }
+                    },
                 }
 
                 assert health_status["healthy"] is True
@@ -877,7 +846,7 @@ class TestMCPAdminToolsIntegration:
         set_mcp_user_context(mock_admin_user_context)
 
         # Mock database manager integration
-        with patch('src.second_brain_database.integrations.mcp.tools.admin_tools.db_manager') as mock_db_manager:
+        with patch("src.second_brain_database.integrations.mcp.tools.admin_tools.db_manager") as mock_db_manager:
             # Mock user collection
             mock_collection = AsyncMock()
             mock_db_manager.get_collection.return_value = mock_collection
@@ -889,7 +858,7 @@ class TestMCPAdminToolsIntegration:
                     "email": "user1@example.com",
                     "role": "user",
                     "created_at": datetime.now(timezone.utc),
-                    "last_login": datetime.now(timezone.utc)
+                    "last_login": datetime.now(timezone.utc),
                 },
                 {
                     "_id": "user_2",
@@ -897,8 +866,8 @@ class TestMCPAdminToolsIntegration:
                     "email": "user2@example.com",
                     "role": "user",
                     "created_at": datetime.now(timezone.utc),
-                    "last_login": None
-                }
+                    "last_login": None,
+                },
             ]
             mock_collection.find.return_value.skip.return_value.limit.return_value.to_list.return_value = mock_users
             mock_collection.count_documents.return_value = 2
@@ -941,7 +910,7 @@ class TestMCPToolsManagerIntegration:
             role="user",
             permissions=["family:read", "family:write"],
             ip_address="127.0.0.1",
-            user_agent="ManagerTestClient/1.0"
+            user_agent="ManagerTestClient/1.0",
         )
 
     def setup_method(self):
@@ -953,9 +922,9 @@ class TestMCPToolsManagerIntegration:
         clear_mcp_context()
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.managers.family_manager.db_manager')
-    @patch('src.second_brain_database.managers.family_manager.security_manager')
-    @patch('src.second_brain_database.managers.family_manager.redis_manager')
+    @patch("src.second_brain_database.managers.family_manager.db_manager")
+    @patch("src.second_brain_database.managers.family_manager.security_manager")
+    @patch("src.second_brain_database.managers.family_manager.redis_manager")
     async def test_family_manager_dependency_injection(self, mock_redis, mock_security, mock_db, mock_user_context):
         """Test that MCP tools properly inject dependencies into FamilyManager."""
         set_mcp_user_context(mock_user_context)
@@ -969,11 +938,7 @@ class TestMCPToolsManagerIntegration:
             from src.second_brain_database.managers.family_manager import FamilyManager
 
             # Create FamilyManager instance as MCP tools would
-            family_manager = FamilyManager(
-                db_manager=mock_db,
-                security_manager=mock_security,
-                redis_manager=mock_redis
-            )
+            family_manager = FamilyManager(db_manager=mock_db, security_manager=mock_security, redis_manager=mock_redis)
 
             # Verify dependencies are properly set
             assert family_manager.db_manager == mock_db
@@ -988,7 +953,7 @@ class TestMCPToolsManagerIntegration:
         """Test integration with logging manager for audit trails."""
         set_mcp_user_context(mock_user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.security.get_logger') as mock_get_logger:
+        with patch("src.second_brain_database.integrations.mcp.security.get_logger") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
@@ -1009,7 +974,7 @@ class TestMCPToolsManagerIntegration:
         """Test integration with Redis manager for rate limiting."""
         set_mcp_user_context(mock_user_context)
 
-        with patch('src.second_brain_database.integrations.mcp.security.redis_manager') as mock_redis:
+        with patch("src.second_brain_database.integrations.mcp.security.redis_manager") as mock_redis:
             mock_redis_conn = AsyncMock()
             mock_redis.get_redis.return_value = mock_redis_conn
             mock_redis_conn.get.return_value = "0"  # No current rate limit
@@ -1025,9 +990,9 @@ class TestMCPToolsManagerIntegration:
             assert "remaining" in status
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.managers.workspace_manager.db_manager')
-    @patch('src.second_brain_database.managers.workspace_manager.security_manager')
-    @patch('src.second_brain_database.managers.workspace_manager.redis_manager')
+    @patch("src.second_brain_database.managers.workspace_manager.db_manager")
+    @patch("src.second_brain_database.managers.workspace_manager.security_manager")
+    @patch("src.second_brain_database.managers.workspace_manager.redis_manager")
     async def test_workspace_manager_dependency_injection(self, mock_redis, mock_security, mock_db, mock_user_context):
         """Test WorkspaceManager dependency injection in MCP tools."""
         set_mcp_user_context(mock_user_context)
@@ -1042,9 +1007,7 @@ class TestMCPToolsManagerIntegration:
 
             # Create WorkspaceManager instance as MCP tools would
             workspace_manager = WorkspaceManager(
-                db_manager=mock_db,
-                security_manager=mock_security,
-                redis_manager=mock_redis
+                db_manager=mock_db, security_manager=mock_security, redis_manager=mock_redis
             )
 
             # Verify dependencies are properly set
@@ -1056,7 +1019,7 @@ class TestMCPToolsManagerIntegration:
             pytest.skip("WorkspaceManager not available for testing")
 
     @pytest.mark.asyncio
-    @patch('src.second_brain_database.managers.security_manager.redis_manager')
+    @patch("src.second_brain_database.managers.security_manager.redis_manager")
     async def test_security_manager_integration_with_mcp_tools(self, mock_redis_manager, mock_user_context):
         """Test SecurityManager integration with MCP security wrappers."""
         set_mcp_user_context(mock_user_context)
@@ -1079,10 +1042,7 @@ class TestMCPToolsManagerIntegration:
 
             # Test rate limiting integration
             await security_manager.check_rate_limit(
-                mock_request,
-                "mcp_tool_test",
-                rate_limit_requests=10,
-                rate_limit_period=60
+                mock_request, "mcp_tool_test", rate_limit_requests=10, rate_limit_period=60
             )
 
             # Verify Redis operations

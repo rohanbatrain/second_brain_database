@@ -7,20 +7,20 @@ to ensure they work correctly with token validation and single-use enforcement.
 """
 
 import asyncio
+from datetime import datetime, timedelta
 import json
 import sys
-from datetime import datetime, timedelta
 
 # Add src to path for imports
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from second_brain_database.routes.auth.services.temporary_access import (
+    execute_allow_once_ip_access,
+    execute_allow_once_user_agent_access,
     generate_temporary_ip_access_token,
     generate_temporary_user_agent_access_token,
     validate_and_use_temporary_ip_token,
     validate_and_use_temporary_user_agent_token,
-    execute_allow_once_ip_access,
-    execute_allow_once_user_agent_access
 )
 
 
@@ -37,10 +37,7 @@ async def test_ip_allow_once_flow():
         # 1. Generate token
         print("1. Generating temporary IP access token...")
         token = await generate_temporary_ip_access_token(
-            user_email=user_email,
-            ip_address=ip_address,
-            action="allow_once",
-            endpoint=endpoint
+            user_email=user_email, ip_address=ip_address, action="allow_once", endpoint=endpoint
         )
         print(f"   Generated token: {token[:20]}...")
 
@@ -98,10 +95,7 @@ async def test_user_agent_allow_once_flow():
         # 1. Generate token
         print("1. Generating temporary User Agent access token...")
         token = await generate_temporary_user_agent_access_token(
-            user_email=user_email,
-            user_agent=user_agent,
-            action="allow_once",
-            endpoint=endpoint
+            user_email=user_email, user_agent=user_agent, action="allow_once", endpoint=endpoint
         )
         print(f"   Generated token: {token[:20]}...")
 
@@ -179,11 +173,7 @@ async def main():
     """Run all tests."""
     print("Starting allow-once endpoints tests...\n")
 
-    tests = [
-        test_ip_allow_once_flow,
-        test_user_agent_allow_once_flow,
-        test_invalid_token_handling
-    ]
+    tests = [test_ip_allow_once_flow, test_user_agent_allow_once_flow, test_invalid_token_handling]
 
     passed = 0
     total = len(tests)

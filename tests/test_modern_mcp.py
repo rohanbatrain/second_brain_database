@@ -12,10 +12,10 @@ This script tests the modernized FastMCP 2.x implementation including:
 
 import asyncio
 import json
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 import websockets
@@ -91,17 +91,14 @@ class MCPTestSuite:
                 "server_name": mcp.name,
                 "server_version": mcp.version,
                 "auth_configured": auth_actual,
-                "auth_expected": auth_expected
+                "auth_expected": auth_expected,
             }
 
             print(f"   ✅ Server: {mcp.name} v{mcp.version}")
             print(f"   ✅ Auth: {'Enabled' if auth_actual else 'Disabled'}")
 
         except Exception as e:
-            self.test_results["server_initialization"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["server_initialization"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Server initialization failed: {e}")
 
     async def test_http_health_check(self):
@@ -119,7 +116,7 @@ class MCPTestSuite:
                         "status": "✅ PASS",
                         "response_code": response.status_code,
                         "server_status": health_data.get("status"),
-                        "components": list(health_data.get("components", {}).keys())
+                        "components": list(health_data.get("components", {}).keys()),
                     }
 
                     print(f"   ✅ Health Status: {health_data.get('status')}")
@@ -129,15 +126,12 @@ class MCPTestSuite:
                     self.test_results["health_check"] = {
                         "status": "❌ FAIL",
                         "response_code": response.status_code,
-                        "error": "Unexpected status code"
+                        "error": "Unexpected status code",
                     }
                     print(f"   ❌ Health check failed: HTTP {response.status_code}")
 
         except Exception as e:
-            self.test_results["health_check"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["health_check"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Health check error: {e}")
 
     async def test_http_status_endpoint(self):
@@ -156,7 +150,7 @@ class MCPTestSuite:
                         "server_name": status_data.get("name"),
                         "version": status_data.get("version"),
                         "protocol": status_data.get("protocol"),
-                        "endpoints": list(status_data.get("endpoints", {}).keys())
+                        "endpoints": list(status_data.get("endpoints", {}).keys()),
                     }
 
                     print(f"   ✅ Server: {status_data.get('name')}")
@@ -164,17 +158,11 @@ class MCPTestSuite:
                     print(f"   ✅ Endpoints: {', '.join(status_data.get('endpoints', {}).keys())}")
 
                 else:
-                    self.test_results["status_endpoint"] = {
-                        "status": "❌ FAIL",
-                        "response_code": response.status_code
-                    }
+                    self.test_results["status_endpoint"] = {"status": "❌ FAIL", "response_code": response.status_code}
                     print(f"   ❌ Status endpoint failed: HTTP {response.status_code}")
 
         except Exception as e:
-            self.test_results["status_endpoint"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["status_endpoint"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Status endpoint error: {e}")
 
     async def test_http_metrics_endpoint(self):
@@ -191,24 +179,18 @@ class MCPTestSuite:
                     self.test_results["metrics_endpoint"] = {
                         "status": "✅ PASS",
                         "content_type": response.headers.get("content-type"),
-                        "has_metrics": len(metrics_data) > 0
+                        "has_metrics": len(metrics_data) > 0,
                     }
 
                     print(f"   ✅ Metrics available: {len(metrics_data)} bytes")
                     print(f"   ✅ Content-Type: {response.headers.get('content-type')}")
 
                 else:
-                    self.test_results["metrics_endpoint"] = {
-                        "status": "❌ FAIL",
-                        "response_code": response.status_code
-                    }
+                    self.test_results["metrics_endpoint"] = {"status": "❌ FAIL", "response_code": response.status_code}
                     print(f"   ❌ Metrics endpoint failed: HTTP {response.status_code}")
 
         except Exception as e:
-            self.test_results["metrics_endpoint"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["metrics_endpoint"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Metrics endpoint error: {e}")
 
     async def test_mcp_http_protocol(self):
@@ -219,9 +201,9 @@ class MCPTestSuite:
             headers = {"Content-Type": "application/json"}
 
             # Add authentication if enabled
-            if settings.MCP_SECURITY_ENABLED and hasattr(settings, 'MCP_AUTH_TOKEN'):
+            if settings.MCP_SECURITY_ENABLED and hasattr(settings, "MCP_AUTH_TOKEN"):
                 token = settings.MCP_AUTH_TOKEN
-                if hasattr(token, 'get_secret_value'):
+                if hasattr(token, "get_secret_value"):
                     token = token.get_secret_value()
                 headers["Authorization"] = f"Bearer {token}"
 
@@ -233,49 +215,27 @@ class MCPTestSuite:
                     "params": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
-                        "clientInfo": {
-                            "name": "Test Client",
-                            "version": "1.0.0"
-                        }
+                        "clientInfo": {"name": "Test Client", "version": "1.0.0"},
                     },
-                    "id": 1
+                    "id": 1,
                 }
 
-                init_response = await client.post(
-                    f"{self.base_url}/mcp",
-                    json=init_request,
-                    headers=headers
-                )
+                init_response = await client.post(f"{self.base_url}/mcp", json=init_request, headers=headers)
 
                 # Test tools/list
-                tools_request = {
-                    "jsonrpc": "2.0",
-                    "method": "tools/list",
-                    "id": 2
-                }
+                tools_request = {"jsonrpc": "2.0", "method": "tools/list", "id": 2}
 
-                tools_response = await client.post(
-                    f"{self.base_url}/mcp",
-                    json=tools_request,
-                    headers=headers
-                )
+                tools_response = await client.post(f"{self.base_url}/mcp", json=tools_request, headers=headers)
 
                 # Test a specific tool call
                 tool_call_request = {
                     "jsonrpc": "2.0",
                     "method": "tools/call",
-                    "params": {
-                        "name": "get_server_info",
-                        "arguments": {}
-                    },
-                    "id": 3
+                    "params": {"name": "get_server_info", "arguments": {}},
+                    "id": 3,
                 }
 
-                tool_call_response = await client.post(
-                    f"{self.base_url}/mcp",
-                    json=tool_call_request,
-                    headers=headers
-                )
+                tool_call_response = await client.post(f"{self.base_url}/mcp", json=tool_call_request, headers=headers)
 
                 # Evaluate results
                 init_success = init_response.status_code == 200 and "result" in init_response.json()
@@ -291,7 +251,7 @@ class MCPTestSuite:
                         "tools_list": "success" if tools_success else "failed",
                         "tool_call": "success" if tool_call_success else "failed",
                         "jsonrpc_version": tools_data.get("jsonrpc"),
-                        "tools_count": len(tools_data.get("result", {}).get("tools", []))
+                        "tools_count": len(tools_data.get("result", {}).get("tools", [])),
                     }
 
                     print(f"   ✅ MCP Initialize: {'Success' if init_success else 'Failed'}")
@@ -304,15 +264,14 @@ class MCPTestSuite:
                         "status": "❌ FAIL",
                         "initialize": init_response.status_code,
                         "tools_list": tools_response.status_code,
-                        "tool_call": tool_call_response.status_code
+                        "tool_call": tool_call_response.status_code,
                     }
-                    print(f"   ❌ MCP Protocol failed - Init: {init_response.status_code}, Tools: {tools_response.status_code}")
+                    print(
+                        f"   ❌ MCP Protocol failed - Init: {init_response.status_code}, Tools: {tools_response.status_code}"
+                    )
 
         except Exception as e:
-            self.test_results["mcp_http_protocol"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["mcp_http_protocol"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ MCP HTTP protocol error: {e}")
 
     async def test_websocket_connection(self):
@@ -325,11 +284,7 @@ class MCPTestSuite:
 
             async with websockets.connect(uri) as websocket:
                 # Send a ping to test connection
-                await websocket.send(json.dumps({
-                    "jsonrpc": "2.0",
-                    "method": "ping",
-                    "id": 1
-                }))
+                await websocket.send(json.dumps({"jsonrpc": "2.0", "method": "ping", "id": 1}))
 
                 # Wait for response (with timeout)
                 try:
@@ -340,7 +295,7 @@ class MCPTestSuite:
                         "status": "✅ PASS",
                         "connection": "successful",
                         "response_received": True,
-                        "jsonrpc_version": response_data.get("jsonrpc")
+                        "jsonrpc_version": response_data.get("jsonrpc"),
                     }
 
                     print("   ✅ WebSocket connection established")
@@ -351,16 +306,13 @@ class MCPTestSuite:
                         "status": "⚠️  PARTIAL",
                         "connection": "successful",
                         "response_received": False,
-                        "note": "Connection works but no response to ping"
+                        "note": "Connection works but no response to ping",
                     }
                     print("   ✅ WebSocket connection established")
                     print("   ⚠️  No response to ping (may be expected)")
 
         except Exception as e:
-            self.test_results["websocket_connection"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["websocket_connection"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ WebSocket connection error: {e}")
 
     async def test_mcp_websocket_protocol(self):
@@ -378,12 +330,9 @@ class MCPTestSuite:
                     "params": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
-                        "clientInfo": {
-                            "name": "MCP Test Client",
-                            "version": "1.0.0"
-                        }
+                        "clientInfo": {"name": "MCP Test Client", "version": "1.0.0"},
                     },
-                    "id": 1
+                    "id": 1,
                 }
 
                 await websocket.send(json.dumps(init_request))
@@ -397,7 +346,7 @@ class MCPTestSuite:
                             "status": "✅ PASS",
                             "initialize": "success",
                             "protocol_version": response_data["result"].get("protocolVersion"),
-                            "server_info": response_data["result"].get("serverInfo")
+                            "server_info": response_data["result"].get("serverInfo"),
                         }
 
                         print("   ✅ MCP Initialize successful")
@@ -410,7 +359,7 @@ class MCPTestSuite:
                         self.test_results["mcp_websocket_protocol"] = {
                             "status": "❌ FAIL",
                             "initialize": "failed",
-                            "error": response_data.get("error")
+                            "error": response_data.get("error"),
                         }
                         print(f"   ❌ MCP Initialize failed: {response_data.get('error')}")
 
@@ -418,15 +367,12 @@ class MCPTestSuite:
                     self.test_results["mcp_websocket_protocol"] = {
                         "status": "❌ FAIL",
                         "initialize": "timeout",
-                        "error": "No response to initialize request"
+                        "error": "No response to initialize request",
                     }
                     print("   ❌ MCP Initialize timeout")
 
         except Exception as e:
-            self.test_results["mcp_websocket_protocol"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["mcp_websocket_protocol"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ MCP WebSocket protocol error: {e}")
 
     async def test_authentication(self):
@@ -437,23 +383,22 @@ class MCPTestSuite:
             # Test without authentication (should fail)
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.base_url}/mcp",
-                    json={"jsonrpc": "2.0", "method": "tools/list", "id": 1}
+                    f"{self.base_url}/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1}
                 )
 
                 auth_required = response.status_code == 401
 
                 # Test with authentication
-                if hasattr(settings, 'MCP_AUTH_TOKEN'):
+                if hasattr(settings, "MCP_AUTH_TOKEN"):
                     token = settings.MCP_AUTH_TOKEN
-                    if hasattr(token, 'get_secret_value'):
+                    if hasattr(token, "get_secret_value"):
                         token = token.get_secret_value()
 
                     headers = {"Authorization": f"Bearer {token}"}
                     auth_response = await client.post(
                         f"{self.base_url}/mcp",
                         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
-                        headers=headers
+                        headers=headers,
                     )
 
                     auth_success = auth_response.status_code == 200
@@ -462,7 +407,7 @@ class MCPTestSuite:
                         "status": "✅ PASS" if auth_required and auth_success else "❌ FAIL",
                         "auth_required": auth_required,
                         "auth_success": auth_success,
-                        "token_configured": True
+                        "token_configured": True,
                     }
 
                     print(f"   ✅ Auth Required: {auth_required}")
@@ -473,15 +418,12 @@ class MCPTestSuite:
                         "status": "⚠️  PARTIAL",
                         "auth_required": auth_required,
                         "token_configured": False,
-                        "note": "No auth token configured"
+                        "note": "No auth token configured",
                     }
                     print("   ⚠️  No auth token configured")
 
         except Exception as e:
-            self.test_results["authentication"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["authentication"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Authentication test error: {e}")
 
     async def test_production_features(self):
@@ -500,41 +442,35 @@ class MCPTestSuite:
                     "X-Content-Type-Options": headers.get("x-content-type-options"),
                     "X-Frame-Options": headers.get("x-frame-options"),
                     "X-XSS-Protection": headers.get("x-xss-protection"),
-                    "Referrer-Policy": headers.get("referrer-policy")
+                    "Referrer-Policy": headers.get("referrer-policy"),
                 }
 
                 features["security_headers"] = {
                     "present": sum(1 for v in security_headers.values() if v) > 0,
-                    "headers": security_headers
+                    "headers": security_headers,
                 }
 
                 # Test CORS configuration
                 cors_response = await client.options(f"{self.base_url}/health")
                 features["cors"] = {
                     "configured": "access-control-allow-origin" in cors_response.headers,
-                    "enabled": settings.MCP_HTTP_CORS_ENABLED
+                    "enabled": settings.MCP_HTTP_CORS_ENABLED,
                 }
 
                 # Test monitoring endpoints
                 features["monitoring"] = {
                     "health_check": response.status_code == 200,
-                    "metrics_available": True  # We tested this earlier
+                    "metrics_available": True,  # We tested this earlier
                 }
 
-                self.test_results["production_features"] = {
-                    "status": "✅ PASS",
-                    "features": features
-                }
+                self.test_results["production_features"] = {"status": "✅ PASS", "features": features}
 
                 print(f"   ✅ Security Headers: {features['security_headers']['present']}")
                 print(f"   ✅ CORS: {'Enabled' if features['cors']['enabled'] else 'Disabled'}")
                 print(f"   ✅ Monitoring: Available")
 
         except Exception as e:
-            self.test_results["production_features"] = {
-                "status": "❌ FAIL",
-                "error": str(e)
-            }
+            self.test_results["production_features"] = {"status": "❌ FAIL", "error": str(e)}
             print(f"   ❌ Production features test error: {e}")
 
     def print_test_results(self):

@@ -13,28 +13,29 @@ Requirements tested:
 """
 
 import asyncio
-import pytest
-import time
-import sys
+from datetime import datetime, timedelta, timezone
 import os
-from datetime import datetime, timezone, timedelta
+import sys
+import time
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+
+import pytest
 
 # Mock Redis and database connections before importing
-with patch('src.second_brain_database.managers.redis_manager.redis_manager'):
-    with patch('src.second_brain_database.database.db_manager'):
+with patch("src.second_brain_database.managers.redis_manager.redis_manager"):
+    with patch("src.second_brain_database.database.db_manager"):
         from src.second_brain_database.managers.family_monitoring import (
-            FamilyMonitor,
-            FamilyOperationType,
-            FamilyOperationContext,
+            CRITICAL_ERROR_RATE_THRESHOLD,
+            HIGH_ERROR_RATE_THRESHOLD,
+            SLOW_OPERATION_THRESHOLD,
+            VERY_SLOW_OPERATION_THRESHOLD,
             AlertSeverity,
             FamilyHealthStatus,
             FamilyMetrics,
-            SLOW_OPERATION_THRESHOLD,
-            VERY_SLOW_OPERATION_THRESHOLD,
-            HIGH_ERROR_RATE_THRESHOLD,
-            CRITICAL_ERROR_RATE_THRESHOLD
+            FamilyMonitor,
+            FamilyOperationContext,
+            FamilyOperationType,
         )
 
 
@@ -55,7 +56,7 @@ class TestFamilyPerformanceMonitoring:
             user_id="user_test456",
             duration=1.5,
             success=True,
-            metadata={"test": "data"}
+            metadata={"test": "data"},
         )
 
     @pytest.mark.asyncio
@@ -63,26 +64,17 @@ class TestFamilyPerformanceMonitoring:
         """Test that operation performance is tracked correctly."""
         # Test normal operation
         await family_monitor.log_family_performance(
-            FamilyOperationType.FAMILY_CREATE,
-            duration=1.0,
-            success=True,
-            metadata={"test": "normal_operation"}
+            FamilyOperationType.FAMILY_CREATE, duration=1.0, success=True, metadata={"test": "normal_operation"}
         )
 
         # Test slow operation
         await family_monitor.log_family_performance(
-            FamilyOperationType.MEMBER_INVITE,
-            duration=3.0,
-            success=True,
-            metadata={"test": "slow_operation"}
+            FamilyOperationType.MEMBER_INVITE, duration=3.0, success=True, metadata={"test": "slow_operation"}
         )
 
         # Test very slow operation
         await family_monitor.log_family_performance(
-            FamilyOperationType.SBD_SPEND,
-            duration=6.0,
-            success=False,
-            metadata={"test": "very_slow_operation"}
+            FamilyOperationType.SBD_SPEND, duration=6.0, success=False, metadata={"test": "very_slow_operation"}
         )
 
         # Verify performance data is stored
@@ -113,9 +105,7 @@ class TestFamilyPerformanceMonitoring:
 
         # Test operation within normal threshold
         context_normal = FamilyOperationContext(
-            operation_type=FamilyOperationType.FAMILY_CREATE,
-            duration=1.0,
-            success=True
+            operation_type=FamilyOperationType.FAMILY_CREATE, duration=1.0, success=True
         )
         await family_monitor.log_family_operation(context_normal)
 
@@ -124,9 +114,7 @@ class TestFamilyPerformanceMonitoring:
 
         # Test slow operation (above SLOW_OPERATION_THRESHOLD)
         context_slow = FamilyOperationContext(
-            operation_type=FamilyOperationType.MEMBER_INVITE,
-            duration=SLOW_OPERATION_THRESHOLD + 0.5,
-            success=True
+            operation_type=FamilyOperationType.MEMBER_INVITE, duration=SLOW_OPERATION_THRESHOLD + 0.5, success=True
         )
         await family_monitor.log_family_operation(context_slow)
 
@@ -141,9 +129,7 @@ class TestFamilyPerformanceMonitoring:
 
         # Test very slow operation (above VERY_SLOW_OPERATION_THRESHOLD)
         context_very_slow = FamilyOperationContext(
-            operation_type=FamilyOperationType.SBD_SPEND,
-            duration=VERY_SLOW_OPERATION_THRESHOLD + 1.0,
-            success=True
+            operation_type=FamilyOperationType.SBD_SPEND, duration=VERY_SLOW_OPERATION_THRESHOLD + 1.0, success=True
         )
         await family_monitor.log_family_operation(context_very_slow)
 
@@ -164,21 +150,14 @@ class TestFamilyPerformanceMonitoring:
 
         # Generate successful operations
         for i in range(10):
-            context = FamilyOperationContext(
-                operation_type=operation_type,
-                duration=1.0,
-                success=True
-            )
+            context = FamilyOperationContext(operation_type=operation_type, duration=1.0, success=True)
             await family_monitor.log_family_operation(context)
 
         # Generate failed operations to reach high error rate threshold
         error_count = int(10 * HIGH_ERROR_RATE_THRESHOLD) + 2  # Exceed threshold
         for i in range(error_count):
             context = FamilyOperationContext(
-                operation_type=operation_type,
-                duration=1.0,
-                success=False,
-                error_message="Test error"
+                operation_type=operation_type, duration=1.0, success=False, error_message="Test error"
             )
             await family_monitor.log_family_operation(context)
 
@@ -187,7 +166,8 @@ class TestFamilyPerformanceMonitoring:
 
         # Check if warning alert was generated
         warning_calls = [
-            call for call in family_monitor.send_alert.call_args_list
+            call
+            for call in family_monitor.send_alert.call_args_list
             if call[0][0] == AlertSeverity.WARNING and "High Error Rate" in call[0][1]
         ]
         assert len(warning_calls) > 0
@@ -199,16 +179,14 @@ class TestFamilyPerformanceMonitoring:
         critical_error_count = int(20 * CRITICAL_ERROR_RATE_THRESHOLD) + 5
         for i in range(critical_error_count):
             context = FamilyOperationContext(
-                operation_type=operation_type,
-                duration=1.0,
-                success=False,
-                error_message="Critical test error"
+                operation_type=operation_type, duration=1.0, success=False, error_message="Critical test error"
             )
             await family_monitor.log_family_operation(context)
 
         # Should generate critical error rate alert
         critical_calls = [
-            call for call in family_monitor.send_alert.call_args_list
+            call
+            for call in family_monitor.send_alert.call_args_list
             if call[0][0] == AlertSeverity.CRITICAL and "Critical Error Rate" in call[0][1]
         ]
         assert len(critical_calls) > 0
@@ -217,7 +195,7 @@ class TestFamilyPerformanceMonitoring:
     async def test_metrics_collection_accuracy(self, family_monitor):
         """Test that metrics are collected accurately."""
         # Mock database collections
-        with patch('src.second_brain_database.database.db_manager') as mock_db:
+        with patch("src.second_brain_database.database.db_manager") as mock_db:
             # Setup mock collections
             mock_families = AsyncMock()
             mock_relationships = AsyncMock()
@@ -228,7 +206,7 @@ class TestFamilyPerformanceMonitoring:
                 "families": mock_families,
                 "family_relationships": mock_relationships,
                 "family_invitations": mock_invitations,
-                "family_token_requests": mock_token_requests
+                "family_token_requests": mock_token_requests,
             }[name]
 
             # Setup mock data
@@ -241,21 +219,17 @@ class TestFamilyPerformanceMonitoring:
             mock_families.aggregate.return_value.to_list.return_value = [{"avg_size": 3.2}]
 
             # Mock SBD metrics
-            family_monitor._collect_sbd_metrics = AsyncMock(return_value={
-                "total_virtual_accounts": 85,
-                "total_balance": 50000,
-                "frozen_accounts": 2
-            })
+            family_monitor._collect_sbd_metrics = AsyncMock(
+                return_value={"total_virtual_accounts": 85, "total_balance": 50000, "frozen_accounts": 2}
+            )
 
             # Add some performance data
             family_monitor._performance_data = {
                 "family_create": [
                     {"duration": 1.0, "success": True, "timestamp": time.time()},
-                    {"duration": 2.5, "success": True, "timestamp": time.time()}
+                    {"duration": 2.5, "success": True, "timestamp": time.time()},
                 ],
-                "member_invite": [
-                    {"duration": 1.5, "success": False, "timestamp": time.time()}
-                ]
+                "member_invite": [{"duration": 1.5, "success": False, "timestamp": time.time()}],
             }
 
             # Collect metrics
@@ -283,51 +257,48 @@ class TestFamilyPerformanceMonitoring:
     async def test_health_check_component_validation(self, family_monitor):
         """Test health check accuracy for all components."""
         # Mock all health check methods
-        family_monitor._check_database_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="database",
-            healthy=True,
-            response_time=0.1
-        ))
+        family_monitor._check_database_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="database", healthy=True, response_time=0.1)
+        )
 
-        family_monitor._check_redis_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="redis",
-            healthy=True,
-            response_time=0.05
-        ))
+        family_monitor._check_redis_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="redis", healthy=True, response_time=0.05)
+        )
 
-        family_monitor._check_family_collections_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="family_collections",
-            healthy=True,
-            response_time=0.2,
-            metadata={"collection_counts": {"families": 100, "family_relationships": 250}}
-        ))
+        family_monitor._check_family_collections_health = AsyncMock(
+            return_value=FamilyHealthStatus(
+                component="family_collections",
+                healthy=True,
+                response_time=0.2,
+                metadata={"collection_counts": {"families": 100, "family_relationships": 250}},
+            )
+        )
 
-        family_monitor._check_sbd_integration_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="sbd_integration",
-            healthy=True,
-            response_time=0.15,
-            metadata={"virtual_accounts_count": 85}
-        ))
+        family_monitor._check_sbd_integration_health = AsyncMock(
+            return_value=FamilyHealthStatus(
+                component="sbd_integration", healthy=True, response_time=0.15, metadata={"virtual_accounts_count": 85}
+            )
+        )
 
-        family_monitor._check_email_system_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="email_system",
-            healthy=True,
-            response_time=0.3
-        ))
+        family_monitor._check_email_system_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="email_system", healthy=True, response_time=0.3)
+        )
 
-        family_monitor._check_notification_system_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="notification_system",
-            healthy=True,
-            response_time=0.1
-        ))
+        family_monitor._check_notification_system_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="notification_system", healthy=True, response_time=0.1)
+        )
 
         # Perform health check
         health_results = await family_monitor.check_family_system_health()
 
         # Verify all components are checked
         expected_components = [
-            "database", "redis", "family_collections",
-            "sbd_integration", "email_system", "notification_system"
+            "database",
+            "redis",
+            "family_collections",
+            "sbd_integration",
+            "email_system",
+            "notification_system",
         ]
 
         for component in expected_components:
@@ -351,43 +322,33 @@ class TestFamilyPerformanceMonitoring:
         family_monitor.send_alert = AsyncMock()
 
         # Mock health checks with failures
-        family_monitor._check_database_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="database",
-            healthy=False,
-            response_time=5.0,
-            error_message="Connection timeout"
-        ))
+        family_monitor._check_database_health = AsyncMock(
+            return_value=FamilyHealthStatus(
+                component="database", healthy=False, response_time=5.0, error_message="Connection timeout"
+            )
+        )
 
-        family_monitor._check_redis_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="redis",
-            healthy=True,
-            response_time=0.05
-        ))
+        family_monitor._check_redis_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="redis", healthy=True, response_time=0.05)
+        )
 
-        family_monitor._check_family_collections_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="family_collections",
-            healthy=False,
-            response_time=None,
-            error_message="Collection not found"
-        ))
+        family_monitor._check_family_collections_health = AsyncMock(
+            return_value=FamilyHealthStatus(
+                component="family_collections", healthy=False, response_time=None, error_message="Collection not found"
+            )
+        )
 
-        family_monitor._check_sbd_integration_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="sbd_integration",
-            healthy=True,
-            response_time=0.15
-        ))
+        family_monitor._check_sbd_integration_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="sbd_integration", healthy=True, response_time=0.15)
+        )
 
-        family_monitor._check_email_system_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="email_system",
-            healthy=True,
-            response_time=0.3
-        ))
+        family_monitor._check_email_system_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="email_system", healthy=True, response_time=0.3)
+        )
 
-        family_monitor._check_notification_system_health = AsyncMock(return_value=FamilyHealthStatus(
-            component="notification_system",
-            healthy=True,
-            response_time=0.1
-        ))
+        family_monitor._check_notification_system_health = AsyncMock(
+            return_value=FamilyHealthStatus(component="notification_system", healthy=True, response_time=0.1)
+        )
 
         # Mock _send_health_alert method
         family_monitor._send_health_alert = AsyncMock()
@@ -413,12 +374,12 @@ class TestFamilyPerformanceMonitoring:
             "family_create": [
                 {"duration": 1.0, "success": True, "timestamp": current_time},
                 {"duration": 2.5, "success": True, "timestamp": current_time},
-                {"duration": 6.0, "success": False, "timestamp": current_time}  # Very slow
+                {"duration": 6.0, "success": False, "timestamp": current_time},  # Very slow
             ],
             "member_invite": [
                 {"duration": 1.5, "success": True, "timestamp": current_time},
-                {"duration": 3.0, "success": True, "timestamp": current_time}  # Slow
-            ]
+                {"duration": 3.0, "success": True, "timestamp": current_time},  # Slow
+            ],
         }
 
         # Generate performance summary
@@ -438,7 +399,7 @@ class TestFamilyPerformanceMonitoring:
         assert family_create_stats["avg_duration"] == (1.0 + 2.5 + 6.0) / 3
         assert family_create_stats["min_duration"] == 1.0
         assert family_create_stats["max_duration"] == 6.0
-        assert family_create_stats["success_rate"] == 2/3
+        assert family_create_stats["success_rate"] == 2 / 3
         assert family_create_stats["slow_operations"] == 2  # 2.5s and 6.0s
         assert family_create_stats["very_slow_operations"] == 1  # 6.0s
 
@@ -452,7 +413,7 @@ class TestFamilyPerformanceMonitoring:
         overall = summary["overall_stats"]
         assert overall["total_operations"] == 5
         assert overall["avg_duration"] == (1.0 + 2.5 + 6.0 + 1.5 + 3.0) / 5
-        assert overall["success_rate"] == 4/5
+        assert overall["success_rate"] == 4 / 5
         assert overall["slow_operations"] == 3
         assert overall["very_slow_operations"] == 1
 
@@ -460,37 +421,25 @@ class TestFamilyPerformanceMonitoring:
     async def test_alert_cooldown_mechanism(self, family_monitor):
         """Test alert cooldown to prevent spam."""
         # Mock time to control cooldown
-        with patch('time.time') as mock_time:
+        with patch("time.time") as mock_time:
             mock_time.return_value = 1000.0
 
             # Send first alert
-            await family_monitor.send_alert(
-                AlertSeverity.WARNING,
-                "Test Alert",
-                "Test message"
-            )
+            await family_monitor.send_alert(AlertSeverity.WARNING, "Test Alert", "Test message")
 
             # Verify alert was logged
             assert len(family_monitor._last_alert_times) == 1
 
             # Try to send same alert immediately (should be blocked by cooldown)
             mock_time.return_value = 1001.0  # 1 second later
-            await family_monitor.send_alert(
-                AlertSeverity.WARNING,
-                "Test Alert",
-                "Test message"
-            )
+            await family_monitor.send_alert(AlertSeverity.WARNING, "Test Alert", "Test message")
 
             # Should still be only one alert time recorded (cooldown active)
             assert len(family_monitor._last_alert_times) == 1
 
             # Send alert after cooldown period
             mock_time.return_value = 1000.0 + 1801.0  # After 30 minute cooldown
-            await family_monitor.send_alert(
-                AlertSeverity.WARNING,
-                "Test Alert",
-                "Test message after cooldown"
-            )
+            await family_monitor.send_alert(AlertSeverity.WARNING, "Test Alert", "Test message after cooldown")
 
             # Should update the alert time
             alert_key = "warning_Test Alert"
@@ -500,16 +449,14 @@ class TestFamilyPerformanceMonitoring:
     async def test_operation_metrics_cleanup(self, family_monitor):
         """Test that old operation metrics are cleaned up."""
         # Mock time to simulate passage of time
-        with patch('time.time') as mock_time:
+        with patch("time.time") as mock_time:
             # Start at time 1000
             mock_time.return_value = 1000.0
             current_minute = int(1000.0 // 60)
 
             # Add operation data
             context = FamilyOperationContext(
-                operation_type=FamilyOperationType.FAMILY_CREATE,
-                duration=1.0,
-                success=True
+                operation_type=FamilyOperationType.FAMILY_CREATE, duration=1.0, success=True
             )
             await family_monitor.log_family_operation(context)
 
@@ -523,9 +470,7 @@ class TestFamilyPerformanceMonitoring:
 
             # Add new operation (this should trigger cleanup)
             context_new = FamilyOperationContext(
-                operation_type=FamilyOperationType.FAMILY_CREATE,
-                duration=1.0,
-                success=True
+                operation_type=FamilyOperationType.FAMILY_CREATE, duration=1.0, success=True
             )
             await family_monitor.log_family_operation(context_new)
 
@@ -537,7 +482,7 @@ class TestFamilyPerformanceMonitoring:
     async def test_structured_logging_format(self, family_monitor):
         """Test that structured logging includes all required fields."""
         # Mock the logger to capture log entries
-        with patch.object(family_monitor.logger, 'info') as mock_info:
+        with patch.object(family_monitor.logger, "info") as mock_info:
             context = FamilyOperationContext(
                 operation_type=FamilyOperationType.FAMILY_CREATE,
                 family_id="fam_test123",
@@ -546,7 +491,7 @@ class TestFamilyPerformanceMonitoring:
                 success=True,
                 metadata={"test": "data"},
                 request_id="req_123",
-                ip_address="192.168.1.1"
+                ip_address="192.168.1.1",
             )
 
             await family_monitor.log_family_operation(context)
@@ -557,9 +502,20 @@ class TestFamilyPerformanceMonitoring:
 
             # Verify required fields are present
             required_fields = [
-                "event", "operation_type", "timestamp", "family_id", "user_id",
-                "duration", "success", "request_id", "ip_address", "metadata",
-                "process", "host", "app", "env"
+                "event",
+                "operation_type",
+                "timestamp",
+                "family_id",
+                "user_id",
+                "duration",
+                "success",
+                "request_id",
+                "ip_address",
+                "metadata",
+                "process",
+                "host",
+                "app",
+                "env",
             ]
 
             for field in required_fields:

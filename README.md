@@ -1,6 +1,6 @@
 # 🧠 Second Brain Database
 
-> **A production-ready FastAPI application with AI agents, real-time voice processing, document intelligence, and comprehensive family/workspace management.**
+> **A production-ready FastAPI application with document intelligence, comprehensive family/workspace management, and MCP server integration.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
@@ -10,16 +10,11 @@
 
 ## ✨ Features
 
-### 🤖 **AI-Powered Intelligence**
-- **6 Specialized AI Agents**: Personal, Family, Workspace, Commerce, Security, Voice
-- **Local LLM Support**: Ollama (Gemma3, DeepSeek-R1)
-- **Conversation Memory**: Redis-backed chat history
-- **Streaming Responses**: Real-time token-level streaming
-
-### 🎙️ **Voice & Real-Time Communication**
-- **Deepgram STT/TTS**: Production-grade speech processing
-- **Voice Agents**: Natural language voice commands
-- **Real-time Transcription**: Async voice processing
+### 📄 **Document Intelligence**
+- **Advanced Processing**: PDF, DOCX, PPTX document conversion with OCR
+- **Smart Chunking**: RAG-optimized text chunking for vector search
+- **Table Extraction**: Structured data extraction from documents
+- **Metadata Enrichment**: Automatic content analysis and tagging
 
 ### 📄 **Document Processing**
 - **Docling Integration**: PDF, DOCX, PPTX processing
@@ -66,7 +61,7 @@
 - **Performance Monitoring**: Metrics and alerting
 
 ### ⚡ **Async & Background Processing**
-- **Celery Workers**: 4 specialized queues (default, ai, voice, workflows)
+- **Celery Workers**: Background task processing with Redis queues
 - **Celery Beat**: Scheduled task execution
 - **Flower Monitoring**: Real-time task dashboard
 - **Redis Broker**: High-performance message queue
@@ -85,7 +80,6 @@
 - **Python 3.11+**
 - **MongoDB 6.0+** (via Docker recommended)
 - **Redis 7.0+**
-- **Ollama** (for AI features)
 - **uv** (package manager) - `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ### Installation
@@ -130,7 +124,6 @@ The `./start.sh` script automatically handles all services with production-ready
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # [SUCCESS] MongoDB available on port 27017 (Docker)
 # [SUCCESS] Redis started
-# [SUCCESS] Ollama started
 # 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Phase 2: Application Services
@@ -205,9 +198,6 @@ docker start mongodb
 
 # Redis
 redis-server --daemonize yes --logfile logs/redis.log
-
-# Ollama (optional - for AI features)
-ollama serve > logs/ollama.log 2>&1 &
 ```
 
 ### 2. Start Application Services
@@ -234,16 +224,12 @@ pkill -f "start_fastapi_server"
 pkill -f "start_celery_worker"
 pkill -f "start_celery_beat"
 pkill -f "start_flower"
-pkill -f "start_voice_worker"
 
 # Stop Redis
 redis-cli shutdown
 
 # Stop MongoDB (Docker)
 docker stop mongodb
-
-# Stop Ollama
-pkill ollama
 ```
 
 ---
@@ -471,28 +457,18 @@ This prevents partial deployments where some services run while others fail.
 │                   Second Brain Database                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
-│  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐    │
-│  │   FastAPI     │  │    Celery     │  │    Voice     │    │
-│  │   Server      │  │   Workers     │  │   Worker     │    │
-│  │  (REST/WS)    │  │  (4 Queues)   │  │              │    │
-│  └───────┬───────┘  └───────┬───────┘  └──────┬───────┘    │
-│          │                  │                  │             │
-│  ┌───────▼──────────────────▼──────────────────▼───────┐   │
+│  ┌───────────────┐  ┌───────────────┐                       │
+│  │   FastAPI     │  │    Celery     │                       │
+│  │   Server      │  │   Workers     │                       │
+│  │  (REST/WS)    │  │               │                       │
+│  └───────┬───────┘  └───────┬───────┘                       │
+│          │                  │                                  │
+│  ┌───────▼──────────────────▼────────────────────────────┐   │
 │  │          Redis (Cache, Queue, Sessions)             │   │
-│  └────────────────────────┬────────────────────────────┘   │
+│  └────────────────────────┬─────────────────────────────┘   │
 │                           │                                  │
-│  ┌────────────────────────▼────────────────────────────┐   │
+│  ┌────────────────────────▼─────────────────────────────┐   │
 │  │          MongoDB (Primary Database)                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │   Ollama (Local LLM: Gemma3, DeepSeek-R1)          │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │   AI Agents                                         │   │
-│  │   • Personal  • Family  • Workspace                 │   │
-│  │   • Commerce  • Security  • Voice                   │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -503,8 +479,6 @@ This prevents partial deployments where some services run while others fail.
 |----------|-------------|
 | **Backend** | FastAPI, Python 3.11, Pydantic |
 | **Database** | MongoDB, Redis |
-| **AI/ML** | Ollama |
-| **Voice** | Deepgram (STT/TTS) |
 | **Documents** | Docling, PyPDF, OCR |
 | **Tasks** | Celery, Celery Beat, Flower |
 | **Protocol** | FastMCP 2.x, WebSocket, REST |
@@ -524,14 +498,6 @@ POST /api/v1/auth/logout        # Logout
 GET  /api/v1/auth/me            # Get current user
 ```
 
-### AI Agents
-```bash
-POST /api/v1/ai/sessions        # Create AI session
-POST /api/v1/ai/chat            # Chat with agent
-GET  /api/v1/ai/sessions/{id}   # Get session info
-WS   /api/v1/ai/ws/{session}    # WebSocket streaming
-```
-
 ### Family Management
 ```bash
 POST /api/v1/families           # Create family
@@ -545,13 +511,6 @@ GET  /api/v1/families/{id}/wallet   # Get wallet
 POST /api/v1/documents/upload   # Upload document
 GET  /api/v1/documents/{id}     # Get document
 POST /api/v1/documents/{id}/chunk  # Chunk for RAG
-```
-
-### Voice Processing
-```bash
-POST /api/v1/voice/transcribe   # Speech-to-text
-POST /api/v1/voice/synthesize   # Text-to-speech
-WS   /api/v1/voice/stream        # Real-time voice
 ```
 
 ### MCP Server
@@ -649,9 +608,6 @@ tail -f logs/*.log
 # System health
 curl http://localhost:8000/health
 
-# AI metrics
-curl http://localhost:8000/api/v1/ai/health
-
 # Celery status
 celery -A src.second_brain_database.tasks.celery_app inspect active
 ```
@@ -725,8 +681,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - **[FastAPI](https://fastapi.tiangolo.com)** - Modern web framework
-- **[Ollama](https://ollama.ai)** - Local LLM runtime
-- **[Deepgram](https://deepgram.com)** - Speech processing
 - **[FastMCP](https://github.com/jlowin/fastmcp)** - MCP implementation
 
 ---
@@ -742,14 +696,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🗺️ Roadmap
 
 ### v1.1 (Q1 2025)
-- [ ] Multi-modal AI agents (text + image + voice)
 - [ ] Advanced RAG with vector database
 - [ ] Real-time collaboration features
 - [ ] Mobile app support
 
 ### v1.2 (Q2 2025)
 - [ ] Multi-language support
-- [ ] Custom agent training
 - [ ] Blockchain integration for SBD tokens
 - [ ] Advanced analytics dashboard
 
@@ -781,3 +733,6 @@ All project documentation is organized in the `docs/` directory:
 - **[Operations](docs/operations/)** - Monitoring and operational guides
 
 For quick start instructions, see [QUICKSTART.md](QUICKSTART.md).
+
+
+> source venv/bin/activate && uv run fastmcp run src/second_brain_database/integrations/mcp/modern_server.py --transport http --port 8001 --no-banner

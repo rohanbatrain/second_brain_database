@@ -11,19 +11,20 @@ This script tests the complete User Agent lockdown system including:
 """
 
 import asyncio
-import sys
-import json
 from datetime import datetime, timedelta
-from bson import ObjectId
-from unittest.mock import MagicMock
+import json
+import sys
 import time
+from unittest.mock import MagicMock
+
+from bson import ObjectId
 
 # Add the src directory to the path
 sys.path.insert(0, "src")
 
 from second_brain_database.database import db_manager
-from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.security_manager import security_manager
 
 logger = get_logger(prefix="[USER_AGENT_TEST]")
 
@@ -42,18 +43,14 @@ class UserAgentLockdownTester:
         self.users_collection = db_manager.get_collection("users")
 
         # Clean up any existing test users
-        await self.users_collection.delete_many({
-            "username": {"$regex": "^ua_test_user_"}
-        })
+        await self.users_collection.delete_many({"username": {"$regex": "^ua_test_user_"}})
         logger.info("Test environment setup complete")
 
     async def cleanup(self):
         """Clean up test data."""
         logger.info("Cleaning up test data...")
         if self.test_users:
-            await self.users_collection.delete_many({
-                "_id": {"$in": self.test_users}
-            })
+            await self.users_collection.delete_many({"_id": {"$in": self.test_users}})
         await db_manager.disconnect()
         logger.info("Cleanup complete")
 
@@ -68,8 +65,9 @@ class UserAgentLockdownTester:
         mock_request.url.path = "/api/test"
         return mock_request
 
-    async def create_test_user(self, username_suffix: str, user_agent_lockdown: bool = False,
-                             trusted_user_agents: list = None) -> dict:
+    async def create_test_user(
+        self, username_suffix: str, user_agent_lockdown: bool = False, trusted_user_agents: list = None
+    ) -> dict:
         """Create a test user with specified User Agent lockdown settings."""
         user_id = ObjectId()
         timestamp = int(datetime.utcnow().timestamp())
@@ -121,7 +119,7 @@ class UserAgentLockdownTester:
         trusted_user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "TrustedApp/1.0",
-            "TestBrowser/2.0"
+            "TestBrowser/2.0",
         ]
         user_with_trusted = await self.create_test_user("with_trusted", True, trusted_user_agents)
 
@@ -181,13 +179,12 @@ class UserAgentLockdownTester:
             "user_agent": bypass_user_agent,
             "expires_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
             "created_at": datetime.utcnow().isoformat(),
-            "reason": "temporary_access"
+            "reason": "temporary_access",
         }
 
         # Update user with temporary bypass
         await self.users_collection.update_one(
-            {"_id": user_with_lockdown["_id"]},
-            {"$push": {"temporary_user_agent_bypasses": temporary_bypass}}
+            {"_id": user_with_lockdown["_id"]}, {"$push": {"temporary_user_agent_bypasses": temporary_bypass}}
         )
 
         # Refresh user data
@@ -207,12 +204,11 @@ class UserAgentLockdownTester:
             "user_agent": "ExpiredBrowser/1.0",
             "expires_at": (datetime.utcnow() - timedelta(minutes=1)).isoformat(),
             "created_at": (datetime.utcnow() - timedelta(minutes=10)).isoformat(),
-            "reason": "expired_access"
+            "reason": "expired_access",
         }
 
         await self.users_collection.update_one(
-            {"_id": user_with_lockdown["_id"]},
-            {"$push": {"temporary_user_agent_bypasses": expired_bypass}}
+            {"_id": user_with_lockdown["_id"]}, {"$push": {"temporary_user_agent_bypasses": expired_bypass}}
         )
 
         updated_user = await self.users_collection.find_one({"_id": user_with_lockdown["_id"]})
@@ -322,9 +318,15 @@ class UserAgentLockdownTester:
 
         # Test legitimate access from trusted devices
         legitimate_requests = [
-            ("Chrome on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
+            (
+                "Chrome on Windows",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            ),
             ("Company App", "MyCompanyApp/2.1.0 (Internal Tool)"),
-            ("iPhone Safari", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"),
+            (
+                "iPhone Safari",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
+            ),
         ]
 
         for device_name, user_agent in legitimate_requests:

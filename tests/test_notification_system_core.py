@@ -14,11 +14,12 @@ Requirements tested: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
-import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
+
 
 # Core notification system tests
 class NotificationSystemValidator:
@@ -37,7 +38,7 @@ class NotificationSystemValidator:
             "has_required_elements": False,
             "security_compliant": False,
             "accessibility_compliant": False,
-            "issues": []
+            "issues": [],
         }
 
         # Check basic HTML structure
@@ -82,7 +83,7 @@ class NotificationSystemValidator:
             "supported_channels": [],
             "invalid_channels": [],
             "type_errors": [],
-            "issues": []
+            "issues": [],
         }
 
         # Expected channels
@@ -104,8 +105,9 @@ class NotificationSystemValidator:
 
         return validation_result
 
-    def simulate_notification_delivery(self, notification_data: Dict[str, Any],
-                                     user_preferences: Dict[str, Any]) -> Dict[str, Any]:
+    def simulate_notification_delivery(
+        self, notification_data: Dict[str, Any], user_preferences: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Simulate notification delivery across multiple channels."""
         delivery_result = {
             "notification_id": notification_data.get("notification_id", f"notif_{uuid.uuid4().hex[:8]}"),
@@ -113,7 +115,7 @@ class NotificationSystemValidator:
             "channels_successful": [],
             "channels_failed": [],
             "delivery_time": datetime.now(timezone.utc),
-            "fallback_used": False
+            "fallback_used": False,
         }
 
         # Simulate email delivery
@@ -166,7 +168,7 @@ class NotificationSystemValidator:
                 "title": f"Bulk Notification {i}",
                 "message": f"This is bulk notification number {i}",
                 "created_at": datetime.now(timezone.utc),
-                "status": "pending"
+                "status": "pending",
             }
 
             # Simulate processing time
@@ -180,9 +182,13 @@ class NotificationSystemValidator:
         return {
             "notifications_count": len(notifications_processed),
             "processing_duration_seconds": processing_duration,
-            "notifications_per_second": len(notifications_processed) / processing_duration if processing_duration > 0 else 0,
-            "average_processing_time_ms": (processing_duration * 1000) / len(notifications_processed) if notifications_processed else 0,
-            "all_successful": all(n["status"] == "sent" for n in notifications_processed)
+            "notifications_per_second": (
+                len(notifications_processed) / processing_duration if processing_duration > 0 else 0
+            ),
+            "average_processing_time_ms": (
+                (processing_duration * 1000) / len(notifications_processed) if notifications_processed else 0
+            ),
+            "all_successful": all(n["status"] == "sent" for n in notifications_processed),
         }
 
     def test_notification_read_tracking(self, notification_id: str, user_ids: List[str]) -> Dict[str, Any]:
@@ -192,7 +198,7 @@ class NotificationSystemValidator:
             "total_recipients": len(user_ids),
             "read_by": {},
             "unread_count": len(user_ids),
-            "read_percentage": 0.0
+            "read_percentage": 0.0,
         }
 
         # Simulate users reading the notification over time
@@ -206,6 +212,7 @@ class NotificationSystemValidator:
         read_tracking["read_percentage"] = (len(read_tracking["read_by"]) / read_tracking["total_recipients"]) * 100
 
         return read_tracking
+
 
 async def run_task_5_1_email_integration_tests():
     """Run Task 5.1: Email Integration Testing."""
@@ -234,9 +241,7 @@ async def run_task_5_1_email_integration_tests():
     </html>
     """
 
-    invitation_validation = validator.validate_email_template_structure(
-        family_invitation_template, "family_invitation"
-    )
+    invitation_validation = validator.validate_email_template_structure(family_invitation_template, "family_invitation")
     test_results["family_invitation_template"] = invitation_validation
 
     print(f"   ✓ HTML Structure Valid: {invitation_validation['is_valid_html']}")
@@ -257,9 +262,7 @@ async def run_task_5_1_email_integration_tests():
     </html>
     """
 
-    verification_validation = validator.validate_email_template_structure(
-        verification_template, "verification"
-    )
+    verification_validation = validator.validate_email_template_structure(verification_template, "verification")
     test_results["verification_template"] = verification_validation
 
     print(f"   ✓ HTML Structure Valid: {verification_validation['is_valid_html']}")
@@ -273,7 +276,7 @@ async def run_task_5_1_email_integration_tests():
         {"scenario": "SMTP Server Down", "success_rate": 0.0},
         {"scenario": "Rate Limited", "success_rate": 0.3},
         {"scenario": "Temporary Network Issue", "success_rate": 0.7},
-        {"scenario": "Normal Operation", "success_rate": 0.95}
+        {"scenario": "Normal Operation", "success_rate": 0.95},
     ]
 
     failure_test_results = []
@@ -288,7 +291,7 @@ async def run_task_5_1_email_integration_tests():
             "successful": successful_sends,
             "failed": failed_sends,
             "success_rate": scenario["success_rate"],
-            "fallback_triggered": failed_sends > 5
+            "fallback_triggered": failed_sends > 5,
         }
         failure_test_results.append(result)
 
@@ -304,17 +307,13 @@ async def run_task_5_1_email_integration_tests():
         {"email_notifications": False, "push_notifications": True, "sms_notifications": True},
         {"email_notifications": True, "push_notifications": False, "sms_notifications": False},
         {"email_notifications": "invalid", "push_notifications": True},  # Invalid type
-        {"email_notifications": True, "unknown_channel": True}  # Unknown channel
+        {"email_notifications": True, "unknown_channel": True},  # Unknown channel
     ]
 
     preference_results = []
     for i, preferences in enumerate(preference_test_cases):
         validation = validator.validate_notification_preferences(preferences)
-        preference_results.append({
-            "test_case": i + 1,
-            "preferences": preferences,
-            "validation": validation
-        })
+        preference_results.append({"test_case": i + 1, "preferences": preferences, "validation": validation})
 
         print(f"   Test Case {i + 1}: Valid={validation['is_valid']}, Issues={len(validation['issues'])}")
 
@@ -334,6 +333,7 @@ async def run_task_5_1_email_integration_tests():
     print("\n✅ Task 5.1 Email Integration Testing COMPLETED")
     return test_results
 
+
 async def run_task_5_2_multi_channel_tests():
     """Run Task 5.2: Multi-Channel Notification Testing."""
     print("\n" + "=" * 60)
@@ -351,40 +351,40 @@ async def run_task_5_2_multi_channel_tests():
             "notification_id": "notif_001",
             "type": "family_invitation",
             "title": "Family Invitation",
-            "message": "You have been invited to join a family"
+            "message": "You have been invited to join a family",
         },
         {
             "notification_id": "notif_002",
             "type": "token_request",
             "title": "Token Request",
-            "message": "New token request requires approval"
+            "message": "New token request requires approval",
         },
         {
             "notification_id": "notif_003",
             "type": "spending_update",
             "title": "Spending Permissions Updated",
-            "message": "Your spending permissions have been modified"
-        }
+            "message": "Your spending permissions have been modified",
+        },
     ]
 
     user_preference_scenarios = [
         {"email_notifications": True, "push_notifications": True, "sms_notifications": False},
         {"email_notifications": True, "push_notifications": False, "sms_notifications": True},
         {"email_notifications": False, "push_notifications": True, "sms_notifications": True},
-        {"email_notifications": False, "push_notifications": False, "sms_notifications": False}  # All disabled
+        {"email_notifications": False, "push_notifications": False, "sms_notifications": False},  # All disabled
     ]
 
     delivery_results = []
     for i, notification in enumerate(test_notifications):
         preferences = user_preference_scenarios[i % len(user_preference_scenarios)]
         delivery = validator.simulate_notification_delivery(notification, preferences)
-        delivery_results.append({
-            "notification": notification,
-            "user_preferences": preferences,
-            "delivery_result": delivery
-        })
+        delivery_results.append(
+            {"notification": notification, "user_preferences": preferences, "delivery_result": delivery}
+        )
 
-        print(f"   Notification {i+1}: {len(delivery['channels_successful'])}/{len(delivery['channels_attempted'])} channels successful")
+        print(
+            f"   Notification {i+1}: {len(delivery['channels_successful'])}/{len(delivery['channels_attempted'])} channels successful"
+        )
         if delivery["fallback_used"]:
             print(f"     → Fallback mechanism activated")
 
@@ -394,20 +394,30 @@ async def run_task_5_2_multi_channel_tests():
     print("\n2. Testing Notification Channel Preferences...")
 
     channel_test_cases = [
-        {"name": "All Enabled", "prefs": {"email_notifications": True, "push_notifications": True, "sms_notifications": True}},
-        {"name": "Email Only", "prefs": {"email_notifications": True, "push_notifications": False, "sms_notifications": False}},
-        {"name": "Mobile Only", "prefs": {"email_notifications": False, "push_notifications": True, "sms_notifications": True}},
-        {"name": "All Disabled", "prefs": {"email_notifications": False, "push_notifications": False, "sms_notifications": False}}
+        {
+            "name": "All Enabled",
+            "prefs": {"email_notifications": True, "push_notifications": True, "sms_notifications": True},
+        },
+        {
+            "name": "Email Only",
+            "prefs": {"email_notifications": True, "push_notifications": False, "sms_notifications": False},
+        },
+        {
+            "name": "Mobile Only",
+            "prefs": {"email_notifications": False, "push_notifications": True, "sms_notifications": True},
+        },
+        {
+            "name": "All Disabled",
+            "prefs": {"email_notifications": False, "push_notifications": False, "sms_notifications": False},
+        },
     ]
 
     channel_results = []
     for test_case in channel_test_cases:
         validation = validator.validate_notification_preferences(test_case["prefs"])
-        channel_results.append({
-            "test_name": test_case["name"],
-            "preferences": test_case["prefs"],
-            "validation": validation
-        })
+        channel_results.append(
+            {"test_name": test_case["name"], "preferences": test_case["prefs"], "validation": validation}
+        )
 
         enabled_channels = sum(1 for v in test_case["prefs"].values() if v)
         print(f"   {test_case['name']}: {enabled_channels} channels enabled, valid={validation['is_valid']}")
@@ -426,7 +436,9 @@ async def run_task_5_2_multi_channel_tests():
         read_tracking = validator.test_notification_read_tracking(notification_id, user_ids)
         tracking_tests.append(read_tracking)
 
-        print(f"   Notification {i+1}: {len(read_tracking['read_by'])}/{read_tracking['total_recipients']} read ({read_tracking['read_percentage']:.1f}%)")
+        print(
+            f"   Notification {i+1}: {len(read_tracking['read_by'])}/{read_tracking['total_recipients']} read ({read_tracking['read_percentage']:.1f}%)"
+        )
 
     test_results["read_tracking"] = tracking_tests
 
@@ -437,7 +449,7 @@ async def run_task_5_2_multi_channel_tests():
         {"name": "Push Failed, Email Success", "push_success": False, "email_success": True},
         {"name": "Email Failed, SMS Success", "email_success": False, "sms_success": True},
         {"name": "All Channels Failed", "push_success": False, "email_success": False, "sms_success": False},
-        {"name": "All Channels Success", "push_success": True, "email_success": True, "sms_success": True}
+        {"name": "All Channels Success", "push_success": True, "email_success": True, "sms_success": True},
     ]
 
     fallback_results = []
@@ -481,7 +493,7 @@ async def run_task_5_2_multi_channel_tests():
             "channels_successful": channels_successful,
             "channels_failed": channels_failed,
             "fallback_used": fallback_used,
-            "delivery_successful": len(channels_successful) > 0
+            "delivery_successful": len(channels_successful) > 0,
         }
 
         fallback_results.append(result)
@@ -499,7 +511,7 @@ async def run_task_5_2_multi_channel_tests():
         "successful_deliveries": 23,
         "failed_deliveries": 2,
         "average_delivery_time_ms": 150,
-        "success_rate": 0.92
+        "success_rate": 0.92,
     }
 
     test_results["push_integration"] = push_test_results
@@ -520,7 +532,7 @@ async def run_task_5_2_multi_channel_tests():
         "average_delivery_time_seconds": 3.2,
         "success_rate": 0.87,
         "rate_limiting_active": True,
-        "max_messages_per_minute": 10
+        "max_messages_per_minute": 10,
     }
 
     test_results["sms_functionality"] = sms_test_results
@@ -533,6 +545,7 @@ async def run_task_5_2_multi_channel_tests():
     print("\n✅ Task 5.2 Multi-Channel Notification Testing COMPLETED")
     return test_results
 
+
 async def generate_comprehensive_test_report(task_5_1_results: Dict, task_5_2_results: Dict):
     """Generate comprehensive test report for notification system."""
 
@@ -541,7 +554,6 @@ async def generate_comprehensive_test_report(task_5_1_results: Dict, task_5_2_re
         "test_execution_time": datetime.now(timezone.utc).isoformat(),
         "tasks_completed": ["5.1", "5.2"],
         "requirements_validated": ["5.1", "5.2", "5.3", "5.4", "5.5", "5.6"],
-
         "task_5_1_email_integration": {
             "status": "PASSED",
             "tests_completed": [
@@ -549,11 +561,10 @@ async def generate_comprehensive_test_report(task_5_1_results: Dict, task_5_2_re
                 "Verification email template validation",
                 "Email failure handling simulation",
                 "Email preference management",
-                "Bulk email sending performance"
+                "Bulk email sending performance",
             ],
-            "results": task_5_1_results
+            "results": task_5_1_results,
         },
-
         "task_5_2_multi_channel": {
             "status": "PASSED",
             "tests_completed": [
@@ -562,30 +573,29 @@ async def generate_comprehensive_test_report(task_5_1_results: Dict, task_5_2_re
                 "Notification read status tracking",
                 "Notification failure fallback mechanisms",
                 "Push notification integration (mock)",
-                "SMS notification functionality (mock)"
+                "SMS notification functionality (mock)",
             ],
-            "results": task_5_2_results
+            "results": task_5_2_results,
         },
-
         "overall_assessment": {
             "notification_system_status": "FUNCTIONAL",
             "email_integration_status": "VALIDATED",
             "multi_channel_support": "IMPLEMENTED",
             "failure_handling": "ROBUST",
             "performance": "ACCEPTABLE",
-            "security": "COMPLIANT"
+            "security": "COMPLIANT",
         },
-
         "recommendations": [
             "Implement real push notification service integration",
             "Add SMS provider configuration for production",
             "Enhance email template accessibility features",
             "Add notification analytics and reporting",
-            "Implement notification scheduling capabilities"
-        ]
+            "Implement notification scheduling capabilities",
+        ],
     }
 
     return report
+
 
 async def main():
     """Main test execution function."""
@@ -610,7 +620,7 @@ async def main():
 
         # Save report to file
         report_filename = f"family_notification_system_test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_filename, 'w') as f:
+        with open(report_filename, "w") as f:
             json.dump(report, f, indent=2, default=str)
 
         print(f"\n📊 Test report saved to: {report_filename}")
@@ -624,7 +634,9 @@ async def main():
         print(f"✅ Overall System Status: {report['overall_assessment']['notification_system_status']}")
 
         print(f"\n📋 Requirements Validated: {', '.join(report['requirements_validated'])}")
-        print(f"🔧 Tests Completed: {len(report['task_5_1_email_integration']['tests_completed']) + len(report['task_5_2_multi_channel']['tests_completed'])}")
+        print(
+            f"🔧 Tests Completed: {len(report['task_5_1_email_integration']['tests_completed']) + len(report['task_5_2_multi_channel']['tests_completed'])}"
+        )
 
         print("\n🎯 Key Findings:")
         print("   • Email template validation: PASSED")
@@ -643,8 +655,10 @@ async def main():
     except Exception as e:
         print(f"\n❌ Test execution failed: {e}")
         import traceback
+
         traceback.print_exc()
         return None
+
 
 if __name__ == "__main__":
     asyncio.run(main())

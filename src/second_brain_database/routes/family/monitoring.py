@@ -23,9 +23,9 @@ Monitoring Categories:
 """
 
 import asyncio
-import json
 from collections import defaultdict, deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from second_brain_database.config import settings
@@ -55,7 +55,7 @@ MONITORED_SECURITY_EVENTS = {
     "2fa_verification_failed",
     "temp_token_abuse",
     "admin_privilege_escalation",
-    "suspicious_family_activity"
+    "suspicious_family_activity",
 }
 
 # Performance metrics to track
@@ -64,7 +64,7 @@ PERFORMANCE_METRICS = {
     "security_validation_duration",
     "database_query_duration",
     "redis_operation_duration",
-    "email_notification_duration"
+    "email_notification_duration",
 }
 
 
@@ -98,7 +98,7 @@ class FamilySecurityMonitor:
         details: Dict[str, Any],
         severity: str = "info",
         ip_address: str = None,
-        success: bool = True
+        success: bool = True,
     ) -> None:
         """
         Record a security event for monitoring and analysis.
@@ -124,7 +124,7 @@ class FamilySecurityMonitor:
                 "ip_address": ip_address,
                 "success": success,
                 "details": details,
-                "source": "family_security_monitor"
+                "source": "family_security_monitor",
             }
 
             # Store in memory for real-time monitoring
@@ -145,30 +145,29 @@ class FamilySecurityMonitor:
                 user_id=user_id,
                 ip_address=ip_address,
                 success=success,
-                details=details
+                details=details,
             )
 
             self.logger.debug(
                 "Security event recorded: %s for user %s (severity: %s)",
-                event_type, user_id, severity,
+                event_type,
+                user_id,
+                severity,
                 extra={
                     "event_id": security_event["event_id"],
                     "event_type": event_type,
                     "user_id": user_id,
                     "severity": severity,
-                    "success": success
-                }
+                    "success": success,
+                },
             )
 
         except Exception as e:
             self.logger.error(
-                "Failed to record security event: %s", str(e),
+                "Failed to record security event: %s",
+                str(e),
                 exc_info=True,
-                extra={
-                    "event_type": event_type,
-                    "user_id": user_id,
-                    "details": details
-                }
+                extra={"event_type": event_type, "user_id": user_id, "details": details},
             )
 
     async def record_performance_metric(
@@ -177,7 +176,7 @@ class FamilySecurityMonitor:
         value: float,
         operation: str = None,
         user_id: str = None,
-        additional_tags: Dict[str, str] = None
+        additional_tags: Dict[str, str] = None,
     ) -> None:
         """
         Record a performance metric for monitoring.
@@ -198,7 +197,7 @@ class FamilySecurityMonitor:
                 "timestamp": timestamp,
                 "operation": operation,
                 "user_id": user_id,
-                "tags": additional_tags or {}
+                "tags": additional_tags or {},
             }
 
             # Store in memory for real-time monitoring
@@ -207,26 +206,17 @@ class FamilySecurityMonitor:
             # Store in Redis for short-term analysis
             await self._store_metric_in_redis(metric_record)
 
-            self.logger.debug(
-                "Performance metric recorded: %s = %f for operation %s",
-                metric_name, value, operation
-            )
+            self.logger.debug("Performance metric recorded: %s = %f for operation %s", metric_name, value, operation)
 
         except Exception as e:
             self.logger.error(
-                "Failed to record performance metric: %s", str(e),
+                "Failed to record performance metric: %s",
+                str(e),
                 exc_info=True,
-                extra={
-                    "metric_name": metric_name,
-                    "value": value,
-                    "operation": operation
-                }
+                extra={"metric_name": metric_name, "value": value, "operation": operation},
             )
 
-    async def get_security_dashboard_data(
-        self,
-        time_window_hours: int = 24
-    ) -> Dict[str, Any]:
+    async def get_security_dashboard_data(self, time_window_hours: int = 24) -> Dict[str, Any]:
         """
         Get aggregated security data for dashboard display.
 
@@ -240,10 +230,7 @@ class FamilySecurityMonitor:
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
             # Get recent security events
-            recent_events = [
-                event for event in self.security_events
-                if event["timestamp"] > cutoff_time
-            ]
+            recent_events = [event for event in self.security_events if event["timestamp"] > cutoff_time]
 
             # Aggregate security metrics
             event_counts = defaultdict(int)
@@ -261,17 +248,14 @@ class FamilySecurityMonitor:
             # Get performance metrics summary
             performance_summary = {}
             for metric_name, metrics in self.performance_metrics.items():
-                recent_metrics = [
-                    m for m in metrics
-                    if m["timestamp"] > cutoff_time
-                ]
+                recent_metrics = [m for m in metrics if m["timestamp"] > cutoff_time]
                 if recent_metrics:
                     values = [m["value"] for m in recent_metrics]
                     performance_summary[metric_name] = {
                         "count": len(values),
                         "avg": sum(values) / len(values),
                         "min": min(values),
-                        "max": max(values)
+                        "max": max(values),
                     }
 
             # Get alert status
@@ -291,32 +275,21 @@ class FamilySecurityMonitor:
                     "active": self.monitoring_active,
                     "last_cleanup": self.last_cleanup,
                     "events_in_memory": len(self.security_events),
-                    "metrics_tracked": len(self.performance_metrics)
-                }
+                    "metrics_tracked": len(self.performance_metrics),
+                },
             }
 
             self.logger.debug(
-                "Security dashboard data generated: %d events, %d alerts",
-                len(recent_events), len(active_alerts)
+                "Security dashboard data generated: %d events, %d alerts", len(recent_events), len(active_alerts)
             )
 
             return dashboard_data
 
         except Exception as e:
-            self.logger.error(
-                "Failed to generate security dashboard data: %s", str(e),
-                exc_info=True
-            )
-            return {
-                "error": "Failed to generate dashboard data",
-                "generated_at": datetime.now(timezone.utc)
-            }
+            self.logger.error("Failed to generate security dashboard data: %s", str(e), exc_info=True)
+            return {"error": "Failed to generate dashboard data", "generated_at": datetime.now(timezone.utc)}
 
-    async def get_user_security_summary(
-        self,
-        user_id: str,
-        time_window_hours: int = 24
-    ) -> Dict[str, Any]:
+    async def get_user_security_summary(self, user_id: str, time_window_hours: int = 24) -> Dict[str, Any]:
         """
         Get security summary for a specific user.
 
@@ -332,7 +305,8 @@ class FamilySecurityMonitor:
 
             # Get user's security events
             user_events = [
-                event for event in self.security_events
+                event
+                for event in self.security_events
                 if event["user_id"] == user_id and event["timestamp"] > cutoff_time
             ]
 
@@ -369,30 +343,29 @@ class FamilySecurityMonitor:
                 "success_rate": {
                     "percentage": round(success_percentage, 2),
                     "successful": success_rate["success"],
-                    "failed": success_rate["failure"]
+                    "failed": success_rate["failure"],
                 },
                 "unique_ip_addresses": len(ip_addresses),
                 "ip_addresses": list(ip_addresses),
                 "recent_alerts": user_alerts,
-                "risk_score": self._calculate_user_risk_score(user_events)
+                "risk_score": self._calculate_user_risk_score(user_events),
             }
 
             self.logger.debug(
                 "User security summary generated for %s: %d events, risk score: %d",
-                user_id, len(user_events), user_summary["risk_score"]
+                user_id,
+                len(user_events),
+                user_summary["risk_score"],
             )
 
             return user_summary
 
         except Exception as e:
-            self.logger.error(
-                "Failed to generate user security summary for %s: %s", user_id, str(e),
-                exc_info=True
-            )
+            self.logger.error("Failed to generate user security summary for %s: %s", user_id, str(e), exc_info=True)
             return {
                 "error": "Failed to generate user security summary",
                 "user_id": user_id,
-                "generated_at": datetime.now(timezone.utc)
+                "generated_at": datetime.now(timezone.utc),
             }
 
     async def cleanup_old_data(self) -> None:
@@ -415,10 +388,7 @@ class FamilySecurityMonitor:
             self.logger.debug("Security monitoring data cleanup completed")
 
         except Exception as e:
-            self.logger.error(
-                "Failed to cleanup old monitoring data: %s", str(e),
-                exc_info=True
-            )
+            self.logger.error("Failed to cleanup old monitoring data: %s", str(e), exc_info=True)
 
     async def _store_event_in_redis(self, security_event: Dict[str, Any]) -> None:
         """Store security event in Redis for short-term analysis."""
@@ -428,14 +398,12 @@ class FamilySecurityMonitor:
             # Store event with expiration
             event_key = f"family_security_event:{security_event['event_id']}"
             await redis_conn.setex(
-                event_key,
-                SECURITY_METRICS_RETENTION_HOURS * 3600,
-                json.dumps(security_event, default=str)
+                event_key, SECURITY_METRICS_RETENTION_HOURS * 3600, json.dumps(security_event, default=str)
             )
 
             # Add to time-series for analysis
             timestamp_key = f"family_security_events:{security_event['timestamp'].strftime('%Y%m%d%H')}"
-            await redis_conn.lpush(timestamp_key, security_event['event_id'])
+            await redis_conn.lpush(timestamp_key, security_event["event_id"])
             await redis_conn.expire(timestamp_key, SECURITY_METRICS_RETENTION_HOURS * 3600)
 
         except Exception as e:
@@ -456,11 +424,11 @@ class FamilySecurityMonitor:
             redis_conn = await self.redis_manager.get_redis()
 
             # Store metric with expiration
-            metric_key = f"family_performance_metric:{metric_record['metric_name']}:{metric_record['timestamp'].timestamp()}"
+            metric_key = (
+                f"family_performance_metric:{metric_record['metric_name']}:{metric_record['timestamp'].timestamp()}"
+            )
             await redis_conn.setex(
-                metric_key,
-                SECURITY_METRICS_RETENTION_HOURS * 3600,
-                json.dumps(metric_record, default=str)
+                metric_key, SECURITY_METRICS_RETENTION_HOURS * 3600, json.dumps(metric_record, default=str)
             )
 
         except Exception as e:
@@ -506,10 +474,7 @@ class FamilySecurityMonitor:
                 "user_id": security_event["user_id"],
                 "timestamp": datetime.now(timezone.utc),
                 "severity": "high",
-                "details": {
-                    "triggering_event": security_event,
-                    "alert_reason": alert_type
-                }
+                "details": {"triggering_event": security_event, "alert_reason": alert_type},
             }
 
             # Store alert
@@ -518,9 +483,7 @@ class FamilySecurityMonitor:
 
             # Log alert
             self.logger.warning(
-                "Security alert triggered: %s for user %s",
-                alert_type, security_event["user_id"],
-                extra=alert
+                "Security alert triggered: %s for user %s", alert_type, security_event["user_id"], extra=alert
             )
 
             # TODO: Implement alert notification system (email, Slack, etc.)
@@ -534,9 +497,7 @@ class FamilySecurityMonitor:
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
             alerts_collection = db_manager.get_collection("family_security_alerts")
-            active_alerts = await alerts_collection.find({
-                "timestamp": {"$gte": cutoff_time}
-            }).to_list(length=100)
+            active_alerts = await alerts_collection.find({"timestamp": {"$gte": cutoff_time}}).to_list(length=100)
 
             return active_alerts
 
@@ -550,10 +511,9 @@ class FamilySecurityMonitor:
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
             alerts_collection = db_manager.get_collection("family_security_alerts")
-            user_alerts = await alerts_collection.find({
-                "user_id": user_id,
-                "timestamp": {"$gte": cutoff_time}
-            }).to_list(length=50)
+            user_alerts = await alerts_collection.find(
+                {"user_id": user_id, "timestamp": {"$gte": cutoff_time}}
+            ).to_list(length=50)
 
             return user_alerts
 
@@ -619,27 +579,17 @@ class FamilySecurityMonitor:
 
             # Clean up old security events
             security_events_collection = db_manager.get_collection("family_security_events")
-            result = await security_events_collection.delete_many({
-                "timestamp": {"$lt": cutoff_time}
-            })
+            result = await security_events_collection.delete_many({"timestamp": {"$lt": cutoff_time}})
 
             if result.deleted_count > 0:
-                self.logger.info(
-                    "Cleaned up %d old security events from database",
-                    result.deleted_count
-                )
+                self.logger.info("Cleaned up %d old security events from database", result.deleted_count)
 
             # Clean up old alerts
             alerts_collection = db_manager.get_collection("family_security_alerts")
-            result = await alerts_collection.delete_many({
-                "timestamp": {"$lt": cutoff_time}
-            })
+            result = await alerts_collection.delete_many({"timestamp": {"$lt": cutoff_time}})
 
             if result.deleted_count > 0:
-                self.logger.info(
-                    "Cleaned up %d old security alerts from database",
-                    result.deleted_count
-                )
+                self.logger.info("Cleaned up %d old security alerts from database", result.deleted_count)
 
         except Exception as e:
             self.logger.error("Failed to cleanup database audit logs: %s", str(e))
@@ -658,6 +608,7 @@ def monitor_family_operation(operation_name: str, require_2fa: bool = False):
         operation_name: Name of the operation being monitored
         require_2fa: Whether the operation requires 2FA
     """
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
             start_time = datetime.now(timezone.utc)
@@ -690,10 +641,7 @@ def monitor_family_operation(operation_name: str, require_2fa: bool = False):
                     value=duration,
                     operation=operation_name,
                     user_id=user_id,
-                    additional_tags={
-                        "success": str(success),
-                        "require_2fa": str(require_2fa)
-                    }
+                    additional_tags={"success": str(success), "require_2fa": str(require_2fa)},
                 )
 
                 # Record security event
@@ -704,11 +652,12 @@ def monitor_family_operation(operation_name: str, require_2fa: bool = False):
                         "operation": operation_name,
                         "duration_seconds": duration,
                         "require_2fa": require_2fa,
-                        "error": error
+                        "error": error,
                     },
                     severity="info" if success else "error",
-                    success=success
+                    success=success,
                 )
 
         return wrapper
+
     return decorator

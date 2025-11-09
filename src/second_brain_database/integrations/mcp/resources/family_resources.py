@@ -5,24 +5,25 @@ Comprehensive information resources for family entities with real-time data.
 Provides family information, member lists, and statistics through MCP resources.
 """
 
-import json
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+import json
+from typing import Any, Dict, List, Optional
 
+from ....config import settings
 from ....managers.family_manager import FamilyManager
 from ....managers.logging_manager import get_logger
-from ....config import settings
+from ..context import create_mcp_audit_trail, require_family_access
+from ..exceptions import MCPAuthorizationError, MCPValidationError
 from ..modern_server import mcp
 from ..security import get_mcp_user_context
-from ..context import require_family_access, create_mcp_audit_trail
-from ..exceptions import MCPAuthorizationError, MCPValidationError
 
 logger = get_logger(prefix="[MCP_FamilyResources]")
 
 # Import manager instances
 from ....database import db_manager
-from ....managers.security_manager import security_manager
 from ....managers.redis_manager import redis_manager
+from ....managers.security_manager import security_manager
+
 
 @mcp.resource("family://{family_id}/info", tags={"family", "secure", "production"})
 async def get_family_info_resource(family_id: str) -> str:
@@ -49,9 +50,7 @@ async def get_family_info_resource(family_id: str) -> str:
 
         # Create family manager instance
         family_manager = FamilyManager(
-            db_manager=db_manager,
-            security_manager=security_manager,
-            redis_manager=redis_manager
+            db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
         )
 
         # Get family details
@@ -71,12 +70,12 @@ async def get_family_info_resource(family_id: str) -> str:
             "sbd_account": {
                 "username": sbd_account.get("account_username"),
                 "frozen": sbd_account.get("account_frozen", False),
-                "balance": sbd_account.get("balance", 0)
+                "balance": sbd_account.get("balance", 0),
             },
             "limits": family_details.get("limits", {}),
             "settings": family_details.get("settings", {}),
             "resource_type": "family_info",
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
         # Create audit trail
@@ -85,11 +84,10 @@ async def get_family_info_resource(family_id: str) -> str:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"family_name": family_details.get("name")}
+            metadata={"family_name": family_details.get("name")},
         )
 
-        logger.info("Provided family info resource for family %s to user %s",
-                   family_id, user_context.user_id)
+        logger.info("Provided family info resource for family %s to user %s", family_id, user_context.user_id)
 
         return json.dumps(family_info, indent=2, default=str)
 
@@ -119,9 +117,7 @@ async def get_family_members_resource(family_id: str) -> str:
         await require_family_access(family_id, user_context=user_context)
 
         family_manager = FamilyManager(
-            db_manager=db_manager,
-            security_manager=security_manager,
-            redis_manager=redis_manager
+            db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
         )
 
         # Get family members
@@ -138,7 +134,7 @@ async def get_family_members_resource(family_id: str) -> str:
                 "joined_at": member.get("joined_at"),
                 "relationship": member.get("relationship"),
                 "spending_permissions": member.get("spending_permissions", {}),
-                "status": member.get("status", "active")
+                "status": member.get("status", "active"),
             }
             member_list.append(member_info)
 
@@ -147,7 +143,7 @@ async def get_family_members_resource(family_id: str) -> str:
             "members": member_list,
             "total_members": len(member_list),
             "resource_type": "family_members",
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
         # Create audit trail
@@ -156,11 +152,10 @@ async def get_family_members_resource(family_id: str) -> str:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"member_count": len(member_list)}
+            metadata={"member_count": len(member_list)},
         )
 
-        logger.info("Provided family members resource for family %s to user %s",
-                   family_id, user_context.user_id)
+        logger.info("Provided family members resource for family %s to user %s", family_id, user_context.user_id)
 
         return json.dumps(result, indent=2, default=str)
 
@@ -190,9 +185,7 @@ async def get_family_statistics_resource(family_id: str) -> str:
         await require_family_access(family_id, user_context=user_context)
 
         family_manager = FamilyManager(
-            db_manager=db_manager,
-            security_manager=security_manager,
-            redis_manager=redis_manager
+            db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
         )
 
         # Get family statistics
@@ -202,7 +195,7 @@ async def get_family_statistics_resource(family_id: str) -> str:
             "family_id": family_id,
             "statistics": stats,
             "resource_type": "family_statistics",
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
         # Create audit trail
@@ -211,11 +204,10 @@ async def get_family_statistics_resource(family_id: str) -> str:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"stats_requested": True}
+            metadata={"stats_requested": True},
         )
 
-        logger.info("Provided family statistics resource for family %s to user %s",
-                   family_id, user_context.user_id)
+        logger.info("Provided family statistics resource for family %s to user %s", family_id, user_context.user_id)
 
         return json.dumps(result, indent=2, default=str)
 

@@ -33,7 +33,17 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # --- Admin Endpoints for Password Reset Abuse Management ---
 @router.post("/whitelist", dependencies=[Depends(require_admin)])
 async def admin_add_whitelist(pair: EmailIpPair) -> dict:
-    """Admin: Add (email, ip) pair to password reset whitelist (Redis)."""
+    """Admin: Add an (email, ip) pair to the password reset whitelist.
+
+    This endpoint allows an administrator to manually add a combination of an email address and an IP address to a whitelist in Redis.
+    When a user with this email and IP address requests a password reset, the request will be allowed even if it would otherwise be blocked by abuse detection mechanisms.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to whitelist.
+
+    Returns:
+        dict: A dictionary with a "success" key indicating whether the operation was successful.
+    """
     result = await admin_add_whitelist_pair(pair.email, pair.ip)
     logger.info("Admin added whitelist pair: %s:%s", pair.email, pair.ip)
     return {"success": result}
@@ -41,7 +51,17 @@ async def admin_add_whitelist(pair: EmailIpPair) -> dict:
 
 @router.delete("/whitelist", dependencies=[Depends(require_admin)])
 async def admin_remove_whitelist(pair: EmailIpPair) -> dict:
-    """Admin: Remove (email, ip) pair from password reset whitelist (Redis)."""
+    """Admin: Remove an (email, ip) pair from the password reset whitelist.
+
+    This endpoint allows an administrator to remove a combination of an email address and an IP address from the whitelist in Redis.
+    Once removed, password reset requests from this pair will be subject to the standard abuse detection rules.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to remove from the whitelist.
+
+    Returns:
+        dict: A dictionary with a "success" key indicating whether the operation was successful.
+    """
     result = await admin_remove_whitelist_pair(pair.email, pair.ip)
     logger.info("Admin removed whitelist pair: %s:%s", pair.email, pair.ip)
     return {"success": result}
@@ -49,7 +69,13 @@ async def admin_remove_whitelist(pair: EmailIpPair) -> dict:
 
 @router.get("/whitelist", dependencies=[Depends(require_admin)])
 async def admin_list_whitelist() -> list[EmailIpPair]:
-    """Admin: List all (email, ip) pairs in password reset whitelist (Redis)."""
+    """Admin: List all (email, ip) pairs in the password reset whitelist.
+
+    This endpoint retrieves and returns all the email and IP address pairs that are currently in the password reset whitelist from Redis.
+
+    Returns:
+        list[EmailIpPair]: A list of objects, each containing an email and IP address pair from the whitelist.
+    """
     logger.debug("Admin requested whitelist pairs.")
     pairs = await admin_list_whitelist_pairs()
     return [EmailIpPair(email=p["email"], ip=p["ip"]) for p in pairs]
@@ -57,7 +83,17 @@ async def admin_list_whitelist() -> list[EmailIpPair]:
 
 @router.post("/blocklist", dependencies=[Depends(require_admin)])
 async def admin_add_blocklist(pair: EmailIpPair) -> dict:
-    """Admin: Add (email, ip) pair to password reset blocklist (Redis)."""
+    """Admin: Add an (email, ip) pair to the password reset blocklist.
+
+    This endpoint allows an administrator to manually add a combination of an email address and an IP address to a blocklist in Redis.
+    When a user with this email and IP address attempts to reset their password, the request will be blocked.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to block.
+
+    Returns:
+        dict: A dictionary with a "success" key indicating whether the operation was successful.
+    """
     result = await admin_add_blocklist_pair(pair.email, pair.ip)
     logger.info("Admin added blocklist pair: %s:%s", pair.email, pair.ip)
     return {"success": result}
@@ -65,7 +101,17 @@ async def admin_add_blocklist(pair: EmailIpPair) -> dict:
 
 @router.delete("/blocklist", dependencies=[Depends(require_admin)])
 async def admin_remove_blocklist(pair: EmailIpPair) -> dict:
-    """Admin: Remove (email, ip) pair from password reset blocklist (Redis)."""
+    """Admin: Remove an (email, ip) pair from the password reset blocklist.
+
+    This endpoint allows an administrator to remove a combination of an email address and an IP address from the blocklist in Redis.
+    Once removed, password reset requests from this pair will no longer be automatically blocked.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to remove from the blocklist.
+
+    Returns:
+        dict: A dictionary with a "success" key indicating whether the operation was successful.
+    """
     result = await admin_remove_blocklist_pair(pair.email, pair.ip)
     logger.info("Admin removed blocklist pair: %s:%s", pair.email, pair.ip)
     return {"success": result}
@@ -73,7 +119,13 @@ async def admin_remove_blocklist(pair: EmailIpPair) -> dict:
 
 @router.get("/blocklist", dependencies=[Depends(require_admin)])
 async def admin_list_blocklist() -> list[EmailIpPair]:
-    """Admin: List all (email, ip) pairs in password reset blocklist (Redis)."""
+    """Admin: List all (email, ip) pairs in the password reset blocklist.
+
+    This endpoint retrieves and returns all the email and IP address pairs that are currently in the password reset blocklist from Redis.
+
+    Returns:
+        list[EmailIpPair]: A list of objects, each containing an email and IP address pair from the blocklist.
+    """
     logger.debug("Admin requested blocklist pairs.")
     pairs = await admin_list_blocklist_pairs()
     return [EmailIpPair(email=p["email"], ip=p["ip"]) for p in pairs]
@@ -83,7 +135,20 @@ async def admin_list_blocklist() -> list[EmailIpPair]:
 async def admin_list_abuse_events_api(
     email: str = Query(None), event_type: str = Query(None), resolved: bool = Query(None), limit: int = Query(100)
 ) -> list[AbuseEvent]:
-    """Admin: List password reset abuse events (MongoDB, persistent)."""
+    """Admin: List password reset abuse events.
+
+    This endpoint allows administrators to query and list password reset abuse events that have been recorded in the database.
+    Events can be filtered by email, event type, and resolution status.
+
+    Args:
+        email (str, optional): Filter events by email address. Defaults to None.
+        event_type (str, optional): Filter events by type (e.g., 'excessive_resets'). Defaults to None.
+        resolved (bool, optional): Filter events by their resolution status. Defaults to None.
+        limit (int, optional): The maximum number of events to return. Defaults to 100.
+
+    Returns:
+        list[AbuseEvent]: A list of abuse event objects matching the filter criteria.
+    """
     logger.debug(
         "Admin requested abuse events: email=%s, event_type=%s, resolved=%s, limit=%d",
         email,
@@ -97,7 +162,17 @@ async def admin_list_abuse_events_api(
 
 @router.post("/abuse-events/resolve", dependencies=[Depends(require_admin)])
 async def admin_resolve_abuse_event_api(req: AbuseEventResolveRequest) -> dict:
-    """Admin: Mark a password reset abuse event as resolved (MongoDB)."""
+    """Admin: Mark a password reset abuse event as resolved.
+
+    This endpoint allows an administrator to mark a specific abuse event as resolved in the database.
+    This is used to track which events have been reviewed and handled.
+
+    Args:
+        req (AbuseEventResolveRequest): An object containing the ID of the event to resolve and any resolution notes.
+
+    Returns:
+        dict: A dictionary with a "success" key indicating whether the operation was successful.
+    """
     result = await admin_resolve_abuse_event(req.event_id, req.notes)
     logger.info("Admin resolved abuse event: %s, notes=%s", req.event_id, req.notes)
     return {"success": result}
@@ -106,7 +181,14 @@ async def admin_resolve_abuse_event_api(req: AbuseEventResolveRequest) -> dict:
 # Legacy endpoints for direct pair management (optional, for admin UI compatibility)
 @router.get("/list-reset-whitelist")
 async def admin_list_reset_whitelist() -> dict:
-    """Admin: List all reset whitelist pairs (legacy endpoint)."""
+    """Admin: List all reset whitelist pairs (legacy).
+
+    This is a legacy endpoint that lists all email:ip pairs in the password reset whitelist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Returns:
+        dict: A dictionary containing a "whitelist" key with a list of whitelisted pairs.
+    """
     redis_conn = await redis_manager.get_redis()
     members = await redis_conn.smembers("abuse:reset:whitelist")
     logger.debug("Admin listed reset whitelist pairs.")
@@ -115,7 +197,14 @@ async def admin_list_reset_whitelist() -> dict:
 
 @router.get("/list-reset-blocklist")
 async def admin_list_reset_blocklist() -> dict:
-    """Admin: List all reset blocklist pairs (legacy endpoint)."""
+    """Admin: List all reset blocklist pairs (legacy).
+
+    This is a legacy endpoint that lists all email:ip pairs in the password reset blocklist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Returns:
+        dict: A dictionary containing a "blocklist" key with a list of blocklisted pairs.
+    """
     redis_conn = await redis_manager.get_redis()
     members = await redis_conn.smembers("abuse:reset:blocklist")
     logger.debug("Admin listed reset blocklist pairs.")
@@ -124,7 +213,17 @@ async def admin_list_reset_blocklist() -> dict:
 
 @router.post("/whitelist-reset-pair")
 async def admin_whitelist_reset_pair(pair: EmailIpPair) -> dict:
-    """Admin: Whitelist a reset pair (legacy endpoint)."""
+    """Admin: Whitelist a reset pair (legacy).
+
+    This is a legacy endpoint to add an email:ip pair to the password reset whitelist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to whitelist.
+
+    Returns:
+        dict: A message confirming the action.
+    """
     await whitelist_reset_pair(pair.email, pair.ip)
     logger.info("Admin whitelisted reset pair: %s:%s", pair.email, pair.ip)
     return {"message": f"Whitelisted {pair.email}:{pair.ip}"}
@@ -132,7 +231,17 @@ async def admin_whitelist_reset_pair(pair: EmailIpPair) -> dict:
 
 @router.post("/block-reset-pair")
 async def admin_block_reset_pair(pair: EmailIpPair) -> dict:
-    """Admin: Block a reset pair (legacy endpoint)."""
+    """Admin: Block a reset pair (legacy).
+
+    This is a legacy endpoint to add an email:ip pair to the password reset blocklist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to block.
+
+    Returns:
+        dict: A message confirming the action.
+    """
     await block_reset_pair(pair.email, pair.ip)
     logger.info("Admin blocked reset pair: %s:%s", pair.email, pair.ip)
     return {"message": f"Blocked {pair.email}:{pair.ip}"}
@@ -140,7 +249,17 @@ async def admin_block_reset_pair(pair: EmailIpPair) -> dict:
 
 @router.delete("/whitelist-reset-pair")
 async def admin_remove_whitelist_reset_pair(pair: EmailIpPair) -> dict:
-    """Admin: Remove a reset pair from whitelist (legacy endpoint)."""
+    """Admin: Remove a reset pair from whitelist (legacy).
+
+    This is a legacy endpoint to remove an email:ip pair from the password reset whitelist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to remove.
+
+    Returns:
+        dict: A message confirming the action.
+    """
     redis_conn = await redis_manager.get_redis()
     await redis_conn.srem("abuse:reset:whitelist", f"{pair.email}:{pair.ip}")
     logger.info("Admin removed reset pair from whitelist: %s:%s", pair.email, pair.ip)
@@ -149,7 +268,17 @@ async def admin_remove_whitelist_reset_pair(pair: EmailIpPair) -> dict:
 
 @router.delete("/block-reset-pair")
 async def admin_remove_block_reset_pair(pair: EmailIpPair) -> dict:
-    """Admin: Remove a reset pair from blocklist (legacy endpoint)."""
+    """Admin: Remove a reset pair from blocklist (legacy).
+
+    This is a legacy endpoint to remove an email:ip pair from the password reset blocklist.
+    It is maintained for compatibility with older admin interfaces.
+
+    Args:
+        pair (EmailIpPair): An object containing the email and IP address to remove.
+
+    Returns:
+        dict: A message confirming the action.
+    """
     redis_conn = await redis_manager.get_redis()
     await redis_conn.srem("abuse:reset:blocklist", f"{pair.email}:{pair.ip}")
     logger.info("Admin removed reset pair from blocklist: %s:%s", pair.email, pair.ip)

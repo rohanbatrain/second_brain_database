@@ -5,29 +5,32 @@ MCP tools for comprehensive family lifecycle management, member operations,
 and relationship management using FastMCP 2.x modern patterns.
 """
 
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
+from ....config import settings
 from ....managers.family_manager import FamilyManager
 from ....managers.logging_manager import get_logger
-from ....config import settings
-from ..security import authenticated_tool, get_mcp_user_context
-from ..context import require_family_access, create_mcp_audit_trail
+from ..context import create_mcp_audit_trail, require_family_access
 from ..exceptions import MCPAuthorizationError, MCPValidationError
 from ..modern_server import mcp
+from ..security import authenticated_tool, get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_FamilyTools]")
 
 # Import manager instances
 from ....database import db_manager
-from ....managers.security_manager import security_manager
 from ....managers.redis_manager import redis_manager
+from ....managers.security_manager import security_manager
 from ..database_integration import ensure_mcp_database_connection
+
 
 # Pydantic models for MCP tool parameters and responses
 class FamilyInfo(BaseModel):
     """Family information response model."""
+
     id: str
     name: str
     description: Optional[str] = None
@@ -38,8 +41,10 @@ class FamilyInfo(BaseModel):
     account_frozen: bool = False
     limits: Dict[str, Any] = Field(default_factory=dict)
 
+
 class FamilyMember(BaseModel):
     """Family member information model."""
+
     user_id: str
     username: str
     email: Optional[str] = None
@@ -48,23 +53,29 @@ class FamilyMember(BaseModel):
     relationship: Optional[str] = None
     spending_permissions: Dict[str, Any] = Field(default_factory=dict)
 
+
 class FamilyCreateRequest(BaseModel):
     """Request model for family creation."""
+
     name: Optional[str] = Field(None, description="Family name (optional)")
+
 
 class FamilyUpdateRequest(BaseModel):
     """Request model for family settings update."""
+
     name: Optional[str] = Field(None, description="New family name")
     description: Optional[str] = Field(None, description="Family description")
     settings: Optional[Dict[str, Any]] = Field(None, description="Additional settings")
 
+
 # Core Family Management Tools (Task 4.1)
+
 
 @authenticated_tool(
     name="get_family_info",
     description="Get detailed information about a specific family",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_info(family_id: str) -> Dict[str, Any]:
     """
@@ -87,9 +98,7 @@ async def get_family_info(family_id: str) -> Dict[str, Any]:
 
     # Create family manager instance
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -105,7 +114,7 @@ async def get_family_info(family_id: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"family_name": family_details.get("name")}
+            metadata={"family_name": family_details.get("name")},
         )
 
         # Combine information
@@ -119,7 +128,7 @@ async def get_family_info(family_id: str) -> Dict[str, Any]:
             "sbd_account_username": sbd_account.get("account_username"),
             "account_frozen": sbd_account.get("account_frozen", False),
             "limits": family_details.get("limits", {}),
-            "settings": family_details.get("settings", {})
+            "settings": family_details.get("settings", {}),
         }
 
         logger.info("Retrieved family info for family %s by user %s", family_id, user_context.user_id)
@@ -134,7 +143,7 @@ async def get_family_info(family_id: str) -> Dict[str, Any]:
     name="get_family_members",
     description="Get all members of a family with their roles and relationships",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
     """
@@ -155,9 +164,7 @@ async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -173,7 +180,7 @@ async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"member_count": len(members)}
+            metadata={"member_count": len(members)},
         )
 
         # Format response
@@ -189,12 +196,13 @@ async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
                 "role": member.get("role"),
                 "joined_at": member.get("joined_at"),
                 "relationship": member_relationships[0].get("relationship") if member_relationships else None,
-                "spending_permissions": member.get("spending_permissions", {})
+                "spending_permissions": member.get("spending_permissions", {}),
             }
             result.append(member_info)
 
-        logger.info("Retrieved %d family members for family %s by user %s",
-                   len(result), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d family members for family %s by user %s", len(result), family_id, user_context.user_id
+        )
         return result
 
     except Exception as e:
@@ -206,7 +214,7 @@ async def get_family_members(family_id: str) -> List[Dict[str, Any]]:
     name="get_user_families",
     description="Get all families that the current user is a member of",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_user_families() -> List[Dict[str, Any]]:
     """
@@ -218,9 +226,7 @@ async def get_user_families() -> List[Dict[str, Any]]:
     user_context = get_mcp_user_context()
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -233,7 +239,7 @@ async def get_user_families() -> List[Dict[str, Any]]:
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={"family_count": len(families)}
+            metadata={"family_count": len(families)},
         )
 
         # Format response
@@ -246,7 +252,7 @@ async def get_user_families() -> List[Dict[str, Any]]:
                 "role": family.get("user_role"),
                 "joined_at": family.get("joined_at"),
                 "member_count": family.get("member_count", 0),
-                "sbd_account_username": family.get("sbd_account_username")
+                "sbd_account_username": family.get("sbd_account_username"),
             }
             result.append(family_info)
 
@@ -262,7 +268,7 @@ async def get_user_families() -> List[Dict[str, Any]]:
     name="create_family",
     description="Create a new family with the current user as owner",
     permissions=["family:create"],
-    rate_limit_action="family_create"
+    rate_limit_action="family_create",
 )
 async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -284,9 +290,7 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
         raise MCPValidationError("Database connection not available")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -295,14 +299,12 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
             "user_id": user_context.user_id,
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
-            "mcp_operation": True
+            "mcp_operation": True,
         }
 
         # Create family using existing manager
         family_result = await family_manager.create_family(
-            user_id=user_context.user_id,
-            name=name,
-            request_context=request_context
+            user_id=user_context.user_id, name=name, request_context=request_context
         )
 
         family_id = family_result.get("family_id")
@@ -314,7 +316,7 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
             resource_type="family",
             resource_id=family_id,
             changes={"name": name or "Generated"},
-            metadata={"sbd_account": family_result.get("sbd_account_username")}
+            metadata={"sbd_account": family_result.get("sbd_account_username")},
         )
 
         logger.info("Created family %s for user %s", family_id, user_context.user_id)
@@ -329,13 +331,13 @@ async def create_family(name: Optional[str] = None) -> Dict[str, Any]:
     name="update_family_settings",
     description="Update family settings and configuration",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def update_family_settings(
     family_id: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    settings: Optional[Dict[str, Any]] = None
+    settings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Update family settings and configuration. Requires admin role in the family.
@@ -359,9 +361,7 @@ async def update_family_settings(
     await require_family_access(family_id, required_role="admin", user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -382,15 +382,12 @@ async def update_family_settings(
             "user_id": user_context.user_id,
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
-            "mcp_operation": True
+            "mcp_operation": True,
         }
 
         # Update family using existing manager
         result = await family_manager.update_family_settings(
-            family_id=family_id,
-            admin_id=user_context.user_id,
-            updates=updates,
-            request_context=request_context
+            family_id=family_id, admin_id=user_context.user_id, updates=updates, request_context=request_context
         )
 
         # Create audit trail
@@ -400,7 +397,7 @@ async def update_family_settings(
             resource_type="family",
             resource_id=family_id,
             changes=updates,
-            metadata={"updated_fields": list(updates.keys())}
+            metadata={"updated_fields": list(updates.keys())},
         )
 
         logger.info("Updated family settings for %s by user %s", family_id, user_context.user_id)
@@ -415,7 +412,7 @@ async def update_family_settings(
     name="delete_family",
     description="Delete a family and all associated resources",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]:
     """
@@ -441,9 +438,7 @@ async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]
         raise MCPValidationError("Family deletion requires explicit confirmation (confirm=true)")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -456,14 +451,12 @@ async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
             "mcp_operation": True,
-            "confirmation": confirm
+            "confirmation": confirm,
         }
 
         # Delete family using existing manager
         result = await family_manager.delete_family(
-            family_id=family_id,
-            admin_user_id=user_context.user_id,
-            request_context=request_context
+            family_id=family_id, admin_user_id=user_context.user_id, request_context=request_context
         )
 
         # Create audit trail
@@ -476,8 +469,8 @@ async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]
             metadata={
                 "family_name": family_info.get("name"),
                 "member_count": family_info.get("member_count", 0),
-                "sbd_account": family_info.get("sbd_account_username")
-            }
+                "sbd_account": family_info.get("sbd_account_username"),
+            },
         )
 
         logger.info("Deleted family %s by user %s", family_id, user_context.user_id)
@@ -490,31 +483,32 @@ async def delete_family(family_id: str, confirm: bool = False) -> Dict[str, Any]
 
 # Family Member and Relationship Management Tools (Task 4.2)
 
+
 class FamilyMemberAddRequest(BaseModel):
     """Request model for adding family member."""
+
     email: str = Field(..., description="Email address of the user to invite")
     role: str = Field("member", description="Role to assign (member, admin)")
     relationship: Optional[str] = Field(None, description="Relationship type")
     message: Optional[str] = Field(None, description="Personal invitation message")
 
+
 class FamilyRelationshipUpdate(BaseModel):
     """Request model for updating relationships."""
+
     user_id: str = Field(..., description="User ID to update relationship for")
     relationship: str = Field(..., description="New relationship type")
     bidirectional: bool = Field(True, description="Whether to create bidirectional relationship")
+
 
 @authenticated_tool(
     name="add_family_member",
     description="Add a new member to the family through invitation workflow",
     permissions=["family:admin"],
-    rate_limit_action="family_invite"
+    rate_limit_action="family_invite",
 )
 async def add_family_member(
-    family_id: str,
-    email: str,
-    role: str = "member",
-    relationship: Optional[str] = None,
-    message: Optional[str] = None
+    family_id: str, email: str, role: str = "member", relationship: Optional[str] = None, message: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Add a new member to the family by sending an invitation.
@@ -543,9 +537,7 @@ async def add_family_member(
         raise MCPValidationError("Role must be 'member' or 'admin'")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -554,7 +546,7 @@ async def add_family_member(
             "user_id": user_context.user_id,
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
-            "mcp_operation": True
+            "mcp_operation": True,
         }
 
         # Send family invitation using existing manager
@@ -565,7 +557,7 @@ async def add_family_member(
             role=role,
             relationship=relationship,
             message=message,
-            request_context=request_context
+            request_context=request_context,
         )
 
         # Create audit trail
@@ -574,16 +566,11 @@ async def add_family_member(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "invited_email": email,
-                "role": role,
-                "relationship": relationship
-            },
-            metadata={"invitation_id": result.get("invitation_id")}
+            changes={"invited_email": email, "role": role, "relationship": relationship},
+            metadata={"invitation_id": result.get("invitation_id")},
         )
 
-        logger.info("Sent family invitation for %s to family %s by user %s",
-                   email, family_id, user_context.user_id)
+        logger.info("Sent family invitation for %s to family %s by user %s", email, family_id, user_context.user_id)
         return result
 
     except Exception as e:
@@ -595,13 +582,9 @@ async def add_family_member(
     name="remove_family_member",
     description="Remove a member from the family",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
-async def remove_family_member(
-    family_id: str,
-    member_id: str,
-    reason: Optional[str] = None
-) -> Dict[str, Any]:
+async def remove_family_member(family_id: str, member_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
     """
     Remove a member from the family with proper authorization checks.
 
@@ -627,9 +610,7 @@ async def remove_family_member(
         raise MCPAuthorizationError("Family owner cannot remove themselves")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -646,15 +627,12 @@ async def remove_family_member(
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
             "mcp_operation": True,
-            "reason": reason
+            "reason": reason,
         }
 
         # Remove family member using existing manager
         result = await family_manager.remove_family_member(
-            family_id=family_id,
-            admin_id=user_context.user_id,
-            member_id=member_id,
-            request_context=request_context
+            family_id=family_id, admin_id=user_context.user_id, member_id=member_id, request_context=request_context
         )
 
         # Create audit trail
@@ -666,13 +644,12 @@ async def remove_family_member(
             changes={
                 "removed_member_id": member_id,
                 "removed_member_username": member_info.get("username"),
-                "reason": reason
+                "reason": reason,
             },
-            metadata={"member_role": member_info.get("role")}
+            metadata={"member_role": member_info.get("role")},
         )
 
-        logger.info("Removed family member %s from family %s by user %s",
-                   member_id, family_id, user_context.user_id)
+        logger.info("Removed family member %s from family %s by user %s", member_id, family_id, user_context.user_id)
         return result
 
     except Exception as e:
@@ -684,13 +661,9 @@ async def remove_family_member(
     name="update_family_member_role",
     description="Update a family member's role",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
-async def update_family_member_role(
-    family_id: str,
-    member_id: str,
-    new_role: str
-) -> Dict[str, Any]:
+async def update_family_member_role(family_id: str, member_id: str, new_role: str) -> Dict[str, Any]:
     """
     Update a family member's role (admin operations).
 
@@ -720,9 +693,7 @@ async def update_family_member_role(
         raise MCPAuthorizationError("Cannot change owner role")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -739,10 +710,7 @@ async def update_family_member_role(
         # Note: This would use the family manager's role update functionality
         # For now, we'll use a generic update approach
         result = await family_manager.update_family_member_role(
-            family_id=family_id,
-            admin_id=user_context.user_id,
-            member_id=member_id,
-            new_role=new_role
+            family_id=family_id, admin_id=user_context.user_id, member_id=member_id, new_role=new_role
         )
 
         # Create audit trail
@@ -751,16 +719,18 @@ async def update_family_member_role(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "member_id": member_id,
-                "old_role": old_role,
-                "new_role": new_role
-            },
-            metadata={"member_username": member_info.get("username")}
+            changes={"member_id": member_id, "old_role": old_role, "new_role": new_role},
+            metadata={"member_username": member_info.get("username")},
         )
 
-        logger.info("Updated role for member %s in family %s from %s to %s by user %s",
-                   member_id, family_id, old_role, new_role, user_context.user_id)
+        logger.info(
+            "Updated role for member %s in family %s from %s to %s by user %s",
+            member_id,
+            family_id,
+            old_role,
+            new_role,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
@@ -772,13 +742,10 @@ async def update_family_member_role(
     name="update_relationship",
     description="Update bidirectional relationships between family members",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def update_relationship(
-    family_id: str,
-    user_id: str,
-    relationship: str,
-    bidirectional: bool = True
+    family_id: str, user_id: str, relationship: str, bidirectional: bool = True
 ) -> Dict[str, Any]:
     """
     Update bidirectional relationships between family members.
@@ -802,9 +769,7 @@ async def update_relationship(
     await require_family_access(family_id, required_role="admin", user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -814,7 +779,7 @@ async def update_relationship(
             admin_id=user_context.user_id,
             user_id=user_id,
             relationship=relationship,
-            bidirectional=bidirectional
+            bidirectional=bidirectional,
         )
 
         # Create audit trail
@@ -823,15 +788,16 @@ async def update_relationship(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "target_user_id": user_id,
-                "relationship": relationship,
-                "bidirectional": bidirectional
-            }
+            changes={"target_user_id": user_id, "relationship": relationship, "bidirectional": bidirectional},
         )
 
-        logger.info("Updated relationship for user %s in family %s to %s by user %s",
-                   user_id, family_id, relationship, user_context.user_id)
+        logger.info(
+            "Updated relationship for user %s in family %s to %s by user %s",
+            user_id,
+            family_id,
+            relationship,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
@@ -843,7 +809,7 @@ async def update_relationship(
     name="get_family_relationships",
     description="Get relationship mapping for all family members",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
     """
@@ -864,9 +830,7 @@ async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -879,11 +843,12 @@ async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"relationship_count": len(relationships)}
+            metadata={"relationship_count": len(relationships)},
         )
 
-        logger.info("Retrieved %d relationships for family %s by user %s",
-                   len(relationships), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d relationships for family %s by user %s", len(relationships), family_id, user_context.user_id
+        )
         return relationships
 
     except Exception as e:
@@ -895,7 +860,7 @@ async def get_family_relationships(family_id: str) -> List[Dict[str, Any]]:
     name="promote_to_admin",
     description="Promote a family member to admin role",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def promote_to_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     """
@@ -915,7 +880,7 @@ async def promote_to_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     name="demote_from_admin",
     description="Demote a family admin to member role",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def demote_from_admin(family_id: str, member_id: str) -> Dict[str, Any]:
     """
@@ -933,14 +898,18 @@ async def demote_from_admin(family_id: str, member_id: str) -> Dict[str, Any]:
 
 # Family Invitation and Notification Tools (Task 4.3)
 
+
 class FamilyInvitationRequest(BaseModel):
     """Request model for sending family invitation."""
+
     email: str = Field(..., description="Email address of the user to invite")
     relationship: Optional[str] = Field(None, description="Relationship type")
     message: Optional[str] = Field(None, description="Personal invitation message")
 
+
 class FamilyInvitationResponse(BaseModel):
     """Response model for family invitation operations."""
+
     invitation_id: str
     family_id: str
     invitee_email: str
@@ -948,25 +917,25 @@ class FamilyInvitationResponse(BaseModel):
     expires_at: datetime
     created_at: datetime
 
+
 class NotificationPreferencesUpdate(BaseModel):
     """Request model for updating notification preferences."""
+
     email_notifications: Optional[bool] = Field(None, description="Enable email notifications")
     push_notifications: Optional[bool] = Field(None, description="Enable push notifications")
     family_activity: Optional[bool] = Field(None, description="Notify on family activity")
     token_requests: Optional[bool] = Field(None, description="Notify on token requests")
     member_changes: Optional[bool] = Field(None, description="Notify on member changes")
 
+
 @authenticated_tool(
     name="send_family_invitation",
     description="Send a family invitation to a user via email",
     permissions=["family:admin"],
-    rate_limit_action="family_invite"
+    rate_limit_action="family_invite",
 )
 async def send_family_invitation(
-    family_id: str,
-    email: str,
-    relationship: Optional[str] = None,
-    message: Optional[str] = None
+    family_id: str, email: str, relationship: Optional[str] = None, message: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Send a family invitation to a user via email using existing email system.
@@ -990,9 +959,7 @@ async def send_family_invitation(
     await require_family_access(family_id, required_role="admin", user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1002,7 +969,7 @@ async def send_family_invitation(
             inviter_id=user_context.user_id,
             identifier=email,
             relationship_type=relationship or "family_member",
-            message=message
+            message=message,
         )
 
         # Create audit trail
@@ -1011,16 +978,11 @@ async def send_family_invitation(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "invited_email": email,
-                "relationship": relationship,
-                "message_provided": bool(message)
-            },
-            metadata={"invitation_id": result.get("invitation_id")}
+            changes={"invited_email": email, "relationship": relationship, "message_provided": bool(message)},
+            metadata={"invitation_id": result.get("invitation_id")},
         )
 
-        logger.info("Sent family invitation for %s to family %s by user %s",
-                   email, family_id, user_context.user_id)
+        logger.info("Sent family invitation for %s to family %s by user %s", email, family_id, user_context.user_id)
         return result
 
     except Exception as e:
@@ -1032,7 +994,7 @@ async def send_family_invitation(
     name="accept_family_invitation",
     description="Accept a family invitation using invitation token",
     permissions=["family:join"],
-    rate_limit_action="family_join"
+    rate_limit_action="family_join",
 )
 async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
     """
@@ -1050,17 +1012,13 @@ async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
     user_context = get_mcp_user_context()
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Accept invitation using existing manager
         result = await family_manager.respond_to_invitation_by_token(
-            invitation_token=invitation_token,
-            user_id=user_context.user_id,
-            action="accept"
+            invitation_token=invitation_token, user_id=user_context.user_id, action="accept"
         )
 
         # Create audit trail
@@ -1072,12 +1030,13 @@ async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
             changes={"action": "accept"},
             metadata={
                 "invitation_token": invitation_token[:8] + "...",  # Partial token for security
-                "family_name": result.get("family_name")
-            }
+                "family_name": result.get("family_name"),
+            },
         )
 
-        logger.info("Accepted family invitation by user %s for family %s",
-                   user_context.user_id, result.get("family_id"))
+        logger.info(
+            "Accepted family invitation by user %s for family %s", user_context.user_id, result.get("family_id")
+        )
         return result
 
     except Exception as e:
@@ -1089,7 +1048,7 @@ async def accept_family_invitation(invitation_token: str) -> Dict[str, Any]:
     name="decline_family_invitation",
     description="Decline a family invitation using invitation token",
     permissions=["family:join"],
-    rate_limit_action="family_join"
+    rate_limit_action="family_join",
 )
 async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
     """
@@ -1107,17 +1066,13 @@ async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
     user_context = get_mcp_user_context()
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Decline invitation using existing manager
         result = await family_manager.respond_to_invitation_by_token(
-            invitation_token=invitation_token,
-            user_id=user_context.user_id,
-            action="decline"
+            invitation_token=invitation_token, user_id=user_context.user_id, action="decline"
         )
 
         # Create audit trail
@@ -1129,12 +1084,13 @@ async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
             changes={"action": "decline"},
             metadata={
                 "invitation_token": invitation_token[:8] + "...",  # Partial token for security
-                "family_name": result.get("family_name")
-            }
+                "family_name": result.get("family_name"),
+            },
         )
 
-        logger.info("Declined family invitation by user %s for family %s",
-                   user_context.user_id, result.get("family_id"))
+        logger.info(
+            "Declined family invitation by user %s for family %s", user_context.user_id, result.get("family_id")
+        )
         return result
 
     except Exception as e:
@@ -1146,7 +1102,7 @@ async def decline_family_invitation(invitation_token: str) -> Dict[str, Any]:
     name="list_pending_invitations",
     description="List pending family invitations for invitation management",
     permissions=["family:admin"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
     """
@@ -1167,17 +1123,13 @@ async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
     await require_family_access(family_id, required_role="admin", user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Get family invitations using existing manager
         invitations = await family_manager.get_family_invitations(
-            family_id=family_id,
-            user_id=user_context.user_id,
-            status_filter="pending"
+            family_id=family_id, user_id=user_context.user_id, status_filter="pending"
         )
 
         # Create audit trail
@@ -1186,11 +1138,15 @@ async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"invitation_count": len(invitations)}
+            metadata={"invitation_count": len(invitations)},
         )
 
-        logger.info("Retrieved %d pending invitations for family %s by user %s",
-                   len(invitations), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d pending invitations for family %s by user %s",
+            len(invitations),
+            family_id,
+            user_context.user_id,
+        )
         return invitations
 
     except Exception as e:
@@ -1202,13 +1158,10 @@ async def list_pending_invitations(family_id: str) -> List[Dict[str, Any]]:
     name="get_family_notifications",
     description="Get family notifications for notification retrieval",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_notifications(
-    family_id: str,
-    limit: int = 50,
-    offset: int = 0,
-    status_filter: Optional[str] = None
+    family_id: str, limit: int = 50, offset: int = 0, status_filter: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Get family notifications for notification retrieval with pagination.
@@ -1239,19 +1192,13 @@ async def get_family_notifications(
         raise MCPValidationError("Offset cannot be negative")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Get family notifications using existing manager
         result = await family_manager.get_family_notifications(
-            family_id=family_id,
-            user_id=user_context.user_id,
-            limit=limit,
-            offset=offset,
-            status_filter=status_filter
+            family_id=family_id, user_id=user_context.user_id, limit=limit, offset=offset, status_filter=status_filter
         )
 
         # Create audit trail
@@ -1264,12 +1211,16 @@ async def get_family_notifications(
                 "notification_count": len(result.get("notifications", [])),
                 "limit": limit,
                 "offset": offset,
-                "status_filter": status_filter
-            }
+                "status_filter": status_filter,
+            },
         )
 
-        logger.info("Retrieved %d notifications for family %s by user %s",
-                   len(result.get("notifications", [])), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d notifications for family %s by user %s",
+            len(result.get("notifications", [])),
+            family_id,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
@@ -1281,12 +1232,9 @@ async def get_family_notifications(
     name="mark_notifications_read",
     description="Mark specific notifications as read for notification management",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
-async def mark_notifications_read(
-    family_id: str,
-    notification_ids: List[str]
-) -> Dict[str, Any]:
+async def mark_notifications_read(family_id: str, notification_ids: List[str]) -> Dict[str, Any]:
     """
     Mark specific notifications as read for notification management.
 
@@ -1313,17 +1261,13 @@ async def mark_notifications_read(
         raise MCPValidationError("Cannot mark more than 100 notifications at once")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Mark notifications as read using existing manager
         result = await family_manager.mark_notifications_read(
-            family_id=family_id,
-            user_id=user_context.user_id,
-            notification_ids=notification_ids
+            family_id=family_id, user_id=user_context.user_id, notification_ids=notification_ids
         )
 
         # Create audit trail
@@ -1333,11 +1277,15 @@ async def mark_notifications_read(
             resource_type="family",
             resource_id=family_id,
             changes={"marked_count": result.get("marked_count", 0)},
-            metadata={"notification_ids": notification_ids[:10]}  # Limit for audit log size
+            metadata={"notification_ids": notification_ids[:10]},  # Limit for audit log size
         )
 
-        logger.info("Marked %d notifications as read for family %s by user %s",
-                   result.get("marked_count", 0), family_id, user_context.user_id)
+        logger.info(
+            "Marked %d notifications as read for family %s by user %s",
+            result.get("marked_count", 0),
+            family_id,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
@@ -1349,7 +1297,7 @@ async def mark_notifications_read(
     name="mark_all_notifications_read",
     description="Mark all notifications as read for a family",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
     """
@@ -1370,17 +1318,12 @@ async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Mark all notifications as read using existing manager
-        result = await family_manager.mark_all_notifications_read(
-            family_id=family_id,
-            user_id=user_context.user_id
-        )
+        result = await family_manager.mark_all_notifications_read(family_id=family_id, user_id=user_context.user_id)
 
         # Create audit trail
         await create_mcp_audit_trail(
@@ -1388,11 +1331,15 @@ async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={"marked_count": result.get("marked_count", 0)}
+            changes={"marked_count": result.get("marked_count", 0)},
         )
 
-        logger.info("Marked all %d notifications as read for family %s by user %s",
-                   result.get("marked_count", 0), family_id, user_context.user_id)
+        logger.info(
+            "Marked all %d notifications as read for family %s by user %s",
+            result.get("marked_count", 0),
+            family_id,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
@@ -1404,14 +1351,14 @@ async def mark_all_notifications_read(family_id: str) -> Dict[str, Any]:
     name="update_notification_preferences",
     description="Update user notification preferences",
     permissions=["profile:write"],
-    rate_limit_action="profile_update"
+    rate_limit_action="profile_update",
 )
 async def update_notification_preferences(
     email_notifications: Optional[bool] = None,
     push_notifications: Optional[bool] = None,
     family_activity: Optional[bool] = None,
     token_requests: Optional[bool] = None,
-    member_changes: Optional[bool] = None
+    member_changes: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Update user notification preferences for family-related notifications.
@@ -1445,16 +1392,13 @@ async def update_notification_preferences(
         raise MCPValidationError("At least one preference must be provided")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Update notification preferences using existing manager
         result = await family_manager.update_notification_preferences(
-            user_id=user_context.user_id,
-            preferences=preferences
+            user_id=user_context.user_id, preferences=preferences
         )
 
         # Create audit trail
@@ -1464,11 +1408,10 @@ async def update_notification_preferences(
             resource_type="user",
             resource_id=user_context.user_id,
             changes=preferences,
-            metadata={"updated_fields": list(preferences.keys())}
+            metadata={"updated_fields": list(preferences.keys())},
         )
 
-        logger.info("Updated notification preferences for user %s: %s",
-                   user_context.user_id, preferences)
+        logger.info("Updated notification preferences for user %s: %s", user_context.user_id, preferences)
         return result
 
     except Exception as e:
@@ -1480,7 +1423,7 @@ async def update_notification_preferences(
     name="get_notification_preferences",
     description="Get current user notification preferences",
     permissions=["profile:read"],
-    rate_limit_action="profile_read"
+    rate_limit_action="profile_read",
 )
 async def get_notification_preferences() -> Dict[str, Any]:
     """
@@ -1492,23 +1435,19 @@ async def get_notification_preferences() -> Dict[str, Any]:
     user_context = get_mcp_user_context()
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Get notification preferences using existing manager
-        result = await family_manager.get_notification_preferences(
-            user_id=user_context.user_id
-        )
+        result = await family_manager.get_notification_preferences(user_id=user_context.user_id)
 
         # Create audit trail
         await create_mcp_audit_trail(
             operation="get_notification_preferences",
             user_context=user_context,
             resource_type="user",
-            resource_id=user_context.user_id
+            resource_id=user_context.user_id,
         )
 
         logger.info("Retrieved notification preferences for user %s", user_context.user_id)
@@ -1523,7 +1462,7 @@ async def get_notification_preferences() -> Dict[str, Any]:
     name="get_received_invitations",
     description="Get invitations received by the current user",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_received_invitations(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
@@ -1538,9 +1477,7 @@ async def get_received_invitations(status_filter: Optional[str] = None) -> List[
     user_context = get_mcp_user_context()
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1548,7 +1485,7 @@ async def get_received_invitations(status_filter: Optional[str] = None) -> List[
         invitations = await family_manager.get_received_invitations(
             user_id=user_context.user_id,
             user_email=user_context.email,  # Include email-based invitations
-            status_filter=status_filter
+            status_filter=status_filter,
         )
 
         # Create audit trail
@@ -1557,14 +1494,10 @@ async def get_received_invitations(status_filter: Optional[str] = None) -> List[
             user_context=user_context,
             resource_type="user",
             resource_id=user_context.user_id,
-            metadata={
-                "invitation_count": len(invitations),
-                "status_filter": status_filter
-            }
+            metadata={"invitation_count": len(invitations), "status_filter": status_filter},
         )
 
-        logger.info("Retrieved %d received invitations for user %s",
-                   len(invitations), user_context.user_id)
+        logger.info("Retrieved %d received invitations for user %s", len(invitations), user_context.user_id)
         return invitations
 
     except Exception as e:
@@ -1574,32 +1507,41 @@ async def get_received_invitations(status_filter: Optional[str] = None) -> List[
 
 # Family SBD Token Management Tools (Task 4.4)
 
+
 class TokenRequestCreate(BaseModel):
     """Request model for creating SBD token request."""
+
     amount: int = Field(..., gt=0, description="Amount of SBD tokens to request")
     reason: str = Field(..., min_length=5, max_length=500, description="Reason for the token request")
 
+
 class TokenRequestReview(BaseModel):
     """Request model for reviewing token request."""
+
     action: str = Field(..., pattern="^(approve|deny)$", description="Action to take (approve or deny)")
     comments: Optional[str] = Field(None, max_length=500, description="Optional admin comments")
 
+
 class SpendingPermissionsUpdate(BaseModel):
     """Request model for updating spending permissions."""
+
     target_user_id: str = Field(..., description="User ID to update permissions for")
     can_spend: bool = Field(..., description="Whether user can spend tokens")
     spending_limit: int = Field(..., ge=-1, description="Spending limit (-1 for unlimited)")
 
+
 class AccountFreezeRequest(BaseModel):
     """Request model for freezing/unfreezing account."""
+
     action: str = Field(..., pattern="^(freeze|unfreeze)$", description="Action to take")
     reason: Optional[str] = Field(None, description="Reason for freezing (required for freeze)")
+
 
 @authenticated_tool(
     name="get_family_sbd_account",
     description="Get family SBD account information including balance and permissions",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
     """
@@ -1621,9 +1563,7 @@ async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1636,7 +1576,7 @@ async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            metadata={"account_username": account_data.get("account_username")}
+            metadata={"account_username": account_data.get("account_username")},
         )
 
         logger.info("Retrieved SBD account info for family %s by user %s", family_id, user_context.user_id)
@@ -1651,13 +1591,9 @@ async def get_family_sbd_account(family_id: str) -> Dict[str, Any]:
     name="create_token_request",
     description="Create a token request from the family SBD account",
     permissions=["family:member"],
-    rate_limit_action="token_request_create"
+    rate_limit_action="token_request_create",
 )
-async def create_token_request(
-    family_id: str,
-    amount: int,
-    reason: str
-) -> Dict[str, Any]:
+async def create_token_request(family_id: str, amount: int, reason: str) -> Dict[str, Any]:
     """
     Create a token request from the family SBD account for member spending.
 
@@ -1685,9 +1621,7 @@ async def create_token_request(
         raise MCPValidationError("Reason must be between 5 and 500 characters")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1696,7 +1630,7 @@ async def create_token_request(
             "user_id": user_context.user_id,
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
-            "mcp_operation": True
+            "mcp_operation": True,
         }
 
         # Create token request using existing manager
@@ -1705,7 +1639,7 @@ async def create_token_request(
             user_id=user_context.user_id,
             amount=amount,
             reason=reason,
-            request_context=request_context
+            request_context=request_context,
         )
 
         # Create audit trail
@@ -1714,24 +1648,21 @@ async def create_token_request(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "amount": amount,
-                "reason": reason,
-                "request_id": request_data.get("request_id")
-            },
-            metadata={
-                "auto_approved": request_data.get("auto_approved", False),
-                "status": request_data.get("status")
-            }
+            changes={"amount": amount, "reason": reason, "request_id": request_data.get("request_id")},
+            metadata={"auto_approved": request_data.get("auto_approved", False), "status": request_data.get("status")},
         )
 
-        logger.info("Created token request %s for %d tokens by user %s in family %s",
-                   request_data.get("request_id"), amount, user_context.user_id, family_id)
+        logger.info(
+            "Created token request %s for %d tokens by user %s in family %s",
+            request_data.get("request_id"),
+            amount,
+            user_context.user_id,
+            family_id,
+        )
         return request_data
 
     except Exception as e:
-        logger.error("Failed to create token request for user %s in family %s: %s",
-                    user_context.user_id, family_id, e)
+        logger.error("Failed to create token request for user %s in family %s: %s", user_context.user_id, family_id, e)
         raise MCPValidationError(f"Failed to create token request: {str(e)}")
 
 
@@ -1739,13 +1670,10 @@ async def create_token_request(
     name="review_token_request",
     description="Review a token request (approve or deny) - admin only",
     permissions=["family:admin"],
-    rate_limit_action="token_request_review"
+    rate_limit_action="token_request_review",
 )
 async def review_token_request(
-    family_id: str,
-    request_id: str,
-    action: str,
-    comments: Optional[str] = None
+    family_id: str, request_id: str, action: str, comments: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Review a pending token request by approving or denying it (admin only).
@@ -1773,9 +1701,7 @@ async def review_token_request(
         raise MCPValidationError("Action must be 'approve' or 'deny'")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1784,7 +1710,7 @@ async def review_token_request(
             "user_id": user_context.user_id,
             "ip_address": user_context.ip_address,
             "user_agent": user_context.user_agent,
-            "mcp_operation": True
+            "mcp_operation": True,
         }
 
         # Review token request using existing manager
@@ -1793,7 +1719,7 @@ async def review_token_request(
             admin_id=user_context.user_id,
             action=action,
             comments=comments,
-            request_context=request_context
+            request_context=request_context,
         )
 
         # Create audit trail
@@ -1806,16 +1732,12 @@ async def review_token_request(
                 "request_id": request_id,
                 "action": action,
                 "comments": comments,
-                "new_status": review_data.get("status")
+                "new_status": review_data.get("status"),
             },
-            metadata={
-                "amount": review_data.get("amount"),
-                "requester_user_id": review_data.get("requester_user_id")
-            }
+            metadata={"amount": review_data.get("amount"), "requester_user_id": review_data.get("requester_user_id")},
         )
 
-        logger.info("Token request %s %s by admin %s in family %s",
-                   request_id, action, user_context.user_id, family_id)
+        logger.info("Token request %s %s by admin %s in family %s", request_id, action, user_context.user_id, family_id)
         return review_data
 
     except Exception as e:
@@ -1827,14 +1749,14 @@ async def review_token_request(
     name="get_token_requests",
     description="Get token requests for a family with optional filtering",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_token_requests(
     family_id: str,
     status_filter: Optional[str] = None,
     user_filter: Optional[str] = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """
     Get token requests for a family with optional filtering and pagination.
@@ -1867,9 +1789,7 @@ async def get_token_requests(
         raise MCPValidationError("Offset cannot be negative")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -1882,7 +1802,7 @@ async def get_token_requests(
                 requests_data = {
                     "requests": requests,
                     "total_count": len(requests),
-                    "has_more": False  # Pending requests method doesn't support pagination
+                    "has_more": False,  # Pending requests method doesn't support pagination
                 }
             except MCPAuthorizationError:
                 # Non-admin users can only see their own requests
@@ -1891,9 +1811,9 @@ async def get_token_requests(
                 if status_filter:
                     requests = [r for r in requests if r.get("status") == status_filter]
                 requests_data = {
-                    "requests": requests[offset:offset+limit] if offset < len(requests) else [],
+                    "requests": requests[offset : offset + limit] if offset < len(requests) else [],
                     "total_count": len(requests),
-                    "has_more": offset + limit < len(requests)
+                    "has_more": offset + limit < len(requests),
                 }
         else:
             # For other statuses or no filter, get user's own requests
@@ -1912,9 +1832,9 @@ async def get_token_requests(
                         requests = []
 
             requests_data = {
-                "requests": requests[offset:offset+limit] if offset < len(requests) else [],
+                "requests": requests[offset : offset + limit] if offset < len(requests) else [],
                 "total_count": len(requests),
-                "has_more": offset + limit < len(requests)
+                "has_more": offset + limit < len(requests),
             }
 
         # Create audit trail
@@ -1928,12 +1848,16 @@ async def get_token_requests(
                 "status_filter": status_filter,
                 "user_filter": user_filter,
                 "limit": limit,
-                "offset": offset
-            }
+                "offset": offset,
+            },
         )
 
-        logger.info("Retrieved %d token requests for family %s by user %s",
-                   len(requests_data.get("requests", [])), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d token requests for family %s by user %s",
+            len(requests_data.get("requests", [])),
+            family_id,
+            user_context.user_id,
+        )
         return requests_data
 
     except Exception as e:
@@ -1945,13 +1869,10 @@ async def get_token_requests(
     name="update_spending_permissions",
     description="Update spending permissions for a family member - admin only",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def update_spending_permissions(
-    family_id: str,
-    target_user_id: str,
-    can_spend: bool,
-    spending_limit: int
+    family_id: str, target_user_id: str, can_spend: bool, spending_limit: int
 ) -> Dict[str, Any]:
     """
     Update spending permissions for a family member (admin only).
@@ -1979,24 +1900,16 @@ async def update_spending_permissions(
         raise MCPValidationError("Spending limit must be -1 (unlimited) or a positive number")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Prepare permissions update
-        permissions = {
-            "can_spend": can_spend,
-            "spending_limit": spending_limit
-        }
+        permissions = {"can_spend": can_spend, "spending_limit": spending_limit}
 
         # Update spending permissions using existing manager
         result = await family_manager.update_spending_permissions(
-            family_id=family_id,
-            admin_id=user_context.user_id,
-            target_user_id=target_user_id,
-            permissions=permissions
+            family_id=family_id, admin_id=user_context.user_id, target_user_id=target_user_id, permissions=permissions
         )
 
         # Create audit trail
@@ -2005,21 +1918,20 @@ async def update_spending_permissions(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "target_user_id": target_user_id,
-                "can_spend": can_spend,
-                "spending_limit": spending_limit
-            },
-            metadata={"permissions_updated": True}
+            changes={"target_user_id": target_user_id, "can_spend": can_spend, "spending_limit": spending_limit},
+            metadata={"permissions_updated": True},
         )
 
-        logger.info("Updated spending permissions for user %s in family %s by admin %s",
-                   target_user_id, family_id, user_context.user_id)
+        logger.info(
+            "Updated spending permissions for user %s in family %s by admin %s",
+            target_user_id,
+            family_id,
+            user_context.user_id,
+        )
         return result
 
     except Exception as e:
-        logger.error("Failed to update spending permissions for user %s in family %s: %s",
-                    target_user_id, family_id, e)
+        logger.error("Failed to update spending permissions for user %s in family %s: %s", target_user_id, family_id, e)
         raise MCPValidationError(f"Failed to update spending permissions: {str(e)}")
 
 
@@ -2027,12 +1939,9 @@ async def update_spending_permissions(
     name="freeze_family_account",
     description="Freeze the family SBD account to prevent spending - admin only",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
-async def freeze_family_account(
-    family_id: str,
-    reason: str
-) -> Dict[str, Any]:
+async def freeze_family_account(family_id: str, reason: str) -> Dict[str, Any]:
     """
     Freeze the family SBD account to prevent all spending (admin only).
 
@@ -2057,17 +1966,13 @@ async def freeze_family_account(
         raise MCPValidationError("Reason for freezing must be at least 5 characters")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Freeze family account using existing manager
         result = await family_manager.freeze_family_account(
-            family_id=family_id,
-            admin_id=user_context.user_id,
-            reason=reason.strip()
+            family_id=family_id, admin_id=user_context.user_id, reason=reason.strip()
         )
 
         # Create audit trail
@@ -2076,16 +1981,11 @@ async def freeze_family_account(
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "action": "freeze",
-                "reason": reason.strip(),
-                "frozen_by": user_context.user_id
-            },
-            metadata={"account_frozen": True}
+            changes={"action": "freeze", "reason": reason.strip(), "frozen_by": user_context.user_id},
+            metadata={"account_frozen": True},
         )
 
-        logger.info("Froze family account for family %s by admin %s: %s",
-                   family_id, user_context.user_id, reason)
+        logger.info("Froze family account for family %s by admin %s: %s", family_id, user_context.user_id, reason)
         return result
 
     except Exception as e:
@@ -2097,7 +1997,7 @@ async def freeze_family_account(
     name="unfreeze_family_account",
     description="Unfreeze the family SBD account to restore spending - admin only",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
     """
@@ -2119,17 +2019,12 @@ async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
     await require_family_access(family_id, required_role="admin", user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Unfreeze family account using existing manager
-        result = await family_manager.unfreeze_family_account(
-            family_id=family_id,
-            admin_id=user_context.user_id
-        )
+        result = await family_manager.unfreeze_family_account(family_id=family_id, admin_id=user_context.user_id)
 
         # Create audit trail
         await create_mcp_audit_trail(
@@ -2137,15 +2032,11 @@ async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
             user_context=user_context,
             resource_type="family",
             resource_id=family_id,
-            changes={
-                "action": "unfreeze",
-                "unfrozen_by": user_context.user_id
-            },
-            metadata={"account_frozen": False}
+            changes={"action": "unfreeze", "unfrozen_by": user_context.user_id},
+            metadata={"account_frozen": False},
         )
 
-        logger.info("Unfroze family account for family %s by admin %s",
-                   family_id, user_context.user_id)
+        logger.info("Unfroze family account for family %s by admin %s", family_id, user_context.user_id)
         return result
 
     except Exception as e:
@@ -2157,7 +2048,7 @@ async def unfreeze_family_account(family_id: str) -> Dict[str, Any]:
     name="get_family_transaction_history",
     description="Get comprehensive family SBD transaction history with filtering",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_transaction_history(
     family_id: str,
@@ -2165,7 +2056,7 @@ async def get_family_transaction_history(
     end_date: Optional[str] = None,
     transaction_types: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """
     Get comprehensive family SBD transaction history with filtering and pagination.
@@ -2205,30 +2096,27 @@ async def get_family_transaction_history(
     if start_date:
         try:
             from datetime import datetime
-            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+
+            parsed_start_date = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
         except ValueError:
             raise MCPValidationError("start_date must be in ISO format")
 
     if end_date:
         try:
             from datetime import datetime
-            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+            parsed_end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
         except ValueError:
             raise MCPValidationError("end_date must be in ISO format")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
         # Get transaction history using existing manager
         transaction_data = await family_manager.get_family_transactions(
-            family_id=family_id,
-            user_id=user_context.user_id,
-            skip=offset,
-            limit=limit
+            family_id=family_id, user_id=user_context.user_id, skip=offset, limit=limit
         )
 
         # Apply additional filtering if needed
@@ -2243,7 +2131,8 @@ async def get_family_transaction_history(
                     if isinstance(tx_date, str):
                         try:
                             from datetime import datetime
-                            tx_date = datetime.fromisoformat(tx_date.replace('Z', '+00:00'))
+
+                            tx_date = datetime.fromisoformat(tx_date.replace("Z", "+00:00"))
                         except ValueError:
                             continue
 
@@ -2257,7 +2146,7 @@ async def get_family_transaction_history(
 
         # Filter by transaction types if provided
         if transaction_types:
-            type_list = [t.strip() for t in transaction_types.split(',')]
+            type_list = [t.strip() for t in transaction_types.split(",")]
             transactions = [tx for tx in transactions if tx.get("type") in type_list]
 
         # Update transaction data with filtered results
@@ -2266,11 +2155,7 @@ async def get_family_transaction_history(
             "total_count": len(transactions),
             "has_more": transaction_data.get("has_more", False),
             "family_id": family_id,
-            "filters_applied": {
-                "start_date": start_date,
-                "end_date": end_date,
-                "transaction_types": transaction_types
-            }
+            "filters_applied": {"start_date": start_date, "end_date": end_date, "transaction_types": transaction_types},
         }
 
         # Create audit trail
@@ -2285,12 +2170,16 @@ async def get_family_transaction_history(
                 "end_date": end_date,
                 "transaction_types": transaction_types,
                 "limit": limit,
-                "offset": offset
-            }
+                "offset": offset,
+            },
         )
 
-        logger.info("Retrieved %d transactions for family %s by user %s",
-                   len(transaction_data.get("transactions", [])), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d transactions for family %s by user %s",
+            len(transaction_data.get("transactions", [])),
+            family_id,
+            user_context.user_id,
+        )
         return transaction_data
 
     except Exception as e:
@@ -2300,8 +2189,10 @@ async def get_family_transaction_history(
 
 # Family Administration and Audit Tools (Task 4.5)
 
+
 class AdminActionLog(BaseModel):
     """Model for admin action log entries."""
+
     action_id: str
     admin_user_id: str
     admin_username: str
@@ -2313,8 +2204,10 @@ class AdminActionLog(BaseModel):
     ip_address: str
     user_agent: str
 
+
 class FamilyStats(BaseModel):
     """Model for family usage statistics."""
+
     family_id: str
     member_count: int
     active_members_30d: int
@@ -2326,8 +2219,10 @@ class FamilyStats(BaseModel):
     token_requests_count: int
     pending_token_requests: int
 
+
 class FamilyLimits(BaseModel):
     """Model for family limits information."""
+
     max_members: int
     current_members: int
     max_sbd_balance: int
@@ -2337,11 +2232,12 @@ class FamilyLimits(BaseModel):
     max_pending_invitations: int
     current_pending_invitations: int
 
+
 @authenticated_tool(
     name="get_admin_actions_log",
     description="Get comprehensive audit trail of admin actions for a family",
     permissions=["family:admin"],
-    rate_limit_action="family_admin"
+    rate_limit_action="family_admin",
 )
 async def get_admin_actions_log(
     family_id: str,
@@ -2350,7 +2246,7 @@ async def get_admin_actions_log(
     action_types: Optional[str] = None,
     admin_filter: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """
     Get comprehensive audit trail of admin actions for a family with filtering.
@@ -2391,21 +2287,21 @@ async def get_admin_actions_log(
     if start_date:
         try:
             from datetime import datetime
-            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+
+            parsed_start_date = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
         except ValueError:
             raise MCPValidationError("start_date must be in ISO format")
 
     if end_date:
         try:
             from datetime import datetime
-            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+            parsed_end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
         except ValueError:
             raise MCPValidationError("end_date must be in ISO format")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -2415,10 +2311,10 @@ async def get_admin_actions_log(
             admin_id=user_context.user_id,
             start_date=parsed_start_date,
             end_date=parsed_end_date,
-            action_types=action_types.split(',') if action_types else None,
+            action_types=action_types.split(",") if action_types else None,
             admin_filter=admin_filter,
             limit=limit,
-            offset=offset
+            offset=offset,
         )
 
         # Create audit trail for accessing audit log
@@ -2434,12 +2330,16 @@ async def get_admin_actions_log(
                 "action_types": action_types,
                 "admin_filter": admin_filter,
                 "limit": limit,
-                "offset": offset
-            }
+                "offset": offset,
+            },
         )
 
-        logger.info("Retrieved %d admin action log entries for family %s by user %s",
-                   len(log_data.get("actions", [])), family_id, user_context.user_id)
+        logger.info(
+            "Retrieved %d admin action log entries for family %s by user %s",
+            len(log_data.get("actions", [])),
+            family_id,
+            user_context.user_id,
+        )
         return log_data
 
     except Exception as e:
@@ -2455,12 +2355,9 @@ async def get_admin_actions_log(
     name="get_family_stats",
     description="Get comprehensive family usage statistics and analytics",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
-async def get_family_stats(
-    family_id: str,
-    include_detailed_breakdown: bool = False
-) -> Dict[str, Any]:
+async def get_family_stats(family_id: str, include_detailed_breakdown: bool = False) -> Dict[str, Any]:
     """
     Get comprehensive family usage statistics including member activity, transactions, and growth metrics.
 
@@ -2480,9 +2377,7 @@ async def get_family_stats(
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -2498,12 +2393,16 @@ async def get_family_stats(
             "member_count": len(members),
             "active_members_30d": len([m for m in members if m.get("last_active")]),  # Simplified
             "total_transactions": len(transactions.get("transactions", [])),
-            "total_sbd_spent": sum(tx.get("amount", 0) for tx in transactions.get("transactions", []) if tx.get("type") == "spend"),
-            "total_sbd_earned": sum(tx.get("amount", 0) for tx in transactions.get("transactions", []) if tx.get("type") == "earn"),
+            "total_sbd_spent": sum(
+                tx.get("amount", 0) for tx in transactions.get("transactions", []) if tx.get("type") == "spend"
+            ),
+            "total_sbd_earned": sum(
+                tx.get("amount", 0) for tx in transactions.get("transactions", []) if tx.get("type") == "earn"
+            ),
             "current_sbd_balance": sbd_account.get("balance", 0),
             "account_frozen": sbd_account.get("account_frozen", False),
             "created_at": family_details.get("created_at"),
-            "owner_id": family_details.get("owner_id")
+            "owner_id": family_details.get("owner_id"),
         }
 
         # Add detailed breakdown if requested
@@ -2511,31 +2410,42 @@ async def get_family_stats(
             stats_data["detailed_breakdown"] = {
                 "members_by_role": {},
                 "transactions_by_type": {},
-                "monthly_activity": {}
+                "monthly_activity": {},
             }
 
             # Calculate members by role
             for member in members:
                 role = member.get("role", "member")
-                stats_data["detailed_breakdown"]["members_by_role"][role] = stats_data["detailed_breakdown"]["members_by_role"].get(role, 0) + 1
+                stats_data["detailed_breakdown"]["members_by_role"][role] = (
+                    stats_data["detailed_breakdown"]["members_by_role"].get(role, 0) + 1
+                )
 
             # Calculate transactions by type
             for tx in transactions.get("transactions", []):
                 tx_type = tx.get("type", "unknown")
-                stats_data["detailed_breakdown"]["transactions_by_type"][tx_type] = stats_data["detailed_breakdown"]["transactions_by_type"].get(tx_type, 0) + 1
+                stats_data["detailed_breakdown"]["transactions_by_type"][tx_type] = (
+                    stats_data["detailed_breakdown"]["transactions_by_type"].get(tx_type, 0) + 1
+                )
 
         # Enhance with additional computed metrics
         enhanced_stats = {
             **stats_data,
             "computed_metrics": {
                 "member_growth_rate": stats_data.get("member_growth_30d", 0),
-                "activity_score": min(100, (stats_data.get("active_members_30d", 0) / max(1, stats_data.get("member_count", 1))) * 100),
+                "activity_score": min(
+                    100, (stats_data.get("active_members_30d", 0) / max(1, stats_data.get("member_count", 1))) * 100
+                ),
                 "spending_velocity": stats_data.get("avg_daily_spending_30d", 0),
                 "invitation_success_rate": (
-                    stats_data.get("accepted_invitations", 0) /
-                    max(1, stats_data.get("total_invitations_sent", 1)) * 100
-                ) if stats_data.get("total_invitations_sent", 0) > 0 else 0
-            }
+                    (
+                        stats_data.get("accepted_invitations", 0)
+                        / max(1, stats_data.get("total_invitations_sent", 1))
+                        * 100
+                    )
+                    if stats_data.get("total_invitations_sent", 0) > 0
+                    else 0
+                ),
+            },
         }
 
         # Create audit trail
@@ -2547,8 +2457,8 @@ async def get_family_stats(
             metadata={
                 "include_detailed_breakdown": include_detailed_breakdown,
                 "member_count": stats_data.get("member_count", 0),
-                "stats_generated_at": datetime.utcnow().isoformat()
-            }
+                "stats_generated_at": datetime.utcnow().isoformat(),
+            },
         )
 
         logger.info("Retrieved family statistics for family %s by user %s", family_id, user_context.user_id)
@@ -2563,7 +2473,7 @@ async def get_family_stats(
     name="get_family_limits",
     description="Get current family limits and usage information",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def get_family_limits(family_id: str) -> Dict[str, Any]:
     """
@@ -2584,9 +2494,7 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
     await require_family_access(family_id, user_context=user_context)
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -2608,7 +2516,7 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
             "max_pending_invitations": 10,  # Default limit
             "current_pending_invitations": 0,  # Would need to get from invitations
             "account_frozen": sbd_account.get("account_frozen", False),
-            "limits_last_updated": family_details.get("updated_at")
+            "limits_last_updated": family_details.get("updated_at"),
         }
 
         # Calculate usage percentages and warnings
@@ -2616,12 +2524,22 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
             **limits_data,
             "usage_percentages": {
                 "members": (limits_data.get("current_members", 0) / max(1, limits_data.get("max_members", 1))) * 100,
-                "sbd_balance": (limits_data.get("current_sbd_balance", 0) / max(1, limits_data.get("max_sbd_balance", 1))) * 100,
-                "monthly_spending": (limits_data.get("current_monthly_spending", 0) / max(1, limits_data.get("max_monthly_spending", 1))) * 100,
-                "pending_invitations": (limits_data.get("current_pending_invitations", 0) / max(1, limits_data.get("max_pending_invitations", 1))) * 100
+                "sbd_balance": (
+                    limits_data.get("current_sbd_balance", 0) / max(1, limits_data.get("max_sbd_balance", 1))
+                )
+                * 100,
+                "monthly_spending": (
+                    limits_data.get("current_monthly_spending", 0) / max(1, limits_data.get("max_monthly_spending", 1))
+                )
+                * 100,
+                "pending_invitations": (
+                    limits_data.get("current_pending_invitations", 0)
+                    / max(1, limits_data.get("max_pending_invitations", 1))
+                )
+                * 100,
             },
             "warnings": [],
-            "recommendations": []
+            "recommendations": [],
         }
 
         # Add warnings for high usage
@@ -2648,8 +2566,8 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
             metadata={
                 "limits_checked_at": datetime.utcnow().isoformat(),
                 "warnings_count": len(enhanced_limits["warnings"]),
-                "recommendations_count": len(enhanced_limits["recommendations"])
-            }
+                "recommendations_count": len(enhanced_limits["recommendations"]),
+            },
         )
 
         logger.info("Retrieved family limits for family %s by user %s", family_id, user_context.user_id)
@@ -2664,13 +2582,10 @@ async def get_family_limits(family_id: str) -> Dict[str, Any]:
     name="emergency_admin_access",
     description="Request emergency admin access for critical family operations",
     permissions=["family:emergency"],
-    rate_limit_action="emergency_access"
+    rate_limit_action="emergency_access",
 )
 async def emergency_admin_access(
-    family_id: str,
-    emergency_reason: str,
-    contact_verification: str,
-    requested_actions: List[str]
+    family_id: str, emergency_reason: str, contact_verification: str, requested_actions: List[str]
 ) -> Dict[str, Any]:
     """
     Request emergency admin access for critical family operations when normal admin is unavailable.
@@ -2705,8 +2620,12 @@ async def emergency_admin_access(
 
     # Validate requested actions are legitimate emergency actions
     valid_emergency_actions = [
-        "unfreeze_account", "approve_urgent_token_request", "remove_malicious_member",
-        "update_emergency_contact", "designate_new_admin", "access_family_settings"
+        "unfreeze_account",
+        "approve_urgent_token_request",
+        "remove_malicious_member",
+        "update_emergency_contact",
+        "designate_new_admin",
+        "access_family_settings",
     ]
 
     invalid_actions = [action for action in requested_actions if action not in valid_emergency_actions]
@@ -2714,9 +2633,7 @@ async def emergency_admin_access(
         raise MCPValidationError(f"Invalid emergency actions requested: {invalid_actions}")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -2734,7 +2651,7 @@ async def emergency_admin_access(
             "auto_approved": False,
             "contact_verification_provided": True,
             "estimated_review_time": "24 hours",
-            "emergency_contact_notified": True
+            "emergency_contact_notified": True,
         }
 
         # Create comprehensive audit trail for emergency access
@@ -2747,19 +2664,23 @@ async def emergency_admin_access(
                 "emergency_reason": emergency_reason.strip(),
                 "requested_actions": requested_actions,
                 "emergency_request_id": emergency_request.get("request_id"),
-                "status": emergency_request.get("status")
+                "status": emergency_request.get("status"),
             },
             metadata={
                 "contact_verification_provided": True,
                 "actions_count": len(requested_actions),
                 "auto_approved": emergency_request.get("auto_approved", False),
-                "requires_manual_review": emergency_request.get("requires_manual_review", True)
-            }
+                "requires_manual_review": emergency_request.get("requires_manual_review", True),
+            },
         )
 
         # Log emergency access request with high priority
-        logger.warning("EMERGENCY ACCESS REQUESTED for family %s by user %s: %s",
-                      family_id, user_context.user_id, emergency_reason[:100])
+        logger.warning(
+            "EMERGENCY ACCESS REQUESTED for family %s by user %s: %s",
+            family_id,
+            user_context.user_id,
+            emergency_reason[:100],
+        )
 
         return emergency_request
 
@@ -2772,13 +2693,10 @@ async def emergency_admin_access(
     name="validate_family_access",
     description="Validate and check user permissions for specific family operations",
     permissions=["family:read"],
-    rate_limit_action="family_read"
+    rate_limit_action="family_read",
 )
 async def validate_family_access(
-    family_id: str,
-    operation: str,
-    target_resource: Optional[str] = None,
-    target_id: Optional[str] = None
+    family_id: str, operation: str, target_resource: Optional[str] = None, target_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Validate and check user permissions for specific family operations and resources.
@@ -2807,9 +2725,7 @@ async def validate_family_access(
         raise MCPValidationError(f"Invalid operation. Must be one of: {valid_operations}")
 
     family_manager = FamilyManager(
-        db_manager=db_manager,
-        security_manager=security_manager,
-        redis_manager=redis_manager
+        db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
     )
 
     try:
@@ -2834,7 +2750,7 @@ async def validate_family_access(
             "access_granted": False,
             "permissions": [],
             "restrictions": [],
-            "validation_details": {}
+            "validation_details": {},
         }
 
         # Check operation-specific permissions
@@ -2887,7 +2803,7 @@ async def validate_family_access(
                 "resource_type": target_resource,
                 "resource_id": target_id,
                 "access_allowed": True,  # Basic validation - could be enhanced
-                "validation_method": "basic_role_check"
+                "validation_method": "basic_role_check",
             }
             validation_result["validation_details"]["resource_access"] = resource_validation
 
@@ -2904,17 +2820,22 @@ async def validate_family_access(
                 "access_granted": validation_result["access_granted"],
                 "user_role": user_role,
                 "permissions_count": len(validation_result["permissions"]),
-                "restrictions_count": len(validation_result["restrictions"])
-            }
+                "restrictions_count": len(validation_result["restrictions"]),
+            },
         )
 
-        logger.info("Validated family access for operation %s by user %s in family %s: %s",
-                   operation, user_context.user_id, family_id,
-                   "GRANTED" if validation_result["access_granted"] else "DENIED")
+        logger.info(
+            "Validated family access for operation %s by user %s in family %s: %s",
+            operation,
+            user_context.user_id,
+            family_id,
+            "GRANTED" if validation_result["access_granted"] else "DENIED",
+        )
 
         return validation_result
 
     except Exception as e:
-        logger.error("Failed to validate family access for user %s in family %s: %s",
-                    user_context.user_id, family_id, e)
+        logger.error(
+            "Failed to validate family access for user %s in family %s: %s", user_context.user_id, family_id, e
+        )
         raise MCPValidationError(f"Failed to validate family access: {str(e)}")

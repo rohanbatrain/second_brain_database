@@ -11,13 +11,13 @@ Logging:
     - All exceptions are logged with full traceback.
 """
 
-from typing import Optional, Any
-
-from fastapi import HTTPException, status
-import redis.asyncio as redis_async
-import redis as redis_sync
 import os
 import sys
+from typing import Any, Optional
+
+from fastapi import HTTPException, status
+import redis as redis_sync
+import redis.asyncio as redis_async
 
 from second_brain_database.config import settings
 from second_brain_database.managers.logging_manager import get_logger
@@ -139,6 +139,7 @@ class RedisManager:
             serialized_value = value
         else:
             import json
+
             serialized_value = json.dumps(value, default=str)
 
         await redis_client.setex(key, expiry, serialized_value)
@@ -163,6 +164,7 @@ class RedisManager:
         # Try to deserialize JSON, fallback to string
         try:
             import json
+
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
@@ -202,6 +204,7 @@ class RedisManager:
         redis_client = await self.get_redis()
 
         import json
+
         serialized_value = json.dumps(value, default=str)
 
         if expiry:

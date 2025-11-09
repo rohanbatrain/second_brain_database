@@ -11,11 +11,11 @@ Requirements tested: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
-import sys
 import os
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any
+import sys
+from typing import Any, Dict, List
 
 
 class TokenRequestAPITester:
@@ -27,13 +27,15 @@ class TokenRequestAPITester:
     def log_test_result(self, test_name: str, success: bool, details: str = ""):
         """Log test result for reporting."""
         status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "status": status,
-            "success": success,
-            "details": details,
-            "timestamp": datetime.now().isoformat()
-        })
+        self.test_results.append(
+            {
+                "test": test_name,
+                "status": status,
+                "success": success,
+                "details": details,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         print(f"{status}: {test_name}")
         if details:
             print(f"    Details: {details}")
@@ -52,7 +54,7 @@ class TokenRequestAPITester:
                     "response_model": "TokenRequestResponse",
                     "status_code": 201,
                     "auth_required": True,
-                    "rate_limited": True
+                    "rate_limited": True,
                 },
                 "get_pending_requests": {
                     "method": "GET",
@@ -60,7 +62,7 @@ class TokenRequestAPITester:
                     "response_model": "List[TokenRequestResponse]",
                     "status_code": 200,
                     "auth_required": True,
-                    "admin_only": True
+                    "admin_only": True,
                 },
                 "review_token_request": {
                     "method": "POST",
@@ -70,8 +72,8 @@ class TokenRequestAPITester:
                     "status_code": 200,
                     "auth_required": True,
                     "admin_only": True,
-                    "rate_limited": True
-                }
+                    "rate_limited": True,
+                },
             }
 
             # Validate endpoint definitions
@@ -107,14 +109,14 @@ class TokenRequestAPITester:
                     "type": int,
                     "required": True,
                     "validation": "gt=0",
-                    "description": "Amount of tokens requested"
+                    "description": "Amount of tokens requested",
                 },
                 "reason": {
                     "type": str,
                     "required": True,
                     "validation": "max_length=500",
-                    "description": "Reason for the token request"
-                }
+                    "description": "Reason for the token request",
+                },
             }
 
             review_request_model = {
@@ -122,26 +124,20 @@ class TokenRequestAPITester:
                     "type": str,
                     "required": True,
                     "validation": "in=['approve', 'deny']",
-                    "description": "Action to take on the request"
+                    "description": "Action to take on the request",
                 },
                 "comments": {
                     "type": str,
                     "required": False,
                     "validation": "max_length=1000",
-                    "description": "Admin comments on the decision"
-                }
+                    "description": "Admin comments on the decision",
+                },
             }
 
             # Test sample requests
-            valid_create_request = {
-                "amount": 100,
-                "reason": "Need tokens for educational expenses and school supplies"
-            }
+            valid_create_request = {"amount": 100, "reason": "Need tokens for educational expenses and school supplies"}
 
-            valid_review_request = {
-                "action": "approve",
-                "comments": "Approved for educational use as requested"
-            }
+            valid_review_request = {"action": "approve", "comments": "Approved for educational use as requested"}
 
             # Validate create request
             for field, config in create_request_model.items():
@@ -193,7 +189,7 @@ class TokenRequestAPITester:
                 "created_at": str,  # ISO format datetime
                 "expires_at": str,  # ISO format datetime
                 "reviewed_at": (str, type(None)),
-                "processed_at": (str, type(None))
+                "processed_at": (str, type(None)),
             }
 
             # Test sample response
@@ -211,7 +207,7 @@ class TokenRequestAPITester:
                 "created_at": "2024-01-01T12:00:00Z",
                 "expires_at": "2024-01-08T12:00:00Z",
                 "reviewed_at": None,
-                "processed_at": None
+                "processed_at": None,
             }
 
             # Validate response structure
@@ -248,38 +244,38 @@ class TokenRequestAPITester:
                     "scenario": "Family not found",
                     "status_code": 404,
                     "error_code": "FAMILY_NOT_FOUND",
-                    "message": "Family not found or not accessible"
+                    "message": "Family not found or not accessible",
                 },
                 {
                     "scenario": "Insufficient permissions",
                     "status_code": 403,
                     "error_code": "INSUFFICIENT_PERMISSIONS",
-                    "message": "You don't have permission to perform this action"
+                    "message": "You don't have permission to perform this action",
                 },
                 {
                     "scenario": "Validation error",
                     "status_code": 400,
                     "error_code": "VALIDATION_ERROR",
-                    "message": "Invalid input data provided"
+                    "message": "Invalid input data provided",
                 },
                 {
                     "scenario": "Account frozen",
                     "status_code": 403,
                     "error_code": "ACCOUNT_FROZEN",
-                    "message": "Cannot create token requests while family account is frozen"
+                    "message": "Cannot create token requests while family account is frozen",
                 },
                 {
                     "scenario": "Rate limit exceeded",
                     "status_code": 429,
                     "error_code": "RATE_LIMIT_EXCEEDED",
-                    "message": "Too many requests. Please try again later"
+                    "message": "Too many requests. Please try again later",
                 },
                 {
                     "scenario": "Token request not found",
                     "status_code": 404,
                     "error_code": "TOKEN_REQUEST_NOT_FOUND",
-                    "message": "Token request not found or has expired"
-                }
+                    "message": "Token request not found or has expired",
+                },
             ]
 
             # Validate error response structure
@@ -288,7 +284,9 @@ class TokenRequestAPITester:
                 required_fields = ["scenario", "status_code", "error_code", "message"]
                 for field in required_fields:
                     if field not in scenario:
-                        raise AssertionError(f"Missing error field {field} for scenario: {scenario.get('scenario', 'unknown')}")
+                        raise AssertionError(
+                            f"Missing error field {field} for scenario: {scenario.get('scenario', 'unknown')}"
+                        )
 
                 # Validate status codes
                 valid_error_codes = {400, 401, 403, 404, 409, 422, 429, 500}
@@ -318,29 +316,29 @@ class TokenRequestAPITester:
                 "authentication": {
                     "required": True,
                     "methods": ["JWT", "permanent_token"],
-                    "description": "All endpoints require authentication"
+                    "description": "All endpoints require authentication",
                 },
                 "authorization": {
                     "create_request": "family_member",
                     "review_request": "family_admin",
                     "get_pending": "family_admin",
-                    "description": "Role-based access control"
+                    "description": "Role-based access control",
                 },
                 "rate_limiting": {
                     "create_request": {"limit": 10, "window": 3600},
                     "review_request": {"limit": 20, "window": 3600},
-                    "description": "Operation-specific rate limits"
+                    "description": "Operation-specific rate limits",
                 },
                 "input_validation": {
                     "required": True,
                     "sanitization": True,
-                    "description": "All inputs validated and sanitized"
+                    "description": "All inputs validated and sanitized",
                 },
                 "audit_logging": {
                     "required": True,
                     "fields": ["user_id", "operation", "timestamp", "context"],
-                    "description": "Comprehensive audit trail"
-                }
+                    "description": "Comprehensive audit trail",
+                },
             }
 
             # Validate authentication requirements
@@ -401,29 +399,29 @@ class TokenRequestAPITester:
                     "action": "create_token_request",
                     "endpoint": "POST /family/{id}/token-requests",
                     "expected_status": "pending",
-                    "triggers": ["admin_notification", "audit_log"]
+                    "triggers": ["admin_notification", "audit_log"],
                 },
                 {
                     "step": 2,
                     "action": "get_pending_requests",
                     "endpoint": "GET /family/{id}/token-requests/pending",
                     "expected_result": "list_with_new_request",
-                    "triggers": ["audit_log"]
+                    "triggers": ["audit_log"],
                 },
                 {
                     "step": 3,
                     "action": "review_request_approve",
                     "endpoint": "POST /family/{id}/token-requests/{request_id}/review",
                     "expected_status": "approved",
-                    "triggers": ["token_transfer", "notifications", "audit_log"]
+                    "triggers": ["token_transfer", "notifications", "audit_log"],
                 },
                 {
                     "step": 4,
                     "action": "verify_completion",
                     "endpoint": "GET /family/{id}/token-requests/pending",
                     "expected_result": "empty_list",
-                    "triggers": ["audit_log"]
-                }
+                    "triggers": ["audit_log"],
+                },
             ]
 
             # Validate workflow completeness
@@ -435,8 +433,11 @@ class TokenRequestAPITester:
 
                 # Validate triggers
                 valid_triggers = {
-                    "admin_notification", "audit_log", "token_transfer",
-                    "notifications", "email_notification"
+                    "admin_notification",
+                    "audit_log",
+                    "token_transfer",
+                    "notifications",
+                    "email_notification",
                 }
                 for trigger in step["triggers"]:
                     if trigger not in valid_triggers:
@@ -463,22 +464,22 @@ class TokenRequestAPITester:
                 "response_times": {
                     "create_request": {"target": 500, "max": 1000, "unit": "ms"},
                     "get_pending": {"target": 200, "max": 500, "unit": "ms"},
-                    "review_request": {"target": 300, "max": 800, "unit": "ms"}
+                    "review_request": {"target": 300, "max": 800, "unit": "ms"},
                 },
                 "throughput": {
                     "create_request": {"target": 100, "unit": "requests/minute"},
-                    "review_request": {"target": 200, "unit": "requests/minute"}
+                    "review_request": {"target": 200, "unit": "requests/minute"},
                 },
                 "concurrency": {
                     "max_concurrent_requests": 50,
                     "queue_timeout": 30000,  # ms
-                    "description": "Handle concurrent operations safely"
+                    "description": "Handle concurrent operations safely",
                 },
                 "scalability": {
                     "horizontal_scaling": True,
                     "stateless_design": True,
-                    "description": "Support horizontal scaling"
-                }
+                    "description": "Support horizontal scaling",
+                },
             }
 
             # Validate response time requirements

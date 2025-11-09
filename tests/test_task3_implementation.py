@@ -4,11 +4,12 @@ Focused test for Task 3: Build secure virtual SBD token account system
 """
 
 import asyncio
-import sys
 import os
+import sys
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
 
 async def test_task3_implementation():
     """Test the key components implemented for Task 3."""
@@ -18,17 +19,14 @@ async def test_task3_implementation():
 
     try:
         from src.second_brain_database.managers.family_manager import family_manager
+
         print("✓ Family manager imported successfully")
 
         # Test 1: Username validation against reserved prefixes
         print("\n1. Testing comprehensive username validation...")
 
         # Valid usernames
-        valid_tests = [
-            ("john_doe", True),
-            ("alice123", True),
-            ("user_test", True)
-        ]
+        valid_tests = [("john_doe", True), ("alice123", True), ("user_test", True)]
 
         for username, expected in valid_tests:
             is_valid, error_msg = await family_manager.validate_username_against_reserved_prefixes(username)
@@ -42,7 +40,7 @@ async def test_task3_implementation():
             ("admin_user", False),
             ("system_bot", False),
             ("bot_helper", False),
-            ("service_api", False)
+            ("service_api", False),
         ]
 
         for username, expected in invalid_tests:
@@ -69,7 +67,7 @@ async def test_task3_implementation():
             ("virtual_account_created", "medium"),
             ("virtual_account_deleted", "high"),
             ("unauthorized_access_attempt", "high"),
-            ("routine_operation", "low")
+            ("routine_operation", "low"),
         ]
 
         for event_type, expected_severity in test_events:
@@ -92,7 +90,7 @@ async def test_task3_implementation():
             ("Smith Family", "smith_family"),
             ("The@#$%Johnsons", "the_johnsons"),
             ("A", "family_a"),
-            ("", "default")
+            ("", "default"),
         ]
 
         for input_name, expected_pattern in test_cases:
@@ -117,10 +115,12 @@ async def test_task3_implementation():
     except Exception as e:
         print(f"✗ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
     return True
+
 
 if __name__ == "__main__":
     success = asyncio.run(test_task3_implementation())

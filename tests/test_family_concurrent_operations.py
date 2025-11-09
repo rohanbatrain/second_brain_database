@@ -12,29 +12,37 @@ Requirements: 10.1, 10.2, 10.4
 """
 
 import asyncio
-import time
-import uuid
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+import time
+from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
 import pytest
+
 
 # Mock the family manager classes to avoid Redis dependency
 class MockFamilyError(Exception):
     """Mock family error for testing."""
+
     pass
+
 
 class MockRateLimitExceeded(MockFamilyError):
     """Mock rate limit exceeded error."""
+
     pass
+
 
 class MockTransactionError(MockFamilyError):
     """Mock transaction error."""
+
     pass
+
 
 class MockValidationError(MockFamilyError):
     """Mock validation error."""
+
     pass
 
 
@@ -67,20 +75,22 @@ class MockFamilyManager:
             "admin_user_ids": [user_id],
             "member_count": 1,
             "created_at": datetime.now(timezone.utc),
-            "sbd_account": {
-                "account_username": sbd_username,
-                "balance": 0,
-                "is_frozen": False
-            },
-            "transaction_safe": True
+            "sbd_account": {"account_username": sbd_username, "balance": 0, "is_frozen": False},
+            "transaction_safe": True,
         }
 
         self.created_families.append(family_data)
         return family_data
 
-    async def invite_member(self, family_id: str, inviter_id: str, identifier: str,
-                           relationship_type: str, identifier_type: str = "email",
-                           request_context: Dict = None) -> Dict[str, Any]:
+    async def invite_member(
+        self,
+        family_id: str,
+        inviter_id: str,
+        identifier: str,
+        relationship_type: str,
+        identifier_type: str = "email",
+        request_context: Dict = None,
+    ) -> Dict[str, Any]:
         """Mock member invitation with configurable behavior."""
         await asyncio.sleep(0.005)
 
@@ -92,7 +102,7 @@ class MockFamilyManager:
             "invitee_email": identifier,
             "relationship_type": relationship_type,
             "status": "pending",
-            "created_at": datetime.now(timezone.utc)
+            "created_at": datetime.now(timezone.utc),
         }
 
         self.created_invitations.append(invitation_data)
@@ -131,7 +141,7 @@ class TestConcurrentOperations:
                 return await family_manager.create_family(
                     user_id=user_id,
                     name=f"Family of {user_id}",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
             except Exception as e:
                 return {"error": str(e), "user_id": user_id}
@@ -146,7 +156,9 @@ class TestConcurrentOperations:
         failed_creations = [r for r in results if "error" in r]
 
         # All operations should succeed (no conflicts)
-        assert len(successful_creations) == len(user_ids), f"Expected {len(user_ids)} successes, got {len(successful_creations)}"
+        assert len(successful_creations) == len(
+            user_ids
+        ), f"Expected {len(user_ids)} successes, got {len(successful_creations)}"
         assert len(failed_creations) == 0, f"Unexpected failures: {failed_creations}"
 
         # Validate family ID uniqueness
@@ -163,7 +175,9 @@ class TestConcurrentOperations:
         # Performance validation - should complete within reasonable time
         assert execution_time < 5.0, f"Concurrent operations took too long: {execution_time}s"
 
-        print(f"✓ Concurrent family creation test passed: {len(successful_creations)} families created in {execution_time:.2f}s")
+        print(
+            f"✓ Concurrent family creation test passed: {len(successful_creations)} families created in {execution_time:.2f}s"
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_member_invitations(self, family_manager):
@@ -191,7 +205,7 @@ class TestConcurrentOperations:
                     identifier=invitee_email,
                     relationship_type="sibling",
                     identifier_type="email",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
             except Exception as e:
                 return {"error": str(e), "admin_id": admin_id, "invitee_email": invitee_email}
@@ -212,7 +226,9 @@ class TestConcurrentOperations:
         failed_invitations = [r for r in results if "error" in r]
 
         # All invitations should succeed
-        assert len(successful_invitations) == len(invitee_emails), f"Expected {len(invitee_emails)} successes, got {len(successful_invitations)}"
+        assert len(successful_invitations) == len(
+            invitee_emails
+        ), f"Expected {len(invitee_emails)} successes, got {len(successful_invitations)}"
 
         # Validate invitation ID uniqueness
         invitation_ids = [r["invitation_id"] for r in successful_invitations]
@@ -225,7 +241,9 @@ class TestConcurrentOperations:
         # Validate that all invitations were actually created
         assert len(family_manager.created_invitations) == len(invitee_emails), "Not all invitations were recorded"
 
-        print(f"✓ Concurrent member invitations test passed: {len(successful_invitations)} invitations in {execution_time:.2f}s")
+        print(
+            f"✓ Concurrent member invitations test passed: {len(successful_invitations)} invitations in {execution_time:.2f}s"
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_rate_limiting_accuracy(self, family_manager):
@@ -251,7 +269,7 @@ class TestConcurrentOperations:
                 return await family_manager.create_family(
                     user_id=f"rate_limit_user_{index}",
                     name=f"Family {index}",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
             except MockRateLimitExceeded as e:
                 return {"error": "rate_limit_exceeded", "index": index}
@@ -317,7 +335,7 @@ class TestConcurrentOperations:
                 result = await family_manager.create_family(
                     user_id=user_id,
                     name=f"Family of {user_id}",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
                 return {"success": True, "user_id": user_id}
             except Exception as e:
@@ -338,7 +356,9 @@ class TestConcurrentOperations:
         assert max_concurrent_connections <= num_operations, "Too many concurrent connections"
         assert max_concurrent_connections > 0, "No connections were created"
 
-        print(f"✓ Connection pooling test passed: {max_concurrent_connections} max concurrent connections, {len(successful_ops)} operations")
+        print(
+            f"✓ Connection pooling test passed: {max_concurrent_connections} max concurrent connections, {len(successful_ops)} operations"
+        )
 
     @pytest.mark.asyncio
     async def test_cache_coherence_concurrent_updates(self, family_manager):
@@ -372,7 +392,7 @@ class TestConcurrentOperations:
                 cache_data[key] = {
                     "family_id": f"family_{update_id}",
                     "member_count": update_id,
-                    "updated_at": datetime.now(timezone.utc)
+                    "updated_at": datetime.now(timezone.utc),
                 }
 
                 return {"success": True, "update_id": update_id}
@@ -390,7 +410,9 @@ class TestConcurrentOperations:
         # Validate cache consistency
         assert len(cache_data) == num_updates, "Cache data inconsistent"
 
-        print(f"✓ Cache coherence test passed: {len(successful_updates)} concurrent updates, {cache_access_count} cache accesses")
+        print(
+            f"✓ Cache coherence test passed: {len(successful_updates)} concurrent updates, {cache_access_count} cache accesses"
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_transaction_safety(self, family_manager):
@@ -440,7 +462,7 @@ class TestConcurrentOperations:
                 result = await family_manager.create_family(
                     user_id=user_id,
                     name=f"Family of {user_id}",
-                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"}
+                    request_context={"ip_address": "127.0.0.1", "user_agent": "test"},
                 )
                 return {"success": True, "user_id": user_id}
             except Exception as e:
@@ -461,7 +483,9 @@ class TestConcurrentOperations:
         assert len(committed_transactions) == 5, f"Expected 5 committed transactions, got {len(committed_transactions)}"
         assert len(aborted_transactions) == 5, f"Expected 5 aborted transactions, got {len(aborted_transactions)}"
 
-        print(f"✓ Transaction safety test passed: {len(committed_transactions)} committed, {len(aborted_transactions)} aborted")
+        print(
+            f"✓ Transaction safety test passed: {len(committed_transactions)} committed, {len(aborted_transactions)} aborted"
+        )
 
 
 if __name__ == "__main__":

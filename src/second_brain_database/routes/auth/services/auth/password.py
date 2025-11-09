@@ -293,9 +293,7 @@ async def send_user_agent_lockdown_code_email(
 
 
 @log_performance("send_blocked_ip_notification")
-async def send_blocked_ip_notification(
-    email: str, attempted_ip: str, trusted_ips: list[str], endpoint: str
-):
+async def send_blocked_ip_notification(email: str, attempted_ip: str, trusted_ips: list[str], endpoint: str):
     """
     Send an email notification about a blocked access attempt due to IP Lockdown.
 
@@ -316,10 +314,7 @@ async def send_blocked_ip_notification(
 
     try:
         allow_once_token = await generate_temporary_ip_access_token(
-            user_email=email,
-            ip_address=attempted_ip,
-            action="allow_once",
-            endpoint=endpoint
+            user_email=email, ip_address=attempted_ip, action="allow_once", endpoint=endpoint
         )
         logger.debug("Generated allow once token for %s", email)
     except Exception as e:
@@ -327,10 +322,7 @@ async def send_blocked_ip_notification(
 
     try:
         add_to_trusted_token = await generate_temporary_ip_access_token(
-            user_email=email,
-            ip_address=attempted_ip,
-            action="add_to_trusted",
-            endpoint=endpoint
+            user_email=email, ip_address=attempted_ip, action="add_to_trusted", endpoint=endpoint
         )
         logger.debug("Generated add to trusted token for %s", email)
     except Exception as e:
@@ -349,8 +341,8 @@ async def send_blocked_ip_notification(
             "action": "notification_sent",
             "tokens_generated": {
                 "allow_once": allow_once_token is not None,
-                "add_to_trusted": add_to_trusted_token is not None
-            }
+                "add_to_trusted": add_to_trusted_token is not None,
+            },
         },
     )
 
@@ -362,7 +354,7 @@ async def send_blocked_ip_notification(
         endpoint=endpoint,
         timestamp=timestamp,
         allow_once_token=allow_once_token,
-        add_to_trusted_token=add_to_trusted_token
+        add_to_trusted_token=add_to_trusted_token,
     )
 
     try:
@@ -373,7 +365,7 @@ async def send_blocked_ip_notification(
         log_error_with_context(
             e,
             context={"email": email, "attempted_ip": attempted_ip, "endpoint": endpoint},
-            operation="send_blocked_ip_notification"
+            operation="send_blocked_ip_notification",
         )
 
 
@@ -401,10 +393,7 @@ async def send_blocked_user_agent_notification(
 
     try:
         allow_once_token = await generate_temporary_user_agent_access_token(
-            user_email=email,
-            user_agent=attempted_user_agent,
-            action="allow_once",
-            endpoint=endpoint
+            user_email=email, user_agent=attempted_user_agent, action="allow_once", endpoint=endpoint
         )
         logger.debug("Generated allow once token for %s", email)
     except Exception as e:
@@ -412,10 +401,7 @@ async def send_blocked_user_agent_notification(
 
     try:
         add_to_trusted_token = await generate_temporary_user_agent_access_token(
-            user_email=email,
-            user_agent=attempted_user_agent,
-            action="add_to_trusted",
-            endpoint=endpoint
+            user_email=email, user_agent=attempted_user_agent, action="add_to_trusted", endpoint=endpoint
         )
         logger.debug("Generated add to trusted token for %s", email)
     except Exception as e:
@@ -434,8 +420,8 @@ async def send_blocked_user_agent_notification(
             "action": "notification_sent",
             "tokens_generated": {
                 "allow_once": allow_once_token is not None,
-                "add_to_trusted": add_to_trusted_token is not None
-            }
+                "add_to_trusted": add_to_trusted_token is not None,
+            },
         },
     )
 
@@ -447,7 +433,7 @@ async def send_blocked_user_agent_notification(
         endpoint=endpoint,
         timestamp=timestamp,
         allow_once_token=allow_once_token,
-        add_to_trusted_token=add_to_trusted_token
+        add_to_trusted_token=add_to_trusted_token,
     )
 
     try:
@@ -458,5 +444,5 @@ async def send_blocked_user_agent_notification(
         log_error_with_context(
             e,
             context={"email": email, "attempted_user_agent": attempted_user_agent, "endpoint": endpoint},
-            operation="send_blocked_user_agent_notification"
+            operation="send_blocked_user_agent_notification",
         )

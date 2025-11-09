@@ -6,12 +6,13 @@ This script tests the FastMCP server functionality and identifies any issues.
 """
 
 import asyncio
-import sys
 import os
 from pathlib import Path
+import sys
 
 # Add the src directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 
 async def test_mcp_functionality():
     """Test MCP server functionality."""
@@ -22,6 +23,7 @@ async def test_mcp_functionality():
         # Test 1: Import and create MCP server
         print("1. Testing MCP server creation...")
         from src.second_brain_database.integrations.mcp.modern_server import mcp
+
         print(f"   ✅ MCP server created: {mcp.name}")
 
         # Test 2: Check server configuration
@@ -35,12 +37,22 @@ async def test_mcp_functionality():
         try:
             # Import tool modules to trigger registration
             from src.second_brain_database.integrations.mcp.tools import (
-                family_tools, shop_tools, workspace_tools, admin_tools, test_tools, auth_tools
+                admin_tools,
+                auth_tools,
+                family_tools,
+                shop_tools,
+                test_tools,
+                workspace_tools,
             )
+
             print("   ✅ Tool modules imported successfully")
 
             # Check tool count using internal access
-            tool_count = len(mcp._tool_manager._tools) if hasattr(mcp, '_tool_manager') and hasattr(mcp._tool_manager, '_tools') else 0
+            tool_count = (
+                len(mcp._tool_manager._tools)
+                if hasattr(mcp, "_tool_manager") and hasattr(mcp._tool_manager, "_tools")
+                else 0
+            )
             print(f"   Tools registered: {tool_count}")
 
             if tool_count > 0:
@@ -60,12 +72,21 @@ async def test_mcp_functionality():
         print("4. Testing resource registration...")
         try:
             from src.second_brain_database.integrations.mcp.resources import (
-                family_resources, user_resources, workspace_resources,
-                system_resources, shop_resources, test_resources
+                family_resources,
+                shop_resources,
+                system_resources,
+                test_resources,
+                user_resources,
+                workspace_resources,
             )
+
             print("   ✅ Resource modules imported successfully")
 
-            resource_count = len(mcp._resource_manager._resources) if hasattr(mcp, '_resource_manager') and hasattr(mcp._resource_manager, '_resources') else 0
+            resource_count = (
+                len(mcp._resource_manager._resources)
+                if hasattr(mcp, "_resource_manager") and hasattr(mcp._resource_manager, "_resources")
+                else 0
+            )
             print(f"   Resources registered: {resource_count}")
 
             if resource_count > 0:
@@ -134,8 +155,10 @@ async def test_mcp_functionality():
     except Exception as e:
         print(f"\n❌ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def test_server_startup():
     """Test server startup process."""
@@ -167,7 +190,7 @@ async def test_server_startup():
         health = await mcp_server_manager.health_check()
         print(f"   Status: {health['status']}")
 
-        if health['status'] == 'healthy':
+        if health["status"] == "healthy":
             print("   ✅ Server health check passed")
         else:
             print(f"   ⚠️  Server health check: {health.get('error', 'Unknown issue')}")
@@ -178,8 +201,10 @@ async def test_server_startup():
     except Exception as e:
         print(f"\n❌ Server startup test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def main():
     """Run all tests."""
@@ -203,6 +228,7 @@ async def main():
     else:
         print("❌ SOME TESTS FAILED - FastMCP has issues")
         return 1
+
 
 if __name__ == "__main__":
     try:

@@ -7,15 +7,16 @@ that work alongside the existing AI orchestration system.
 
 import asyncio
 import json
+from typing import Any, Dict, Optional
 import uuid
-from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
 
 from ...config import settings
 from ...managers.logging_manager import get_logger
 from ...managers.security_manager import SecurityManager
+
 # AIEventBus removed with ai_orchestration system
 from .websocket_integration import MCPWebSocketManager, initialize_mcp_websocket_manager
 
@@ -29,7 +30,6 @@ security = HTTPBearer(auto_error=False)
 
 # Global managers (will be initialized on startup)
 mcp_websocket_manager: Optional[MCPWebSocketManager] = None
-# ai_event_bus removed with ai_orchestration system
 security_manager: Optional[SecurityManager] = None
 
 
@@ -43,17 +43,14 @@ async def get_mcp_websocket_manager() -> MCPWebSocketManager:
 
 async def initialize_managers():
     """Initialize the MCP WebSocket manager and dependencies."""
-    global mcp_websocket_manager, ai_event_bus, security_manager
+    global mcp_websocket_manager, security_manager
 
     try:
         # Initialize security manager
         security_manager = SecurityManager()
 
-        # AI event bus removed with ai_orchestration system
-        # Initialize MCP WebSocket manager without AI event bus
-        mcp_websocket_manager = await initialize_mcp_websocket_manager(
-            None, security_manager  # Pass None for ai_event_bus
-        )
+        # Initialize MCP WebSocket manager
+        mcp_websocket_manager = await initialize_mcp_websocket_manager(security_manager)
 
         logger.info("MCP WebSocket managers initialized successfully")
 
@@ -69,7 +66,6 @@ async def mcp_websocket_endpoint(websocket: WebSocket):
 
     This endpoint provides:
     - MCP protocol message handling
-    - Integration with AI orchestration system
     - Session management and authentication
     - Real-time tool execution tracking
     """
@@ -163,10 +159,7 @@ async def list_mcp_websocket_sessions():
         if session_info:
             sessions.append(session_info)
 
-    return {
-        "active_sessions": len(sessions),
-        "sessions": sessions
-    }
+    return {"active_sessions": len(sessions), "sessions": sessions}
 
 
 @router.get("/ws/sessions/{session_id}")
@@ -192,10 +185,7 @@ async def broadcast_to_mcp_sessions(message: Dict[str, Any]):
 
     await manager.broadcast_to_mcp_sessions(message)
 
-    return {
-        "message": "Broadcast sent",
-        "active_sessions": manager.get_active_session_count()
-    }
+    return {"message": "Broadcast sent", "active_sessions": manager.get_active_session_count()}
 
 
 @router.get("/ws/health")
@@ -208,14 +198,10 @@ async def mcp_websocket_health():
             "status": "healthy",
             "active_sessions": manager.get_active_session_count(),
             "websocket_enabled": True,
-            "mcp_protocol": "2024-11-05"
+            "mcp_protocol": "2024-11-05",
         }
     except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "websocket_enabled": False
-        }
+        return {"status": "unhealthy", "error": str(e), "websocket_enabled": False}
 
 
 # Startup event to initialize managers
@@ -234,35 +220,29 @@ async def mcp_protocol_info():
         "server_name": settings.MCP_SERVER_NAME,
         "server_version": settings.MCP_SERVER_VERSION,
         "transports": ["http", "websocket"],
-        "capabilities": {
-            "tools": True,
-            "resources": True,
-            "prompts": True,
-            "logging": True
-        },
+        "capabilities": {"tools": True, "resources": True, "prompts": True, "logging": True},
         "authentication": {
             "enabled": settings.MCP_SECURITY_ENABLED,
             "required": settings.MCP_REQUIRE_AUTH,
-            "methods": ["bearer_token"] if settings.MCP_SECURITY_ENABLED else []
+            "methods": ["bearer_token"] if settings.MCP_SECURITY_ENABLED else [],
         },
         "websocket": {
             "enabled": True,
             "endpoints": ["/mcp/ws", "/mcp/ws/{session_id}"],
-            "features": ["real_time_tools", "session_management", "event_broadcasting"]
-        }
+            "features": ["real_time_tools", "session_management", "event_broadcasting"],
+        },
     }
 
 
 @router.get("/integration/status")
 async def mcp_integration_status():
-    """Get status of MCP integration with AI orchestration system."""
+    """Get status of MCP integration."""
     try:
         manager = await get_mcp_websocket_manager()
 
         return {
             "status": "integrated",
             "mcp_websocket_manager": "initialized",
-            "ai_event_bus": "connected" if ai_event_bus else "disconnected",
             "security_manager": "initialized" if security_manager else "not_initialized",
             "active_mcp_sessions": manager.get_active_session_count(),
             "features": {
@@ -270,8 +250,7 @@ async def mcp_integration_status():
                 "tool_execution_tracking": True,
                 "session_management": True,
                 "event_broadcasting": True,
-                "ai_orchestration_integration": False  # AI orchestration removed
-            }
+            },
         }
     except Exception as e:
         return {
@@ -282,6 +261,5 @@ async def mcp_integration_status():
                 "tool_execution_tracking": False,
                 "session_management": False,
                 "event_broadcasting": False,
-                "ai_orchestration_integration": False
-            }
+            },
         }

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 import time
 import uuid
+
 from fastapi import APIRouter, Depends, Request
+
 from second_brain_database.database import db_manager
 from second_brain_database.docs.models import (
     StandardErrorResponse,
@@ -10,10 +12,10 @@ from second_brain_database.docs.models import (
     create_error_responses,
     create_standard_responses,
 )
+from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns
-from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.utils.logging_utils import (
     ip_address_context,
     log_database_operation,

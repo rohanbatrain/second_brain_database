@@ -6,15 +6,15 @@ to provide comprehensive monitoring and observability for MCP operations.
 """
 
 import asyncio
-from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
-from ...managers.logging_manager import get_logger
 from ...config import settings
-from .error_recovery import mcp_recovery_manager, MCPServiceType
+from ...managers.logging_manager import get_logger
+from .alerting import AlertCategory, AlertSeverity, mcp_alert_manager
+from .context import get_mcp_request_context, get_mcp_user_context
+from .error_recovery import MCPServiceType, mcp_recovery_manager
 from .performance_monitoring import mcp_performance_monitor, track_performance
-from .alerting import mcp_alert_manager, AlertSeverity, AlertCategory
-from .context import get_mcp_user_context, get_mcp_request_context
 
 logger = get_logger(prefix="[MCP_Integration]")
 
@@ -86,7 +86,7 @@ class MCPMonitoringIntegration:
                     AlertCategory.SERVER_HEALTH,
                     "MCP Monitoring System Failure",
                     f"Failed to start MCP monitoring systems: {str(e)}",
-                    metadata={"error": str(e), "component": "monitoring_integration"}
+                    metadata={"error": str(e), "component": "monitoring_integration"},
                 )
             except Exception:  # TODO: Use specific exception type
                 pass  # Don't fail if alerting also fails
@@ -119,7 +119,7 @@ class MCPMonitoringIntegration:
         enable_performance_tracking: bool = True,
         enable_alerting: bool = True,
         *args,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         Execute an operation with comprehensive monitoring.
@@ -168,7 +168,7 @@ class MCPMonitoringIntegration:
                 user_id=user_id,
                 request_id=request_id,
                 *args,
-                **kwargs
+                **kwargs,
             )
         else:
             # Execute with performance tracking only
@@ -192,8 +192,8 @@ class MCPMonitoringIntegration:
                                     "operation": operation_name,
                                     "service_type": service_type.value,
                                     "error": str(e),
-                                    "user_id": user_id
-                                }
+                                    "user_id": user_id,
+                                },
                             )
                         raise
             else:
@@ -210,10 +210,10 @@ class MCPMonitoringIntegration:
 
             # Determine overall health
             overall_healthy = (
-                recovery_health.get("healthy", True) and
-                performance_health.get("healthy", True) and
-                alert_health.get("monitoring_enabled", True) and
-                self.monitoring_enabled
+                recovery_health.get("healthy", True)
+                and performance_health.get("healthy", True)
+                and alert_health.get("monitoring_enabled", True)
+                and self.monitoring_enabled
             )
 
             return {
@@ -223,7 +223,7 @@ class MCPMonitoringIntegration:
                 "error_recovery": recovery_health,
                 "performance_monitoring": performance_health,
                 "alerting": alert_health,
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -233,7 +233,7 @@ class MCPMonitoringIntegration:
                 "monitoring_enabled": self.monitoring_enabled,
                 "initialized": self.initialized,
                 "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     async def get_performance_summary(self) -> Dict[str, Any]:
@@ -252,21 +252,18 @@ class MCPMonitoringIntegration:
                 "performance": perf_summary,
                 "error_recovery": {
                     "circuit_breakers": recovery_health.get("circuit_breakers", {}),
-                    "bulkheads": recovery_health.get("bulkheads", {})
+                    "bulkheads": recovery_health.get("bulkheads", {}),
                 },
                 "alerting": {
                     "active_alerts": alert_status.get("active_alerts", 0),
-                    "recent_alerts": alert_status.get("recent_alerts", 0)
+                    "recent_alerts": alert_status.get("recent_alerts", 0),
                 },
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
             logger.error("Failed to get performance summary: %s", e)
-            return {
-                "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            return {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
 
     async def trigger_health_check_alerts(self) -> None:
         """Trigger alerts based on health check results."""
@@ -279,7 +276,7 @@ class MCPMonitoringIntegration:
                     AlertCategory.SERVER_HEALTH,
                     "MCP Monitoring System Unhealthy",
                     "One or more MCP monitoring systems are unhealthy",
-                    metadata=health_status
+                    metadata=health_status,
                 )
 
             # Check specific subsystems
@@ -289,7 +286,7 @@ class MCPMonitoringIntegration:
                     AlertCategory.CIRCUIT_BREAKER,
                     "MCP Error Recovery Issues",
                     "MCP error recovery system has issues",
-                    metadata=health_status.get("error_recovery", {})
+                    metadata=health_status.get("error_recovery", {}),
                 )
 
             if not health_status.get("performance_monitoring", {}).get("healthy", True):
@@ -298,7 +295,7 @@ class MCPMonitoringIntegration:
                     AlertCategory.PERFORMANCE,
                     "MCP Performance Monitoring Issues",
                     "MCP performance monitoring system has issues",
-                    metadata=health_status.get("performance_monitoring", {})
+                    metadata=health_status.get("performance_monitoring", {}),
                 )
 
         except Exception as e:
@@ -316,7 +313,7 @@ def with_comprehensive_monitoring(
     resource_type: Optional[str] = None,
     enable_recovery: bool = True,
     enable_performance_tracking: bool = True,
-    enable_alerting: bool = True
+    enable_alerting: bool = True,
 ):
     """
     Decorator to add comprehensive monitoring to MCP functions.
@@ -329,6 +326,7 @@ def with_comprehensive_monitoring(
         enable_performance_tracking: Whether to track performance
         enable_alerting: Whether to enable alerting on failures
     """
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
             return await mcp_monitoring_integration.execute_monitored_operation(
@@ -340,10 +338,11 @@ def with_comprehensive_monitoring(
                 enable_performance_tracking=enable_performance_tracking,
                 enable_alerting=enable_alerting,
                 *args,
-                **kwargs
+                **kwargs,
             )
 
         return wrapper
+
     return decorator
 
 

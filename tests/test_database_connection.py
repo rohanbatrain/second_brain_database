@@ -6,11 +6,12 @@ This script tests the database connection to help diagnose the MCP database issu
 """
 
 import asyncio
-import sys
 from pathlib import Path
+import sys
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 
 async def test_database_connection():
     """Test database connection and provide diagnostics."""
@@ -20,12 +21,13 @@ async def test_database_connection():
         # Test 1: Import database manager
         print("1. Importing database manager...")
         from second_brain_database.database import db_manager
+
         print("   ✅ Database manager imported successfully")
 
         # Test 2: Connect to database
         print("2. Connecting to database...")
         try:
-            if not hasattr(db_manager, 'client') or db_manager.client is None:
+            if not hasattr(db_manager, "client") or db_manager.client is None:
                 print("   📡 Database not connected, connecting now...")
                 await db_manager.connect()
                 print("   ✅ Database connected successfully")
@@ -71,6 +73,7 @@ async def test_database_connection():
         print("6. Testing MCP database integration...")
         try:
             from second_brain_database.integrations.mcp.database_integration import initialize_mcp_database
+
             mcp_db_initialized = await initialize_mcp_database()
             if mcp_db_initialized:
                 print("   ✅ MCP database integration initialized successfully")
@@ -95,16 +98,14 @@ async def test_family_manager():
 
     try:
         # Import family manager
-        from second_brain_database.managers.family_manager import FamilyManager
         from second_brain_database.database import db_manager
-        from second_brain_database.managers.security_manager import security_manager
+        from second_brain_database.managers.family_manager import FamilyManager
         from second_brain_database.managers.redis_manager import redis_manager
+        from second_brain_database.managers.security_manager import security_manager
 
         print("1. Creating family manager instance...")
         family_manager = FamilyManager(
-            db_manager=db_manager,
-            security_manager=security_manager,
-            redis_manager=redis_manager
+            db_manager=db_manager, security_manager=security_manager, redis_manager=redis_manager
         )
         print("   ✅ Family manager created successfully")
 

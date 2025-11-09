@@ -6,13 +6,13 @@ member invitations, and role-based access control (RBAC), following the establis
 patterns in the codebase for dependency injection, custom error handling, and security.
 """
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import uuid
 
 from second_brain_database.database import db_manager
-from second_brain_database.models.workspace_models import WorkspaceDocument, WorkspaceMember
 from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.models.workspace_models import WorkspaceDocument, WorkspaceMember
 
 # Protocols for dependency injection (can be expanded later)
 # from second_brain_database.managers.family_manager import DatabaseManagerProtocol, SecurityManagerProtocol
@@ -21,35 +21,47 @@ logger = get_logger(prefix="[WorkspaceManager]")
 
 # --- Custom Exception Hierarchy for Workspaces ---
 
+
 class WorkspaceError(Exception):
     """Base exception for workspace-related errors."""
+
     def __init__(self, message: str, error_code: str = "WORKSPACE_ERROR", context: Dict[str, Any] = None):
         super().__init__(message)
         self.error_code = error_code
         self.context = context or {}
 
+
 class WorkspaceNotFound(WorkspaceError):
     """Raised when a workspace is not found."""
+
     def __init__(self, message: str = "Workspace not found."):
         super().__init__(message, "WORKSPACE_NOT_FOUND")
 
+
 class InsufficientPermissions(WorkspaceError):
     """Raised when a user lacks the required permissions for an operation."""
+
     def __init__(self, message: str = "You do not have sufficient permissions to perform this action."):
         super().__init__(message, "INSUFFICIENT_PERMISSIONS")
 
+
 class UserAlreadyMember(WorkspaceError):
     """Raised when trying to add a user who is already a member."""
+
     def __init__(self, message: str = "User is already a member of this workspace."):
         super().__init__(message, "USER_ALREADY_MEMBER")
 
+
 class UserNotMember(WorkspaceError):
     """Raised when trying to modify a user who is not a member."""
+
     def __init__(self, message: str = "User is not a member of this workspace."):
         super().__init__(message, "USER_NOT_MEMBER")
 
+
 class OwnerCannotBeRemoved(WorkspaceError):
     """Raised when attempting to remove the owner of a workspace."""
+
     def __init__(self, message: str = "The owner of the workspace cannot be removed."):
         super().__init__(message, "OWNER_CANNOT_BE_REMOVED")
 
@@ -81,11 +93,7 @@ class WorkspaceManager:
         self.logger.info(f"Attempting to create workspace '{name}' for user {user_id}")
 
         # The user who creates the workspace is the owner and initial admin.
-        owner_as_member = WorkspaceMember(
-            user_id=user_id,
-            role="admin",
-            joined_at=datetime.now(timezone.utc)
-        )
+        owner_as_member = WorkspaceMember(user_id=user_id, role="admin", joined_at=datetime.now(timezone.utc))
 
         workspace_doc = WorkspaceDocument(
             workspace_id=f"ws_{uuid.uuid4().hex[:16]}",
@@ -94,7 +102,7 @@ class WorkspaceManager:
             owner_id=user_id,
             members=[owner_as_member],
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Insert the workspace into the database
@@ -123,15 +131,10 @@ class WorkspaceManager:
         if any(member["user_id"] == user_id_to_add for member in workspace["members"]):
             raise UserAlreadyMember()
 
-        new_member = WorkspaceMember(
-            user_id=user_id_to_add,
-            role=role,
-            joined_at=datetime.now(timezone.utc)
-        )
+        new_member = WorkspaceMember(user_id=user_id_to_add, role=role, joined_at=datetime.now(timezone.utc))
 
         result = await self.workspaces_collection.update_one(
-            {"workspace_id": workspace_id},
-            {"$push": {"members": new_member.model_dump(by_alias=True)}}
+            {"workspace_id": workspace_id}, {"$push": {"members": new_member.model_dump(by_alias=True)}}
         )
 
         if result.modified_count == 0:
@@ -148,8 +151,7 @@ class WorkspaceManager:
             raise OwnerCannotBeRemoved()
 
         result = await self.workspaces_collection.update_one(
-            {"workspace_id": workspace_id},
-            {"$pull": {"members": {"user_id": user_id_to_remove}}}
+            {"workspace_id": workspace_id}, {"$pull": {"members": {"user_id": user_id_to_remove}}}
         )
 
         if result.modified_count == 0:
@@ -158,7 +160,9 @@ class WorkspaceManager:
         workspace["members"] = [m for m in workspace["members"] if m["user_id"] != user_id_to_remove]
         return workspace
 
-    async def update_member_role(self, workspace_id: str, admin_user_id: str, user_id_to_update: str, new_role: str) -> Dict[str, Any]:
+    async def update_member_role(
+        self, workspace_id: str, admin_user_id: str, user_id_to_update: str, new_role: str
+    ) -> Dict[str, Any]:
         """Updates a member's role in a workspace."""
         workspace = await self._find_workspace_if_admin(workspace_id, admin_user_id)
 
@@ -179,7 +183,7 @@ class WorkspaceManager:
         # Update the member's role
         result = await self.workspaces_collection.update_one(
             {"workspace_id": workspace_id, "members.user_id": user_id_to_update},
-            {"$set": {"members.$.role": new_role, "updated_at": datetime.now(timezone.utc)}}
+            {"$set": {"members.$.role": new_role, "updated_at": datetime.now(timezone.utc)}},
         )
 
         if result.modified_count == 0:
@@ -189,7 +193,14 @@ class WorkspaceManager:
         updated_workspace = await self.workspaces_collection.find_one({"workspace_id": workspace_id})
         return updated_workspace
 
-    async def update_workspace(self, workspace_id: str, admin_user_id: str, name: Optional[str] = None, description: Optional[str] = None, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def update_workspace(
+        self,
+        workspace_id: str,
+        admin_user_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Updates a workspace's details."""
         workspace = await self._find_workspace_if_admin(workspace_id, admin_user_id)
 
@@ -206,10 +217,7 @@ class WorkspaceManager:
 
         update_data["updated_at"] = datetime.now(timezone.utc)
 
-        result = await self.workspaces_collection.update_one(
-            {"workspace_id": workspace_id},
-            {"$set": update_data}
-        )
+        result = await self.workspaces_collection.update_one({"workspace_id": workspace_id}, {"$set": update_data})
 
         if result.modified_count == 0:
             raise WorkspaceError("Failed to update workspace.")
@@ -263,6 +271,7 @@ class WorkspaceManager:
             if member["user_id"] == user_id:
                 return member["role"]
         return None
+
 
 # Global WorkspaceManager instance
 workspace_manager = WorkspaceManager()

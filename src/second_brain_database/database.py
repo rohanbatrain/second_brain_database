@@ -91,9 +91,7 @@ class DatabaseManager:
 
                     # Replica set: presence of setName -> transactions supported
                     # Mongos: msg == 'isdbgrid' indicates mongos (which supports transactions)
-                    self.transactions_supported = bool(
-                        hello.get("setName") or hello.get("msg") == "isdbgrid"
-                    )
+                    self.transactions_supported = bool(hello.get("setName") or hello.get("msg") == "isdbgrid")
                 except Exception:
                     # If detection fails, be conservative and assume transactions are not supported
                     self.transactions_supported = False
@@ -145,7 +143,7 @@ class DatabaseManager:
                 health_logger.info(
                     "Connection pool config - MaxPoolSize: %d, MinPoolSize: %d",
                     50,  # maxPoolSize from client creation
-                    5,   # minPoolSize from client creation
+                    5,  # minPoolSize from client creation
                 )
         except Exception as e:
             health_logger.warning("Failed to log connection pool status: %s", e)
@@ -289,28 +287,6 @@ class DatabaseManager:
             await self._create_index_if_not_exists(permanent_tokens_collection, [("user_id", 1), ("is_revoked", 1)], {})
             await self._create_index_if_not_exists(permanent_tokens_collection, "created_at", {})
             await self._create_index_if_not_exists(permanent_tokens_collection, "last_used_at", {})
-
-            # WebAuthn credentials collection indexes
-            db_logger.info("Creating indexes for 'webauthn_credentials' collection")
-            webauthn_credentials_collection = self.get_collection("webauthn_credentials")
-
-            await self._create_index_if_not_exists(webauthn_credentials_collection, "credential_id", {"unique": True})
-            await self._create_index_if_not_exists(
-                webauthn_credentials_collection, [("user_id", 1), ("is_active", 1)], {}
-            )
-            await self._create_index_if_not_exists(webauthn_credentials_collection, "created_at", {})
-            await self._create_index_if_not_exists(webauthn_credentials_collection, "last_used_at", {})
-
-            # WebAuthn challenges collection indexes
-            db_logger.info("Creating indexes for 'webauthn_challenges' collection")
-            webauthn_challenges_collection = self.get_collection("webauthn_challenges")
-
-            await self._create_index_if_not_exists(webauthn_challenges_collection, "challenge", {"unique": True})
-            await self._create_index_if_not_exists(
-                webauthn_challenges_collection, "expires_at", {"expireAfterSeconds": 0}
-            )
-            await self._create_index_if_not_exists(webauthn_challenges_collection, "user_id", {})
-            await self._create_index_if_not_exists(webauthn_challenges_collection, [("type", 1), ("created_at", 1)], {})
 
             # Family management collections indexes
             await self._create_family_management_indexes()
@@ -563,7 +539,9 @@ class DatabaseManager:
             await self._create_index_if_not_exists(families_collection, "created_at", {})
             await self._create_index_if_not_exists(families_collection, "updated_at", {})
             await self._create_index_if_not_exists(families_collection, "member_count", {})
-            await self._create_index_if_not_exists(families_collection, "sbd_account.account_username", {"unique": True, "sparse": True})
+            await self._create_index_if_not_exists(
+                families_collection, "sbd_account.account_username", {"unique": True, "sparse": True}
+            )
             await self._create_index_if_not_exists(families_collection, "sbd_account.is_frozen", {})
             # Compound indexes for efficient queries
             await self._create_index_if_not_exists(families_collection, [("admin_user_ids", 1), ("is_active", 1)], {})
@@ -580,7 +558,9 @@ class DatabaseManager:
             await self._create_index_if_not_exists(relationships_collection, "created_at", {})
             await self._create_index_if_not_exists(relationships_collection, "activated_at", {})
             # Compound indexes for relationship queries
-            await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], {"unique": True})
+            await self._create_index_if_not_exists(
+                relationships_collection, [("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], {"unique": True}
+            )
             await self._create_index_if_not_exists(relationships_collection, [("family_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(relationships_collection, [("user_a_id", 1), ("status", 1)], {})
             await self._create_index_if_not_exists(relationships_collection, [("user_b_id", 1), ("status", 1)], {})
@@ -612,7 +592,9 @@ class DatabaseManager:
             await self._create_index_if_not_exists(notifications_collection, "sent_at", {})
             # Compound indexes for notification queries
             await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("status", 1)], {})
-            await self._create_index_if_not_exists(notifications_collection, [("recipient_user_ids", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(
+                notifications_collection, [("recipient_user_ids", 1), ("status", 1)], {}
+            )
             await self._create_index_if_not_exists(notifications_collection, [("family_id", 1), ("created_at", -1)], {})
 
             # Family token requests collection indexes - Token request system
@@ -627,8 +609,12 @@ class DatabaseManager:
             await self._create_index_if_not_exists(token_requests_collection, "reviewed_at", {})
             # Compound indexes for token request queries
             await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("status", 1)], {})
-            await self._create_index_if_not_exists(token_requests_collection, [("requester_user_id", 1), ("status", 1)], {})
-            await self._create_index_if_not_exists(token_requests_collection, [("family_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(
+                token_requests_collection, [("requester_user_id", 1), ("status", 1)], {}
+            )
+            await self._create_index_if_not_exists(
+                token_requests_collection, [("family_id", 1), ("created_at", -1)], {}
+            )
 
             # Family admin actions collection indexes - Admin action audit trail
             admin_actions_collection = self.get_collection("family_admin_actions")
@@ -640,8 +626,12 @@ class DatabaseManager:
             await self._create_index_if_not_exists(admin_actions_collection, "created_at", {})
             # Compound indexes for admin action queries
             await self._create_index_if_not_exists(admin_actions_collection, [("family_id", 1), ("created_at", -1)], {})
-            await self._create_index_if_not_exists(admin_actions_collection, [("admin_user_id", 1), ("created_at", -1)], {})
-            await self._create_index_if_not_exists(admin_actions_collection, [("target_user_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(
+                admin_actions_collection, [("admin_user_id", 1), ("created_at", -1)], {}
+            )
+            await self._create_index_if_not_exists(
+                admin_actions_collection, [("target_user_id", 1), ("created_at", -1)], {}
+            )
             await self._create_index_if_not_exists(admin_actions_collection, [("family_id", 1), ("action_type", 1)], {})
 
             db_logger.info("Family management collection indexes created successfully")

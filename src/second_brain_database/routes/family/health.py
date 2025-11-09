@@ -5,11 +5,12 @@ This module provides health check endpoints specifically for the family manageme
 including component health, performance metrics, and operational status monitoring.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from second_brain_database.managers.family_monitoring import family_monitor, FamilyMetrics
+from second_brain_database.managers.family_monitoring import FamilyMetrics, family_monitor
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.security_manager import security_manager
 from second_brain_database.routes.auth import enforce_all_lockdowns, require_admin
@@ -21,8 +22,7 @@ router = APIRouter(prefix="/family/health", tags=["Family Health"])
 
 @router.get("/status")
 async def get_family_system_health(
-    request: Request,
-    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+    request: Request, current_user: dict = Depends(require_admin)  # ✅ Admin-only access
 ) -> JSONResponse:
     """
     Get comprehensive health status of the family management system.
@@ -49,10 +49,7 @@ async def get_family_system_health(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_health_check_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_health_check_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -61,7 +58,7 @@ async def get_family_system_health(
         logger.info(
             "Family system health check requested by user %s - Overall healthy: %s",
             user_id,
-            health_status["overall_healthy"]
+            health_status["overall_healthy"],
         )
 
         status_code = status.HTTP_200_OK if health_status["overall_healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
@@ -75,27 +72,25 @@ async def get_family_system_health(
                 "summary": {
                     "total_components": len(health_status["components"]),
                     "healthy_components": sum(1 for comp in health_status["components"].values() if comp["healthy"]),
-                    "unhealthy_components": sum(1 for comp in health_status["components"].values() if not comp["healthy"])
-                }
+                    "unhealthy_components": sum(
+                        1 for comp in health_status["components"].values() if not comp["healthy"]
+                    ),
+                },
             },
-            status_code=status_code
+            status_code=status_code,
         )
 
     except Exception as e:
         logger.error("Failed to get family system health status: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "HEALTH_CHECK_FAILED",
-                "message": "Failed to retrieve family system health status"
-            }
+            detail={"error": "HEALTH_CHECK_FAILED", "message": "Failed to retrieve family system health status"},
         )
 
 
 @router.get("/metrics")
 async def get_family_system_metrics(
-    request: Request,
-    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+    request: Request, current_user: dict = Depends(require_admin)  # ✅ Admin-only access
 ) -> FamilyMetrics:
     """
     Get comprehensive metrics for the family management system.
@@ -121,10 +116,7 @@ async def get_family_system_metrics(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_metrics_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"family_metrics_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
@@ -134,7 +126,7 @@ async def get_family_system_metrics(
             "Family system metrics collected by user %s - Families: %d, Members: %d",
             user_id,
             metrics.total_families,
-            metrics.total_members
+            metrics.total_members,
         )
 
         return metrics
@@ -143,17 +135,13 @@ async def get_family_system_metrics(
         logger.error("Failed to collect family system metrics: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "METRICS_COLLECTION_FAILED",
-                "message": "Failed to collect family system metrics"
-            }
+            detail={"error": "METRICS_COLLECTION_FAILED", "message": "Failed to collect family system metrics"},
         )
 
 
 @router.get("/performance")
 async def get_family_performance_summary(
-    request: Request,
-    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+    request: Request, current_user: dict = Depends(require_admin)  # ✅ Admin-only access
 ) -> JSONResponse:
     """
     Get performance summary for family operations.
@@ -178,10 +166,7 @@ async def get_family_performance_summary(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_performance_{user_id}",
-        rate_limit_requests=10,
-        rate_limit_period=3600
+        request, f"family_performance_{user_id}", rate_limit_requests=10, rate_limit_period=3600
     )
 
     try:
@@ -190,29 +175,22 @@ async def get_family_performance_summary(
         logger.info(
             "Family performance summary requested by user %s - Total ops: %d",
             user_id,
-            performance_summary["overall_stats"]["total_operations"]
+            performance_summary["overall_stats"]["total_operations"],
         )
 
-        return JSONResponse(
-            content=performance_summary,
-            status_code=status.HTTP_200_OK
-        )
+        return JSONResponse(content=performance_summary, status_code=status.HTTP_200_OK)
 
     except Exception as e:
         logger.error("Failed to get family performance summary: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "PERFORMANCE_SUMMARY_FAILED",
-                "message": "Failed to retrieve family performance summary"
-            }
+            detail={"error": "PERFORMANCE_SUMMARY_FAILED", "message": "Failed to retrieve family performance summary"},
         )
 
 
 @router.post("/check")
 async def trigger_family_health_check(
-    request: Request,
-    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+    request: Request, current_user: dict = Depends(require_admin)  # ✅ Admin-only access
 ) -> JSONResponse:
     """
     Manually trigger a comprehensive family system health check.
@@ -235,10 +213,7 @@ async def trigger_family_health_check(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"family_health_trigger_{user_id}",
-        rate_limit_requests=3,
-        rate_limit_period=3600
+        request, f"family_health_trigger_{user_id}", rate_limit_requests=3, rate_limit_period=3600
     )
 
     try:
@@ -250,7 +225,7 @@ async def trigger_family_health_check(
         logger.info(
             "Manual family health check triggered by user %s - Result: %s",
             user_id,
-            "healthy" if overall_healthy else "unhealthy"
+            "healthy" if overall_healthy else "unhealthy",
         )
 
         response_data = {
@@ -262,7 +237,7 @@ async def trigger_family_health_check(
                     "healthy": status.healthy,
                     "response_time": status.response_time,
                     "error_message": status.error_message,
-                    "metadata": status.metadata
+                    "metadata": status.metadata,
                 }
                 for name, status in health_results.items()
             },
@@ -271,27 +246,21 @@ async def trigger_family_health_check(
                 "healthy_components": sum(1 for status in health_results.values() if status.healthy),
                 "unhealthy_components": sum(1 for status in health_results.values() if not status.healthy),
                 "avg_response_time": sum(
-                    status.response_time for status in health_results.values()
-                    if status.response_time is not None
-                ) / len([s for s in health_results.values() if s.response_time is not None])
-            }
+                    status.response_time for status in health_results.values() if status.response_time is not None
+                )
+                / len([s for s in health_results.values() if s.response_time is not None]),
+            },
         }
 
         status_code = status.HTTP_200_OK if overall_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
 
-        return JSONResponse(
-            content=response_data,
-            status_code=status_code
-        )
+        return JSONResponse(content=response_data, status_code=status_code)
 
     except Exception as e:
         logger.error("Failed to trigger family health check: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "HEALTH_CHECK_TRIGGER_FAILED",
-                "message": "Failed to trigger family system health check"
-            }
+            detail={"error": "HEALTH_CHECK_TRIGGER_FAILED", "message": "Failed to trigger family system health check"},
         )
 
 
@@ -314,10 +283,7 @@ async def family_system_readiness(request: Request) -> JSONResponse:
     """
     # Apply IP-based rate limiting for unauthenticated endpoint
     await security_manager.check_rate_limit(
-        request,
-        f"family_readiness_{request.client.host}",
-        rate_limit_requests=20,
-        rate_limit_period=60
+        request, f"family_readiness_{request.client.host}", rate_limit_requests=20, rate_limit_period=60
     )
 
     try:
@@ -348,29 +314,18 @@ async def family_system_readiness(request: Request) -> JSONResponse:
 
         response_data = {
             "status": "ready" if overall_ready else "not_ready",
-            "components": {
-                "database": db_healthy,
-                "redis": redis_healthy,
-                "family_collections": collections_healthy
-            }
+            "components": {"database": db_healthy, "redis": redis_healthy, "family_collections": collections_healthy},
         }
 
         status_code = status.HTTP_200_OK if overall_ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
-        return JSONResponse(
-            content=response_data,
-            status_code=status_code
-        )
+        return JSONResponse(content=response_data, status_code=status_code)
 
     except Exception as e:
         logger.error("Family readiness check failed: %s", e)
         return JSONResponse(
-            content={
-                "status": "not_ready",
-                "error": "readiness_check_failed",
-                "message": str(e)
-            },
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+            content={"status": "not_ready", "error": "readiness_check_failed", "message": str(e)},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
 
@@ -392,42 +347,30 @@ async def family_system_liveness(request: Request) -> JSONResponse:
     """
     # Apply IP-based rate limiting for unauthenticated endpoint
     await security_manager.check_rate_limit(
-        request,
-        f"family_liveness_{request.client.host}",
-        rate_limit_requests=30,
-        rate_limit_period=60
+        request, f"family_liveness_{request.client.host}", rate_limit_requests=30, rate_limit_period=60
     )
 
     try:
         # Very basic liveness check - just verify imports work
-        from second_brain_database.managers.family_monitoring import family_monitor
         from second_brain_database.managers.family_manager import family_manager
+        from second_brain_database.managers.family_monitoring import family_monitor
 
         return JSONResponse(
-            content={
-                "status": "alive",
-                "family_system": "operational",
-                "monitoring": "active"
-            },
-            status_code=status.HTTP_200_OK
+            content={"status": "alive", "family_system": "operational", "monitoring": "active"},
+            status_code=status.HTTP_200_OK,
         )
 
     except Exception as e:
         logger.error("Family liveness check failed: %s", e)
         return JSONResponse(
-            content={
-                "status": "not_alive",
-                "error": "liveness_check_failed",
-                "message": str(e)
-            },
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+            content={"status": "not_alive", "error": "liveness_check_failed", "message": str(e)},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
 
 @router.get("/error-handling")
 async def get_error_handling_health(
-    request: Request,
-    current_user: dict = Depends(require_admin)  # ✅ Admin-only access
+    request: Request, current_user: dict = Depends(require_admin)  # ✅ Admin-only access
 ) -> JSONResponse:
     """
     Get health status of the error handling and resilience system.
@@ -454,16 +397,13 @@ async def get_error_handling_health(
 
     # Apply rate limiting
     await security_manager.check_rate_limit(
-        request,
-        f"error_handling_health_{user_id}",
-        rate_limit_requests=5,
-        rate_limit_period=3600
+        request, f"error_handling_health_{user_id}", rate_limit_requests=5, rate_limit_period=3600
     )
 
     try:
         from second_brain_database.utils.error_handling import get_error_handling_health
-        from second_brain_database.utils.error_recovery import recovery_manager
         from second_brain_database.utils.error_monitoring import error_monitor
+        from second_brain_database.utils.error_recovery import recovery_manager
 
         # Get error handling component health
         error_handling_health = await get_error_handling_health()
@@ -477,23 +417,17 @@ async def get_error_handling_health(
         error_patterns = error_monitor.get_error_patterns(limit=10)
         active_alerts = error_monitor.get_active_alerts()
 
-        logger.info(
-            "Error handling health check requested by admin %s",
-            user_id
-        )
+        logger.info("Error handling health check requested by admin %s", user_id)
 
         response_data = {
             "status": "healthy" if error_handling_health["overall_healthy"] else "degraded",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "error_handling": error_handling_health,
-            "recovery_system": {
-                "statistics": recovery_stats,
-                "recent_recoveries": recent_recoveries
-            },
+            "recovery_system": {"statistics": recovery_stats, "recent_recoveries": recent_recoveries},
             "error_monitoring": {
                 "statistics": monitoring_stats,
                 "top_error_patterns": error_patterns,
-                "active_alerts": active_alerts
+                "active_alerts": active_alerts,
             },
             "system_resilience": {
                 "circuit_breakers_healthy": all(
@@ -503,16 +437,15 @@ async def get_error_handling_health(
                     bulkhead["rejection_rate"] < 0.1 for bulkhead in error_handling_health["bulkheads"].values()
                 ),
                 "recovery_rate_healthy": recovery_stats["success_rate"] > 0.7,
-                "error_rate_healthy": monitoring_stats["error_statistics"]["error_rate_24h"] < 10.0
-            }
+                "error_rate_healthy": monitoring_stats["error_statistics"]["error_rate_24h"] < 10.0,
+            },
         }
 
-        status_code = status.HTTP_200_OK if error_handling_health["overall_healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
-
-        return JSONResponse(
-            content=response_data,
-            status_code=status_code
+        status_code = (
+            status.HTTP_200_OK if error_handling_health["overall_healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
         )
+
+        return JSONResponse(content=response_data, status_code=status_code)
 
     except Exception as e:
         logger.error("Failed to get error handling health status: %s", e, exc_info=True)
@@ -520,6 +453,6 @@ async def get_error_handling_health(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "ERROR_HANDLING_HEALTH_CHECK_FAILED",
-                "message": "Failed to retrieve error handling system health status"
-            }
+                "message": "Failed to retrieve error handling system health status",
+            },
         )

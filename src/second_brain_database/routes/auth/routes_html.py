@@ -241,7 +241,7 @@ def render_blocked_ip_notification_email(
     endpoint: str,
     timestamp: str,
     allow_once_token: str = None,
-    add_to_trusted_token: str = None
+    add_to_trusted_token: str = None,
 ) -> str:
     """
     Render an HTML email for blocked IP access notification with action buttons.
@@ -253,7 +253,9 @@ def render_blocked_ip_notification_email(
     Returns:
         str: HTML content for the email.
     """
-    trusted_ips_html = "".join(f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 14px;'>{ip}</li>" for ip in trusted_ips)
+    trusted_ips_html = "".join(
+        f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 14px;'>{ip}</li>" for ip in trusted_ips
+    )
 
     return f"""
     <!DOCTYPE html>
@@ -480,7 +482,7 @@ def render_blocked_user_agent_notification_email(
     endpoint: str,
     timestamp: str,
     allow_once_token: str = None,
-    add_to_trusted_token: str = None
+    add_to_trusted_token: str = None,
 ) -> str:
     """
     Render an HTML email for blocked User Agent access notification with action buttons.
@@ -494,7 +496,10 @@ def render_blocked_user_agent_notification_email(
     Returns:
         str: HTML content for the email.
     """
-    trusted_user_agents_html = "".join(f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 12px; word-break: break-all;'>{user_agent}</li>" for user_agent in trusted_user_agents)
+    trusted_user_agents_html = "".join(
+        f"<li style='margin-bottom: 5px; font-family: monospace; font-size: 12px; word-break: break-all;'>{user_agent}</li>"
+        for user_agent in trusted_user_agents
+    )
 
     return f"""
     <!DOCTYPE html>

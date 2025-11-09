@@ -13,21 +13,22 @@ Requirements Tested:
 """
 
 import asyncio
-import pytest
-import time
-import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any, List
 from enum import Enum
+import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+import pytest
 
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Failing, rejecting requests
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, rejecting requests
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
@@ -107,7 +108,7 @@ class MockCircuitBreaker:
             "failure_count": self.failure_count,
             "success_count": self.success_count,
             "failure_threshold": self.failure_threshold,
-            "call_log": self.call_log.copy()
+            "call_log": self.call_log.copy(),
         }
 
 
@@ -151,7 +152,7 @@ class MockBulkhead:
             "total_requests": self.total_requests,
             "rejected_requests": self.rejected_requests,
             "rejection_rate": self.rejected_requests / max(self.total_requests, 1),
-            "operation_log": self.operation_log.copy()
+            "operation_log": self.operation_log.copy(),
         }
 
 
@@ -198,21 +199,25 @@ class MockRetryMechanism:
 
 class CircuitBreakerOpenError(Exception):
     """Exception raised when circuit breaker is open."""
+
     pass
 
 
 class BulkheadCapacityError(Exception):
     """Exception raised when bulkhead capacity is exceeded."""
+
     pass
 
 
 class RetryExhaustedError(Exception):
     """Exception raised when retry attempts are exhausted."""
+
     pass
 
 
 class GracefulDegradationError(Exception):
     """Exception raised when graceful degradation is triggered."""
+
     pass
 
 
@@ -291,6 +296,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.1, 8.2
         """
+
         # Mock database operation that fails
         async def database_operation():
             raise ConnectionFailure("Database connection failed")
@@ -356,7 +362,7 @@ class TestCircuitBreakerResilience:
         rejected = [r for r in results if isinstance(r, BulkheadCapacityError)]
 
         assert len(successful) <= 3  # At most capacity
-        assert len(rejected) >= 2   # At least some rejected
+        assert len(rejected) >= 2  # At least some rejected
 
         # Verify bulkhead statistics
         stats = bulkhead.get_stats()
@@ -403,6 +409,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.5, 8.6
         """
+
         # Mock a service that provides fallback functionality
         async def primary_service():
             raise ConnectionFailure("Service unavailable")
@@ -430,13 +437,15 @@ class TestCircuitBreakerResilience:
         alerts_generated = []
 
         def mock_send_alert(severity: str, title: str, message: str, context: Dict = None):
-            alerts_generated.append({
-                "severity": severity,
-                "title": title,
-                "message": message,
-                "context": context,
-                "timestamp": datetime.now(timezone.utc)
-            })
+            alerts_generated.append(
+                {
+                    "severity": severity,
+                    "title": title,
+                    "message": message,
+                    "context": context,
+                    "timestamp": datetime.now(timezone.utc),
+                }
+            )
 
         async def failing_operation():
             raise Exception("Test failure")
@@ -452,7 +461,7 @@ class TestCircuitBreakerResilience:
                 "ERROR",
                 f"Circuit Breaker Opened: {circuit_breaker.name}",
                 f"Circuit breaker {circuit_breaker.name} opened after {circuit_breaker.failure_count} failures",
-                {"circuit_breaker": circuit_breaker.name, "failure_count": circuit_breaker.failure_count}
+                {"circuit_breaker": circuit_breaker.name, "failure_count": circuit_breaker.failure_count},
             )
 
         # Verify alert was generated
@@ -510,6 +519,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.2, 8.6
         """
+
         # Cause circuit to open
         async def failing_operation():
             raise Exception("Service down")
@@ -543,6 +553,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.2, 8.5
         """
+
         # Simulate one slow operation that would block others without bulkhead
         async def slow_operation(operation_id: str):
             acquired = await bulkhead.acquire()
@@ -586,6 +597,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.1, 8.6
         """
+
         async def always_failing_operation():
             raise ConnectionFailure("Persistent failure")
 
@@ -607,6 +619,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.2, 8.6
         """
+
         # Open the circuit
         async def failing_op():
             raise Exception("Failure")

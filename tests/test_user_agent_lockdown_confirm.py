@@ -4,9 +4,10 @@ Integration test for User Agent lockdown confirmation endpoint.
 """
 
 import asyncio
-import sys
 from datetime import datetime, timedelta
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
+
 
 async def test_confirmation_endpoint():
     """Test the User Agent lockdown confirmation endpoint."""
@@ -36,28 +37,28 @@ async def test_confirmation_endpoint():
             "email": "test@example.com",
             "trusted_user_agent_lockdown": False,
             "trusted_user_agents": [],
-            "trusted_user_agent_lockdown_codes": [{
-                "code": test_code,
-                "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
-                "action": "enable",
-                "allowed_user_agents": test_user_agents
-            }]
+            "trusted_user_agent_lockdown_codes": [
+                {
+                    "code": test_code,
+                    "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+                    "action": "enable",
+                    "allowed_user_agents": test_user_agents,
+                }
+            ],
         }
 
-        with patch('src.second_brain_database.routes.auth.routes.security_manager') as mock_security_manager:
+        with patch("src.second_brain_database.routes.auth.routes.security_manager") as mock_security_manager:
             mock_security_manager.check_rate_limit = AsyncMock()
             mock_security_manager.get_client_user_agent.return_value = "Mozilla/5.0 (Test Browser)"
 
-            with patch('src.second_brain_database.routes.auth.routes.db_manager') as mock_db_manager:
+            with patch("src.second_brain_database.routes.auth.routes.db_manager") as mock_db_manager:
                 mock_collection = AsyncMock()
                 mock_collection.find_one = AsyncMock(return_value=mock_current_user)
                 mock_collection.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
                 mock_db_manager.get_collection.return_value = mock_collection
 
                 result = await trusted_user_agents_lockdown_confirm(
-                    request=mock_request,
-                    code=test_code,
-                    current_user=mock_current_user
+                    request=mock_request, code=test_code, current_user=mock_current_user
                 )
 
                 print("✅ Enable confirmation completed successfully")
@@ -83,28 +84,28 @@ async def test_confirmation_endpoint():
             "email": "test@example.com",
             "trusted_user_agent_lockdown": True,
             "trusted_user_agents": test_user_agents,
-            "trusted_user_agent_lockdown_codes": [{
-                "code": test_code,
-                "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
-                "action": "disable",
-                "allowed_user_agents": test_user_agents
-            }]
+            "trusted_user_agent_lockdown_codes": [
+                {
+                    "code": test_code,
+                    "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+                    "action": "disable",
+                    "allowed_user_agents": test_user_agents,
+                }
+            ],
         }
 
-        with patch('src.second_brain_database.routes.auth.routes.security_manager') as mock_security_manager:
+        with patch("src.second_brain_database.routes.auth.routes.security_manager") as mock_security_manager:
             mock_security_manager.check_rate_limit = AsyncMock()
             mock_security_manager.get_client_user_agent.return_value = "Mozilla/5.0 (Test Browser)"
 
-            with patch('src.second_brain_database.routes.auth.routes.db_manager') as mock_db_manager:
+            with patch("src.second_brain_database.routes.auth.routes.db_manager") as mock_db_manager:
                 mock_collection = AsyncMock()
                 mock_collection.find_one = AsyncMock(return_value=mock_current_user_with_lockdown)
                 mock_collection.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
                 mock_db_manager.get_collection.return_value = mock_collection
 
                 result = await trusted_user_agents_lockdown_confirm(
-                    request=mock_request,
-                    code=test_code,
-                    current_user=mock_current_user_with_lockdown
+                    request=mock_request, code=test_code, current_user=mock_current_user_with_lockdown
                 )
 
                 print("✅ Disable confirmation completed successfully")
@@ -126,8 +127,10 @@ async def test_confirmation_endpoint():
     except Exception as e:
         print(f"❌ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def test_error_cases():
     """Test error cases for the confirmation endpoint."""
@@ -135,8 +138,8 @@ async def test_error_cases():
     print("\n--- Testing error cases ---")
 
     try:
-        from src.second_brain_database.routes.auth.routes import trusted_user_agents_lockdown_confirm
         from fastapi import HTTPException
+        from src.second_brain_database.routes.auth.routes import trusted_user_agents_lockdown_confirm
 
         mock_request = MagicMock()
         mock_request.client.host = "127.0.0.1"
@@ -149,23 +152,21 @@ async def test_error_cases():
             "username": "testuser",
             "email": "test@example.com",
             "trusted_user_agent_lockdown": False,
-            "trusted_user_agents": []
+            "trusted_user_agents": [],
         }
 
-        with patch('src.second_brain_database.routes.auth.routes.security_manager') as mock_security_manager:
+        with patch("src.second_brain_database.routes.auth.routes.security_manager") as mock_security_manager:
             mock_security_manager.check_rate_limit = AsyncMock()
             mock_security_manager.get_client_user_agent.return_value = "Mozilla/5.0 (Test Browser)"
 
-            with patch('src.second_brain_database.routes.auth.routes.db_manager') as mock_db_manager:
+            with patch("src.second_brain_database.routes.auth.routes.db_manager") as mock_db_manager:
                 mock_collection = AsyncMock()
                 mock_collection.find_one = AsyncMock(return_value=mock_current_user)
                 mock_db_manager.get_collection.return_value = mock_collection
 
                 try:
                     await trusted_user_agents_lockdown_confirm(
-                        request=mock_request,
-                        code="invalid_code",
-                        current_user=mock_current_user
+                        request=mock_request, code="invalid_code", current_user=mock_current_user
                     )
                     assert False, "Should have raised HTTPException"
                 except HTTPException as e:
@@ -181,28 +182,28 @@ async def test_error_cases():
             "email": "test@example.com",
             "trusted_user_agent_lockdown": False,
             "trusted_user_agents": [],
-            "trusted_user_agent_lockdown_codes": [{
-                "code": "test_code",
-                "expires_at": (datetime.utcnow() - timedelta(minutes=1)).isoformat(),  # Expired
-                "action": "enable",
-                "allowed_user_agents": ["Mozilla/5.0 (Test Browser)"]
-            }]
+            "trusted_user_agent_lockdown_codes": [
+                {
+                    "code": "test_code",
+                    "expires_at": (datetime.utcnow() - timedelta(minutes=1)).isoformat(),  # Expired
+                    "action": "enable",
+                    "allowed_user_agents": ["Mozilla/5.0 (Test Browser)"],
+                }
+            ],
         }
 
-        with patch('src.second_brain_database.routes.auth.routes.security_manager') as mock_security_manager:
+        with patch("src.second_brain_database.routes.auth.routes.security_manager") as mock_security_manager:
             mock_security_manager.check_rate_limit = AsyncMock()
             mock_security_manager.get_client_user_agent.return_value = "Mozilla/5.0 (Test Browser)"
 
-            with patch('src.second_brain_database.routes.auth.routes.db_manager') as mock_db_manager:
+            with patch("src.second_brain_database.routes.auth.routes.db_manager") as mock_db_manager:
                 mock_collection = AsyncMock()
                 mock_collection.find_one = AsyncMock(return_value=mock_current_user_expired)
                 mock_db_manager.get_collection.return_value = mock_collection
 
                 try:
                     await trusted_user_agents_lockdown_confirm(
-                        request=mock_request,
-                        code="test_code",
-                        current_user=mock_current_user_expired
+                        request=mock_request, code="test_code", current_user=mock_current_user_expired
                     )
                     assert False, "Should have raised HTTPException"
                 except HTTPException as e:
@@ -216,8 +217,10 @@ async def test_error_cases():
     except Exception as e:
         print(f"❌ Error case test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def main():
     """Run all tests."""
@@ -234,6 +237,7 @@ async def main():
     else:
         print("\n❌ Some tests failed!")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))

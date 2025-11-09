@@ -6,13 +6,13 @@ with support for full and incremental backups, compression, and
 automated retention policies.
 """
 
+from datetime import datetime, timedelta, timezone
 import gzip
 import json
 import os
-import uuid
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import uuid
 
 from bson import ObjectId
 from pymongo.errors import PyMongoError
@@ -48,7 +48,7 @@ class BackupManager:
             "family_relationships",
             "family_invitations",
             "family_notifications",
-            "family_token_requests"
+            "family_token_requests",
         ]
 
     async def create_full_backup(self, include_collections: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -91,7 +91,7 @@ class BackupManager:
                 "collections": include_collections,
                 "total_records": total_records,
                 "database_name": settings.MONGODB_DATABASE,
-                "version": "1.0.0"
+                "version": "1.0.0",
             }
 
             # Save backup to file
@@ -101,8 +101,7 @@ class BackupManager:
             await self._record_backup_metadata(backup_metadata, backup_file)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info("Full backup completed: %s (%.2f seconds, %d records)",
-                           backup_id, duration, total_records)
+            self.logger.info("Full backup completed: %s (%.2f seconds, %d records)", backup_id, duration, total_records)
 
             return {
                 "backup_id": backup_id,
@@ -112,7 +111,7 @@ class BackupManager:
                 "collections": include_collections,
                 "total_records": total_records,
                 "duration_seconds": duration,
-                "created_at": start_time
+                "created_at": start_time,
             }
 
         except Exception as e:
@@ -160,7 +159,7 @@ class BackupManager:
                 "collections": self.family_collections + ["users_family_data"],
                 "total_records": total_records,
                 "database_name": settings.MONGODB_DATABASE,
-                "version": "1.0.0"
+                "version": "1.0.0",
             }
 
             # Save backup to file
@@ -170,8 +169,9 @@ class BackupManager:
             await self._record_backup_metadata(backup_metadata, backup_file)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info("Family backup completed: %s (%.2f seconds, %d records)",
-                           backup_id, duration, total_records)
+            self.logger.info(
+                "Family backup completed: %s (%.2f seconds, %d records)", backup_id, duration, total_records
+            )
 
             return {
                 "backup_id": backup_id,
@@ -181,7 +181,7 @@ class BackupManager:
                 "collections": self.family_collections,
                 "total_records": total_records,
                 "duration_seconds": duration,
-                "created_at": start_time
+                "created_at": start_time,
             }
 
         except Exception as e:
@@ -230,15 +230,14 @@ class BackupManager:
                 self.logger.info("Restored %d records to %s", restored_count, collection_name)
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info("Restore completed: %s (%.2f seconds, %d records)",
-                           backup_id, duration, total_restored)
+            self.logger.info("Restore completed: %s (%.2f seconds, %d records)", backup_id, duration, total_restored)
 
             return {
                 "backup_id": backup_id,
                 "collections_restored": collections_restored,
                 "total_records_restored": total_restored,
                 "duration_seconds": duration,
-                "restored_at": start_time
+                "restored_at": start_time,
             }
 
         except Exception as e:
@@ -303,14 +302,11 @@ class BackupManager:
             backups_collection = db_manager.get_collection("backup_metadata")
             result = await backups_collection.delete_one({"backup_id": backup_id})
 
-            self.logger.info("Backup deleted: %s (file: %s, metadata: %s)",
-                           backup_id, file_deleted, result.deleted_count > 0)
+            self.logger.info(
+                "Backup deleted: %s (file: %s, metadata: %s)", backup_id, file_deleted, result.deleted_count > 0
+            )
 
-            return {
-                "backup_id": backup_id,
-                "file_deleted": file_deleted,
-                "metadata_deleted": result.deleted_count > 0
-            }
+            return {"backup_id": backup_id, "file_deleted": file_deleted, "metadata_deleted": result.deleted_count > 0}
 
         except Exception as e:
             self.logger.error("Failed to delete backup %s: %s", backup_id, e, exc_info=True)
@@ -357,14 +353,15 @@ class BackupManager:
                 except Exception as e:
                     self.logger.warning("Failed to delete backup %s: %s", backup_id, e)
 
-            self.logger.info("Cleanup completed: %d backups deleted, %d bytes freed",
-                           len(deleted_backups), total_size_freed)
+            self.logger.info(
+                "Cleanup completed: %d backups deleted, %d bytes freed", len(deleted_backups), total_size_freed
+            )
 
             return {
                 "deleted_backups": deleted_backups,
                 "total_deleted": len(deleted_backups),
                 "total_size_freed": total_size_freed,
-                "retention_days": retention_days
+                "retention_days": retention_days,
             }
 
         except Exception as e:
@@ -393,7 +390,7 @@ class BackupManager:
                 "errors": [],
                 "warnings": [],
                 "collections_verified": 0,
-                "total_records_verified": 0
+                "total_records_verified": 0,
             }
 
             # Verify metadata
@@ -421,8 +418,9 @@ class BackupManager:
             if verification_results["total_records_verified"] != backup_metadata.get("total_records", 0):
                 verification_results["warnings"].append("Record count mismatch between data and metadata")
 
-            self.logger.info("Backup verification completed: %s (valid: %s)",
-                           backup_id, verification_results["is_valid"])
+            self.logger.info(
+                "Backup verification completed: %s (valid: %s)", backup_id, verification_results["is_valid"]
+            )
 
             return verification_results
 
@@ -434,7 +432,7 @@ class BackupManager:
                 "errors": [f"Verification failed: {str(e)}"],
                 "warnings": [],
                 "collections_verified": 0,
-                "total_records_verified": 0
+                "total_records_verified": 0,
             }
 
     async def _backup_collection(self, collection_name: str) -> List[Dict[str, Any]]:
@@ -468,7 +466,7 @@ class BackupManager:
                 "email": 1,
                 "family_limits": 1,
                 "family_memberships": 1,
-                "family_notifications": 1
+                "family_notifications": 1,
             }
 
             async for user in users_collection.find({}, projection):
@@ -540,10 +538,7 @@ class BackupManager:
                         update_data[field] = user_data[field]
 
                 if update_data:
-                    result = await users_collection.update_one(
-                        {"_id": user_id},
-                        {"$set": update_data}
-                    )
+                    result = await users_collection.update_one({"_id": user_id}, {"$set": update_data})
                     if result.modified_count > 0:
                         restored_count += 1
 
@@ -553,24 +548,21 @@ class BackupManager:
             self.logger.error("Failed to restore user family data: %s", e, exc_info=True)
             raise
 
-    async def _save_backup_to_file(self, backup_id: str, backup_data: Dict[str, Any],
-                                 backup_metadata: Dict[str, Any]) -> Path:
+    async def _save_backup_to_file(
+        self, backup_id: str, backup_data: Dict[str, Any], backup_metadata: Dict[str, Any]
+    ) -> Path:
         """Save backup data to compressed file."""
         try:
             backup_file = self.backup_dir / f"{backup_id}.json.gz"
 
             # Combine metadata and data
-            full_backup = {
-                "metadata": backup_metadata,
-                "data": backup_data
-            }
+            full_backup = {"metadata": backup_metadata, "data": backup_data}
 
             # Save as compressed JSON
-            with gzip.open(backup_file, 'wt', encoding='utf-8') as f:
+            with gzip.open(backup_file, "wt", encoding="utf-8") as f:
                 json.dump(full_backup, f, default=str, indent=2)
 
-            self.logger.debug("Saved backup to file: %s (%d bytes)",
-                            backup_file, backup_file.stat().st_size)
+            self.logger.debug("Saved backup to file: %s (%d bytes)", backup_file, backup_file.stat().st_size)
 
             return backup_file
 
@@ -586,7 +578,7 @@ class BackupManager:
             if not backup_file.exists():
                 raise Exception(f"Backup file not found: {backup_file}")
 
-            with gzip.open(backup_file, 'rt', encoding='utf-8') as f:
+            with gzip.open(backup_file, "rt", encoding="utf-8") as f:
                 full_backup = json.load(f)
 
             backup_metadata = full_backup.get("metadata", {})
@@ -606,11 +598,13 @@ class BackupManager:
             backups_collection = db_manager.get_collection("backup_metadata")
 
             # Add file information
-            backup_metadata.update({
-                "file_path": str(backup_file),
-                "file_size": backup_file.stat().st_size,
-                "checksum": await self._calculate_file_checksum(backup_file)
-            })
+            backup_metadata.update(
+                {
+                    "file_path": str(backup_file),
+                    "file_size": backup_file.stat().st_size,
+                    "checksum": await self._calculate_file_checksum(backup_file),
+                }
+            )
 
             await backups_collection.insert_one(backup_metadata)
 

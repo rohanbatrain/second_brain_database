@@ -13,19 +13,20 @@ Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
 """
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import sys
-from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 # Add the src directory to the path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.family_manager import family_manager
 from second_brain_database.managers.logging_manager import get_logger
 
 logger = get_logger(prefix="[Family Core Validation]")
+
 
 class FamilyCoreOperationsValidator:
     """Validates core family operations functionality."""
@@ -42,7 +43,7 @@ class FamilyCoreOperationsValidator:
             "passed": passed,
             "details": details,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": data
+            "data": data,
         }
         self.test_results.append(result)
 
@@ -60,9 +61,7 @@ class FamilyCoreOperationsValidator:
 
             # Test family creation
             family_data = await family_manager.create_family(
-                user_id=self.test_user_id,
-                name=family_name,
-                request_context={"test": True}
+                user_id=self.test_user_id, name=family_name, request_context={"test": True}
             )
 
             # Validate response structure
@@ -70,20 +69,22 @@ class FamilyCoreOperationsValidator:
             missing_fields = [field for field in required_fields if field not in family_data]
 
             if missing_fields:
-                await self.log_test_result(
-                    test_name, False,
-                    f"Missing required fields: {missing_fields}",
-                    family_data
-                )
+                await self.log_test_result(test_name, False, f"Missing required fields: {missing_fields}", family_data)
                 return False
 
             # Validate family data
             validations = [
-                (family_data["name"] == family_name, f"Name mismatch: expected '{family_name}', got '{family_data['name']}'"),
+                (
+                    family_data["name"] == family_name,
+                    f"Name mismatch: expected '{family_name}', got '{family_data['name']}'",
+                ),
                 (self.test_user_id in family_data["admin_user_ids"], "Creator not in admin list"),
                 (family_data["member_count"] == 1, f"Member count should be 1, got {family_data['member_count']}"),
                 ("sbd_account" in family_data, "SBD account not created"),
-                (family_data["sbd_account"].get("account_username", "").startswith("family_"), "Invalid SBD account username format")
+                (
+                    family_data["sbd_account"].get("account_username", "").startswith("family_"),
+                    "Invalid SBD account username format",
+                ),
             ]
 
             for validation, error_msg in validations:
@@ -93,17 +94,16 @@ class FamilyCoreOperationsValidator:
 
             self.created_families.append(family_data["family_id"])
             await self.log_test_result(
-                test_name, True,
-                f"Family created successfully with ID: {family_data['family_id']}",
-                family_data
+                test_name, True, f"Family created successfully with ID: {family_data['family_id']}", family_data
             )
             return True
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during family creation: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -114,18 +114,12 @@ class FamilyCoreOperationsValidator:
 
             # Test family creation without name
             family_data = await family_manager.create_family(
-                user_id=self.test_user_id,
-                name=None,
-                request_context={"test": True}
+                user_id=self.test_user_id, name=None, request_context={"test": True}
             )
 
             # Validate auto-generated name
             if not family_data.get("name"):
-                await self.log_test_result(
-                    test_name, False,
-                    "No name generated for family",
-                    family_data
-                )
+                await self.log_test_result(test_name, False, "No name generated for family", family_data)
                 return False
 
             # Check if name follows expected pattern (should contain user info or be default)
@@ -134,25 +128,22 @@ class FamilyCoreOperationsValidator:
 
             if not name_valid:
                 await self.log_test_result(
-                    test_name, False,
-                    f"Generated name too short: '{generated_name}'",
-                    family_data
+                    test_name, False, f"Generated name too short: '{generated_name}'", family_data
                 )
                 return False
 
             self.created_families.append(family_data["family_id"])
             await self.log_test_result(
-                test_name, True,
-                f"Family created with auto-generated name: '{generated_name}'",
-                family_data
+                test_name, True, f"Family created with auto-generated name: '{generated_name}'", family_data
             )
             return True
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during family creation: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -163,9 +154,7 @@ class FamilyCoreOperationsValidator:
 
             # Create a family to test SBD account
             family_data = await family_manager.create_family(
-                user_id=self.test_user_id,
-                name="SBD Test Family",
-                request_context={"test": True}
+                user_id=self.test_user_id, name="SBD Test Family", request_context={"test": True}
             )
 
             family_id = family_data["family_id"]
@@ -179,9 +168,7 @@ class FamilyCoreOperationsValidator:
 
             if missing_sbd_fields:
                 await self.log_test_result(
-                    test_name, False,
-                    f"Missing SBD account fields: {missing_sbd_fields}",
-                    sbd_account
+                    test_name, False, f"Missing SBD account fields: {missing_sbd_fields}", sbd_account
                 )
                 return False
 
@@ -189,9 +176,7 @@ class FamilyCoreOperationsValidator:
             account_username = sbd_account["account_username"]
             if not account_username.startswith("family_"):
                 await self.log_test_result(
-                    test_name, False,
-                    f"Invalid account username format: {account_username}",
-                    sbd_account
+                    test_name, False, f"Invalid account username format: {account_username}", sbd_account
                 )
                 return False
 
@@ -199,9 +184,7 @@ class FamilyCoreOperationsValidator:
             is_virtual = await family_manager.is_virtual_family_account(account_username)
             if not is_virtual:
                 await self.log_test_result(
-                    test_name, False,
-                    f"Virtual account not detected: {account_username}",
-                    sbd_account
+                    test_name, False, f"Virtual account not detected: {account_username}", sbd_account
                 )
                 return False
 
@@ -209,24 +192,24 @@ class FamilyCoreOperationsValidator:
             retrieved_family_id = await family_manager.get_family_id_by_sbd_account(account_username)
             if retrieved_family_id != family_id:
                 await self.log_test_result(
-                    test_name, False,
+                    test_name,
+                    False,
                     f"Family ID mismatch: expected {family_id}, got {retrieved_family_id}",
-                    {"expected": family_id, "actual": retrieved_family_id}
+                    {"expected": family_id, "actual": retrieved_family_id},
                 )
                 return False
 
             await self.log_test_result(
-                test_name, True,
-                f"SBD virtual account created and integrated: {account_username}",
-                sbd_account
+                test_name, True, f"SBD virtual account created and integrated: {account_username}", sbd_account
             )
             return True
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during SBD account validation: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -237,9 +220,7 @@ class FamilyCoreOperationsValidator:
 
             # Create a family
             family_data = await family_manager.create_family(
-                user_id=self.test_user_id,
-                name="Admin Test Family",
-                request_context={"test": True}
+                user_id=self.test_user_id, name="Admin Test Family", request_context={"test": True}
             )
 
             family_id = family_data["family_id"]
@@ -249,9 +230,10 @@ class FamilyCoreOperationsValidator:
             admin_user_ids = family_data.get("admin_user_ids", [])
             if self.test_user_id not in admin_user_ids:
                 await self.log_test_result(
-                    test_name, False,
+                    test_name,
+                    False,
                     f"Creator not assigned as admin: {self.test_user_id}",
-                    {"admin_user_ids": admin_user_ids}
+                    {"admin_user_ids": admin_user_ids},
                 )
                 return False
 
@@ -259,9 +241,10 @@ class FamilyCoreOperationsValidator:
             is_admin = await family_manager.is_family_admin(family_id, self.test_user_id)
             if not is_admin:
                 await self.log_test_result(
-                    test_name, False,
+                    test_name,
+                    False,
                     "Admin validation failed for creator",
-                    {"family_id": family_id, "user_id": self.test_user_id}
+                    {"family_id": family_id, "user_id": self.test_user_id},
                 )
                 return False
 
@@ -270,32 +253,32 @@ class FamilyCoreOperationsValidator:
             spending_permissions = sbd_account.get("spending_permissions", {})
             user_permissions = spending_permissions.get(self.test_user_id, {})
 
-            expected_admin_permissions = {
-                "can_spend": True,
-                "role": "admin"
-            }
+            expected_admin_permissions = {"can_spend": True, "role": "admin"}
 
             for key, expected_value in expected_admin_permissions.items():
                 if user_permissions.get(key) != expected_value:
                     await self.log_test_result(
-                        test_name, False,
+                        test_name,
+                        False,
                         f"Invalid admin permission {key}: expected {expected_value}, got {user_permissions.get(key)}",
-                        user_permissions
+                        user_permissions,
                     )
                     return False
 
             await self.log_test_result(
-                test_name, True,
+                test_name,
+                True,
                 "Family administrator correctly assigned with proper permissions",
-                {"admin_user_ids": admin_user_ids, "permissions": user_permissions}
+                {"admin_user_ids": admin_user_ids, "permissions": user_permissions},
             )
             return True
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during admin validation: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -315,9 +298,7 @@ class FamilyCoreOperationsValidator:
             for i in range(max_attempts):
                 try:
                     family_data = await family_manager.create_family(
-                        user_id=self.test_user_id,
-                        name=f"Limit Test Family {i}",
-                        request_context={"test": True}
+                        user_id=self.test_user_id, name=f"Limit Test Family {i}", request_context={"test": True}
                     )
                     self.created_families.append(family_data["family_id"])
                     created_count += 1
@@ -326,33 +307,37 @@ class FamilyCoreOperationsValidator:
                     # Check if it's a limit exceeded error
                     if "limit" in str(e).lower() or "exceeded" in str(e).lower():
                         await self.log_test_result(
-                            test_name, True,
+                            test_name,
+                            True,
                             f"Family limit correctly enforced after {created_count} families",
-                            {"initial_count": initial_count, "created_count": created_count, "error": str(e)}
+                            {"initial_count": initial_count, "created_count": created_count, "error": str(e)},
                         )
                         return True
                     else:
                         # Unexpected error
                         await self.log_test_result(
-                            test_name, False,
+                            test_name,
+                            False,
                             f"Unexpected error during limit testing: {str(e)}",
-                            {"error": str(e), "type": type(e).__name__}
+                            {"error": str(e), "type": type(e).__name__},
                         )
                         return False
 
             # If we created all families without hitting a limit, that's also valid
             await self.log_test_result(
-                test_name, True,
+                test_name,
+                True,
                 f"Created {created_count} families without hitting limit (limit may be higher than test attempts)",
-                {"initial_count": initial_count, "created_count": created_count}
+                {"initial_count": initial_count, "created_count": created_count},
             )
             return True
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during limit validation: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -363,9 +348,7 @@ class FamilyCoreOperationsValidator:
 
             # Create a family to delete
             family_data = await family_manager.create_family(
-                user_id=self.test_user_id,
-                name="Deletion Test Family",
-                request_context={"test": True}
+                user_id=self.test_user_id, name="Deletion Test Family", request_context={"test": True}
             )
 
             family_id = family_data["family_id"]
@@ -375,9 +358,7 @@ class FamilyCoreOperationsValidator:
             family_exists_before = await family_manager.get_family_by_id(family_id, self.test_user_id)
             if not family_exists_before:
                 await self.log_test_result(
-                    test_name, False,
-                    "Family not found after creation",
-                    {"family_id": family_id}
+                    test_name, False, "Family not found after creation", {"family_id": family_id}
                 )
                 return False
 
@@ -390,9 +371,7 @@ class FamilyCoreOperationsValidator:
                     family_exists_after = await family_manager.get_family_by_id(family_id, self.test_user_id)
                     if family_exists_after:
                         await self.log_test_result(
-                            test_name, False,
-                            "Family still exists after deletion",
-                            {"family_id": family_id}
+                            test_name, False, "Family still exists after deletion", {"family_id": family_id}
                         )
                         return False
                 except:
@@ -403,25 +382,28 @@ class FamilyCoreOperationsValidator:
                 is_virtual_after = await family_manager.is_virtual_family_account(account_username)
                 if is_virtual_after:
                     await self.log_test_result(
-                        test_name, False,
+                        test_name,
+                        False,
                         "SBD virtual account still exists after family deletion",
-                        {"account_username": account_username}
+                        {"account_username": account_username},
                     )
                     return False
 
                 await self.log_test_result(
-                    test_name, True,
+                    test_name,
+                    True,
                     "Family and SBD account successfully deleted and cleaned up",
-                    {"family_id": family_id, "account_username": account_username}
+                    {"family_id": family_id, "account_username": account_username},
                 )
                 return True
 
             except AttributeError:
                 # Delete method doesn't exist - this is expected for some implementations
                 await self.log_test_result(
-                    test_name, True,
+                    test_name,
+                    True,
                     "Family deletion method not implemented (expected for some systems)",
-                    {"family_id": family_id, "note": "delete_family method not found"}
+                    {"family_id": family_id, "note": "delete_family method not found"},
                 )
                 # Add to cleanup list for manual cleanup
                 self.created_families.append(family_id)
@@ -429,9 +411,10 @@ class FamilyCoreOperationsValidator:
 
         except Exception as e:
             await self.log_test_result(
-                test_name, False,
+                test_name,
+                False,
                 f"Exception during deletion testing: {str(e)}",
-                {"error": str(e), "type": type(e).__name__}
+                {"error": str(e), "type": type(e).__name__},
             )
             return False
 
@@ -442,7 +425,7 @@ class FamilyCoreOperationsValidator:
         for family_id in self.created_families:
             try:
                 # Try to delete family if method exists
-                if hasattr(family_manager, 'delete_family'):
+                if hasattr(family_manager, "delete_family"):
                     await family_manager.delete_family(family_id, self.test_user_id)
                     logger.info(f"Cleaned up family: {family_id}")
                 else:
@@ -460,7 +443,7 @@ class FamilyCoreOperationsValidator:
             self.test_sbd_virtual_account_creation,
             self.test_family_administrator_assignment,
             self.test_family_limit_validation,
-            self.test_family_deletion_and_cleanup
+            self.test_family_deletion_and_cleanup,
         ]
 
         passed_tests = 0
@@ -484,12 +467,15 @@ class FamilyCoreOperationsValidator:
             "failed_tests": total_tests - passed_tests,
             "success_rate": (passed_tests / total_tests) * 100 if total_tests > 0 else 0,
             "test_results": self.test_results,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        logger.info(f"Core Family Operations Validation Complete: {passed_tests}/{total_tests} tests passed ({summary['success_rate']:.1f}%)")
+        logger.info(
+            f"Core Family Operations Validation Complete: {passed_tests}/{total_tests} tests passed ({summary['success_rate']:.1f}%)"
+        )
 
         return summary
+
 
 async def main():
     """Main function to run the validation."""
@@ -502,26 +488,26 @@ async def main():
         results = await validator.run_all_tests()
 
         # Print results
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("CORE FAMILY OPERATIONS VALIDATION RESULTS")
-        print("="*80)
+        print("=" * 80)
         print(f"Total Tests: {results['total_tests']}")
         print(f"Passed: {results['passed_tests']}")
         print(f"Failed: {results['failed_tests']}")
         print(f"Success Rate: {results['success_rate']:.1f}%")
         print("\nDetailed Results:")
 
-        for result in results['test_results']:
-            status = "✓ PASS" if result['passed'] else "✗ FAIL"
+        for result in results["test_results"]:
+            status = "✓ PASS" if result["passed"] else "✗ FAIL"
             print(f"{status} {result['test_name']}: {result['details']}")
 
         # Save results to file
-        with open('family_core_operations_validation_results.json', 'w') as f:
+        with open("family_core_operations_validation_results.json", "w") as f:
             json.dump(results, f, indent=2, default=str)
 
         print(f"\nDetailed results saved to: family_core_operations_validation_results.json")
 
-        return results['success_rate'] == 100.0
+        return results["success_rate"] == 100.0
 
     except Exception as e:
         logger.error(f"Validation failed with exception: {e}")
@@ -530,6 +516,7 @@ async def main():
     finally:
         # Close database connection
         await db_manager.close()
+
 
 if __name__ == "__main__":
     success = asyncio.run(main())

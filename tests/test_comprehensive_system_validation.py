@@ -14,21 +14,23 @@ Requirements Coverage:
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 import json
 import logging
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Any
-import pytest
-import httpx
-from concurrent.futures import ThreadPoolExecutor
+import os
 import subprocess
 import sys
-import os
+import time
+from typing import Any, Dict, List
+
+import httpx
+import pytest
 
 # Configure logging for test output
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 class ComprehensiveSystemValidator:
     """Comprehensive system validation test suite"""
@@ -42,7 +44,7 @@ class ComprehensiveSystemValidator:
             "error_handling_tests": {},
             "monitoring_tests": {},
             "api_endpoint_tests": {},
-            "failure_recovery_tests": {}
+            "failure_recovery_tests": {},
         }
         self.start_time = datetime.now()
 
@@ -107,22 +109,18 @@ class ComprehensiveSystemValidator:
                     "returncode": result.returncode,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
-                    "success": result.returncode == 0
+                    "success": result.returncode == 0,
                 }
                 logger.info(f"Test {test_name}: {'PASSED' if result.returncode == 0 else 'FAILED'}")
             except subprocess.TimeoutExpired:
                 test_results[test_name] = {
                     "returncode": -1,
                     "error": "Test timed out after 300 seconds",
-                    "success": False
+                    "success": False,
                 }
                 logger.error(f"Test {test_name}: TIMEOUT")
             except Exception as e:
-                test_results[test_name] = {
-                    "returncode": -1,
-                    "error": str(e),
-                    "success": False
-                }
+                test_results[test_name] = {"returncode": -1, "error": str(e), "success": False}
                 logger.error(f"Test {test_name}: ERROR - {e}")
 
         self.test_results["full_test_suite"] = test_results
@@ -136,7 +134,7 @@ class ComprehensiveSystemValidator:
             {"name": "admin_user", "role": "admin"},
             {"name": "regular_member", "role": "member"},
             {"name": "guest_user", "role": "guest"},
-            {"name": "unauthorized_user", "role": "none"}
+            {"name": "unauthorized_user", "role": "none"},
         ]
 
         # Family management endpoints to test
@@ -146,8 +144,18 @@ class ComprehensiveSystemValidator:
             {"method": "POST", "path": "/family/{family_id}/invite", "requires_auth": True, "requires_admin": True},
             {"method": "POST", "path": "/family/invitation/{invitation_id}/respond", "requires_auth": True},
             {"method": "GET", "path": "/family/{family_id}/sbd-account", "requires_auth": True},
-            {"method": "PUT", "path": "/family/{family_id}/sbd-account/permissions", "requires_auth": True, "requires_admin": True},
-            {"method": "POST", "path": "/family/{family_id}/sbd-account/freeze", "requires_auth": True, "requires_admin": True},
+            {
+                "method": "PUT",
+                "path": "/family/{family_id}/sbd-account/permissions",
+                "requires_auth": True,
+                "requires_admin": True,
+            },
+            {
+                "method": "POST",
+                "path": "/family/{family_id}/sbd-account/freeze",
+                "requires_auth": True,
+                "requires_admin": True,
+            },
             {"method": "GET", "path": "/family/health", "requires_auth": False},
             {"method": "GET", "path": "/family/admin/health", "requires_auth": True, "requires_admin": True},
         ]
@@ -175,23 +183,17 @@ class ComprehensiveSystemValidator:
                             url = url.replace("{invitation_id}", "test_invitation_id")
 
                         response = await client.request(
-                            method=endpoint["method"],
-                            url=url,
-                            headers=headers,
-                            timeout=10.0
+                            method=endpoint["method"], url=url, headers=headers, timeout=10.0
                         )
 
                         endpoint_results[endpoint_name][scenario["name"]] = {
                             "status_code": response.status_code,
-                            "response_time": response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0,
-                            "success": self._evaluate_endpoint_response(endpoint, scenario, response.status_code)
+                            "response_time": response.elapsed.total_seconds() if hasattr(response, "elapsed") else 0,
+                            "success": self._evaluate_endpoint_response(endpoint, scenario, response.status_code),
                         }
 
                     except Exception as e:
-                        endpoint_results[endpoint_name][scenario["name"]] = {
-                            "error": str(e),
-                            "success": False
-                        }
+                        endpoint_results[endpoint_name][scenario["name"]] = {"error": str(e), "success": False}
 
         self.test_results["api_endpoint_tests"] = endpoint_results
 
@@ -229,40 +231,24 @@ class ComprehensiveSystemValidator:
             "circuit_breaker_activation": True,
             "retry_mechanism": True,
             "graceful_degradation": True,
-            "recovery_time": "< 30 seconds"
+            "recovery_time": "< 30 seconds",
         }
 
     async def _test_redis_failure_recovery(self) -> Dict[str, Any]:
         """Test Redis failure and recovery scenarios"""
-        return {
-            "cache_fallback": True,
-            "session_handling": True,
-            "rate_limiting_fallback": True
-        }
+        return {"cache_fallback": True, "session_handling": True, "rate_limiting_fallback": True}
 
     async def _test_high_load_behavior(self) -> Dict[str, Any]:
         """Test system behavior under high load"""
-        return {
-            "load_shedding": True,
-            "priority_queuing": True,
-            "resource_management": True
-        }
+        return {"load_shedding": True, "priority_queuing": True, "resource_management": True}
 
     async def _test_invalid_input_handling(self) -> Dict[str, Any]:
         """Test handling of invalid inputs"""
-        return {
-            "input_validation": True,
-            "error_messages": True,
-            "security_filtering": True
-        }
+        return {"input_validation": True, "error_messages": True, "security_filtering": True}
 
     async def _test_concurrent_operations_safety(self) -> Dict[str, Any]:
         """Test concurrent operations safety"""
-        return {
-            "data_consistency": True,
-            "transaction_safety": True,
-            "locking_mechanisms": True
-        }
+        return {"data_consistency": True, "transaction_safety": True, "locking_mechanisms": True}
 
     async def verify_monitoring_and_alerting(self):
         """Verify monitoring and alerting functionality end-to-end"""
@@ -285,43 +271,29 @@ class ComprehensiveSystemValidator:
                 response = await client.get(f"{self.base_url}/family/health")
                 return {
                     "endpoint_accessible": response.status_code == 200,
-                    "response_format": "json" if "application/json" in response.headers.get("content-type", "") else "other",
-                    "components_checked": True
+                    "response_format": (
+                        "json" if "application/json" in response.headers.get("content-type", "") else "other"
+                    ),
+                    "components_checked": True,
                 }
             except Exception as e:
                 return {"error": str(e), "accessible": False}
 
     async def _test_performance_metrics(self) -> Dict[str, Any]:
         """Test performance metrics collection"""
-        return {
-            "metrics_collection": True,
-            "response_time_tracking": True,
-            "throughput_monitoring": True
-        }
+        return {"metrics_collection": True, "response_time_tracking": True, "throughput_monitoring": True}
 
     async def _test_error_tracking(self) -> Dict[str, Any]:
         """Test error tracking and pattern detection"""
-        return {
-            "error_logging": True,
-            "pattern_detection": True,
-            "recovery_recommendations": True
-        }
+        return {"error_logging": True, "pattern_detection": True, "recovery_recommendations": True}
 
     async def _test_audit_logging(self) -> Dict[str, Any]:
         """Test audit logging functionality"""
-        return {
-            "operation_logging": True,
-            "user_attribution": True,
-            "immutable_records": True
-        }
+        return {"operation_logging": True, "user_attribution": True, "immutable_records": True}
 
     async def _test_alert_generation(self) -> Dict[str, Any]:
         """Test alert generation and escalation"""
-        return {
-            "threshold_monitoring": True,
-            "alert_delivery": True,
-            "escalation_procedures": True
-        }
+        return {"threshold_monitoring": True, "alert_delivery": True, "escalation_procedures": True}
 
     async def conduct_security_validation(self):
         """Conduct final security validation and compliance check"""
@@ -340,12 +312,7 @@ class ComprehensiveSystemValidator:
 
     async def _test_authentication_security(self) -> Dict[str, Any]:
         """Test authentication security measures"""
-        return {
-            "jwt_validation": True,
-            "token_expiration": True,
-            "2fa_enforcement": True,
-            "session_management": True
-        }
+        return {"jwt_validation": True, "token_expiration": True, "2fa_enforcement": True, "session_management": True}
 
     async def _test_authorization_security(self) -> Dict[str, Any]:
         """Test authorization security measures"""
@@ -353,7 +320,7 @@ class ComprehensiveSystemValidator:
             "role_based_access": True,
             "permission_validation": True,
             "admin_controls": True,
-            "resource_isolation": True
+            "resource_isolation": True,
         }
 
     async def _test_input_sanitization(self) -> Dict[str, Any]:
@@ -362,7 +329,7 @@ class ComprehensiveSystemValidator:
             "sql_injection_protection": True,
             "xss_protection": True,
             "input_validation": True,
-            "data_sanitization": True
+            "data_sanitization": True,
         }
 
     async def _test_rate_limiting_security(self) -> Dict[str, Any]:
@@ -371,7 +338,7 @@ class ComprehensiveSystemValidator:
             "operation_limits": True,
             "abuse_prevention": True,
             "threshold_enforcement": True,
-            "recovery_mechanisms": True
+            "recovery_mechanisms": True,
         }
 
     async def _test_audit_compliance(self) -> Dict[str, Any]:
@@ -380,7 +347,7 @@ class ComprehensiveSystemValidator:
             "comprehensive_logging": True,
             "data_retention": True,
             "compliance_reporting": True,
-            "access_tracking": True
+            "access_tracking": True,
         }
 
     async def _test_data_protection(self) -> Dict[str, Any]:
@@ -389,7 +356,7 @@ class ComprehensiveSystemValidator:
             "encryption_at_rest": True,
             "encryption_in_transit": True,
             "secure_storage": True,
-            "data_anonymization": True
+            "data_anonymization": True,
         }
 
     async def conduct_performance_benchmarking(self):
@@ -424,13 +391,13 @@ class ComprehensiveSystemValidator:
                         end_time = time.time()
                         times.append(end_time - start_time)
                     except Exception:  # TODO: Use specific exception type
-                        times.append(float('inf'))
+                        times.append(float("inf"))
 
                 response_times[endpoint] = {
                     "avg_response_time": sum(times) / len(times),
                     "max_response_time": max(times),
                     "min_response_time": min(times),
-                    "meets_sla": sum(times) / len(times) < 1.0  # < 1 second average
+                    "meets_sla": sum(times) / len(times) < 1.0,  # < 1 second average
                 }
 
             return response_times
@@ -440,7 +407,7 @@ class ComprehensiveSystemValidator:
         return {
             "requests_per_second": 100,  # Mock value
             "concurrent_connections": 50,
-            "throughput_meets_requirements": True
+            "throughput_meets_requirements": True,
         }
 
     async def _benchmark_concurrent_users(self) -> Dict[str, Any]:
@@ -448,7 +415,7 @@ class ComprehensiveSystemValidator:
         return {
             "max_concurrent_users": 1000,
             "performance_degradation_threshold": 500,
-            "meets_scalability_requirements": True
+            "meets_scalability_requirements": True,
         }
 
     async def _benchmark_resource_usage(self) -> Dict[str, Any]:
@@ -457,17 +424,12 @@ class ComprehensiveSystemValidator:
             "memory_usage": "< 512MB",
             "cpu_usage": "< 50%",
             "database_connections": "< 100",
-            "resource_efficiency": True
+            "resource_efficiency": True,
         }
 
     async def _benchmark_scalability(self) -> Dict[str, Any]:
         """Benchmark horizontal scalability"""
-        return {
-            "horizontal_scaling": True,
-            "load_distribution": True,
-            "auto_scaling": True,
-            "capacity_planning": True
-        }
+        return {"horizontal_scaling": True, "load_distribution": True, "auto_scaling": True, "capacity_planning": True}
 
     async def generate_validation_report(self) -> Dict[str, Any]:
         """Generate comprehensive validation report"""
@@ -495,7 +457,7 @@ class ComprehensiveSystemValidator:
                 "total_tests": total_tests,
                 "passed_tests": passed_tests,
                 "success_rate": success_rate,
-                "overall_status": "PASSED" if success_rate >= 95 else "FAILED"
+                "overall_status": "PASSED" if success_rate >= 95 else "FAILED",
             },
             "detailed_results": self.test_results,
             "requirements_coverage": {
@@ -508,9 +470,9 @@ class ComprehensiveSystemValidator:
                 "requirement_7_monitoring": "VALIDATED",
                 "requirement_8_error_handling": "VALIDATED",
                 "requirement_9_audit_compliance": "VALIDATED",
-                "requirement_10_performance": "VALIDATED"
+                "requirement_10_performance": "VALIDATED",
             },
-            "recommendations": self._generate_recommendations()
+            "recommendations": self._generate_recommendations(),
         }
 
         return report
@@ -525,7 +487,11 @@ class ComprehensiveSystemValidator:
         else:
             recommendations.append("Consider performance optimization for response times")
 
-        if self.test_results.get("security_validation", {}).get("authentication_validation", {}).get("jwt_validation", True):
+        if (
+            self.test_results.get("security_validation", {})
+            .get("authentication_validation", {})
+            .get("jwt_validation", True)
+        ):
             recommendations.append("Security validation passed - system ready for production")
         else:
             recommendations.append("Address security validation issues before production deployment")
@@ -547,7 +513,7 @@ async def main():
 
         # Save report to file
         report_filename = f"comprehensive_system_validation_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_filename, 'w') as f:
+        with open(report_filename, "w") as f:
             json.dump(report, f, indent=2, default=str)
 
         logger.info(f"Validation report saved to: {report_filename}")

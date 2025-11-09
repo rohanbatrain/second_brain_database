@@ -5,14 +5,15 @@ This migration creates all necessary collections for the family management syste
 with proper indexes, constraints, and referential integrity checks.
 """
 
-import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
+import uuid
 
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
+
 from .migration_manager import BaseMigration
 
 logger = get_logger(prefix="[FamilyCollectionsMigration]")
@@ -58,8 +59,11 @@ class FamilyCollectionsMigration(BaseMigration):
 
             existing_collections = await self.database.list_collection_names()
             family_collections = [
-                "families", "family_relationships", "family_invitations",
-                "family_notifications", "family_token_requests"
+                "families",
+                "family_relationships",
+                "family_invitations",
+                "family_notifications",
+                "family_token_requests",
             ]
 
             for collection_name in family_collections:
@@ -120,7 +124,7 @@ class FamilyCollectionsMigration(BaseMigration):
             rollback_data = {
                 "collections_created": collections_affected,
                 "users_updated": users_updated,
-                "migration_timestamp": datetime.now(timezone.utc).isoformat()
+                "migration_timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             self.logger.info("Family collections migration completed successfully")
@@ -128,7 +132,7 @@ class FamilyCollectionsMigration(BaseMigration):
             return {
                 "collections_affected": collections_affected,
                 "records_processed": records_processed,
-                "rollback_data": rollback_data
+                "rollback_data": rollback_data,
             }
 
         except Exception as e:
@@ -144,8 +148,11 @@ class FamilyCollectionsMigration(BaseMigration):
 
             # Drop family management collections
             family_collections = [
-                "families", "family_relationships", "family_invitations",
-                "family_notifications", "family_token_requests"
+                "families",
+                "family_relationships",
+                "family_invitations",
+                "family_notifications",
+                "family_token_requests",
             ]
 
             for collection_name in family_collections:
@@ -159,24 +166,14 @@ class FamilyCollectionsMigration(BaseMigration):
             # Remove family fields from users collection
             users_collection = db_manager.get_collection("users")
             result = await users_collection.update_many(
-                {},
-                {
-                    "$unset": {
-                        "family_limits": "",
-                        "family_memberships": "",
-                        "family_notifications": ""
-                    }
-                }
+                {}, {"$unset": {"family_limits": "", "family_memberships": "", "family_notifications": ""}}
             )
 
             self.logger.info("Removed family fields from %d user documents", result.modified_count)
 
             self.logger.info("Family collections migration rollback completed")
 
-            return {
-                "collections_dropped": collections_dropped,
-                "users_updated": result.modified_count
-            }
+            return {"collections_dropped": collections_dropped, "users_updated": result.modified_count}
 
         except Exception as e:
             self.logger.error("Migration rollback failed: %s", e, exc_info=True)
@@ -208,19 +205,16 @@ class FamilyCollectionsMigration(BaseMigration):
                         "notify_on_spend": True,
                         "notify_on_deposit": True,
                         "large_transaction_threshold": 1000,
-                        "notify_admins_only": False
-                    }
+                        "notify_admins_only": False,
+                    },
                 },
                 "settings": {
                     "allow_member_invites": False,
                     "visibility": "private",
                     "auto_approval_threshold": 100,
-                    "request_expiry_hours": 168
+                    "request_expiry_hours": 168,
                 },
-                "succession_plan": {
-                    "backup_admins": [],
-                    "recovery_contacts": []
-                }
+                "succession_plan": {"backup_admins": [], "recovery_contacts": []},
             }
 
             await families_collection.insert_one(sample_doc)
@@ -250,7 +244,7 @@ class FamilyCollectionsMigration(BaseMigration):
                 "created_by": "sample_user_a",
                 "created_at": datetime.now(timezone.utc),
                 "activated_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
+                "updated_at": datetime.now(timezone.utc),
             }
 
             await relationships_collection.insert_one(sample_doc)
@@ -282,7 +276,7 @@ class FamilyCollectionsMigration(BaseMigration):
                 "created_at": datetime.now(timezone.utc),
                 "responded_at": None,
                 "email_sent": False,
-                "email_sent_at": None
+                "email_sent_at": None,
             }
 
             await invitations_collection.insert_one(sample_doc)
@@ -308,14 +302,11 @@ class FamilyCollectionsMigration(BaseMigration):
                 "type": "sbd_spend",
                 "title": "Sample Notification",
                 "message": "This is a sample notification",
-                "data": {
-                    "transaction_id": "sample_tx",
-                    "amount": 100
-                },
+                "data": {"transaction_id": "sample_tx", "amount": 100},
                 "status": "pending",
                 "created_at": datetime.now(timezone.utc),
                 "sent_at": None,
-                "read_by": {}
+                "read_by": {},
             }
 
             await notifications_collection.insert_one(sample_doc)
@@ -347,7 +338,7 @@ class FamilyCollectionsMigration(BaseMigration):
                 "created_at": datetime.now(timezone.utc),
                 "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
                 "reviewed_at": None,
-                "processed_at": None
+                "processed_at": None,
             }
 
             await token_requests_collection.insert_one(sample_doc)
@@ -370,7 +361,7 @@ class FamilyCollectionsMigration(BaseMigration):
                     "$or": [
                         {"family_limits": {"$exists": False}},
                         {"family_memberships": {"$exists": False}},
-                        {"family_notifications": {"$exists": False}}
+                        {"family_notifications": {"$exists": False}},
                     ]
                 },
                 {
@@ -379,7 +370,7 @@ class FamilyCollectionsMigration(BaseMigration):
                             "max_families_allowed": 1,
                             "max_members_per_family": 5,
                             "updated_at": datetime.now(timezone.utc),
-                            "updated_by": "system_migration"
+                            "updated_by": "system_migration",
                         },
                         "family_memberships": [],
                         "family_notifications": {
@@ -388,11 +379,11 @@ class FamilyCollectionsMigration(BaseMigration):
                             "preferences": {
                                 "email_notifications": True,
                                 "push_notifications": True,
-                                "sms_notifications": False
-                            }
-                        }
+                                "sms_notifications": False,
+                            },
+                        },
                     }
-                }
+                },
             )
 
             self.logger.info("Updated %d user documents with family fields", result.modified_count)
@@ -423,7 +414,9 @@ class FamilyCollectionsMigration(BaseMigration):
             await relationships_collection.create_index("user_a_id")
             await relationships_collection.create_index("user_b_id")
             await relationships_collection.create_index("status")
-            await relationships_collection.create_index([("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], unique=True)
+            await relationships_collection.create_index(
+                [("user_a_id", 1), ("user_b_id", 1), ("family_id", 1)], unique=True
+            )
             await relationships_collection.create_index([("family_id", 1), ("status", 1)])
 
             # Family invitations collection indexes

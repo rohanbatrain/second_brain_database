@@ -807,334 +807,58 @@ class PermanentTokenDocument(BaseModel):
     revoked_at: Optional[datetime] = Field(None, description="Revocation timestamp")
 
 
-# WebAuthn Models
-
-
-class WebAuthnCredentialDocument(BaseModel):
-    """
-    Database document model for webauthn_credentials collection.
-
-    Stores WebAuthn credential data for passwordless authentication.
-    Contains public key and metadata but never private keys.
-    """
-
-    user_id: str = Field(..., description="ObjectId of the credential owner")
-    credential_id: str = Field(..., description="Base64url encoded credential ID")
-    public_key: str = Field(..., description="CBOR encoded public key")
-    sign_count: int = Field(default=0, description="Signature counter for replay attack prevention")
-    device_name: str = Field(..., description="User-friendly device name")
-    authenticator_type: str = Field(..., description="platform or cross-platform")
-    transport: List[str] = Field(default_factory=list, description="Transport methods (usb, nfc, ble, internal)")
-    aaguid: str = Field(..., description="Authenticator AAGUID")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Registration timestamp")
-    last_used_at: Optional[datetime] = Field(None, description="Last usage timestamp")
-    is_active: bool = Field(default=True, description="Whether credential is active")
-
-
-class WebAuthnChallengeDocument(BaseModel):
-    """
-    Database document model for webauthn_challenges collection.
-
-    Stores temporary challenges for WebAuthn operations with automatic expiration.
-    """
-
-    challenge: str = Field(..., description="Base64url encoded challenge")
-    user_id: Optional[str] = Field(None, description="ObjectId of user (optional for authentication)")
-    type: str = Field(..., description="Challenge type: registration or authentication")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Challenge creation timestamp")
-    expires_at: datetime = Field(..., description="Challenge expiration timestamp")
-
-
-# WebAuthn Registration Models
-
-class WebAuthnRegistrationBeginRequest(BaseDocumentedModel):
-    """
-    Request model for starting WebAuthn credential registration.
-
-    Allows users to provide an optional friendly name for their authenticator device.
-    """
-
-    device_name: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="Friendly name for the authenticator device",
-        example="iPhone Touch ID"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "device_name": "iPhone Touch ID"
-            }
-        }
-    }
-
-
-class WebAuthnRegistrationBeginResponse(BaseDocumentedModel):
-    """
-    Response model for WebAuthn registration begin endpoint.
-
-    Contains WebAuthn credential creation options for the client.
-    """
-
-    challenge: str = Field(..., description="Base64url-encoded challenge")
-    rp: Dict[str, Any] = Field(..., description="Relying Party information")
-    user: Dict[str, Any] = Field(..., description="User information")
-    pubKeyCredParams: List[Dict[str, Any]] = Field(..., description="Supported public key algorithms")
-    authenticatorSelection: Dict[str, Any] = Field(..., description="Authenticator selection criteria")
-    attestation: str = Field(..., description="Attestation conveyance preference")
-    excludeCredentials: List[Dict[str, Any]] = Field(default_factory=list, description="Existing credentials to exclude")
-    timeout: int = Field(..., description="Timeout in milliseconds")
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "challenge": "dGVzdC1jaGFsbGVuZ2UtZGF0YQ",
-                "rp": {
-                    "name": "Second Brain Database",
-                    "id": "localhost"
-                },
-                "user": {
-                    "id": "dXNlci1pZA",
-                    "name": "user@example.com",
-                    "displayName": "user123"
-                },
-                "pubKeyCredParams": [
-                    {"alg": -7, "type": "public-key"},
-                    {"alg": -257, "type": "public-key"}
-                ],
-                "authenticatorSelection": {
-                    "authenticatorAttachment": "platform",
-                    "userVerification": "preferred",
-                    "residentKey": "preferred"
-                },
-                "attestation": "none",
-                "excludeCredentials": [],
-                "timeout": 300000
-            }
-        }
-    }
-
-
-class WebAuthnRegistrationCompleteRequest(BaseDocumentedModel):
-    """
-    Request model for completing WebAuthn credential registration.
-
-    Contains the WebAuthn credential creation response from the client.
-    """
-
-    id: str = Field(..., description="Credential ID (base64url encoded)")
-    rawId: str = Field(..., description="Raw credential ID (base64url encoded)")
-    response: Dict[str, Any] = Field(..., description="Authenticator attestation response")
-    type: str = Field(default="public-key", description="Credential type")
-    device_name: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="Optional friendly name for the device"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "rawId": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "response": {
-                    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiZEdWemRDMWphR0ZzYkdWdVoyVXRaR0YwWVEiLCJvcmlnaW4iOiJodHRwczovL2xvY2FsaG9zdDozMDAwIn0",
-                    "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAK3OAAI1vMYKZIsLJfHwVQMAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gpQECAyYgASFYIJ16eSWKZddnscQjDkJmXWNa3YvjXX_kN5JZ8-Qp8W6iIlgg7PmYiKM7ltvbBKz42hkw_jf_k7NrZgN1FQ4nP2Qx5Qs"
-                },
-                "type": "public-key",
-                "device_name": "iPhone Touch ID"
-            }
-        }
-    }
-
-
-class WebAuthnRegistrationCompleteResponse(BaseDocumentedModel):
-    """
-    Response model for completed WebAuthn credential registration.
-
-    Confirms successful registration and provides credential metadata.
-    """
-
-    message: str = Field(
-        default="WebAuthn credential registered successfully",
-        description="Success message"
-    )
-    credential_id: str = Field(..., description="Unique credential identifier")
-    device_name: str = Field(..., description="User-friendly device name")
-    authenticator_type: str = Field(..., description="Type of authenticator")
-    created_at: datetime = Field(..., description="Registration timestamp")
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "message": "WebAuthn credential registered successfully",
-                "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "device_name": "iPhone Touch ID",
-                "authenticator_type": "platform",
-                "created_at": "2024-01-01T12:00:00Z"
-            }
-        }
-    }
-
-
-class WebAuthnCredentialInfo(BaseDocumentedModel):
-    """
-    Model for WebAuthn credential metadata (safe for API responses).
-
-    Contains credential information without sensitive cryptographic data.
-    Used for listing user credentials and credential management operations.
-    """
-
-    credential_id: str = Field(..., description="Unique credential identifier")
-    device_name: str = Field(..., description="User-friendly device name")
-    authenticator_type: str = Field(..., description="platform or cross-platform")
-    transport: List[str] = Field(default_factory=list, description="Transport methods")
-    created_at: datetime = Field(..., description="Registration timestamp")
-    last_used_at: Optional[datetime] = Field(None, description="Last usage timestamp")
-    is_active: bool = Field(default=True, description="Whether credential is active")
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "device_name": "iPhone Touch ID",
-                "authenticator_type": "platform",
-                "transport": ["internal"],
-                "created_at": "2024-01-01T12:00:00Z",
-                "last_used_at": "2024-01-01T15:30:00Z",
-                "is_active": True,
-            }
-        }
-    }
-
-
-class WebAuthnCredentialListResponse(BaseDocumentedModel):
-    """
-    Response model for listing WebAuthn credentials.
-
-    Contains array of credential metadata without sensitive cryptographic data.
-    """
-
-    credentials: List[WebAuthnCredentialInfo] = Field(
-        default_factory=list, description="List of WebAuthn credentials for the user"
-    )
-    total_count: int = Field(default=0, description="Total number of credentials", example=2)
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "credentials": [
-                    {
-                        "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                        "device_name": "iPhone Touch ID",
-                        "authenticator_type": "platform",
-                        "transport": ["internal"],
-                        "created_at": "2024-01-01T12:00:00Z",
-                        "last_used_at": "2024-01-01T15:30:00Z",
-                        "is_active": True,
-                    },
-                    {
-                        "credential_id": "ISEjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-Pw",
-                        "device_name": "YubiKey 5 NFC",
-                        "authenticator_type": "cross-platform",
-                        "transport": ["usb", "nfc"],
-                        "created_at": "2024-01-02T09:00:00Z",
-                        "last_used_at": "2024-01-02T10:15:00Z",
-                        "is_active": True,
-                    },
-                ],
-                "total_count": 2,
-            }
-        }
-    }
-
-
-class WebAuthnCredentialDeletionResponse(BaseDocumentedModel):
-    """
-    Response model for WebAuthn credential deletion.
-
-    Confirms successful credential deletion and provides deletion details.
-    Once a credential is deleted, it cannot be used for authentication.
-    """
-
-    message: str = Field(
-        ..., description="Confirmation message indicating successful deletion", example="Credential deleted successfully"
-    )
-    credential_id: str = Field(..., description="Unique identifier of the deleted credential", example="AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA")
-    device_name: str = Field(..., description="User-friendly name of the deleted device", example="iPhone Touch ID")
-    deleted_at: datetime = Field(
-        ..., description="UTC timestamp when the credential was deleted", example="2024-01-01T16:00:00Z"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "message": "Credential deleted successfully",
-                "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "device_name": "iPhone Touch ID",
-                "deleted_at": "2024-01-01T16:00:00Z",
-            }
-        }
-    }
-
-# Dual Authentication Models
+# WebAuthn support removed
 
 
 class AuthMethodsResponse(BaseDocumentedModel):
     """
-    Response model for available authentication methods.
+    Response model for authentication methods query.
 
-    Provides information about what authentication methods are available
-    for a user and their preferences.
+    Contains information about available authentication methods,
+    user preferences, and recent authentication activity.
+
+    **Fields:**
+    - available_methods: List of authentication methods available to the user
+    - preferred_method: User's preferred authentication method
+    - has_password: Whether the user has a password set
+    - recent_auth_methods: List of recently used authentication methods
+    - last_auth_method: The most recently used authentication method
     """
 
     available_methods: List[str] = Field(
         default_factory=list,
-        description="List of available authentication methods for the user",
-        example=["password", "webauthn"]
+        description="List of authentication methods available to the user",
+        example=["password"],
     )
     preferred_method: Optional[str] = Field(
         None,
         description="User's preferred authentication method",
-        example="webauthn"
+        example="password",
     )
     has_password: bool = Field(
-        default=False,
-        description="Whether the user has password authentication available",
-        example=True
-    )
-    has_webauthn: bool = Field(
-        default=False,
-        description="Whether the user has WebAuthn credentials available",
-        example=True
-    )
-    webauthn_credential_count: int = Field(
-        default=0,
-        description="Number of active WebAuthn credentials",
-        example=2
+        default=True,
+        description="Whether the user has a password set",
+        example=True,
     )
     recent_auth_methods: List[str] = Field(
         default_factory=list,
-        description="Recently used authentication methods (last 5)",
-        example=["webauthn", "password", "webauthn"]
+        description="List of recently used authentication methods",
+        example=["password", "password"],
     )
     last_auth_method: Optional[str] = Field(
         None,
-        description="Last authentication method used",
-        example="webauthn"
+        description="The most recently used authentication method",
+        example="password",
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "available_methods": ["password", "webauthn"],
-                "preferred_method": "webauthn",
+                "available_methods": ["password"],
+                "preferred_method": "password",
                 "has_password": True,
-                "has_webauthn": True,
-                "webauthn_credential_count": 2,
-                "recent_auth_methods": ["webauthn", "password", "webauthn"],
-                "last_auth_method": "webauthn"
+                "recent_auth_methods": ["password", "password"],
+                "last_auth_method": "password",
             }
         }
     }
@@ -1143,24 +867,30 @@ class AuthMethodsResponse(BaseDocumentedModel):
 class AuthPreferenceResponse(BaseDocumentedModel):
     """
     Response model for authentication preference updates.
+
+    Confirms successful update of user's preferred authentication method.
+
+    **Fields:**
+    - message: Confirmation message
+    - preferred_method: The newly set preferred authentication method
     """
 
     message: str = Field(
-        default="Authentication preference updated successfully",
-        description="Success message",
-        example="Authentication preference updated successfully"
+        ...,
+        description="Confirmation message indicating successful preference update",
+        example="Authentication preference updated successfully",
     )
     preferred_method: str = Field(
         ...,
-        description="The updated preferred authentication method",
-        example="webauthn"
+        description="The newly set preferred authentication method",
+        example="password",
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "message": "Authentication preference updated successfully",
-                "preferred_method": "webauthn"
+                "preferred_method": "password",
             }
         }
     }
@@ -1170,295 +900,40 @@ class AuthFallbackResponse(BaseDocumentedModel):
     """
     Response model for authentication fallback options.
 
-    Provides information about available fallback authentication methods
-    when the primary method fails.
+    Provides information about alternative authentication methods
+    available when a primary method fails.
+
+    **Fields:**
+    - fallback_available: Whether fallback options are available
+    - available_fallbacks: List of available fallback authentication methods
+    - recommended_fallback: Recommended fallback method to try
     """
 
-    has_fallback: bool = Field(
+    fallback_available: bool = Field(
         default=False,
-        description="Whether fallback authentication methods are available",
-        example=True
+        description="Whether fallback authentication options are available",
+        example=True,
     )
-    fallback_methods: List[str] = Field(
+    available_fallbacks: List[str] = Field(
         default_factory=list,
         description="List of available fallback authentication methods",
-        example=["password"]
+        example=["password"],
     )
     recommended_fallback: Optional[str] = Field(
         None,
         description="Recommended fallback authentication method",
-        example="password"
-    )
-    failed_method: str = Field(
-        ...,
-        description="The authentication method that failed",
-        example="webauthn"
-    )
-    total_methods_available: int = Field(
-        default=0,
-        description="Total number of authentication methods available to the user",
-        example=2
+        example="password",
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "has_fallback": True,
-                "fallback_methods": ["password"],
+                "fallback_available": True,
+                "available_fallbacks": ["password"],
                 "recommended_fallback": "password",
-                "failed_method": "webauthn",
-                "total_methods_available": 2
             }
         }
     }
 
 
-# WebAuthn Authentication Models
 
-
-class WebAuthnAuthenticationBeginRequest(BaseDocumentedModel):
-    """
-    Request model for starting WebAuthn authentication.
-
-    Allows authentication by username or email, similar to standard login.
-    """
-
-    username: Optional[str] = Field(
-        None,
-        description="Username for authentication. Either username or email must be provided.",
-        example="john_doe"
-    )
-    email: Optional[EmailStr] = Field(
-        None,
-        description="Email address for authentication. Either username or email must be provided.",
-        example="john.doe@example.com"
-    )
-    user_verification: str = Field(
-        default="preferred",
-        description="User verification requirement for the authenticator",
-        example="preferred"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "name": "Username Authentication",
-                    "summary": "Start WebAuthn authentication with username",
-                    "value": {
-                        "username": "john_doe",
-                        "user_verification": "preferred"
-                    }
-                },
-                {
-                    "name": "Email Authentication",
-                    "summary": "Start WebAuthn authentication with email",
-                    "value": {
-                        "email": "john.doe@example.com",
-                        "user_verification": "required"
-                    }
-                }
-            ]
-        }
-    }
-
-    @classmethod
-    def model_validate(cls, data):
-        obj = super().model_validate(data)
-        if not obj.username and not obj.email:
-            raise ValueError("Either username or email must be provided.")
-        return obj
-
-
-class WebAuthnAuthenticationBeginResponse(BaseDocumentedModel):
-    """
-    Response model for WebAuthn authentication begin endpoint.
-
-    Contains WebAuthn credential request options for the client.
-    """
-
-    publicKey: Dict[str, Any] = Field(
-        ...,
-        description="WebAuthn credential request options for navigator.credentials.get()",
-        example={
-            "challenge": "random-challenge-string",
-            "timeout": 60000,
-            "rpId": "example.com",
-            "allowCredentials": [
-                {
-                    "type": "public-key",
-                    "id": "credential-id-base64",
-                    "transports": ["usb", "nfc"]
-                }
-            ],
-            "userVerification": "preferred"
-        }
-    )
-    username: Optional[str] = Field(
-        None,
-        description="Username of the authenticating user",
-        example="john_doe"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="Email of the authenticating user",
-        example="john.doe@example.com"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "publicKey": {
-                    "challenge": "random-challenge-string",
-                    "timeout": 60000,
-                    "rpId": "example.com",
-                    "allowCredentials": [
-                        {
-                            "type": "public-key",
-                            "id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                            "transports": ["usb", "nfc", "ble", "internal"]
-                        }
-                    ],
-                    "userVerification": "preferred"
-                },
-                "username": "john_doe",
-                "email": "john.doe@example.com"
-            }
-        }
-    }
-
-
-class WebAuthnAuthenticationCompleteRequest(BaseDocumentedModel):
-    """
-    Request model for completing WebAuthn authentication.
-
-    Contains the WebAuthn assertion response from the client.
-    """
-
-    credential_id: str = Field(
-        ...,
-        description="Base64url encoded credential ID from the assertion response",
-        example="AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
-    )
-    authenticator_data: str = Field(
-        ...,
-        description="Base64url encoded authenticator data from the assertion response",
-        example="authenticator-data-base64url"
-    )
-    client_data_json: str = Field(
-        ...,
-        description="Base64url encoded client data JSON from the assertion response",
-        example="client-data-json-base64url"
-    )
-    signature: str = Field(
-        ...,
-        description="Base64url encoded assertion signature",
-        example="signature-base64url"
-    )
-    user_handle: Optional[str] = Field(
-        None,
-        description="Base64url encoded user handle (optional)",
-        example="user-handle-base64url"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                "authenticator_data": "authenticator-data-base64url-encoded",
-                "client_data_json": "client-data-json-base64url-encoded",
-                "signature": "assertion-signature-base64url-encoded",
-                "user_handle": "user-handle-base64url-encoded"
-            }
-        }
-    }
-
-
-class WebAuthnAuthenticationCompleteResponse(BaseDocumentedModel):
-    """
-    Response model for completed WebAuthn authentication.
-
-    Contains JWT token and user information, similar to standard login response.
-    """
-
-    access_token: str = Field(
-        ...,
-        description="JWT access token for API authentication",
-        example="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
-    )
-    token_type: str = Field(
-        default="bearer",
-        description="Token type, always 'bearer' for JWT tokens",
-        example="bearer"
-    )
-    client_side_encryption: bool = Field(
-        default=False,
-        description="Whether client-side encryption is enabled for this user",
-        example=False
-    )
-    issued_at: int = Field(
-        ...,
-        description="Unix timestamp when the token was issued",
-        example=1640993400
-    )
-    expires_at: int = Field(
-        ...,
-        description="Unix timestamp when the token expires",
-        example=1640995200
-    )
-    is_verified: bool = Field(
-        ...,
-        description="Whether the user's email is verified",
-        example=True
-    )
-    role: Optional[str] = Field(
-        None,
-        description="User's role in the system",
-        example="user"
-    )
-    username: Optional[str] = Field(
-        None,
-        description="User's username",
-        example="john_doe"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="User's email address",
-        example="john.doe@example.com"
-    )
-    authentication_method: str = Field(
-        default="webauthn",
-        description="Authentication method used",
-        example="webauthn"
-    )
-    credential_used: Dict[str, Any] = Field(
-        ...,
-        description="Information about the credential used for authentication",
-        example={
-            "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-            "device_name": "iPhone Touch ID",
-            "authenticator_type": "platform"
-        }
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-                "token_type": "bearer",
-                "client_side_encryption": False,
-                "issued_at": 1640993400,
-                "expires_at": 1640995200,
-                "is_verified": True,
-                "role": "user",
-                "username": "john_doe",
-                "email": "john.doe@example.com",
-                "authentication_method": "webauthn",
-                "credential_used": {
-                    "credential_id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-                    "device_name": "iPhone Touch ID",
-                    "authenticator_type": "platform"
-                }
-            }
-        }
-    }

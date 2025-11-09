@@ -6,8 +6,8 @@ Tools are registered using the @mcp.tool decorator and can access authenticated
 user context via FastMCP's native authentication system.
 """
 
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from ...managers.logging_manager import get_logger
 from .modern_server import mcp
@@ -18,6 +18,7 @@ logger = get_logger(prefix="[MCP_Tools]")
 # This ensures all shop-related tools are available
 try:
     from .tools import shop_tools
+
     logger.info("Shop tools imported and registered successfully")
 except ImportError as e:
     logger.warning("Failed to import shop tools: %s", e)
@@ -26,13 +27,25 @@ except Exception as e:
 
 # Import AI tools to register them with the MCP server
 # This ensures all AI-related tools are available
+# NOTE: AI tools were removed as part of AI orchestration removal
+# try:
+#     from .tools import ai_tools
+#     logger.info("AI tools imported and registered successfully")
+# except ImportError as e:
+#     logger.warning("Failed to import AI tools: %s", e)
+# except Exception as e:
+#     logger.error("Error importing AI tools: %s", e)
+
+# Import RAG tools to register them with the MCP server
+# This ensures all RAG-related document querying and analysis tools are available
 try:
-    from .tools import ai_tools
-    logger.info("AI tools imported and registered successfully")
+    from .tools import rag_tools
+
+    logger.info("RAG tools imported and registered successfully")
 except ImportError as e:
-    logger.warning("Failed to import AI tools: %s", e)
+    logger.warning("Failed to import RAG tools: %s", e)
 except Exception as e:
-    logger.error("Error importing AI tools: %s", e)
+    logger.error("Error importing RAG tools: %s", e)
 
 
 # FastMCP 2.x compliant tool registration
@@ -46,8 +59,8 @@ async def get_server_info() -> dict:
         "server_version": mcp.version,
         "timestamp": datetime.now().isoformat(),
         "status": "operational",
-        "transport": "http" if hasattr(mcp, '_transport') else "stdio",
-        "auth_enabled": mcp.auth is not None
+        "transport": "http" if hasattr(mcp, "_transport") else "stdio",
+        "auth_enabled": mcp.auth is not None,
     }
 
 
@@ -91,7 +104,7 @@ def health_check_tool() -> dict:
         "server": mcp.name,
         "version": mcp.version,
         "auth_enabled": mcp.auth is not None,
-        "uptime": "N/A"  # Would be calculated in real implementation
+        "uptime": "N/A",  # Would be calculated in real implementation
     }
 
 
@@ -99,18 +112,11 @@ def health_check_tool() -> dict:
 @mcp.tool(
     name="process_text",
     description="Process text data with various operations like uppercase, lowercase, or reverse",
-    tags={"text", "processing"}
+    tags={"text", "processing"},
 )
-def process_data(
-    data: str,
-    operation: str = "uppercase",
-    include_timestamp: bool = False
-) -> dict:
+def process_data(data: str, operation: str = "uppercase", include_timestamp: bool = False) -> dict:
     """Process data with specified operation."""
-    result = {
-        "original": data,
-        "operation": operation
-    }
+    result = {"original": data, "operation": operation}
 
     if operation == "uppercase":
         result["processed"] = data.upper()
@@ -130,34 +136,19 @@ def process_data(
 
 # Tool with error handling following FastMCP patterns
 @mcp.tool(
-    name="calculate_division",
-    description="Divide two numbers with proper error handling",
-    tags={"math", "calculation"}
+    name="calculate_division", description="Divide two numbers with proper error handling", tags={"math", "calculation"}
 )
 def divide_numbers(a: float, b: float) -> dict:
     """Divide two numbers safely."""
     try:
         if b == 0:
-            return {
-                "error": "Division by zero is not allowed",
-                "a": a,
-                "b": b
-            }
+            return {"error": "Division by zero is not allowed", "a": a, "b": b}
 
         result = a / b
-        return {
-            "result": result,
-            "a": a,
-            "b": b,
-            "operation": "division"
-        }
+        return {"result": result, "a": a, "b": b, "operation": "division"}
 
     except Exception as e:
-        return {
-            "error": f"Calculation error: {str(e)}",
-            "a": a,
-            "b": b
-        }
+        return {"error": f"Calculation error: {str(e)}", "a": a, "b": b}
 
 
 def register_example_tools():

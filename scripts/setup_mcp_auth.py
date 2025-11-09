@@ -81,7 +81,7 @@ def update_config_file(config_path: Path, updates: Dict[str, Any]) -> None:
         return
 
     # Read existing config
-    lines = []you have created so many startup
+    lines = []
     with open(config_path, 'r') as f:
         lines = f.readlines()
 

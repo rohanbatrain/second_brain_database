@@ -6,12 +6,13 @@ This script creates a minimal FastMCP server and tests basic functionality.
 """
 
 import asyncio
-import sys
 import os
 from pathlib import Path
+import sys
 
 # Add the src directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 
 async def test_simple_fastmcp():
     """Test simple FastMCP functionality."""
@@ -22,6 +23,7 @@ async def test_simple_fastmcp():
         # Test 1: Import FastMCP
         print("1. Testing FastMCP import...")
         from fastmcp import FastMCP
+
         print("   ✅ FastMCP imported successfully")
 
         # Test 2: Create a simple server
@@ -45,11 +47,7 @@ async def test_simple_fastmcp():
         @mcp.resource("test://resource")
         async def test_resource() -> dict:
             """A simple test resource."""
-            return {
-                "uri": "test://resource",
-                "mimeType": "text/plain",
-                "text": "This is a test resource"
-            }
+            return {"uri": "test://resource", "mimeType": "text/plain", "text": "This is a test resource"}
 
         print("   ✅ Resource registered successfully")
 
@@ -57,8 +55,16 @@ async def test_simple_fastmcp():
         print("5. Checking registered components...")
 
         # Access internal storage to count components
-        tool_count = len(mcp._tool_manager._tools) if hasattr(mcp, '_tool_manager') and hasattr(mcp._tool_manager, '_tools') else 0
-        resource_count = len(mcp._resource_manager._resources) if hasattr(mcp, '_resource_manager') and hasattr(mcp._resource_manager, '_resources') else 0
+        tool_count = (
+            len(mcp._tool_manager._tools)
+            if hasattr(mcp, "_tool_manager") and hasattr(mcp._tool_manager, "_tools")
+            else 0
+        )
+        resource_count = (
+            len(mcp._resource_manager._resources)
+            if hasattr(mcp, "_resource_manager") and hasattr(mcp._resource_manager, "_resources")
+            else 0
+        )
 
         print(f"   Tools: {tool_count}")
         print(f"   Resources: {resource_count}")
@@ -110,8 +116,10 @@ async def test_simple_fastmcp():
     except Exception as e:
         print(f"\n❌ Simple FastMCP test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def test_server_startup():
     """Test if we can start a FastMCP server."""
@@ -145,8 +153,10 @@ async def test_server_startup():
     except Exception as e:
         print(f"\n❌ Server startup test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 async def main():
     """Run all simple tests."""
@@ -170,6 +180,7 @@ async def main():
     else:
         print("❌ SOME TESTS FAILED - FastMCP has issues")
         return 1
+
 
 if __name__ == "__main__":
     try:

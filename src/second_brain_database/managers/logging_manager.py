@@ -25,11 +25,11 @@ Usage:
 Logs will go to Loki if available, otherwise to console or buffer file.
 """
 
+from datetime import datetime, timezone
 import logging
 import os
 import sys
 import threading
-from datetime import datetime, timezone
 
 from second_brain_database.config import settings
 
@@ -81,18 +81,21 @@ def _ensure_console_handler(logger: logging.Logger, formatter: logging.Formatter
     return True
 
 
-import requests
-import time
 import threading
+import time
+
+import requests
 
 LOKI_HEALTH_URL = os.getenv("LOKI_HEALTH_URL", LOKI_URL.replace("/loki/api/v1/push", "/ready"))
 LOKI_PING_INTERVAL_SECONDS = 24 * 60 * 60  # Once per day
 
 LOKI_BUFFER_FLUSH_ENABLED = True  # Global admin toggle
 
+
 def set_loki_buffer_flush_enabled(enabled: bool):
     global LOKI_BUFFER_FLUSH_ENABLED
     LOKI_BUFFER_FLUSH_ENABLED = enabled
+
 
 def ping_loki_and_flush_if_available():
     """
@@ -105,7 +108,7 @@ def ping_loki_and_flush_if_available():
         resp = requests.get(
             LOKI_HEALTH_URL,
             timeout=(2, 3),  # (connect_timeout, read_timeout)
-            headers={'Connection': 'close'}  # Don't keep connection alive
+            headers={"Connection": "close"},  # Don't keep connection alive
         )
         if resp.status_code == 200:
             logger.info("[LoggingManager] Loki is available. Flushing buffer and switching to Loki logging.")
@@ -129,8 +132,11 @@ def ping_loki_and_flush_if_available():
                 logger.info("[LoggingManager] Buffer flush is disabled by admin toggle.")
         else:
             logger.warning(f"[LoggingManager] Loki health check failed: status {resp.status_code}")
-    except (requests.exceptions.RequestException, requests.exceptions.Timeout,
-            requests.exceptions.ConnectionError) as e:
+    except (
+        requests.exceptions.RequestException,
+        requests.exceptions.Timeout,
+        requests.exceptions.ConnectionError,
+    ) as e:
         logger.warning(f"[LoggingManager] Loki health check connection failed: {e}")
     except Exception as e:
         logger.warning(f"[LoggingManager] Loki health check exception: {e}")
@@ -143,6 +149,7 @@ def ping_loki_and_flush_if_available():
         except Exception as timer_e:
             logger.error(f"[LoggingManager] Failed to schedule next Loki ping: {timer_e}")
 
+
 # Start the daily ping/flush scheduler at import with error handling
 try:
     timer = threading.Timer(10, ping_loki_and_flush_if_available)
@@ -153,6 +160,7 @@ except Exception as e:
     logging.getLogger("Second_Brain_Database").warning(
         f"[LoggingManager] Failed to start Loki ping scheduler: {e}. Loki integration disabled."
     )
+
 
 def _write_to_buffer(record: logging.LogRecord) -> None:
     """
@@ -165,6 +173,7 @@ def _write_to_buffer(record: logging.LogRecord) -> None:
     import json
     import socket
     import traceback
+
     log_dict = {
         "ts": record.created,  # Unix timestamp
         "iso_ts": record.asctime if hasattr(record, "asctime") else None,  # ISO8601 timestamp if available
@@ -285,6 +294,7 @@ def archive_worker_logs(logger: logging.Logger = None):
     Move all per-worker log files from logs/ to logs/archive/ after successful Loki delivery.
     """
     import shutil
+
     logs_dir = os.path.join("logs")
     archive_dir = os.path.join(logs_dir, "archive")
     os.makedirs(archive_dir, exist_ok=True)
@@ -303,14 +313,18 @@ def archive_worker_logs(logger: logging.Logger = None):
 
 def get_worker_log_filename():
     import os
+
     pid = os.getpid()
     return os.path.join("logs", f"worker_{pid}.log")
+
 
 def get_worker_registry_filename():
     return os.path.join("logs", "worker_registry.json")
 
+
 def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefix: str = "") -> logging.Logger:
     import json
+
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
@@ -325,7 +339,10 @@ def get_logger(name: str = "Second_Brain_Database", add_loki: bool = True, prefi
     # Per-worker log file in logs/
     log_filename = get_worker_log_filename()
     os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_filename) for h in logger.handlers):
+    if not any(
+        isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == os.path.abspath(log_filename)
+        for h in logger.handlers
+    ):
         file_handler = logging.FileHandler(log_filename)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)

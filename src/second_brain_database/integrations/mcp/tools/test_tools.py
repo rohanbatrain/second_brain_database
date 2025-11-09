@@ -4,14 +4,14 @@ Test MCP Tools for FastMCP 2.0
 Simple test tools to validate FastMCP 2.0 integration and functionality.
 """
 
-from typing import Dict, Any
 from datetime import datetime, timezone
+from typing import Any, Dict
 
-from ..mcp_instance import get_mcp_server
-from ..security import get_mcp_user_context
-from ..modern_server import mcp
-from ..context import create_mcp_audit_trail
 from ....managers.logging_manager import get_logger
+from ..context import create_mcp_audit_trail
+from ..mcp_instance import get_mcp_server
+from ..modern_server import mcp
+from ..security import get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_TestTools]")
 
@@ -40,7 +40,7 @@ if mcp_server is not None:
                 user_context=user_context,
                 resource_type="tool",
                 resource_id="test_echo",
-                metadata={"message": message}
+                metadata={"message": message},
             )
 
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -70,7 +70,7 @@ if mcp_server is not None:
                 user_context=user_context,
                 resource_type="tool",
                 resource_id="test_health",
-                metadata={"check_type": "health"}
+                metadata={"check_type": "health"},
             )
 
             health_info = {
@@ -78,7 +78,7 @@ if mcp_server is not None:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "fastmcp_version": "2.0",
                 "user_id": user_context.user_id,
-                "user_role": user_context.role
+                "user_role": user_context.role,
             }
 
             logger.info("Test health tool called by user %s", user_context.user_id)
@@ -86,11 +86,7 @@ if mcp_server is not None:
 
         except Exception as e:
             logger.error("Test health tool failed: %s", e)
-            return {
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            return {"status": "error", "error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 else:
     logger.warning("FastMCP 2.0 not available - test tools will not be registered")

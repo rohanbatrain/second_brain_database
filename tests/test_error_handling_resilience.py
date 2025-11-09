@@ -26,27 +26,40 @@ Requirements Tested:
 """
 
 import asyncio
-import pytest
+from datetime import datetime, timedelta, timezone
 import time
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, call, patch
 import uuid
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from typing import Dict, Any, List
+
+from pymongo.client_session import ClientSession
+from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
+import pytest
+from src.second_brain_database.database import db_manager
+from src.second_brain_database.managers.family_manager import FamilyManager
 
 # Import the modules we're testing
 from src.second_brain_database.utils.error_handling import (
-    handle_errors, ErrorContext, ErrorSeverity, RetryConfig, RetryStrategy,
-    CircuitBreaker, BulkheadSemaphore, CircuitBreakerState,
-    CircuitBreakerOpenError, BulkheadCapacityError, RetryExhaustedError,
-    ValidationError, GracefulDegradationError,
-    get_circuit_breaker, get_bulkhead, retry_with_backoff,
-    validate_input, create_user_friendly_error, sanitize_sensitive_data
+    BulkheadCapacityError,
+    BulkheadSemaphore,
+    CircuitBreaker,
+    CircuitBreakerOpenError,
+    CircuitBreakerState,
+    ErrorContext,
+    ErrorSeverity,
+    GracefulDegradationError,
+    RetryConfig,
+    RetryExhaustedError,
+    RetryStrategy,
+    ValidationError,
+    create_user_friendly_error,
+    get_bulkhead,
+    get_circuit_breaker,
+    handle_errors,
+    retry_with_backoff,
+    sanitize_sensitive_data,
+    validate_input,
 )
-
-from src.second_brain_database.managers.family_manager import FamilyManager
-from src.second_brain_database.database import db_manager
-from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
-from pymongo.client_session import ClientSession
 
 
 class TestDatabaseTransactionSafety:
@@ -88,9 +101,11 @@ class TestDatabaseTransactionSafety:
         family_name = "Test Family"
 
         # Mock database operations to simulate failure after partial completion
-        with patch.object(db_manager, 'start_session') as mock_start_session, \
-             patch.object(db_manager, 'families') as mock_families, \
-             patch.object(db_manager, 'family_relationships') as mock_relationships:
+        with (
+            patch.object(db_manager, "start_session") as mock_start_session,
+            patch.object(db_manager, "families") as mock_families,
+            patch.object(db_manager, "family_relationships") as mock_relationships,
+        ):
 
             # Setup session mock
             mock_session = AsyncMock(spec=ClientSession)
@@ -118,14 +133,16 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
         family_name = "Atomic Test Family"
 
-        with patch.object(db_manager, 'start_session') as mock_start_session:
+        with patch.object(db_manager, "start_session") as mock_start_session:
             mock_session = AsyncMock(spec=ClientSession)
             mock_start_session.return_value.__aenter__.return_value = mock_session
 
             # Mock successful operations
-            with patch.object(db_manager, 'families') as mock_families, \
-                 patch.object(db_manager, 'family_relationships') as mock_relationships, \
-                 patch.object(db_manager, 'sbd_virtual_accounts') as mock_sbd:
+            with (
+                patch.object(db_manager, "families") as mock_families,
+                patch.object(db_manager, "family_relationships") as mock_relationships,
+                patch.object(db_manager, "sbd_virtual_accounts") as mock_sbd,
+            ):
 
                 mock_families.insert_one.return_value.inserted_id = "family_123"
                 mock_relationships.insert_one.return_value.inserted_id = "rel_123"
@@ -155,9 +172,7 @@ class TestDatabaseTransactionSafety:
         # Simulate concurrent family creation attempts
         tasks = []
         for i in range(5):
-            task = asyncio.create_task(
-                family_manager.create_family(user_id, f"Family {i}")
-            )
+            task = asyncio.create_task(family_manager.create_family(user_id, f"Family {i}"))
             tasks.append(task)
 
         # Execute concurrent operations
@@ -183,8 +198,10 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
 
         # Mock partial failure scenario
-        with patch.object(db_manager, 'families') as mock_families, \
-             patch.object(db_manager, 'family_relationships') as mock_relationships:
+        with (
+            patch.object(db_manager, "families") as mock_families,
+            patch.object(db_manager, "family_relationships") as mock_relationships,
+        ):
 
             # First operation succeeds, second fails
             mock_families.insert_one.return_value.inserted_id = "family_123"
@@ -209,11 +226,11 @@ class TestDatabaseTransactionSafety:
         user_id = f"test_user_{uuid.uuid4().hex[:8]}"
 
         # Mock connection failure followed by recovery
-        with patch.object(db_manager, 'families') as mock_families:
+        with patch.object(db_manager, "families") as mock_families:
             # First call fails, second succeeds
             mock_families.insert_one.side_effect = [
                 ConnectionFailure("Connection failed"),
-                MagicMock(inserted_id="family_123")
+                MagicMock(inserted_id="family_123"),
             ]
 
             # Configure retry for connection failures
@@ -221,14 +238,11 @@ class TestDatabaseTransactionSafety:
                 max_attempts=3,
                 initial_delay=0.1,
                 strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
-                retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError]
+                retryable_exceptions=[ConnectionFailure, ServerSelectionTimeoutError],
             )
 
             # Test with retry decorator
-            @handle_errors(
-                operation_name="test_recovery",
-                retry_config=retry_config
-            )
+            @handle_errors(operation_name="test_recovery", retry_config=retry_config)
             async def test_operation():
                 return await family_manager.create_family(user_id, "Recovery Test")
 
@@ -256,10 +270,7 @@ class TestCircuitBreakerResilience:
     def circuit_breaker(self):
         """Create a circuit breaker for testing."""
         return CircuitBreaker(
-            name="test_circuit_breaker",
-            failure_threshold=3,
-            recovery_timeout=5,
-            expected_exception=Exception
+            name="test_circuit_breaker", failure_threshold=3, recovery_timeout=5, expected_exception=Exception
         )
 
     async def test_circuit_breaker_state_transitions(self, circuit_breaker):
@@ -366,7 +377,7 @@ class TestCircuitBreakerResilience:
         rejected = [r for r in results if isinstance(r, BulkheadCapacityError)]
 
         assert len(successful) <= 3  # At most capacity
-        assert len(rejected) >= 2   # At least some rejected
+        assert len(rejected) >= 2  # At least some rejected
 
     async def test_exponential_backoff_retry(self):
         """
@@ -375,10 +386,7 @@ class TestCircuitBreakerResilience:
         Requirements: 8.1, 8.6
         """
         retry_config = RetryConfig(
-            max_attempts=4,
-            initial_delay=0.1,
-            backoff_factor=2.0,
-            strategy=RetryStrategy.EXPONENTIAL_BACKOFF
+            max_attempts=4, initial_delay=0.1, backoff_factor=2.0, strategy=RetryStrategy.EXPONENTIAL_BACKOFF
         )
 
         call_times = []
@@ -410,6 +418,7 @@ class TestCircuitBreakerResilience:
 
         Requirements: 8.5, 8.6
         """
+
         # Mock a service that provides fallback functionality
         async def primary_service():
             raise ConnectionFailure("Service unavailable")
@@ -417,11 +426,7 @@ class TestCircuitBreakerResilience:
         async def fallback_service():
             return {"status": "degraded", "message": "Using cached data"}
 
-        @handle_errors(
-            operation_name="test_degradation",
-            fallback_func=fallback_service,
-            user_friendly_errors=True
-        )
+        @handle_errors(operation_name="test_degradation", fallback_func=fallback_service, user_friendly_errors=True)
         async def service_operation():
             return await primary_service()
 
@@ -436,7 +441,7 @@ class TestCircuitBreakerResilience:
         Requirements: 8.6
         """
         # Mock monitoring system
-        with patch('src.second_brain_database.utils.error_handling.family_monitor') as mock_monitor:
+        with patch("src.second_brain_database.utils.error_handling.family_monitor") as mock_monitor:
             mock_monitor.send_alert = AsyncMock()
 
             # Create circuit breaker that will trigger alerts
@@ -477,7 +482,7 @@ class TestErrorHandlingDecorator:
             bulkhead="test_bulkhead",
             retry_config=RetryConfig(max_attempts=3, initial_delay=0.1),
             timeout=5.0,
-            user_friendly_errors=True
+            user_friendly_errors=True,
         )
         async def test_operation(user_id: str):
             nonlocal call_count
@@ -497,11 +502,7 @@ class TestErrorHandlingDecorator:
 
         Requirements: 8.3
         """
-        context = ErrorContext(
-            operation="test_operation",
-            user_id="test_user",
-            request_id="req_123"
-        )
+        context = ErrorContext(operation="test_operation", user_id="test_user", request_id="req_123")
 
         # Test various exception types
         test_cases = [
@@ -529,7 +530,7 @@ class TestErrorHandlingDecorator:
             "password": "secret123",
             "token": "jwt_token_here",
             "api_key": "api_secret_key",
-            "normal_field": "normal_value"
+            "normal_field": "normal_value",
         }
 
         sanitized = sanitize_sensitive_data(sensitive_data)
@@ -552,14 +553,9 @@ class TestErrorHandlingDecorator:
                 "type": str,
                 "min_length": 3,
                 "max_length": 50,
-                "pattern": r"^[a-zA-Z0-9\s\-_]+$"
+                "pattern": r"^[a-zA-Z0-9\s\-_]+$",
             },
-            "member_count": {
-                "required": False,
-                "type": int,
-                "min_value": 1,
-                "max_value": 10
-            }
+            "member_count": {"required": False, "type": int, "min_value": 1, "max_value": 10},
         }
 
         context = ErrorContext(operation="test_validation")
@@ -604,20 +600,12 @@ class TestRecoveryMechanisms:
             return "recovered"
 
         # Configure retry with connection failure recovery
-        retry_config = RetryConfig(
-            max_attempts=5,
-            initial_delay=0.1,
-            retryable_exceptions=[ConnectionFailure]
-        )
+        retry_config = RetryConfig(max_attempts=5, initial_delay=0.1, retryable_exceptions=[ConnectionFailure])
 
         context = ErrorContext(operation="recovery_test")
 
         # Should recover after retries
-        result = await retry_with_backoff(
-            database_operation_with_recovery,
-            retry_config,
-            context
-        )
+        result = await retry_with_backoff(database_operation_with_recovery, retry_config, context)
 
         assert result == "recovered"
         assert recovery_attempts == 3

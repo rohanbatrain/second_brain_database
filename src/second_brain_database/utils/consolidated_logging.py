@@ -14,13 +14,13 @@ Key consolidations:
 Requirements addressed: 1.1-1.6, 2.1-2.7, 3.1-3.6 (Manager Class Optimization)
 """
 
-import json
-import time
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import json
+import time
 from typing import Any, Dict, List, Optional, Set
-from dataclasses import dataclass, asdict
-from collections import defaultdict, deque
 
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.utils.logging_utils import log_security_event
@@ -30,6 +30,7 @@ logger = get_logger(prefix="[Consolidated Logging]")
 
 class LogLevel(Enum):
     """Standardized log levels"""
+
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
@@ -39,6 +40,7 @@ class LogLevel(Enum):
 
 class LogCategory(Enum):
     """Categories of logs for filtering and organization"""
+
     FAMILY_OPERATION = "family_operation"
     SBD_TRANSACTION = "sbd_transaction"
     SECURITY_EVENT = "security_event"
@@ -50,6 +52,7 @@ class LogCategory(Enum):
 
 class LogSamplingStrategy(Enum):
     """Strategies for log sampling to reduce noise"""
+
     NONE = "none"
     FREQUENCY_BASED = "frequency_based"
     TIME_BASED = "time_based"
@@ -59,6 +62,7 @@ class LogSamplingStrategy(Enum):
 @dataclass
 class LogEntry:
     """Standardized log entry structure"""
+
     timestamp: datetime
     level: LogLevel
     category: LogCategory
@@ -85,6 +89,7 @@ class LogEntry:
 @dataclass
 class LogFilter:
     """Configuration for log filtering"""
+
     categories: Optional[Set[LogCategory]] = None
     min_level: LogLevel = LogLevel.INFO
     max_entries_per_minute: Optional[int] = None
@@ -111,24 +116,16 @@ class ConsolidatedLogger:
             LogCategory.PERFORMANCE: LogFilter(
                 sampling_strategy=LogSamplingStrategy.FREQUENCY_BASED,
                 sampling_rate=0.1,  # Sample 10% of performance logs
-                max_entries_per_minute=60
+                max_entries_per_minute=60,
             ),
             LogCategory.SECURITY_EVENT: LogFilter(
-                min_level=LogLevel.WARNING,
-                sampling_strategy=LogSamplingStrategy.NONE  # Log all security events
+                min_level=LogLevel.WARNING, sampling_strategy=LogSamplingStrategy.NONE  # Log all security events
             ),
             LogCategory.AUDIT: LogFilter(
-                min_level=LogLevel.INFO,
-                sampling_strategy=LogSamplingStrategy.NONE  # Log all audit events
+                min_level=LogLevel.INFO, sampling_strategy=LogSamplingStrategy.NONE  # Log all audit events
             ),
-            LogCategory.FAMILY_OPERATION: LogFilter(
-                min_level=LogLevel.INFO,
-                max_entries_per_minute=120
-            ),
-            LogCategory.SYSTEM: LogFilter(
-                min_level=LogLevel.WARNING,
-                exclude_patterns=["health_check", "heartbeat"]
-            )
+            LogCategory.FAMILY_OPERATION: LogFilter(min_level=LogLevel.INFO, max_entries_per_minute=120),
+            LogCategory.SYSTEM: LogFilter(min_level=LogLevel.WARNING, exclude_patterns=["health_check", "heartbeat"]),
         }
 
     async def log_consolidated(
@@ -144,7 +141,7 @@ class ConsolidatedLogger:
         error_code: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         request_id: Optional[str] = None,
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
     ) -> None:
         """
         Log with consolidated filtering and deduplication
@@ -162,7 +159,7 @@ class ConsolidatedLogger:
             error_code=error_code,
             metadata=metadata or {},
             request_id=request_id,
-            ip_address=ip_address
+            ip_address=ip_address,
         )
 
         # Apply filtering
@@ -200,7 +197,7 @@ class ConsolidatedLogger:
             LogLevel.INFO: 1,
             LogLevel.WARNING: 2,
             LogLevel.ERROR: 3,
-            LogLevel.CRITICAL: 4
+            LogLevel.CRITICAL: 4,
         }
 
         if level_values[log_entry.level] < level_values[category_filter.min_level]:
@@ -222,8 +219,7 @@ class ConsolidatedLogger:
 
         # Check include patterns (if specified, message must match at least one)
         if category_filter.include_patterns:
-            matches = any(pattern.lower() in log_entry.message.lower()
-                         for pattern in category_filter.include_patterns)
+            matches = any(pattern.lower() in log_entry.message.lower() for pattern in category_filter.include_patterns)
             if not matches:
                 return False
 
@@ -249,8 +245,7 @@ class ConsolidatedLogger:
 
         elif filter_config.sampling_strategy == LogSamplingStrategy.ADAPTIVE:
             # Adaptive sampling based on recent log volume
-            recent_count = len([log for log in self._recent_logs
-                              if log.category == log_entry.category])
+            recent_count = len([log for log in self._recent_logs if log.category == log_entry.category])
 
             if recent_count > 100:  # High volume, reduce sampling
                 return random.random() < (filter_config.sampling_rate * 0.1)
@@ -267,11 +262,13 @@ class ConsolidatedLogger:
         recent_entries = list(self._recent_logs)[-10:]
 
         for recent_entry in recent_entries:
-            if (recent_entry.category == log_entry.category and
-                recent_entry.operation == log_entry.operation and
-                recent_entry.user_id == log_entry.user_id and
-                recent_entry.message == log_entry.message and
-                (log_entry.timestamp - recent_entry.timestamp).total_seconds() < 60):
+            if (
+                recent_entry.category == log_entry.category
+                and recent_entry.operation == log_entry.operation
+                and recent_entry.user_id == log_entry.user_id
+                and recent_entry.message == log_entry.message
+                and (log_entry.timestamp - recent_entry.timestamp).total_seconds() < 60
+            ):
                 return True
 
         return False
@@ -283,17 +280,19 @@ class ConsolidatedLogger:
 
         # Log duplicate summary every 10 duplicates
         if self._log_counters[counter_key] % 10 == 0:
-            await self._write_log(LogEntry(
-                timestamp=datetime.now(timezone.utc),
-                level=LogLevel.INFO,
-                category=LogCategory.SYSTEM,
-                message=f"Suppressed {self._log_counters[counter_key]} duplicate log entries",
-                metadata={
-                    "original_category": log_entry.category.value,
-                    "original_operation": log_entry.operation,
-                    "duplicate_count": self._log_counters[counter_key]
-                }
-            ))
+            await self._write_log(
+                LogEntry(
+                    timestamp=datetime.now(timezone.utc),
+                    level=LogLevel.INFO,
+                    category=LogCategory.SYSTEM,
+                    message=f"Suppressed {self._log_counters[counter_key]} duplicate log entries",
+                    metadata={
+                        "original_category": log_entry.category.value,
+                        "original_operation": log_entry.operation,
+                        "duplicate_count": self._log_counters[counter_key],
+                    },
+                )
+            )
 
     async def _write_log(self, log_entry: LogEntry) -> None:
         """Write log entry to the underlying logger"""
@@ -341,10 +340,7 @@ class ConsolidatedLogger:
 
     async def _build_extra_data(self, log_entry: LogEntry) -> Dict[str, Any]:
         """Build extra data for structured logging"""
-        extra = {
-            "category": log_entry.category.value,
-            "timestamp": log_entry.timestamp.isoformat()
-        }
+        extra = {"category": log_entry.category.value, "timestamp": log_entry.timestamp.isoformat()}
 
         if log_entry.user_id:
             extra["user_id"] = log_entry.user_id
@@ -371,16 +367,13 @@ class ConsolidatedLogger:
         """Handle performance-specific logging with sampling"""
         if log_entry.duration is not None and log_entry.operation:
             # Store performance sample
-            self._performance_samples[log_entry.operation].append({
-                "duration": log_entry.duration,
-                "timestamp": log_entry.timestamp,
-                "success": log_entry.success
-            })
+            self._performance_samples[log_entry.operation].append(
+                {"duration": log_entry.duration, "timestamp": log_entry.timestamp, "success": log_entry.success}
+            )
 
             # Keep only recent samples (last 100 per operation)
             if len(self._performance_samples[log_entry.operation]) > 100:
-                self._performance_samples[log_entry.operation] = \
-                    self._performance_samples[log_entry.operation][-100:]
+                self._performance_samples[log_entry.operation] = self._performance_samples[log_entry.operation][-100:]
 
     async def _handle_audit_log(self, log_entry: LogEntry) -> None:
         """Handle audit-specific logging with buffering"""
@@ -402,8 +395,8 @@ class ConsolidatedLogger:
                 "message": log_entry.message,
                 "operation": log_entry.operation,
                 "error_code": log_entry.error_code,
-                **(log_entry.metadata or {})
-            }
+                **(log_entry.metadata or {}),
+            },
         )
 
     async def _flush_audit_buffer(self) -> None:
@@ -416,7 +409,7 @@ class ConsolidatedLogger:
             # For now, we'll log a summary
             self.logger.info(
                 f"Flushing {len(self._audit_buffer)} audit entries to persistent storage",
-                extra={"audit_entries_count": len(self._audit_buffer)}
+                extra={"audit_entries_count": len(self._audit_buffer)},
             )
 
             self._audit_buffer.clear()
@@ -434,7 +427,7 @@ class ConsolidatedLogger:
             "duplicate_counts": {},
             "performance_samples": {},
             "audit_buffer_size": len(self._audit_buffer),
-            "recent_logs_count": len(self._recent_logs)
+            "recent_logs_count": len(self._recent_logs),
         }
 
         # Count logs by category for current minute
@@ -465,8 +458,8 @@ class ConsolidatedLogger:
                 "category": category.value,
                 "min_level": filter_config.min_level.value,
                 "sampling_strategy": filter_config.sampling_strategy.value,
-                "sampling_rate": filter_config.sampling_rate
-            }
+                "sampling_rate": filter_config.sampling_rate,
+            },
         )
 
 
@@ -483,7 +476,7 @@ async def log_family_operation(
     duration: Optional[float] = None,
     success: Optional[bool] = None,
     level: LogLevel = LogLevel.INFO,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Log family operation with standardized format"""
     await consolidated_logger.log_consolidated(
@@ -495,7 +488,7 @@ async def log_family_operation(
         family_id=family_id,
         duration=duration,
         success=success,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -506,7 +499,7 @@ async def log_sbd_transaction(
     success: bool,
     family_id: Optional[str] = None,
     duration: Optional[float] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Log SBD transaction with standardized format"""
     await consolidated_logger.log_consolidated(
@@ -519,7 +512,7 @@ async def log_sbd_transaction(
         duration=duration,
         success=success,
         metadata={"amount": amount},
-        **kwargs
+        **kwargs,
     )
 
 
@@ -528,7 +521,7 @@ async def log_performance_metric(
     duration: float,
     success: bool,
     user_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Log performance metric with sampling"""
     await consolidated_logger.log_consolidated(
@@ -539,5 +532,5 @@ async def log_performance_metric(
         user_id=user_id,
         duration=duration,
         success=success,
-        metadata=metadata
+        metadata=metadata,
     )

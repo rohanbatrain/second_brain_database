@@ -7,8 +7,8 @@ It tests the MCP tools, resources, and prompts directly.
 """
 
 import asyncio
-import sys
 from pathlib import Path
+import sys
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -140,14 +140,14 @@ async def test_mcp_security():
             "user_id": "test_user_123",
             "username": "test_user",
             "email": "test@example.com",
-            "permissions": ["profile:read", "profile:update"]
+            "permissions": ["profile:read", "profile:update"],
         }
 
         context = MCPUserContext(
             user_id=mock_user_data["user_id"],
             username=mock_user_data["username"],
             email=mock_user_data["email"],
-            permissions=mock_user_data["permissions"]
+            permissions=mock_user_data["permissions"],
         )
 
         print(f"✅ User Context: {context.username} ({context.user_id})")

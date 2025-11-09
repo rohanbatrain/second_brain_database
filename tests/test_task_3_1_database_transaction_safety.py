@@ -12,17 +12,22 @@ Requirements Tested:
 """
 
 import asyncio
-import pytest
-import time
-import uuid
 from datetime import datetime, timezone
+import time
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+import uuid
 
 from pymongo.errors import (
-    PyMongoError, ConnectionFailure, ServerSelectionTimeoutError,
-    DuplicateKeyError, WriteError, WriteConcernError, BulkWriteError
+    BulkWriteError,
+    ConnectionFailure,
+    DuplicateKeyError,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+    WriteConcernError,
+    WriteError,
 )
+import pytest
 
 
 class MockTransactionSession:
@@ -97,7 +102,7 @@ class MockFamilyOperations:
                 "name": family_name,
                 "admin_user_ids": [user_id],
                 "transaction_safe": True,
-                "operations_log": self.operations_log.copy()
+                "operations_log": self.operations_log.copy(),
             }
 
         except Exception as e:
@@ -196,7 +201,7 @@ class TestDatabaseTransactionSafety:
         operations = family_ops.operations_log
         assert "transaction_started" in operations
         assert "family_document_created" in operations  # This succeeded
-        assert "sbd_account_created" in operations      # This failed
+        assert "sbd_account_created" in operations  # This failed
         assert "transaction_aborted" in operations
         assert "relationships_created" not in operations  # This never happened
 
@@ -270,9 +275,7 @@ class TestDatabaseTransactionSafety:
         tasks = []
         for i in range(3):
             ops = MockFamilyOperations()  # Each gets its own instance
-            task = asyncio.create_task(
-                ops.create_family_with_transaction(user_id, f"Concurrent Family {i}")
-            )
+            task = asyncio.create_task(ops.create_family_with_transaction(user_id, f"Concurrent Family {i}"))
             tasks.append(task)
 
         # Execute concurrently

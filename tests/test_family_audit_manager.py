@@ -5,15 +5,15 @@ This module tests the comprehensive audit trail system for family SBD transactio
 including audit logging, transaction attribution, and compliance reporting.
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from src.second_brain_database.managers.family_audit_manager import (
-    FamilyAuditManager,
-    FamilyAuditError,
+    AuditTrailCorrupted,
     ComplianceReportError,
-    AuditTrailCorrupted
+    FamilyAuditError,
+    FamilyAuditManager,
 )
 
 
@@ -54,10 +54,7 @@ class TestFamilyAuditManager:
 
         transaction_context = {
             "original_note": "Test transaction",
-            "request_metadata": {
-                "ip_address": "127.0.0.1",
-                "user_agent": "test-agent"
-            }
+            "request_metadata": {"ip_address": "127.0.0.1", "user_agent": "test-agent"},
         }
 
         # Execute
@@ -70,7 +67,7 @@ class TestFamilyAuditManager:
             to_account=to_account,
             family_member_id=family_member_id,
             family_member_username=family_member_username,
-            transaction_context=transaction_context
+            transaction_context=transaction_context,
         )
 
         # Verify
@@ -88,12 +85,7 @@ class TestFamilyAuditManager:
     async def test_enhance_transaction_with_family_attribution(self, audit_manager):
         """Test transaction enhancement with family attribution."""
         # Test data
-        transaction = {
-            "type": "send",
-            "amount": 100,
-            "timestamp": "2024-01-01T00:00:00Z",
-            "transaction_id": "txn_test"
-        }
+        transaction = {"type": "send", "amount": 100, "timestamp": "2024-01-01T00:00:00Z", "transaction_id": "txn_test"}
 
         family_id = "fam_test123"
         family_member_id = "user_123"
@@ -106,7 +98,7 @@ class TestFamilyAuditManager:
             family_id=family_id,
             family_member_id=family_member_id,
             family_member_username=family_member_username,
-            additional_context=additional_context
+            additional_context=additional_context,
         )
 
         # Verify
@@ -133,7 +125,7 @@ class TestFamilyAuditManager:
                 "returned_count": 1,
                 "limit": 100,
                 "offset": 0,
-                "has_more": False
+                "has_more": False,
             },
             "transactions": [
                 {
@@ -144,61 +136,52 @@ class TestFamilyAuditManager:
                         "amount": 100,
                         "from_account": "family_test",
                         "to_account": "user_test",
-                        "transaction_type": "send"
+                        "transaction_type": "send",
                     },
-                    "family_member_attribution": {
-                        "member_id": "user_123",
-                        "member_username": "testuser"
-                    },
+                    "family_member_attribution": {"member_id": "user_123", "member_username": "testuser"},
                     "transaction_context": {},
-                    "compliance_metadata": {}
+                    "compliance_metadata": {},
                 }
             ],
             "audit_summary": {
                 "total_audit_records": 1,
-                "date_range": {
-                    "earliest": datetime.now(timezone.utc),
-                    "latest": datetime.now(timezone.utc)
-                },
+                "date_range": {"earliest": datetime.now(timezone.utc), "latest": datetime.now(timezone.utc)},
                 "transaction_types_found": ["send"],
-                "family_members_involved": ["testuser"]
-            }
+                "family_members_involved": ["testuser"],
+            },
         }
 
         # Mock the permission verification methods
-        with patch.object(audit_manager, '_verify_family_access_permission', return_value=None):
-            with patch.object(audit_manager, '_get_family_sbd_transactions', return_value=[]):
+        with patch.object(audit_manager, "_verify_family_access_permission", return_value=None):
+            with patch.object(audit_manager, "_get_family_sbd_transactions", return_value=[]):
                 # Mock the database operations
                 mock_audit_collection = AsyncMock()
                 mock_audit_collection.count_documents.return_value = 1
 
                 # Create a proper mock cursor
                 mock_cursor = MagicMock()
-                mock_cursor.to_list = AsyncMock(return_value=[{
-                    "audit_id": "audit_1",
-                    "family_id": "fam_test123",
-                    "event_type": "sbd_transaction",
-                    "event_subtype": "send",
-                    "timestamp": datetime.now(timezone.utc),
-                    "transaction_details": {
-                        "transaction_id": "txn_1",
-                        "amount": 100,
-                        "from_account": "family_test",
-                        "to_account": "user_test",
-                        "transaction_type": "send"
-                    },
-                    "family_member_attribution": {
-                        "member_id": "user_123",
-                        "member_username": "testuser"
-                    },
-                    "transaction_context": {},
-                    "compliance_metadata": {},
-                    "integrity": {
-                        "hash": "test_hash",
-                        "created_at": datetime.now(timezone.utc),
-                        "version": 1
-                    }
-                }])
+                mock_cursor.to_list = AsyncMock(
+                    return_value=[
+                        {
+                            "audit_id": "audit_1",
+                            "family_id": "fam_test123",
+                            "event_type": "sbd_transaction",
+                            "event_subtype": "send",
+                            "timestamp": datetime.now(timezone.utc),
+                            "transaction_details": {
+                                "transaction_id": "txn_1",
+                                "amount": 100,
+                                "from_account": "family_test",
+                                "to_account": "user_test",
+                                "transaction_type": "send",
+                            },
+                            "family_member_attribution": {"member_id": "user_123", "member_username": "testuser"},
+                            "transaction_context": {},
+                            "compliance_metadata": {},
+                            "integrity": {"hash": "test_hash", "created_at": datetime.now(timezone.utc), "version": 1},
+                        }
+                    ]
+                )
 
                 # Mock the cursor chain properly
                 mock_find = MagicMock()
@@ -215,10 +198,7 @@ class TestFamilyAuditManager:
 
                 # Execute
                 result = await audit_manager.get_family_transaction_history_with_context(
-                    family_id="fam_test123",
-                    user_id="user_123",
-                    limit=100,
-                    offset=0
+                    family_id="fam_test123", user_id="user_123", limit=100, offset=0
                 )
 
         # Verify
@@ -240,10 +220,7 @@ class TestFamilyAuditManager:
             "name": "Test Family",
             "admin_user_ids": ["user_123"],
             "member_count": 2,
-            "sbd_account": {
-                "account_username": "family_test",
-                "is_frozen": False
-            }
+            "sbd_account": {"account_username": "family_test", "is_frozen": False},
         }
 
         # Mock transaction history
@@ -252,31 +229,27 @@ class TestFamilyAuditManager:
                 {
                     "audit_id": "audit_1",
                     "timestamp": datetime.now(timezone.utc),
-                    "transaction_details": {
-                        "transaction_id": "txn_1",
-                        "amount": 100,
-                        "transaction_type": "send"
-                    },
-                    "family_member_attribution": {
-                        "member_username": "testuser"
-                    }
+                    "transaction_details": {"transaction_id": "txn_1", "amount": 100, "transaction_type": "send"},
+                    "family_member_attribution": {"member_username": "testuser"},
                 }
             ],
             "audit_summary": {
                 "total_audit_records": 1,
                 "family_members_involved": ["testuser"],
-                "transaction_types_found": ["send"]
-            }
+                "transaction_types_found": ["send"],
+            },
         }
 
-        with patch.object(audit_manager, 'get_family_transaction_history_with_context', return_value=mock_transaction_history):
-            with patch.object(audit_manager, '_verify_audit_trail_integrity', return_value={"integrity_verified": True}):
-                with patch.object(audit_manager, '_log_compliance_report_generation'):
+        with patch.object(
+            audit_manager, "get_family_transaction_history_with_context", return_value=mock_transaction_history
+        ):
+            with patch.object(
+                audit_manager, "_verify_audit_trail_integrity", return_value={"integrity_verified": True}
+            ):
+                with patch.object(audit_manager, "_log_compliance_report_generation"):
                     # Execute
                     result = await audit_manager.generate_compliance_report(
-                        family_id="fam_test123",
-                        user_id="user_123",
-                        report_type="comprehensive"
+                        family_id="fam_test123", user_id="user_123", report_type="comprehensive"
                     )
 
         # Verify
@@ -299,8 +272,8 @@ class TestFamilyAuditManager:
             "integrity": {
                 "created_at": datetime.now(timezone.utc),
                 "version": 1,
-                "hash": None  # This should be excluded from hash calculation
-            }
+                "hash": None,  # This should be excluded from hash calculation
+            },
         }
 
         # Execute
@@ -331,7 +304,7 @@ class TestFamilyAuditManager:
         mock_families_collection.find_one.return_value = {"family_id": "fam_test123"}
         mock_users_collection.find_one.return_value = {
             "_id": "user_123",
-            "family_memberships": [{"family_id": "fam_test123"}]
+            "family_memberships": [{"family_id": "fam_test123"}],
         }
 
         # Execute (should not raise exception)
@@ -357,7 +330,7 @@ class TestFamilyAuditManager:
         mock_families_collection.find_one.return_value = {"family_id": "fam_test123"}
         mock_users_collection.find_one.return_value = {
             "_id": "user_123",
-            "family_memberships": []  # No family memberships
+            "family_memberships": [],  # No family memberships
         }
 
         # Execute and verify exception
@@ -374,10 +347,7 @@ class TestFamilyAuditManager:
         mock_db_manager.get_collection.return_value = mock_families_collection
 
         # Mock data
-        mock_families_collection.find_one.return_value = {
-            "family_id": "fam_test123",
-            "admin_user_ids": ["user_123"]
-        }
+        mock_families_collection.find_one.return_value = {"family_id": "fam_test123", "admin_user_ids": ["user_123"]}
 
         # Execute (should not raise exception)
         await audit_manager._verify_family_admin_permission("fam_test123", "user_123")
@@ -392,7 +362,7 @@ class TestFamilyAuditManager:
         # Mock data - user not admin
         mock_families_collection.find_one.return_value = {
             "family_id": "fam_test123",
-            "admin_user_ids": ["other_user"]  # User not in admin list
+            "admin_user_ids": ["other_user"],  # User not in admin list
         }
 
         # Execute and verify exception
@@ -403,11 +373,7 @@ class TestFamilyAuditManager:
 
     def test_audit_error_creation(self):
         """Test FamilyAuditError creation with context."""
-        error = FamilyAuditError(
-            "Test error message",
-            error_code="TEST_ERROR",
-            context={"test_key": "test_value"}
-        )
+        error = FamilyAuditError("Test error message", error_code="TEST_ERROR", context={"test_key": "test_value"})
 
         assert str(error) == "Test error message"
         assert error.error_code == "TEST_ERROR"
@@ -416,11 +382,7 @@ class TestFamilyAuditManager:
 
     def test_compliance_report_error_creation(self):
         """Test ComplianceReportError creation with context."""
-        error = ComplianceReportError(
-            "Test compliance error",
-            report_type="comprehensive",
-            family_id="fam_test123"
-        )
+        error = ComplianceReportError("Test compliance error", report_type="comprehensive", family_id="fam_test123")
 
         assert str(error) == "Test compliance error"
         assert error.error_code == "COMPLIANCE_REPORT_ERROR"
@@ -430,10 +392,7 @@ class TestFamilyAuditManager:
     def test_audit_trail_corrupted_error_creation(self):
         """Test AuditTrailCorrupted error creation with hash context."""
         error = AuditTrailCorrupted(
-            "Audit trail corrupted",
-            audit_id="audit_123",
-            expected_hash="expected_hash",
-            actual_hash="actual_hash"
+            "Audit trail corrupted", audit_id="audit_123", expected_hash="expected_hash", actual_hash="actual_hash"
         )
 
         assert str(error) == "Audit trail corrupted"

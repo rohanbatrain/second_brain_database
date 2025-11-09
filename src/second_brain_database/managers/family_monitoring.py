@@ -17,18 +17,18 @@ Enterprise Features:
 """
 
 import asyncio
-import time
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import json
 import os
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
-from second_brain_database.managers.logging_manager import get_logger
-from second_brain_database.database import db_manager
-from second_brain_database.managers.redis_manager import redis_manager
 from second_brain_database.config import settings
+from second_brain_database.database import db_manager
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.managers.redis_manager import redis_manager
 
 # Specialized loggers for different aspects of family monitoring
 family_ops_logger = get_logger(name="Family_Operations", prefix="[FAMILY_OPS]")
@@ -51,6 +51,7 @@ ALERT_COOLDOWN_PERIOD = 1800  # 30 minutes
 
 class FamilyOperationType(Enum):
     """Family operation types for monitoring."""
+
     FAMILY_CREATE = "family_create"
     FAMILY_DELETE = "family_delete"
     MEMBER_INVITE = "member_invite"
@@ -73,6 +74,7 @@ class FamilyOperationType(Enum):
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -82,6 +84,7 @@ class AlertSeverity(Enum):
 @dataclass
 class FamilyOperationContext:
     """Context for family operations monitoring."""
+
     operation_type: FamilyOperationType
     family_id: Optional[str] = None
     user_id: Optional[str] = None
@@ -103,6 +106,7 @@ class FamilyOperationContext:
 @dataclass
 class FamilyHealthStatus:
     """Health status for family system components."""
+
     component: str
     healthy: bool
     response_time: Optional[float] = None
@@ -118,6 +122,7 @@ class FamilyHealthStatus:
 @dataclass
 class FamilyMetrics:
     """Family system metrics for monitoring."""
+
     timestamp: str
     total_families: int
     active_families: int
@@ -214,7 +219,7 @@ class FamilyMonitor:
         operation_type: FamilyOperationType,
         duration: float,
         success: bool = True,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Log performance metrics for family operations.
@@ -251,17 +256,12 @@ class FamilyMonitor:
         if op_key not in self._performance_data:
             self._performance_data[op_key] = []
 
-        self._performance_data[op_key].append({
-            "duration": duration,
-            "success": success,
-            "timestamp": time.time()
-        })
+        self._performance_data[op_key].append({"duration": duration, "success": success, "timestamp": time.time()})
 
         # Keep only recent data (last hour)
         cutoff_time = time.time() - 3600
         self._performance_data[op_key] = [
-            data for data in self._performance_data[op_key]
-            if data["timestamp"] > cutoff_time
+            data for data in self._performance_data[op_key] if data["timestamp"] > cutoff_time
         ]
 
     async def check_family_system_health(self) -> Dict[str, FamilyHealthStatus]:
@@ -349,7 +349,7 @@ class FamilyMonitor:
             if active_families > 0:
                 pipeline = [
                     {"$match": {"is_active": True}},
-                    {"$group": {"_id": None, "avg_size": {"$avg": "$member_count"}}}
+                    {"$group": {"_id": None, "avg_size": {"$avg": "$member_count"}}},
                 ]
                 avg_result = await families_collection.aggregate(pipeline).to_list(length=1)
                 avg_family_size = avg_result[0]["avg_size"] if avg_result else 0.0
@@ -375,7 +375,7 @@ class FamilyMonitor:
                 operations_per_minute=operations_per_minute,
                 error_rates=error_rates,
                 performance_metrics=performance_metrics,
-                sbd_metrics=sbd_metrics
+                sbd_metrics=sbd_metrics,
             )
 
             # Log metrics
@@ -401,19 +401,12 @@ class FamilyMonitor:
             self.metrics_logger.error(
                 "Failed to collect family metrics: %s",
                 str(e),
-                extra={
-                    "collection_duration": time.time() - start_time,
-                    "error": str(e)
-                }
+                extra={"collection_duration": time.time() - start_time, "error": str(e)},
             )
             raise
 
     async def send_alert(
-        self,
-        severity: AlertSeverity,
-        title: str,
-        message: str,
-        metadata: Optional[Dict[str, Any]] = None
+        self, severity: AlertSeverity, title: str, message: str, metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """
         Send an alert for family system issues.
@@ -469,13 +462,12 @@ class FamilyMonitor:
             Dictionary with health status information
         """
         # Return cached status if recent
-        if (self._last_health_check and
-            datetime.now(timezone.utc) - self._last_health_check < timedelta(minutes=5)):
+        if self._last_health_check and datetime.now(timezone.utc) - self._last_health_check < timedelta(minutes=5):
             return {
                 "overall_healthy": all(status.healthy for status in self._health_status_cache.values()),
                 "components": {name: asdict(status) for name, status in self._health_status_cache.items()},
                 "last_check": self._last_health_check.isoformat(),
-                "cache_hit": True
+                "cache_hit": True,
             }
 
         # Perform fresh health check
@@ -485,7 +477,7 @@ class FamilyMonitor:
             "overall_healthy": all(status.healthy for status in health_results.values()),
             "components": {name: asdict(status) for name, status in health_results.items()},
             "last_check": self._last_health_check.isoformat(),
-            "cache_hit": False
+            "cache_hit": False,
         }
 
     async def get_performance_summary(self) -> Dict[str, Any]:
@@ -503,8 +495,8 @@ class FamilyMonitor:
                 "avg_duration": 0.0,
                 "success_rate": 0.0,
                 "slow_operations": 0,
-                "very_slow_operations": 0
-            }
+                "very_slow_operations": 0,
+            },
         }
 
         total_ops = 0
@@ -527,7 +519,7 @@ class FamilyMonitor:
                 "max_duration": max(durations),
                 "success_rate": sum(successes) / len(successes),
                 "slow_operations": len([d for d in durations if d > SLOW_OPERATION_THRESHOLD]),
-                "very_slow_operations": len([d for d in durations if d > VERY_SLOW_OPERATION_THRESHOLD])
+                "very_slow_operations": len([d for d in durations if d > VERY_SLOW_OPERATION_THRESHOLD]),
             }
 
             summary["operations"][op_type] = op_stats
@@ -545,7 +537,7 @@ class FamilyMonitor:
                 "avg_duration": total_duration / total_ops,
                 "success_rate": total_success / total_ops,
                 "slow_operations": slow_ops,
-                "very_slow_operations": very_slow_ops
+                "very_slow_operations": very_slow_ops,
             }
 
         return summary
@@ -576,13 +568,11 @@ class FamilyMonitor:
         cutoff_minute = current_minute - 60
         for op_type in self._operation_counts:
             self._operation_counts[op_type] = {
-                minute: count for minute, count in self._operation_counts[op_type].items()
-                if minute > cutoff_minute
+                minute: count for minute, count in self._operation_counts[op_type].items() if minute > cutoff_minute
             }
         for op_type in self._error_counts:
             self._error_counts[op_type] = {
-                minute: count for minute, count in self._error_counts[op_type].items()
-                if minute > cutoff_minute
+                minute: count for minute, count in self._error_counts[op_type].items() if minute > cutoff_minute
             }
 
     async def _check_performance_alerts(self, context: FamilyOperationContext) -> None:
@@ -599,8 +589,8 @@ class FamilyMonitor:
                     "operation_type": context.operation_type.value,
                     "duration": context.duration,
                     "family_id": context.family_id,
-                    "user_id": context.user_id
-                }
+                    "user_id": context.user_id,
+                },
             )
         elif context.duration > SLOW_OPERATION_THRESHOLD:
             await self.send_alert(
@@ -611,8 +601,8 @@ class FamilyMonitor:
                     "operation_type": context.operation_type.value,
                     "duration": context.duration,
                     "family_id": context.family_id,
-                    "user_id": context.user_id
-                }
+                    "user_id": context.user_id,
+                },
             )
 
     async def _check_error_rate_alerts(self, context: FamilyOperationContext) -> None:
@@ -643,8 +633,8 @@ class FamilyMonitor:
                         "error_rate": error_rate,
                         "total_operations": total_ops,
                         "total_errors": total_errors,
-                        "time_window": "5 minutes"
-                    }
+                        "time_window": "5 minutes",
+                    },
                 )
             elif error_rate > HIGH_ERROR_RATE_THRESHOLD:
                 await self.send_alert(
@@ -656,8 +646,8 @@ class FamilyMonitor:
                         "error_rate": error_rate,
                         "total_operations": total_ops,
                         "total_errors": total_errors,
-                        "time_window": "5 minutes"
-                    }
+                        "time_window": "5 minutes",
+                    },
                 )
 
     async def _check_database_health(self) -> FamilyHealthStatus:
@@ -678,16 +668,13 @@ class FamilyMonitor:
                 component="database",
                 healthy=True,
                 response_time=response_time,
-                metadata={"collections_tested": ["families"]}
+                metadata={"collections_tested": ["families"]},
             )
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="database",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="database", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _check_redis_health(self) -> FamilyHealthStatus:
@@ -700,19 +687,12 @@ class FamilyMonitor:
 
             response_time = time.time() - start_time
 
-            return FamilyHealthStatus(
-                component="redis",
-                healthy=True,
-                response_time=response_time
-            )
+            return FamilyHealthStatus(component="redis", healthy=True, response_time=response_time)
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="redis",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="redis", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _check_family_collections_health(self) -> FamilyHealthStatus:
@@ -725,7 +705,7 @@ class FamilyMonitor:
                 "family_relationships",
                 "family_invitations",
                 "family_notifications",
-                "family_token_requests"
+                "family_token_requests",
             ]
 
             collection_stats = {}
@@ -740,16 +720,13 @@ class FamilyMonitor:
                 component="family_collections",
                 healthy=True,
                 response_time=response_time,
-                metadata={"collection_counts": collection_stats}
+                metadata={"collection_counts": collection_stats},
             )
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="family_collections",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="family_collections", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _check_sbd_integration_health(self) -> FamilyHealthStatus:
@@ -759,10 +736,9 @@ class FamilyMonitor:
         try:
             # Check for virtual family accounts
             users_collection = db_manager.get_collection("users")
-            virtual_accounts = await users_collection.count_documents({
-                "username": {"$regex": "^family_"},
-                "is_virtual_account": True
-            })
+            virtual_accounts = await users_collection.count_documents(
+                {"username": {"$regex": "^family_"}, "is_virtual_account": True}
+            )
 
             response_time = time.time() - start_time
 
@@ -770,16 +746,13 @@ class FamilyMonitor:
                 component="sbd_integration",
                 healthy=True,
                 response_time=response_time,
-                metadata={"virtual_accounts_count": virtual_accounts}
+                metadata={"virtual_accounts_count": virtual_accounts},
             )
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="sbd_integration",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="sbd_integration", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _check_email_system_health(self) -> FamilyHealthStatus:
@@ -792,7 +765,7 @@ class FamilyMonitor:
             from second_brain_database.managers.email import email_manager
 
             # Check if email configuration is available
-            has_email_config = hasattr(email_manager, 'smtp_server') or hasattr(email_manager, 'api_key')
+            has_email_config = hasattr(email_manager, "smtp_server") or hasattr(email_manager, "api_key")
 
             response_time = time.time() - start_time
 
@@ -800,16 +773,13 @@ class FamilyMonitor:
                 component="email_system",
                 healthy=has_email_config,
                 response_time=response_time,
-                metadata={"email_configured": has_email_config}
+                metadata={"email_configured": has_email_config},
             )
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="email_system",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="email_system", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _check_notification_system_health(self) -> FamilyHealthStatus:
@@ -827,16 +797,13 @@ class FamilyMonitor:
                 component="notification_system",
                 healthy=True,
                 response_time=response_time,
-                metadata={"pending_notifications": pending_notifications}
+                metadata={"pending_notifications": pending_notifications},
             )
 
         except Exception as e:
             response_time = time.time() - start_time
             return FamilyHealthStatus(
-                component="notification_system",
-                healthy=False,
-                response_time=response_time,
-                error_message=str(e)
+                component="notification_system", healthy=False, response_time=response_time, error_message=str(e)
             )
 
     async def _collect_sbd_metrics(self) -> Dict[str, Any]:
@@ -845,10 +812,9 @@ class FamilyMonitor:
             users_collection = db_manager.get_collection("users")
 
             # Get virtual family accounts
-            virtual_accounts_cursor = users_collection.find({
-                "username": {"$regex": "^family_"},
-                "is_virtual_account": True
-            }, {"username": 1, "sbd_tokens": 1})
+            virtual_accounts_cursor = users_collection.find(
+                {"username": {"$regex": "^family_"}, "is_virtual_account": True}, {"username": 1, "sbd_tokens": 1}
+            )
 
             virtual_accounts = await virtual_accounts_cursor.to_list(length=None)
 
@@ -863,7 +829,7 @@ class FamilyMonitor:
                 "total_family_accounts": total_family_accounts,
                 "total_family_balance": total_family_balance,
                 "frozen_accounts": frozen_accounts,
-                "avg_family_balance": total_family_balance / total_family_accounts if total_family_accounts > 0 else 0
+                "avg_family_balance": total_family_balance / total_family_accounts if total_family_accounts > 0 else 0,
             }
 
         except Exception as e:
@@ -873,7 +839,7 @@ class FamilyMonitor:
                 "total_family_balance": 0,
                 "frozen_accounts": 0,
                 "avg_family_balance": 0,
-                "error": str(e)
+                "error": str(e),
             }
 
     def _calculate_operation_rates(self) -> Dict[str, int]:
@@ -925,10 +891,7 @@ class FamilyMonitor:
 
     async def _send_health_alert(self, health_results: Dict[str, FamilyHealthStatus]) -> None:
         """Send alert for unhealthy components."""
-        unhealthy_components = [
-            name for name, status in health_results.items()
-            if not status.healthy
-        ]
+        unhealthy_components = [name for name, status in health_results.items() if not status.healthy]
 
         if unhealthy_components:
             await self.send_alert(
@@ -941,8 +904,8 @@ class FamilyMonitor:
                         name: {"error": status.error_message, "response_time": status.response_time}
                         for name, status in health_results.items()
                         if not status.healthy
-                    }
-                }
+                    },
+                },
             )
 
     async def _check_metrics_alerts(self, metrics: FamilyMetrics) -> None:
@@ -954,7 +917,7 @@ class FamilyMonitor:
                     AlertSeverity.CRITICAL,
                     "Critical Error Rate in Metrics",
                     f"Operation {op_type} has {error_rate:.1%} error rate",
-                    {"operation_type": op_type, "error_rate": error_rate}
+                    {"operation_type": op_type, "error_rate": error_rate},
                 )
 
         # Check for performance issues
@@ -965,7 +928,7 @@ class FamilyMonitor:
                     AlertSeverity.WARNING,
                     "Slow Average Performance",
                     f"Operation {op_type} has average duration of {value:.2f}s",
-                    {"operation_type": op_type, "avg_duration": value}
+                    {"operation_type": op_type, "avg_duration": value},
                 )
 
         # Check for high pending items
@@ -974,7 +937,7 @@ class FamilyMonitor:
                 AlertSeverity.WARNING,
                 "High Pending Invitations",
                 f"{metrics.total_invitations_pending} invitations are pending",
-                {"pending_invitations": metrics.total_invitations_pending}
+                {"pending_invitations": metrics.total_invitations_pending},
             )
 
         if metrics.total_token_requests_pending > 50:
@@ -982,7 +945,7 @@ class FamilyMonitor:
                 AlertSeverity.WARNING,
                 "High Pending Token Requests",
                 f"{metrics.total_token_requests_pending} token requests are pending",
-                {"pending_token_requests": metrics.total_token_requests_pending}
+                {"pending_token_requests": metrics.total_token_requests_pending},
             )
 
 

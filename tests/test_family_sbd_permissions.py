@@ -6,9 +6,11 @@ spending limits, and permission enforcement in the family management system.
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 
 # Mock the database and managers for testing
 class MockDBManager:
@@ -28,6 +30,7 @@ class MockDBManager:
 
     def log_query_error(self, collection, operation, start_time, error, context):
         pass
+
 
 class MockCollection:
     def __init__(self):
@@ -54,25 +57,25 @@ class MockCollection:
                             "spending_limit": -1,
                             "can_spend": True,
                             "updated_by": "admin_user_id",
-                            "updated_at": datetime.now(timezone.utc)
+                            "updated_at": datetime.now(timezone.utc),
                         },
                         "member_user_id": {
                             "role": "member",
                             "spending_limit": 1000,
                             "can_spend": True,
                             "updated_by": "admin_user_id",
-                            "updated_at": datetime.now(timezone.utc)
-                        }
+                            "updated_at": datetime.now(timezone.utc),
+                        },
                     },
                     "notification_settings": {
                         "notify_on_spend": True,
                         "notify_on_deposit": True,
                         "large_transaction_threshold": 1000,
-                        "notify_admins_only": False
-                    }
+                        "notify_admins_only": False,
+                    },
                 },
                 "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
+                "updated_at": datetime.now(timezone.utc),
             }
 
         # Mock user document
@@ -93,11 +96,11 @@ class MockCollection:
                             "amount": 5000,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "transaction_id": "txn_001",
-                            "note": "Initial deposit"
+                            "note": "Initial deposit",
                         }
                     ],
                     "is_virtual_account": True,
-                    "managed_by_family": "test_family_id"
+                    "managed_by_family": "test_family_id",
                 }
             else:
                 # Mock regular user
@@ -113,10 +116,10 @@ class MockCollection:
                             "spending_permissions": {
                                 "can_spend": True,
                                 "spending_limit": -1 if user_id == "admin_user_id" else 1000,
-                                "last_updated": datetime.now(timezone.utc)
-                            }
+                                "last_updated": datetime.now(timezone.utc),
+                            },
                         }
-                    ]
+                    ],
                 }
 
         return None
@@ -126,6 +129,7 @@ class MockCollection:
 
     async def insert_one(self, document, session=None):
         return MagicMock(inserted_id="new_id")
+
 
 # Mock the family manager
 class MockFamilyManager:
@@ -147,23 +151,23 @@ class MockFamilyManager:
                     "spending_limit": -1,
                     "can_spend": True,
                     "updated_by": "admin_user_id",
-                    "updated_at": datetime.now(timezone.utc)
+                    "updated_at": datetime.now(timezone.utc),
                 },
                 "member_user_id": {
                     "role": "member",
                     "spending_limit": 1000,
                     "can_spend": True,
                     "updated_by": "admin_user_id",
-                    "updated_at": datetime.now(timezone.utc)
-                }
+                    "updated_at": datetime.now(timezone.utc),
+                },
             },
             "notification_settings": {
                 "notify_on_spend": True,
                 "notify_on_deposit": True,
                 "large_transaction_threshold": 1000,
-                "notify_admins_only": False
+                "notify_admins_only": False,
             },
-            "recent_transactions": []
+            "recent_transactions": [],
         }
 
     async def update_spending_permissions(self, family_id, admin_id, target_user_id, permissions):
@@ -173,25 +177,16 @@ class MockFamilyManager:
             "spending_limit": permissions["spending_limit"],
             "can_spend": permissions["can_spend"],
             "updated_by": admin_id,
-            "updated_at": datetime.now(timezone.utc)
+            "updated_at": datetime.now(timezone.utc),
         }
 
     async def freeze_family_account(self, family_id, admin_id, reason):
         """Mock implementation of freeze_family_account."""
-        return {
-            "is_frozen": True,
-            "frozen_by": admin_id,
-            "frozen_at": datetime.now(timezone.utc),
-            "reason": reason
-        }
+        return {"is_frozen": True, "frozen_by": admin_id, "frozen_at": datetime.now(timezone.utc), "reason": reason}
 
     async def unfreeze_family_account(self, family_id, admin_id):
         """Mock implementation of unfreeze_family_account."""
-        return {
-            "is_frozen": False,
-            "frozen_by": None,
-            "frozen_at": None
-        }
+        return {"is_frozen": False, "frozen_by": None, "frozen_at": None}
 
     async def validate_family_spending(self, family_username, spender_id, amount, request_context=None):
         """Mock implementation of validate_family_spending."""
@@ -216,6 +211,7 @@ class MockFamilyManager:
     async def is_virtual_family_account(self, username):
         """Mock implementation of is_virtual_family_account."""
         return username.startswith("family_")
+
 
 async def test_spending_permission_validation():
     """Test spending permission validation logic."""
@@ -245,6 +241,7 @@ async def test_spending_permission_validation():
 
     print("✓ Spending permission validation tests passed")
 
+
 async def test_spending_permissions_update():
     """Test updating spending permissions."""
     print("Testing spending permissions update...")
@@ -253,10 +250,7 @@ async def test_spending_permissions_update():
 
     # Test updating permissions as admin
     result = await mock_manager.update_spending_permissions(
-        "test_family_id",
-        "admin_user_id",
-        "member_user_id",
-        {"spending_limit": 2000, "can_spend": True}
+        "test_family_id", "admin_user_id", "member_user_id", {"spending_limit": 2000, "can_spend": True}
     )
 
     assert result["spending_limit"] == 2000, "Spending limit should be updated"
@@ -264,6 +258,7 @@ async def test_spending_permissions_update():
     assert result["updated_by"] == "admin_user_id", "Updated by should be set"
 
     print("✓ Spending permissions update tests passed")
+
 
 async def test_account_freeze_unfreeze():
     """Test account freeze and unfreeze functionality."""
@@ -273,9 +268,7 @@ async def test_account_freeze_unfreeze():
 
     # Test freezing account
     freeze_result = await mock_manager.freeze_family_account(
-        "test_family_id",
-        "admin_user_id",
-        "Emergency freeze due to dispute"
+        "test_family_id", "admin_user_id", "Emergency freeze due to dispute"
     )
 
     assert freeze_result["is_frozen"] == True, "Account should be frozen"
@@ -283,15 +276,13 @@ async def test_account_freeze_unfreeze():
     assert freeze_result["reason"] == "Emergency freeze due to dispute", "Reason should be set"
 
     # Test unfreezing account
-    unfreeze_result = await mock_manager.unfreeze_family_account(
-        "test_family_id",
-        "admin_user_id"
-    )
+    unfreeze_result = await mock_manager.unfreeze_family_account("test_family_id", "admin_user_id")
 
     assert unfreeze_result["is_frozen"] == False, "Account should be unfrozen"
     assert unfreeze_result["frozen_by"] == None, "Frozen by should be cleared"
 
     print("✓ Account freeze/unfreeze tests passed")
+
 
 async def test_sbd_account_retrieval():
     """Test SBD account information retrieval."""
@@ -323,6 +314,7 @@ async def test_sbd_account_retrieval():
 
     print("✓ SBD account retrieval tests passed")
 
+
 async def test_role_based_permissions():
     """Test role-based permission enforcement."""
     print("Testing role-based permissions...")
@@ -347,6 +339,7 @@ async def test_role_based_permissions():
 
     print("✓ Role-based permissions tests passed")
 
+
 async def test_virtual_account_integration():
     """Test integration with virtual family accounts."""
     print("Testing virtual account integration...")
@@ -365,6 +358,7 @@ async def test_virtual_account_integration():
     assert balance == 5000, "Should return correct balance"
 
     print("✓ Virtual account integration tests passed")
+
 
 async def run_all_tests():
     """Run all SBD token permission system tests."""
@@ -390,6 +384,7 @@ async def run_all_tests():
         return False
 
     return True
+
 
 if __name__ == "__main__":
     # Run the tests

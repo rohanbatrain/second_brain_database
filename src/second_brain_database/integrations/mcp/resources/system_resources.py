@@ -5,18 +5,19 @@ Comprehensive information resources for system status and health monitoring.
 Provides system information, health status, and performance metrics through MCP resources.
 """
 
-import json
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+import json
+from typing import Any, Dict, List, Optional
 
-from ....managers.logging_manager import get_logger
 from ....config import settings
-from ..modern_server import mcp
-from ..security import get_mcp_user_context
+from ....managers.logging_manager import get_logger
 from ..context import create_mcp_audit_trail
 from ..exceptions import MCPAuthorizationError, MCPValidationError
+from ..modern_server import mcp
+from ..security import get_mcp_user_context
 
 logger = get_logger(prefix="[MCP_SystemResources]")
+
 
 @mcp.resource("system://health", tags={"production", "resources", "secure", "system"})
 async def get_system_health_resource() -> str:
@@ -41,20 +42,20 @@ async def get_system_health_resource() -> str:
                 "database": {"status": "healthy", "response_time_ms": 15},
                 "redis": {"status": "healthy", "response_time_ms": 5},
                 "mcp_server": {"status": "healthy", "response_time_ms": 10},
-                "ai_orchestration": {"status": "removed", "response_time_ms": 0}
+                "ai_orchestration": {"status": "removed", "response_time_ms": 0},
             },
             "metrics": {
                 "uptime_seconds": 86400,
                 "memory_usage_percent": 65,
                 "cpu_usage_percent": 45,
-                "active_sessions": 12
-            }
+                "active_sessions": 12,
+            },
         }
 
         result = {
             "health": health_status,
             "resource_type": "system_health",
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -62,7 +63,7 @@ async def get_system_health_resource() -> str:
             user_context=user_context,
             resource_type="system",
             resource_id="health",
-            metadata={"health_status": health_status["status"]}
+            metadata={"health_status": health_status["status"]},
         )
 
         return json.dumps(result, indent=2, default=str)
@@ -93,7 +94,7 @@ async def get_system_metrics_resource() -> str:
                 "requests_per_second": 150,
                 "average_response_time_ms": 45,
                 "error_rate_percent": 0.5,
-                "throughput_mbps": 25.5
+                "throughput_mbps": 25.5,
             },
             "resources": {
                 "memory_total_gb": 16,
@@ -101,20 +102,20 @@ async def get_system_metrics_resource() -> str:
                 "cpu_cores": 8,
                 "cpu_usage_percent": 45,
                 "disk_total_gb": 500,
-                "disk_used_gb": 250
+                "disk_used_gb": 250,
             },
             "database": {
                 "connections_active": 25,
                 "connections_max": 100,
                 "query_avg_time_ms": 12,
-                "cache_hit_rate_percent": 85
-            }
+                "cache_hit_rate_percent": 85,
+            },
         }
 
         result = {
             "metrics": metrics,
             "resource_type": "system_metrics",
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
         await create_mcp_audit_trail(
@@ -122,7 +123,7 @@ async def get_system_metrics_resource() -> str:
             user_context=user_context,
             resource_type="system",
             resource_id="metrics",
-            metadata={"metrics_accessed": True}
+            metadata={"metrics_accessed": True},
         )
 
         return json.dumps(result, indent=2, default=str)

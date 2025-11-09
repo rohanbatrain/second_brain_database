@@ -5,7 +5,7 @@ This module provides dependency functions for enforcing IP and User Agent lockdo
 across all protected endpoints in the application.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -48,8 +48,7 @@ async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
 
 
 async def enforce_ip_lockdown(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+    request: Request, current_user: Dict[str, Any] = Depends(get_current_user_dep)
 ) -> Dict[str, Any]:
     """
     FastAPI dependency for IP lockdown enforcement.
@@ -73,8 +72,7 @@ async def enforce_ip_lockdown(
 
         # Log successful IP lockdown check
         request_ip = security_manager.get_client_ip(request)
-        logger.debug("IP lockdown check passed for user %s from IP %s",
-                    current_user.get("username"), request_ip)
+        logger.debug("IP lockdown check passed for user %s from IP %s", current_user.get("username"), request_ip)
 
         return current_user
 
@@ -100,13 +98,16 @@ async def enforce_ip_lockdown(
                 "user_agent": request.headers.get("user-agent", ""),
                 "timestamp": request.headers.get("date", ""),
                 "lockdown_enabled": current_user.get("trusted_ip_lockdown", False),
-                "trusted_ip_count": len(trusted_ips)
-            }
+                "trusted_ip_count": len(trusted_ips),
+            },
         )
 
         logger.warning(
             "IP lockdown violation: blocked request from IP %s for user %s on endpoint %s (trusted IPs: %s)",
-            request_ip, user_id, endpoint, trusted_ips
+            request_ip,
+            user_id,
+            endpoint,
+            trusted_ips,
         )
 
         # Send email notification about blocked access attempt
@@ -114,10 +115,7 @@ async def enforce_ip_lockdown(
             user_email = current_user.get("email")
             if user_email:
                 await send_blocked_ip_notification(
-                    email=user_email,
-                    attempted_ip=request_ip,
-                    trusted_ips=trusted_ips,
-                    endpoint=endpoint
+                    email=user_email, attempted_ip=request_ip, trusted_ips=trusted_ips, endpoint=endpoint
                 )
                 logger.info("Sent blocked IP notification email to %s", user_email)
             else:
@@ -130,8 +128,7 @@ async def enforce_ip_lockdown(
 
 
 async def enforce_user_agent_lockdown(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+    request: Request, current_user: Dict[str, Any] = Depends(get_current_user_dep)
 ) -> Dict[str, Any]:
     """
     FastAPI dependency for User Agent lockdown enforcement.
@@ -155,8 +152,11 @@ async def enforce_user_agent_lockdown(
 
         # Log successful User Agent lockdown check
         request_user_agent = security_manager.get_client_user_agent(request)
-        logger.debug("User Agent lockdown check passed for user %s with User Agent %s",
-                    current_user.get("username"), request_user_agent)
+        logger.debug(
+            "User Agent lockdown check passed for user %s with User Agent %s",
+            current_user.get("username"),
+            request_user_agent,
+        )
 
         return current_user
 
@@ -182,13 +182,16 @@ async def enforce_user_agent_lockdown(
                 "path": request.url.path,
                 "timestamp": request.headers.get("date", ""),
                 "lockdown_enabled": current_user.get("trusted_user_agent_lockdown", False),
-                "trusted_user_agent_count": len(trusted_user_agents)
-            }
+                "trusted_user_agent_count": len(trusted_user_agents),
+            },
         )
 
         logger.warning(
             "User Agent lockdown violation: blocked request with User Agent %s for user %s on endpoint %s (trusted User Agents: %s)",
-            request_user_agent, user_id, endpoint, trusted_user_agents
+            request_user_agent,
+            user_id,
+            endpoint,
+            trusted_user_agents,
         )
 
         # Send email notification about blocked access attempt
@@ -201,7 +204,7 @@ async def enforce_user_agent_lockdown(
                     email=user_email,
                     attempted_user_agent=request_user_agent,
                     trusted_user_agents=trusted_user_agents,
-                    endpoint=endpoint
+                    endpoint=endpoint,
                 )
                 logger.info("Sent blocked User Agent notification email to %s", user_email)
             else:
@@ -214,8 +217,7 @@ async def enforce_user_agent_lockdown(
 
 
 async def enforce_all_lockdowns(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user_dep)
+    request: Request, current_user: Dict[str, Any] = Depends(get_current_user_dep)
 ) -> Dict[str, Any]:
     """
     Combined dependency for both IP and User Agent lockdown enforcement.
@@ -255,6 +257,5 @@ async def enforce_all_lockdowns(
     except HTTPException as e:
         # Individual lockdown functions handle their own logging and notifications
         # We just need to log that the combined check failed and re-raise
-        logger.info("Combined lockdown check failed for user %s on endpoint %s: %s",
-                   user_id, endpoint, e.detail)
+        logger.info("Combined lockdown check failed for user %s on endpoint %s: %s", user_id, endpoint, e.detail)
         raise

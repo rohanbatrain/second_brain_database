@@ -6,16 +6,16 @@ Provides comprehensive error types for MCP operations with proper inheritance
 from existing error classes and integration with error handling utilities.
 """
 
-from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from ...utils.error_handling import (
-    ValidationError as BaseValidationError,
-    CircuitBreakerOpenError,
     BulkheadCapacityError,
-    RetryExhaustedError,
+    CircuitBreakerOpenError,
+    ErrorContext,
     GracefulDegradationError,
-    ErrorContext
+    RetryExhaustedError,
+    ValidationError as BaseValidationError,
 )
 
 
@@ -32,7 +32,7 @@ class MCPError(Exception):
         message: str,
         error_code: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         """
         Initialize MCP error.
@@ -62,7 +62,7 @@ class MCPError(Exception):
             "message": self.message,
             "user_message": self.user_message,
             "context": self.context,
-            "timestamp": self.timestamp.isoformat()
+            "timestamp": self.timestamp.isoformat(),
         }
 
     def __str__(self) -> str:
@@ -84,7 +84,7 @@ class MCPSecurityError(MCPError):
         error_code: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         user_message: Optional[str] = None,
-        security_event: bool = True
+        security_event: bool = True,
     ):
         super().__init__(message, error_code, context, user_message)
         self.security_event = security_event
@@ -107,13 +107,13 @@ class MCPAuthenticationError(MCPSecurityError):
         message: str = "Authentication required for MCP access",
         error_code: str = "MCP_AUTH_REQUIRED",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         super().__init__(
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "Authentication is required to access this resource."
+            user_message=user_message or "Authentication is required to access this resource.",
         )
 
 
@@ -132,7 +132,7 @@ class MCPAuthorizationError(MCPSecurityError):
         user_permissions: Optional[list] = None,
         error_code: str = "MCP_INSUFFICIENT_PERMISSIONS",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if required_permissions:
@@ -144,7 +144,7 @@ class MCPAuthorizationError(MCPSecurityError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "You don't have permission to perform this action."
+            user_message=user_message or "You don't have permission to perform this action.",
         )
 
         self.required_permissions = required_permissions or []
@@ -167,7 +167,7 @@ class MCPValidationError(MCPSecurityError, BaseValidationError):
         validation_rule: Optional[str] = None,
         error_code: str = "MCP_VALIDATION_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if field_name:
@@ -183,7 +183,7 @@ class MCPValidationError(MCPSecurityError, BaseValidationError):
             error_code=error_code,
             context=context,
             user_message=user_message or "The provided input is not valid. Please check your data and try again.",
-            security_event=False  # Validation errors are not security events
+            security_event=False,  # Validation errors are not security events
         )
 
         self.field_name = field_name
@@ -208,7 +208,7 @@ class MCPRateLimitError(MCPSecurityError):
         reset_time: Optional[datetime] = None,
         error_code: str = "MCP_RATE_LIMIT_EXCEEDED",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if rate_limit_key:
@@ -224,7 +224,7 @@ class MCPRateLimitError(MCPSecurityError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "You are making requests too quickly. Please wait a moment and try again."
+            user_message=user_message or "You are making requests too quickly. Please wait a moment and try again.",
         )
 
         self.rate_limit_key = rate_limit_key
@@ -249,7 +249,7 @@ class MCPToolError(MCPError):
         original_error: Optional[Exception] = None,
         error_code: str = "MCP_TOOL_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if tool_name:
@@ -264,7 +264,7 @@ class MCPToolError(MCPError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The requested operation could not be completed. Please try again."
+            user_message=user_message or "The requested operation could not be completed. Please try again.",
         )
 
         self.tool_name = tool_name
@@ -287,7 +287,7 @@ class MCPResourceError(MCPError):
         resource_type: Optional[str] = None,
         error_code: str = "MCP_RESOURCE_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if resource_uri:
@@ -299,7 +299,8 @@ class MCPResourceError(MCPError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The requested resource could not be accessed. Please check the resource identifier."
+            user_message=user_message
+            or "The requested resource could not be accessed. Please check the resource identifier.",
         )
 
         self.resource_uri = resource_uri
@@ -321,7 +322,7 @@ class MCPPromptError(MCPError):
         prompt_args: Optional[Dict[str, Any]] = None,
         error_code: str = "MCP_PROMPT_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if prompt_name:
@@ -333,7 +334,7 @@ class MCPPromptError(MCPError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The requested prompt could not be generated. Please try again."
+            user_message=user_message or "The requested prompt could not be generated. Please try again.",
         )
 
         self.prompt_name = prompt_name
@@ -354,7 +355,7 @@ class MCPServerError(MCPError):
         server_component: Optional[str] = None,
         error_code: str = "MCP_SERVER_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if server_component:
@@ -364,7 +365,7 @@ class MCPServerError(MCPError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The MCP server is temporarily unavailable. Please try again later."
+            user_message=user_message or "The MCP server is temporarily unavailable. Please try again later.",
         )
 
         self.server_component = server_component
@@ -385,7 +386,7 @@ class MCPConfigurationError(MCPServerError):
         config_value: Optional[Any] = None,
         error_code: str = "MCP_CONFIG_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if config_key:
@@ -398,7 +399,7 @@ class MCPConfigurationError(MCPServerError):
             server_component="configuration",
             error_code=error_code,
             context=context,
-            user_message=user_message or "Server configuration error. Please contact support."
+            user_message=user_message or "Server configuration error. Please contact support.",
         )
 
         self.config_key = config_key
@@ -420,7 +421,7 @@ class MCPTimeoutError(MCPError):
         operation_type: Optional[str] = None,
         error_code: str = "MCP_TIMEOUT_ERROR",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if timeout_duration is not None:
@@ -432,7 +433,7 @@ class MCPTimeoutError(MCPError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The operation took too long to complete. Please try again."
+            user_message=user_message or "The operation took too long to complete. Please try again.",
         )
 
         self.timeout_duration = timeout_duration
@@ -454,7 +455,7 @@ class MCPCircuitBreakerError(MCPError, CircuitBreakerOpenError):
         circuit_breaker_name: Optional[str] = None,
         error_code: str = "MCP_CIRCUIT_BREAKER_OPEN",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if circuit_breaker_name:
@@ -465,7 +466,7 @@ class MCPCircuitBreakerError(MCPError, CircuitBreakerOpenError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "This service is temporarily unavailable. Please try again later."
+            user_message=user_message or "This service is temporarily unavailable. Please try again later.",
         )
 
         self.circuit_breaker_name = circuit_breaker_name
@@ -485,7 +486,7 @@ class MCPBulkheadError(MCPError, BulkheadCapacityError):
         bulkhead_name: Optional[str] = None,
         error_code: str = "MCP_BULKHEAD_CAPACITY_EXCEEDED",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if bulkhead_name:
@@ -496,7 +497,7 @@ class MCPBulkheadError(MCPError, BulkheadCapacityError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The system is currently at capacity. Please try again later."
+            user_message=user_message or "The system is currently at capacity. Please try again later.",
         )
 
         self.bulkhead_name = bulkhead_name
@@ -517,7 +518,7 @@ class MCPRetryExhaustedError(MCPError, RetryExhaustedError):
         last_error: Optional[Exception] = None,
         error_code: str = "MCP_RETRY_EXHAUSTED",
         context: Optional[Dict[str, Any]] = None,
-        user_message: Optional[str] = None
+        user_message: Optional[str] = None,
     ):
         context = context or {}
         if retry_attempts is not None:
@@ -531,7 +532,8 @@ class MCPRetryExhaustedError(MCPError, RetryExhaustedError):
             message=message,
             error_code=error_code,
             context=context,
-            user_message=user_message or "The operation could not be completed after multiple attempts. Please try again later."
+            user_message=user_message
+            or "The operation could not be completed after multiple attempts. Please try again later.",
         )
 
         self.retry_attempts = retry_attempts
@@ -544,7 +546,7 @@ def create_mcp_error_context(
     tool_name: Optional[str] = None,
     request_id: Optional[str] = None,
     ip_address: Optional[str] = None,
-    **kwargs
+    **kwargs,
 ) -> ErrorContext:
     """
     Create error context for MCP operations.
@@ -568,11 +570,7 @@ def create_mcp_error_context(
         metadata["mcp_tool"] = tool_name
 
     return ErrorContext(
-        operation=operation,
-        user_id=user_id,
-        request_id=request_id,
-        ip_address=ip_address,
-        metadata=metadata
+        operation=operation, user_id=user_id, request_id=request_id, ip_address=ip_address, metadata=metadata
     )
 
 

@@ -7,15 +7,16 @@ in database operations including creation, updates, and queries.
 """
 
 import asyncio
-import sys
 from datetime import datetime, timedelta
+import sys
+
 from bson import ObjectId
 
 # Add the src directory to the path
 sys.path.insert(0, "src")
 
-from second_brain_database.database import db_manager
 from second_brain_database.config import settings
+from second_brain_database.database import db_manager
 
 
 async def test_user_agent_schema_validation():
@@ -72,7 +73,7 @@ async def test_user_agent_schema_validation():
             "code": "TEST123",
             "expires_at": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
             "action": "enable",
-            "allowed_user_agents": test_user_agents
+            "allowed_user_agents": test_user_agents,
         }
 
         update_result = await users_collection.update_one(
@@ -81,9 +82,9 @@ async def test_user_agent_schema_validation():
                 "$set": {
                     "trusted_user_agent_lockdown": True,
                     "trusted_user_agents": test_user_agents,
-                    "trusted_user_agent_lockdown_codes": [test_code]
+                    "trusted_user_agent_lockdown_codes": [test_code],
                 }
-            }
+            },
         )
         assert update_result.modified_count == 1
         print("✅ User Agent lockdown settings updated successfully")
@@ -140,6 +141,7 @@ async def test_user_agent_schema_validation():
     except Exception as e:
         print(f"\n❌ Schema validation test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

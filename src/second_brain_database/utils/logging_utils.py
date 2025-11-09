@@ -61,6 +61,7 @@ class SecurityLogger:
     def log_event(self, context: SecurityContext):
         """Log a security event with full context (structured JSON)."""
         import os
+
         event_data = {
             "event": "security_event",
             "event_type": context.event_type,
@@ -87,6 +88,7 @@ class DatabaseLogger:
 
     def log_operation(self, context: DatabaseContext):
         import os
+
         log_data = {
             "event": "database_operation",
             "operation": context.operation,
@@ -104,15 +106,21 @@ class DatabaseLogger:
 
     def log_query(self, context: DatabaseContext):
         """Log database query with appropriate level based on success/error."""
-        if hasattr(context, 'error') and context.error:
-            self.logger.error(f"DB {context.operation.upper()} on {context.collection} FAILED - {context.error} - Duration: {context.duration:.3f}s")
+        if hasattr(context, "error") and context.error:
+            self.logger.error(
+                f"DB {context.operation.upper()} on {context.collection} FAILED - {context.error} - Duration: {context.duration:.3f}s"
+            )
         else:
             result_info = f" - Results: {context.result_count}" if context.result_count is not None else ""
-            self.logger.info(f"DB {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s{result_info}")
+            self.logger.info(
+                f"DB {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s{result_info}"
+            )
 
     def log_slow_query(self, context: DatabaseContext, threshold: float = 1.0):
         """Log slow database queries."""
-        self.logger.warning(f"SLOW QUERY: {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s (threshold: {threshold:.3f}s)")
+        self.logger.warning(
+            f"SLOW QUERY: {context.operation.upper()} on {context.collection} - Duration: {context.duration:.3f}s (threshold: {threshold:.3f}s)"
+        )
 
 
 class PerformanceLogger:
@@ -172,9 +180,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and response with comprehensive logging (structured JSON)."""
-        import os
         from datetime import datetime, timezone
+        import os
         import traceback
+
         # Generate unique request ID for tracing
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
