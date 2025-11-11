@@ -66,7 +66,8 @@ class WebRTCCompleteTest:
                 }
             )
             
-            if register_response.status_code == 201:
+            # Registration returns 200, not 201
+            if register_response.status_code == 200:
                 data = register_response.json()
                 token = data.get("access_token") or data.get("token")
                 # Fetch user details
@@ -75,12 +76,12 @@ class WebRTCCompleteTest:
                 self.tokens[username] = token
                 return user_data
             
-            raise Exception(f"Failed to create/login user: {register_response.text}")
+            raise Exception(f"Failed to create/login user (status {register_response.status_code}): {register_response.text}")
     
     async def _fetch_user_details(self, client: httpx.AsyncClient, token: str, username: str, email: str) -> dict:
-        """Fetch user details to get the MongoDB _id."""
-        # Try various endpoints to get user ID
-        endpoints = ["/users/me", "/auth/user", "/user/profile"]
+        """Fetch user details. WebRTC system is username-centric, no user_id needed."""
+        # Try various endpoints to get additional user data if available
+        endpoints = ["/users/me", "/auth/user", "/user/profile", "/api/user/me"]
         
         for endpoint in endpoints:
             try:
@@ -91,19 +92,17 @@ class WebRTCCompleteTest:
                 if response.status_code == 200:
                     user_data = response.json()
                     user_data["token"] = token
-                    # Ensure we have a user_id field
-                    if "_id" in user_data:
-                        user_data["user_id"] = user_data["_id"]
+                    user_data["username"] = username
+                    user_data["email"] = email
                     return user_data
-            except:
+            except Exception:
                 continue
         
-        # Fallback: create minimal user data with username
+        # Fallback: create minimal user data with username (primary identifier)
         return {
             "username": username,
             "email": email,
-            "token": token,
-            "user_id": username  # Use username as fallback ID
+            "token": token
         }
     
     async def test_server_health(self):
@@ -121,11 +120,25 @@ class WebRTCCompleteTest:
     async def test_user_creation(self):
         """Test 2: Create test users."""
         try:
-            user1 = await self.create_test_user("webrtc_test_host", "webrtc_host@test.com")
-            user2 = await self.create_test_user("webrtc_test_participant", "webrtc_participant@test.com")
+            import time
+            timestamp = int(time.time())
+            
+            # Use timestamped usernames to avoid conflicts
+            user1 = await self.create_test_user(
+                f"webrtc_host_{timestamp}", 
+                f"webrtc_host_{timestamp}@test.com"
+            )
+            user2 = await self.create_test_user(
+                f"webrtc_participant_{timestamp}", 
+                f"webrtc_participant_{timestamp}@test.com"
+            )
             
             assert user1.get("token"), "User 1 token missing"
             assert user2.get("token"), "User 2 token missing"
+            
+            # Update tokens dict with timestamped names
+            self.tokens["webrtc_test_host"] = user1.get("token")
+            self.tokens["webrtc_test_participant"] = user2.get("token")
             
             print("✅ Test 2: User creation passed")
             return True
@@ -158,8 +171,27 @@ class WebRTCCompleteTest:
     async def test_room_settings(self):
         """Test 4: Room settings management."""
         try:
+            import sys
+            import websockets
             token = self.tokens.get("webrtc_test_host")
+            print(f"  🔑 Token exists: {token is not None}", file=sys.stderr, flush=True)
             room_id = "test-room-settings"
+            
+            # Connect via WebSocket to get auto-assigned host role
+            ws_url = f"{self.ws_url}/webrtc/ws/{room_id}?token={token}"
+            actual_user_id = None
+            async with websockets.connect(ws_url) as ws:
+                # Wait for room state message (confirms connection and role assignment)
+                room_state = await ws.recv()
+                room_data = json.loads(room_state)
+                participants = room_data.get('payload', {}).get('participants', [])
+                if participants:
+                    actual_user_id = participants[0].get('username') or participants[0].get('user_id')
+                print(f"  🔌 WebSocket connected, actual user_id from token: {actual_user_id}", file=sys.stderr, flush=True)
+            # WebSocket closed, but role persists in Redis
+            
+            # Small delay to ensure role is persisted
+            await asyncio.sleep(0.2)
             
             async with httpx.AsyncClient() as client:
                 # Get default settings
@@ -167,9 +199,10 @@ class WebRTCCompleteTest:
                     f"{self.base_url}/webrtc/rooms/{room_id}/settings",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert get_response.status_code == 200
+                print(f"  📝 GET settings status: {get_response.status_code}, body: {get_response.text[:200]}", file=sys.stderr, flush=True)
+                assert get_response.status_code == 200, f"GET settings failed: {get_response.status_code} - {get_response.text}"
                 
-                # Update settings
+                # Update settings (no need to manually set host role - first participant is auto-host via WebSocket)
                 new_settings = {
                     "lock_room": True,
                     "enable_waiting_room": True,
@@ -179,20 +212,17 @@ class WebRTCCompleteTest:
                     "max_participants": 100
                 }
                 
-                # Set host role first
-                user_id = self.test_users[0].get("user_id") or self.test_users[0].get("_id") or self.test_users[0].get("id")
-                await client.post(
-                    f"{self.base_url}/webrtc/rooms/{room_id}/roles/{user_id}",
-                    params={"role": "host"},
-                    headers={"Authorization": f"Bearer {token}"}
-                )
+                # Note: First participant connecting via WebSocket becomes host automatically
+                # For REST API testing, we need to connect via WebSocket first to get host role
+                # Or we can test settings GET/POST without role requirements
                 
                 update_response = await client.post(
                     f"{self.base_url}/webrtc/rooms/{room_id}/settings",
                     json=new_settings,
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert update_response.status_code == 200
+                print(f"  📝 UPDATE settings status: {update_response.status_code}, body: {update_response.text[:200]}", file=sys.stderr, flush=True)
+                assert update_response.status_code == 200, f"UPDATE settings failed: {update_response.status_code} - {update_response.text}"
                 
                 # Verify settings
                 verify_response = await client.get(
@@ -205,8 +235,11 @@ class WebRTCCompleteTest:
                 
             print("✅ Test 4: Room settings management passed")
             return True
+        except AssertionError as e:
+            print(f"❌ Test 4: Room settings management failed - Assertion: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Test 4: Room settings management failed - {e}")
+            print(f"❌ Test 4: Room settings management failed - {type(e).__name__}: {str(e)}")
             return False
     
     async def test_hand_raise_queue(self):
@@ -222,18 +255,18 @@ class WebRTCCompleteTest:
                     params={"raised": True},
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert raise_response.status_code == 200
+                assert raise_response.status_code == 200, f"Raise hand failed: {raise_response.status_code} - {raise_response.text}"
                 data = raise_response.json()
-                assert data.get("raised") == True
+                assert data.get("raised") == True, f"Expected raised=True, got {data.get('raised')}"
                 
                 # Get queue
                 queue_response = await client.get(
                     f"{self.base_url}/webrtc/rooms/{room_id}/hand-raise/queue",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert queue_response.status_code == 200
+                assert queue_response.status_code == 200, f"Get queue failed: {queue_response.status_code} - {queue_response.text}"
                 queue = queue_response.json().get("queue", [])
-                assert len(queue) > 0, "Hand raise queue is empty"
+                assert len(queue) > 0, f"Hand raise queue is empty: {queue_response.json()}"
                 
                 # Lower hand
                 lower_response = await client.post(
@@ -241,12 +274,15 @@ class WebRTCCompleteTest:
                     params={"raised": False},
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert lower_response.status_code == 200
+                assert lower_response.status_code == 200, f"Lower hand failed: {lower_response.status_code} - {lower_response.text}"
                 
             print("✅ Test 5: Hand raise queue passed")
             return True
+        except AssertionError as e:
+            print(f"❌ Test 5: Hand raise queue failed - Assertion: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Test 5: Hand raise queue failed - {e}")
+            print(f"❌ Test 5: Hand raise queue failed - {type(e).__name__}: {str(e)}")
             return False
     
     async def test_enhanced_participant_list(self):
@@ -279,38 +315,39 @@ class WebRTCCompleteTest:
     async def test_waiting_room(self):
         """Test 7: Waiting room functionality."""
         try:
+            import websockets
             host_token = self.tokens.get("webrtc_test_host")
             participant_token = self.tokens.get("webrtc_test_participant")
             room_id = "test-room-waiting"
             
+            # Connect via WebSocket to get auto-host role
+            ws_url = f"{self.ws_url}/webrtc/ws/{room_id}?token={host_token}"
+            async with websockets.connect(ws_url) as ws:
+                await ws.recv()  # Wait for room state
+            
             async with httpx.AsyncClient() as client:
-                # Set host role
-                user_id = self.test_users[0].get("_id") or self.test_users[0].get("id")
-                await client.post(
-                    f"{self.base_url}/webrtc/rooms/{room_id}/roles/{user_id}",
-                    params={"role": "host"},
-                    headers={"Authorization": f"Bearer {host_token}"}
-                )
-                
                 # Get waiting room (should be accessible to host)
                 response = await client.get(
                     f"{self.base_url}/webrtc/rooms/{room_id}/waiting-room",
                     headers={"Authorization": f"Bearer {host_token}"}
                 )
-                assert response.status_code == 200
+                assert response.status_code == 200, f"GET waiting room failed: {response.status_code} - {response.text}"
                 
                 # Test admit endpoint (simulated)
-                participant_id = self.test_users[1].get("_id") or self.test_users[1].get("id")
+                participant_id = self.test_users[1].get("username") or self.test_users[1].get("user_id")
                 admit_response = await client.post(
                     f"{self.base_url}/webrtc/rooms/{room_id}/waiting-room/{participant_id}/admit",
                     headers={"Authorization": f"Bearer {host_token}"}
                 )
-                assert admit_response.status_code == 200
+                assert admit_response.status_code == 200, f"Admit participant failed: {admit_response.status_code} - {admit_response.text}"
                 
             print("✅ Test 7: Waiting room functionality passed")
             return True
+        except AssertionError as e:
+            print(f"❌ Test 7: Waiting room functionality failed - Assertion: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Test 7: Waiting room functionality failed - {e}")
+            print(f"❌ Test 7: Waiting room functionality failed - {type(e).__name__}: {str(e)}")
             return False
     
     # ========================================================================
@@ -320,19 +357,17 @@ class WebRTCCompleteTest:
     async def test_breakout_rooms(self):
         """Test 8: Breakout rooms functionality."""
         try:
+            import websockets
             token = self.tokens.get("webrtc_test_host")
             room_id = "test-room-breakout"
             breakout_room_id = "breakout-1"
             
+            # Connect via WebSocket to get auto-host role
+            ws_url = f"{self.ws_url}/webrtc/ws/{room_id}?token={token}"
+            async with websockets.connect(ws_url) as ws:
+                await ws.recv()  # Wait for room state
+            
             async with httpx.AsyncClient() as client:
-                # Set host role
-                user_id = self.test_users[0].get("_id") or self.test_users[0].get("id")
-                await client.post(
-                    f"{self.base_url}/webrtc/rooms/{room_id}/roles/{user_id}",
-                    params={"role": "host"},
-                    headers={"Authorization": f"Bearer {token}"}
-                )
-                
                 # Create breakout room
                 breakout_config = {
                     "breakout_room_id": breakout_room_id,
@@ -347,45 +382,46 @@ class WebRTCCompleteTest:
                     json=breakout_config,
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert create_response.status_code == 200
+                assert create_response.status_code == 200, f"Create breakout room failed: {create_response.status_code} - {create_response.text}"
                 
                 # Assign user to breakout room
-                participant_id = self.test_users[1].get("_id") or self.test_users[1].get("id")
+                participant_id = self.test_users[1].get("user_id") or self.test_users[1].get("username")
                 assign_response = await client.post(
                     f"{self.base_url}/webrtc/rooms/{room_id}/breakout-rooms/{breakout_room_id}/assign/{participant_id}",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert assign_response.status_code == 200
+                assert assign_response.status_code == 200, f"Assign to breakout room failed: {assign_response.status_code} - {assign_response.text}"
                 
                 # Close breakout room
                 close_response = await client.delete(
                     f"{self.base_url}/webrtc/rooms/{room_id}/breakout-rooms/{breakout_room_id}",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert close_response.status_code == 200
+                assert close_response.status_code == 200, f"Close breakout room failed: {close_response.status_code} - {close_response.text}"
                 
             print("✅ Test 8: Breakout rooms functionality passed")
             return True
+        except AssertionError as e:
+            print(f"❌ Test 8: Breakout rooms functionality failed - Assertion: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Test 8: Breakout rooms functionality failed - {e}")
+            print(f"❌ Test 8: Breakout rooms functionality failed - {type(e).__name__}: {str(e)}")
             return False
     
     async def test_live_streaming(self):
         """Test 9: Live streaming functionality."""
         try:
+            import websockets
             token = self.tokens.get("webrtc_test_host")
             room_id = "test-room-stream"
             stream_id = "stream-1"
             
+            # Connect via WebSocket to get auto-host role
+            ws_url = f"{self.ws_url}/webrtc/ws/{room_id}?token={token}"
+            async with websockets.connect(ws_url) as ws:
+                await ws.recv()  # Wait for room state
+            
             async with httpx.AsyncClient() as client:
-                # Set host role
-                user_id = self.test_users[0].get("_id") or self.test_users[0].get("id")
-                await client.post(
-                    f"{self.base_url}/webrtc/rooms/{room_id}/roles/{user_id}",
-                    params={"role": "host"},
-                    headers={"Authorization": f"Bearer {token}"}
-                )
-                
                 # Start live stream
                 stream_config = {
                     "stream_id": stream_id,
@@ -401,14 +437,14 @@ class WebRTCCompleteTest:
                     json=stream_config,
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert start_response.status_code == 200
+                assert start_response.status_code == 200, f"Start live stream failed: {start_response.status_code} - {start_response.text}"
                 
                 # Get active streams
                 get_response = await client.get(
                     f"{self.base_url}/webrtc/rooms/{room_id}/live-streams",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert get_response.status_code == 200
+                assert get_response.status_code == 200, f"Get live streams failed: {get_response.status_code} - {get_response.text}"
                 
                 # Stop live stream
                 stop_response = await client.post(
@@ -416,12 +452,15 @@ class WebRTCCompleteTest:
                     params={"duration_seconds": 120},
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                assert stop_response.status_code == 200
+                assert stop_response.status_code == 200, f"Stop live stream failed: {stop_response.status_code} - {stop_response.text}"
                 
             print("✅ Test 9: Live streaming functionality passed")
             return True
+        except AssertionError as e:
+            print(f"❌ Test 9: Live streaming functionality failed - Assertion: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Test 9: Live streaming functionality failed - {e}")
+            print(f"❌ Test 9: Live streaming functionality failed - {type(e).__name__}: {str(e)}")
             return False
     
     # ========================================================================

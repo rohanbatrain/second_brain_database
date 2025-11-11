@@ -70,9 +70,9 @@ class WebRtcManager:
         """Get Redis key for room participants set."""
         return f"{self.ROOM_PARTICIPANTS_PREFIX}{room_id}"
     
-    def _get_presence_key(self, room_id: str, user_id: str) -> str:
+    def _get_presence_key(self, room_id: str, username: str) -> str:
         """Get Redis key for user presence in a room."""
-        return f"{self.USER_PRESENCE_PREFIX}{room_id}:{user_id}"
+        return f"{self.USER_PRESENCE_PREFIX}{room_id}:{username}"
     
     async def publish_to_room(self, room_id: str, message: WebRtcMessage) -> int:
         """
@@ -190,14 +190,13 @@ class WebRtcManager:
                     extra={"room_id": room_id}
                 )
     
-    async def add_participant(self, room_id: str, user_id: str, username: str) -> int:
+    async def add_participant(self, room_id: str, username: str) -> int:
         """
         Add a participant to a room.
         
         Args:
             room_id: The room identifier
-            user_id: The user identifier
-            username: The username
+            username: The username (used as identifier throughout the system)
             
         Returns:
             Number of participants in the room after adding
@@ -205,11 +204,10 @@ class WebRtcManager:
         try:
             redis_client = await self.redis.get_redis()
             participants_key = self._get_participants_key(room_id)
-            presence_key = self._get_presence_key(room_id, user_id)
+            presence_key = self._get_presence_key(room_id, username)
             
             # Store participant info as JSON
             participant_data = json.dumps({
-                "user_id": user_id,
                 "username": username,
                 "joined_at": datetime.now(timezone.utc).isoformat()
             })
@@ -223,11 +221,19 @@ class WebRtcManager:
             # Get participant count using Redis SCARD
             count = await redis_client.scard(participants_key)
             
+            # Auto-assign host role to first participant
+            if count == 1:
+                await self.set_user_role(room_id, username, "host")
+                logger.info(
+                    f"Auto-assigned host role to first participant {username} in room {room_id}",
+                    extra={"room_id": room_id, "username": username}
+                )
+            
             logger.info(
-                f"Added participant {user_id} to room {room_id}",
+                f"Added participant {username} to room {room_id}",
                 extra={
                     "room_id": room_id,
-                    "user_id": user_id,
+                    "username": username,
                     "participant_count": count
                 }
             )
@@ -237,18 +243,18 @@ class WebRtcManager:
         except Exception as e:
             logger.error(
                 f"Failed to add participant to room {room_id}: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
             raise
     
-    async def remove_participant(self, room_id: str, user_id: str) -> int:
+    async def remove_participant(self, room_id: str, username: str) -> int:
         """
         Remove a participant from a room.
         
         Args:
             room_id: The room identifier
-            user_id: The user identifier
+            username: The username (used as identifier throughout the system)
             
         Returns:
             Number of participants remaining in the room
@@ -256,7 +262,7 @@ class WebRtcManager:
         try:
             redis_client = await self.redis.get_redis()
             participants_key = self._get_participants_key(room_id)
-            presence_key = self._get_presence_key(room_id, user_id)
+            presence_key = self._get_presence_key(room_id, username)
             
             # Get all participants to find the matching one using Redis SMEMBERS
             participants = await redis_client.smembers(participants_key)
@@ -265,7 +271,7 @@ class WebRtcManager:
             for participant_json in participants:
                 try:
                     participant = json.loads(participant_json)
-                    if participant.get("user_id") == user_id:
+                    if participant.get("username") == username:
                         # Remove from set using Redis SREM
                         await redis_client.srem(participants_key, participant_json)
                         break
@@ -283,10 +289,10 @@ class WebRtcManager:
                 await redis_client.delete(participants_key)
             
             logger.info(
-                f"Removed participant {user_id} from room {room_id}",
+                f"Removed participant {username} from room {room_id}",
                 extra={
                     "room_id": room_id,
-                    "user_id": user_id,
+                    "username": username,
                     "remaining_participants": count
                 }
             )
@@ -296,7 +302,7 @@ class WebRtcManager:
         except Exception as e:
             logger.error(
                 f"Failed to remove participant from room {room_id}: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
             raise
@@ -335,85 +341,98 @@ class WebRtcManager:
             )
             return []
     
-    async def update_presence(self, room_id: str, user_id: str) -> None:
+    async def update_presence(self, room_id: str, username: str) -> None:
         """
         Update user presence (heartbeat) in a room.
         
         Args:
             room_id: The room identifier
-            user_id: The user identifier
+            username: The username (used as identifier throughout the system)
         """
         try:
             redis_client = await self.redis.get_redis()
-            presence_key = self._get_presence_key(room_id, user_id)
+            presence_key = self._get_presence_key(room_id, username)
             # Update presence using Redis SETEX
             await redis_client.setex(presence_key, self.PRESENCE_TTL, "1")
         except Exception as e:
             logger.warning(
-                f"Failed to update presence for user {user_id} in room {room_id}: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                f"Failed to update presence for user {username} in room {room_id}: {e}",
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
     # ========================================================================
     # Phase 1: Room Permissions & Roles
     # ========================================================================
     
-    async def set_user_role(self, room_id: str, user_id: str, role: str) -> None:
+    async def set_user_role(self, room_id: str, username: str, role: str) -> None:
         """Set a user's role in a room."""
         try:
             redis_client = await self.redis.get_redis()
-            role_key = f"{self.ROOM_ROLES_PREFIX}{room_id}:{user_id}"
+            role_key = f"{self.ROOM_ROLES_PREFIX}{room_id}:{username}"
             await redis_client.setex(role_key, 3600, role)  # 1 hour TTL
             
             logger.info(
-                f"Set role {role} for user {user_id} in room {room_id}",
-                extra={"room_id": room_id, "user_id": user_id, "role": role}
+                f"SET_ROLE: room={room_id}, username={username}, role_key={role_key}, role={role}",
+                extra={"room_id": room_id, "username": username, "role": role}
             )
         except Exception as e:
             logger.error(
                 f"Failed to set role: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
     
-    async def get_user_role(self, room_id: str, user_id: str) -> str:
+    async def get_user_role(self, room_id: str, username: str) -> str:
         """Get a user's role in a room."""
         try:
             redis_client = await self.redis.get_redis()
-            role_key = f"{self.ROOM_ROLES_PREFIX}{room_id}:{user_id}"
+            role_key = f"{self.ROOM_ROLES_PREFIX}{room_id}:{username}"
             role = await redis_client.get(role_key)
-            return role.decode("utf-8") if role else "participant"
+            
+            # Handle both bytes and string returns from Redis
+            if role:
+                result = role if isinstance(role, str) else role.decode("utf-8")
+            else:
+                result = "participant"
+            
+            # Temporary debug logging
+            logger.info(
+                f"GET_ROLE: room={room_id}, username={username}, role_key={role_key}, result={result}",
+                extra={"room_id": room_id, "username": username, "role": result}
+            )
+            
+            return result
         except Exception as e:
             logger.error(
                 f"Failed to get role: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
             return "participant"
     
-    async def set_user_permissions(self, room_id: str, user_id: str, permissions: Dict[str, bool]) -> None:
+    async def set_user_permissions(self, room_id: str, username: str, permissions: Dict[str, bool]) -> None:
         """Set a user's permissions in a room."""
         try:
             redis_client = await self.redis.get_redis()
-            perm_key = f"{self.ROOM_PERMISSIONS_PREFIX}{room_id}:{user_id}"
+            perm_key = f"{self.ROOM_PERMISSIONS_PREFIX}{room_id}:{username}"
             await redis_client.hset(perm_key, mapping=permissions)
             await redis_client.expire(perm_key, 3600)  # 1 hour TTL
             
             logger.info(
-                f"Set permissions for user {user_id} in room {room_id}",
-                extra={"room_id": room_id, "user_id": user_id, "permissions": permissions}
+                f"Set permissions for user {username} in room {room_id}",
+                extra={"room_id": room_id, "username": username, "permissions": permissions}
             )
         except Exception as e:
             logger.error(
                 f"Failed to set permissions: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
     
-    async def get_user_permissions(self, room_id: str, user_id: str) -> Dict[str, bool]:
+    async def get_user_permissions(self, room_id: str, username: str) -> Dict[str, bool]:
         """Get a user's permissions in a room."""
         try:
             redis_client = await self.redis.get_redis()
-            perm_key = f"{self.ROOM_PERMISSIONS_PREFIX}{room_id}:{user_id}"
+            perm_key = f"{self.ROOM_PERMISSIONS_PREFIX}{room_id}:{username}"
             permissions = await redis_client.hgetall(perm_key)
             
             if not permissions:
@@ -433,7 +452,7 @@ class WebRtcManager:
         except Exception as e:
             logger.error(
                 f"Failed to get permissions: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
             return {}
     
@@ -441,7 +460,7 @@ class WebRtcManager:
     # Phase 2: Analytics
     # ========================================================================
     
-    async def track_analytics_event(self, room_id: str, event_type: str, user_id: str, data: Dict[str, Any]) -> None:
+    async def track_analytics_event(self, room_id: str, event_type: str, username: str, data: Dict[str, Any]) -> None:
         """Track an analytics event."""
         try:
             redis_client = await self.redis.get_redis()
@@ -449,7 +468,7 @@ class WebRtcManager:
             
             event = {
                 "event_type": event_type,
-                "user_id": user_id,
+                "username": username,
                 "data": json.dumps(data),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
@@ -459,7 +478,7 @@ class WebRtcManager:
             
             logger.debug(
                 f"Tracked analytics event: {event_type}",
-                extra={"room_id": room_id, "user_id": user_id, "event_type": event_type}
+                extra={"room_id": room_id, "username": username, "event_type": event_type}
             )
         except Exception as e:
             logger.error(
@@ -606,37 +625,37 @@ class WebRtcManager:
     # Immediate Features: Participant Info Management
     # ========================================================================
     
-    async def update_participant_info(self, room_id: str, user_id: str, info: Dict[str, Any]) -> None:
+    async def update_participant_info(self, room_id: str, username: str, info: Dict[str, Any]) -> None:
         """Update enhanced participant information."""
         try:
             redis_client = await self.redis.get_redis()
-            info_key = f"{self.PARTICIPANT_INFO_PREFIX}{room_id}:{user_id}"
+            info_key = f"{self.PARTICIPANT_INFO_PREFIX}{room_id}:{username}"
             
             await redis_client.hset(info_key, mapping={k: str(v) for k, v in info.items()})
             await redis_client.expire(info_key, 3600)  # 1 hour TTL
             
             logger.debug(
-                f"Updated participant info for {user_id}",
-                extra={"room_id": room_id, "user_id": user_id}
+                f"Updated participant info for {username}",
+                extra={"room_id": room_id, "username": username}
             )
         except Exception as e:
             logger.error(
                 f"Failed to update participant info: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
-    async def get_participant_info(self, room_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_participant_info(self, room_id: str, username: str) -> Dict[str, Any]:
         """Get enhanced participant information."""
         try:
             redis_client = await self.redis.get_redis()
-            info_key = f"{self.PARTICIPANT_INFO_PREFIX}{room_id}:{user_id}"
+            info_key = f"{self.PARTICIPANT_INFO_PREFIX}{room_id}:{username}"
             
             info = await redis_client.hgetall(info_key)
             return {k.decode("utf-8"): v.decode("utf-8") for k, v in info.items()} if info else {}
         except Exception as e:
             logger.error(
                 f"Failed to get participant info: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
             return {}
     
@@ -689,11 +708,13 @@ class WebRtcManager:
                     "allow_participants_unmute": True
                 }
             
-            # Convert bytes to appropriate types
+            # Convert bytes/strings to appropriate types
             result = {}
             for k, v in settings.items():
-                key = k.decode("utf-8")
-                value = v.decode("utf-8")
+                # Handle both bytes and string keys/values
+                key = k if isinstance(k, str) else k.decode("utf-8")
+                value = v if isinstance(v, str) else v.decode("utf-8")
+                
                 # Convert boolean strings
                 if value in ("True", "False"):
                     result[key] = value == "True"
@@ -710,7 +731,8 @@ class WebRtcManager:
         except Exception as e:
             logger.error(
                 f"Failed to get room settings: {e}",
-                extra={"room_id": room_id, "error": str(e)}
+                extra={"room_id": room_id, "error": str(e)},
+                exc_info=True
             )
             return {}
     
@@ -718,14 +740,13 @@ class WebRtcManager:
     # Immediate Features: Hand Raise Queue Management
     # ========================================================================
     
-    async def add_to_hand_raise_queue(self, room_id: str, user_id: str, username: str, timestamp: str) -> int:
+    async def add_to_hand_raise_queue(self, room_id: str, username: str, timestamp: str) -> int:
         """Add user to hand raise queue."""
         try:
             redis_client = await self.redis.get_redis()
             queue_key = f"{self.HAND_RAISE_QUEUE_PREFIX}{room_id}"
             
             entry = json.dumps({
-                "user_id": user_id,
                 "username": username,
                 "raised_at": timestamp
             })
@@ -739,40 +760,41 @@ class WebRtcManager:
             position = await redis_client.zrank(queue_key, entry)
             
             logger.info(
-                f"Added {user_id} to hand raise queue",
-                extra={"room_id": room_id, "user_id": user_id, "position": position}
+                f"Added {username} to hand raise queue",
+                extra={"room_id": room_id, "username": username, "position": position}
             )
             
             return position + 1 if position is not None else 1
         except Exception as e:
             logger.error(
                 f"Failed to add to hand raise queue: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
+            raise
             return 0
     
-    async def remove_from_hand_raise_queue(self, room_id: str, user_id: str) -> None:
+    async def remove_from_hand_raise_queue(self, room_id: str, username: str) -> None:
         """Remove user from hand raise queue."""
         try:
             redis_client = await self.redis.get_redis()
             queue_key = f"{self.HAND_RAISE_QUEUE_PREFIX}{room_id}"
             
-            # Get all entries and find the one with matching user_id
+            # Get all entries and find the one with matching username
             entries = await redis_client.zrange(queue_key, 0, -1)
             for entry in entries:
                 data = json.loads(entry)
-                if data.get("user_id") == user_id:
+                if data.get("username") == username:
                     await redis_client.zrem(queue_key, entry)
                     logger.info(
-                        f"Removed {user_id} from hand raise queue",
-                        extra={"room_id": room_id, "user_id": user_id}
+                        f"Removed {username} from hand raise queue",
+                        extra={"room_id": room_id, "username": username}
                     )
                     break
         except Exception as e:
             logger.error(
                 f"Failed to remove from hand raise queue: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
     async def get_hand_raise_queue(self, room_id: str) -> list[Dict[str, Any]]:
@@ -801,14 +823,13 @@ class WebRtcManager:
     # Short Term: Waiting Room Management
     # ========================================================================
     
-    async def add_to_waiting_room(self, room_id: str, user_id: str, username: str, timestamp: str) -> None:
+    async def add_to_waiting_room(self, room_id: str, username: str, timestamp: str) -> None:
         """Add user to waiting room."""
         try:
             redis_client = await self.redis.get_redis()
             waiting_key = f"{self.WAITING_ROOM_PREFIX}{room_id}"
             
             participant = json.dumps({
-                "user_id": user_id,
                 "username": username,
                 "joined_at": timestamp
             })
@@ -817,37 +838,37 @@ class WebRtcManager:
             await redis_client.expire(waiting_key, 3600)  # 1 hour TTL
             
             logger.info(
-                f"Added {user_id} to waiting room",
-                extra={"room_id": room_id, "user_id": user_id}
+                f"Added {username} to waiting room",
+                extra={"room_id": room_id, "username": username}
             )
         except Exception as e:
             logger.error(
                 f"Failed to add to waiting room: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)},
+                extra={"room_id": room_id, "username": username, "error": str(e)},
                 exc_info=True
             )
     
-    async def remove_from_waiting_room(self, room_id: str, user_id: str) -> None:
+    async def remove_from_waiting_room(self, room_id: str, username: str) -> None:
         """Remove user from waiting room."""
         try:
             redis_client = await self.redis.get_redis()
             waiting_key = f"{self.WAITING_ROOM_PREFIX}{room_id}"
             
-            # Get all participants and find the one with matching user_id
+            # Get all participants and find the one with matching username
             participants = await redis_client.smembers(waiting_key)
             for participant_json in participants:
                 participant = json.loads(participant_json)
-                if participant.get("user_id") == user_id:
+                if participant.get("username") == username:
                     await redis_client.srem(waiting_key, participant_json)
                     logger.info(
-                        f"Removed {user_id} from waiting room",
-                        extra={"room_id": room_id, "user_id": user_id}
+                        f"Removed {username} from waiting room",
+                        extra={"room_id": room_id, "username": username}
                     )
                     break
         except Exception as e:
             logger.error(
                 f"Failed to remove from waiting room: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
     async def get_waiting_room_participants(self, room_id: str) -> list[Dict[str, Any]]:
@@ -898,37 +919,37 @@ class WebRtcManager:
                 exc_info=True
             )
     
-    async def assign_to_breakout_room(self, room_id: str, user_id: str, breakout_room_id: str) -> None:
+    async def assign_to_breakout_room(self, room_id: str, username: str, breakout_room_id: str) -> None:
         """Assign user to breakout room."""
         try:
             redis_client = await self.redis.get_redis()
             assignment_key = f"{self.BREAKOUT_ROOMS_PREFIX}{room_id}:assignments"
             
-            await redis_client.hset(assignment_key, user_id, breakout_room_id)
+            await redis_client.hset(assignment_key, username, breakout_room_id)
             await redis_client.expire(assignment_key, 86400)  # 24 hour TTL
             
             logger.info(
-                f"Assigned {user_id} to breakout room {breakout_room_id}",
-                extra={"room_id": room_id, "user_id": user_id, "breakout_room_id": breakout_room_id}
+                f"Assigned {username} to breakout room {breakout_room_id}",
+                extra={"room_id": room_id, "username": username, "breakout_room_id": breakout_room_id}
             )
         except Exception as e:
             logger.error(
                 f"Failed to assign to breakout room: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
-    async def get_user_breakout_room(self, room_id: str, user_id: str) -> Optional[str]:
+    async def get_user_breakout_room(self, room_id: str, username: str) -> Optional[str]:
         """Get user's assigned breakout room."""
         try:
             redis_client = await self.redis.get_redis()
             assignment_key = f"{self.BREAKOUT_ROOMS_PREFIX}{room_id}:assignments"
             
-            breakout_room_id = await redis_client.hget(assignment_key, user_id)
+            breakout_room_id = await redis_client.hget(assignment_key, username)
             return breakout_room_id.decode("utf-8") if breakout_room_id else None
         except Exception as e:
             logger.error(
                 f"Failed to get breakout room assignment: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
             return None
     
@@ -1025,30 +1046,30 @@ class WebRtcManager:
     # Long Term: E2EE Key Management
     # ========================================================================
     
-    async def store_e2ee_key(self, room_id: str, user_id: str, key_id: str, key_data: Dict[str, Any]) -> None:
+    async def store_e2ee_key(self, room_id: str, username: str, key_id: str, key_data: Dict[str, Any]) -> None:
         """Store E2EE public key."""
         try:
             redis_client = await self.redis.get_redis()
-            key_key = f"{self.E2EE_KEYS_PREFIX}{room_id}:{user_id}:{key_id}"
+            key_key = f"{self.E2EE_KEYS_PREFIX}{room_id}:{username}:{key_id}"
             
             await redis_client.hset(key_key, mapping={k: str(v) for k, v in key_data.items()})
             await redis_client.expire(key_key, 86400)  # 24 hour TTL
             
             logger.debug(
                 f"Stored E2EE key",
-                extra={"room_id": room_id, "user_id": user_id, "key_id": key_id}
+                extra={"room_id": room_id, "username": username, "key_id": key_id}
             )
         except Exception as e:
             logger.error(
                 f"Failed to store E2EE key: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
     
-    async def get_e2ee_keys(self, room_id: str, user_id: str) -> list[Dict[str, Any]]:
+    async def get_e2ee_keys(self, room_id: str, username: str) -> list[Dict[str, Any]]:
         """Get all E2EE keys for a user in a room."""
         try:
             redis_client = await self.redis.get_redis()
-            pattern = f"{self.E2EE_KEYS_PREFIX}{room_id}:{user_id}:*"
+            pattern = f"{self.E2EE_KEYS_PREFIX}{room_id}:{username}:*"
             
             keys = []
             async for key in redis_client.scan_iter(match=pattern):
@@ -1060,7 +1081,7 @@ class WebRtcManager:
         except Exception as e:
             logger.error(
                 f"Failed to get E2EE keys: {e}",
-                extra={"room_id": room_id, "user_id": user_id, "error": str(e)}
+                extra={"room_id": room_id, "username": username, "error": str(e)}
             )
             return []
 

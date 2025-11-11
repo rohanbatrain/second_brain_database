@@ -35,6 +35,8 @@ from second_brain_database.routes.auth.periodics.cleanup import (
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
 from second_brain_database.routes.avatars.routes import router as avatars_router
 from second_brain_database.routes.banners.routes import router as banners_router
+from second_brain_database.routes.clubs import router as clubs_router
+from second_brain_database.routers.club_webrtc_router import router as club_webrtc_router
 from second_brain_database.routes.documents import router as documents_router
 from second_brain_database.routes.rag import router as rag_router
 from second_brain_database.routes.family.routes import router as family_router
@@ -394,6 +396,7 @@ app = FastAPI(
         {"name": "Themes", "description": "Theme and customization management"},
         {"name": "Shop", "description": "Digital asset and purchase management"},
         {"name": "Family", "description": "Family relationship management and shared resources"},
+        {"name": "Clubs", "description": "University club management, events, and member relationships"},
         {"name": "System", "description": "System health and monitoring endpoints"},
     ],
 )
@@ -682,6 +685,31 @@ def custom_openapi():
                 },
             },
             {
+                "name": "Clubs",
+                "description": """
+                **University Club Management Platform**
+
+                Comprehensive club management system for universities including:
+                - University and club creation and administration
+                - Hierarchical club structure (University → Club → Vertical → Member)
+                - Role-based permissions (Owner, Admin, Lead, Member)
+                - Member invitation and management system
+                - Event planning and WebRTC integration
+                - Club analytics and reporting
+
+                **Features:**
+                - Multi-level organizational hierarchy
+                - Secure club-scoped authentication tokens
+                - Comprehensive audit logging and notifications
+                - Event management with real-time communication
+                - Member engagement tracking and analytics
+                """,
+                "externalDocs": {
+                    "description": "Club Management Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#club-management",
+                },
+            },
+            {
                 "name": "System",
                 "description": """
                 **System Health & Monitoring**
@@ -777,6 +805,8 @@ routers_config = [
     ("profile", profile_router, "User profile management endpoints"),
     ("family", family_router, "Family management and relationship endpoints"),
     ("workspaces", workspaces_router, "Team and workspace management endpoints"),
+    ("clubs", clubs_router, "University club management and event endpoints"),
+    ("club_webrtc", club_webrtc_router, "Club-specific WebRTC event rooms and real-time communication"),
     ("websockets", websockets_router, "WebSocket communication endpoints"),
     ("webrtc", webrtc_router, "WebRTC signaling and real-time communication endpoints"),
     ("documents", documents_router, "Document processing and upload endpoints"),

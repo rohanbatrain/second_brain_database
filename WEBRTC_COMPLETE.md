@@ -29,8 +29,12 @@ Successfully implemented a **production-ready WebRTC signaling server** with hor
    - WebSocket endpoint: `/webrtc/ws/{room_id}`
    - REST endpoint: `/webrtc/config` (ICE servers)
    - REST endpoint: `/webrtc/rooms/{room_id}/participants`
+   - REST endpoint: `/webrtc/webrtc-metrics` (WebRTC-specific metrics)
+   - REST endpoint: `/webrtc/health` (service health checks)
+   - REST endpoint: `/webrtc/stats` (detailed statistics)
    - Bidirectional message handling (client ↔ Redis)
    - Comprehensive error handling and logging
+   - **Note**: Global Prometheus metrics available at `/metrics` (main app)
 
 5. **Configuration** (`src/second_brain_database/config.py`)
    - STUN/TURN server settings

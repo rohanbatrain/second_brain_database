@@ -105,6 +105,27 @@ class EmailManager:
         self.logger.error("All email providers failed to send family invitation to %s", to_email, exc_info=True)
         return False
 
+    async def send_html_email(
+        self, to_email: str, subject: str, html_content: str, username: Optional[str] = None
+    ) -> bool:
+        """
+        Send an HTML email with custom subject and content.
+        Returns True if sent successfully, False otherwise.
+        """
+        self.logger.info("Attempting to send HTML email to %s (username=%s)", to_email, username)
+        for provider in self.providers:
+            try:
+                self.logger.debug("Trying provider: %s for %s", provider.__name__, to_email)
+                await provider(to_email, subject, html_content)
+                self.logger.info("HTML email sent to %s using provider %s", to_email, provider.__name__)
+                return True
+            except RuntimeError as e:
+                self.logger.warning(
+                    "Email provider %s failed for %s: %s", provider.__name__, to_email, e, exc_info=True
+                )
+        self.logger.error("All email providers failed to send HTML email to %s", to_email, exc_info=True)
+        return False
+
     async def _send_via_console(self, to_email: str, subject: str, html_content: str) -> None:
         """
         For development: log the email and print to console instead of sending.

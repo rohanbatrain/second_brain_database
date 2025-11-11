@@ -368,10 +368,10 @@ class HandRaisePayload(BaseModel):
 
 class HandRaiseQueueEntry(BaseModel):
     """Entry in hand raise queue."""
-    user_id: str = Field(..., description="User ID")
-    username: str = Field(..., description="Username")
+    username: str = Field(..., description="Username (primary identifier)")
     raised_at: str = Field(..., description="When hand was raised")
     position: int = Field(..., description="Position in queue")
+    user_id: Optional[str] = Field(None, description="User ID (deprecated, for backward compatibility)")
 
 
 class HandRaiseQueuePayload(BaseModel):

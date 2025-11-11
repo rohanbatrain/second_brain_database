@@ -23,6 +23,7 @@ celery_app = Celery(
         "second_brain_database.tasks.workflow_tasks",
         "second_brain_database.tasks.document_tasks",
         "second_brain_database.tasks.rag_tasks",  # Add RAG tasks
+        "second_brain_database.tasks.blog_tasks",  # Add blog tasks
     ],
 )
 
@@ -52,6 +53,12 @@ celery_app.conf.update(
         "second_brain_database.tasks.rag_tasks.rag_batch_process_documents": {"queue": "rag_batch"},
         "second_brain_database.tasks.rag_tasks.rag_warm_cache": {"queue": "rag_maintenance"},
         "second_brain_database.tasks.rag_tasks.*": {"queue": "rag_default"},
+        "second_brain_database.tasks.blog_tasks.*": {"queue": "blog_default"},
+        "second_brain_database.tasks.blog_tasks.blog_process_post_content": {"queue": "blog_processing"},
+        "second_brain_database.tasks.blog_tasks.blog_aggregate_analytics": {"queue": "blog_analytics"},
+        "second_brain_database.tasks.blog_tasks.blog_send_comment_notification": {"queue": "blog_notifications"},
+        "second_brain_database.tasks.blog_tasks.blog_warm_cache": {"queue": "blog_maintenance"},
+        "second_brain_database.tasks.blog_tasks.blog_cleanup_expired_cache": {"queue": "blog_maintenance"},
     },
     # Task queues
     task_queues=(
@@ -61,6 +68,11 @@ celery_app.conf.update(
         Queue("rag_batch", Exchange("rag"), routing_key="rag.batch"),
         Queue("rag_maintenance", Exchange("rag"), routing_key="rag.maintenance"),
         Queue("rag_default", Exchange("rag"), routing_key="rag.default"),
+        Queue("blog_processing", Exchange("blog"), routing_key="blog.processing"),
+        Queue("blog_analytics", Exchange("blog"), routing_key="blog.analytics"),
+        Queue("blog_notifications", Exchange("blog"), routing_key="blog.notifications"),
+        Queue("blog_maintenance", Exchange("blog"), routing_key="blog.maintenance"),
+        Queue("blog_default", Exchange("blog"), routing_key="blog.default"),
     ),
     # Beat schedule for periodic tasks
     beat_schedule={
