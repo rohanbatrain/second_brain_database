@@ -63,6 +63,10 @@ dependencies = [
     # Ollama Integration
     "ollama>=0.4.8,<1.0.0",
     "llama-index-embeddings-huggingface>=0.6.1",
+    # LangGraph and LangChain for Chat System
+    "langgraph>=0.2.0,<1.0.0",
+    "langchain-ollama>=0.2.0,<1.0.0",
+    "tiktoken>=0.8.0,<1.0.0",
 ]
 
 [project.optional-dependencies]

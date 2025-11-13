@@ -285,32 +285,54 @@ class UserInDB(BaseModel):
 
 class Token(BaseDocumentedModel):
     """
-    JWT token response model.
+    JWT token response model with refresh token support.
 
-    Contains the access token and token type for authentication.
+    Contains both access and refresh tokens for authentication.
     Returned after successful login, registration, or token refresh operations.
 
     **Usage:** Include the access_token in the Authorization header as:
     `Authorization: Bearer <access_token>`
 
-    **Security:** Tokens expire after 30 minutes by default and should be refreshed
-    using the `/auth/refresh` endpoint before expiration.
+    **Token Lifetimes:**
+    - Access Token: 15 minutes (short-lived for security)
+    - Refresh Token: 7 days (long-lived for UX)
+
+    **Refresh Flow:**
+    When access token expires (401), use refresh token at `/auth/refresh` to get new tokens.
     """
 
     access_token: str = Field(
         ...,
-        description="JWT access token for API authentication. Include in Authorization header as 'Bearer <token>'",
+        description="JWT access token for API authentication. Include in Authorization header as 'Bearer <token>'. Expires in 15 minutes.",
         example="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsImV4cCI6MTY0MDk5NTIwMH0.example_signature",
+    )
+    refresh_token: Optional[str] = Field(
+        None,
+        description="JWT refresh token for obtaining new access tokens. Use at /auth/refresh endpoint. Expires in 7 days.",
+        example="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsInR5cGUiOiJyZWZyZXNoIn0.example_signature",
     )
     token_type: str = Field(
         default="bearer", description="Token type, always 'bearer' for JWT tokens", example="bearer"
+    )
+    expires_in: Optional[int] = Field(
+        None,
+        description="Access token expiration time in seconds (900 = 15 minutes)",
+        example=900,
+    )
+    refresh_expires_in: Optional[int] = Field(
+        None,
+        description="Refresh token expiration time in seconds (604800 = 7 days)",
+        example=604800,
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsImV4cCI6MTY0MDk5NTIwMH0.example_signature",
+                "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huX2RvZSIsInR5cGUiOiJyZWZyZXNoIn0.example_signature",
                 "token_type": "bearer",
+                "expires_in": 900,
+                "refresh_expires_in": 604800,
             }
         }
     }

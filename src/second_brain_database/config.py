@@ -113,8 +113,12 @@ class Settings(BaseSettings):
 
     # JWT configuration (loaded from environment)
     SECRET_KEY: SecretStr = SecretStr("")  # Must be set in .sbd or environment
+    REFRESH_TOKEN_SECRET_KEY: SecretStr = SecretStr("")  # Separate secret for refresh tokens
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Reduced from 30 for better security
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh tokens last 7 days
+    ENABLE_TOKEN_ROTATION: bool = True  # Rotate refresh tokens on use for security
+    MAX_REFRESH_TOKEN_REUSE: int = 1  # Prevent refresh token reuse
 
     # MongoDB configuration (loaded from environment)
     MONGODB_URL: str = ""  # Must be set in .sbd or environment
@@ -432,6 +436,87 @@ class Settings(BaseSettings):
     WEBRTC_ROOM_PRESENCE_TTL: int = 30  # Heartbeat timeout in seconds
     WEBRTC_MAX_PARTICIPANTS_PER_ROOM: int = 50  # Maximum participants per room
 
+    # --- IPAM Configuration ---
+    # IPAM rate limiting configuration
+    IPAM_REGION_CREATE_RATE_LIMIT: int = 100  # Max regions per hour per user
+    IPAM_HOST_CREATE_RATE_LIMIT: int = 1000  # Max hosts per hour per user
+    IPAM_QUERY_RATE_LIMIT: int = 500  # Max queries per hour per user
+
+    # IPAM audit and retention configuration
+    IPAM_AUDIT_RETENTION_DAYS: int = 365  # Days to keep audit history
+
+    # IPAM quota configuration
+    IPAM_DEFAULT_REGION_QUOTA: int = 1000  # Default max regions per user
+    IPAM_DEFAULT_HOST_QUOTA: int = 10000  # Default max hosts per user
+
+    # IPAM capacity monitoring configuration
+    IPAM_CAPACITY_WARNING_THRESHOLD: int = 80  # Warning at 80% utilization
+    IPAM_CAPACITY_CRITICAL_THRESHOLD: int = 100  # Critical at 100% utilization
+    IPAM_REGION_CAPACITY_THRESHOLD: int = 90  # Region warning at 90% utilization
+
+    # IPAM notification configuration
+    IPAM_NOTIFICATION_ENABLED: bool = True  # Enable/disable notifications
+    IPAM_NOTIFICATION_CHANNELS: str = "email"  # Comma-separated: email,webhook,in-app
+    IPAM_NOTIFICATION_EMAIL_ENABLED: bool = True  # Enable email notifications
+    IPAM_NOTIFICATION_WEBHOOK_ENABLED: bool = False  # Enable webhook notifications
+    IPAM_NOTIFICATION_WEBHOOK_URL: Optional[str] = None  # Webhook URL for notifications
+    IPAM_NOTIFICATION_IN_APP_ENABLED: bool = False  # Enable in-app notifications
+
+    # IPAM per-country threshold overrides (JSON format)
+    # Example: {"India": {"warning": 70, "critical": 90}, "United States": {"warning": 85, "critical": 95}}
+    IPAM_COUNTRY_THRESHOLDS: Optional[str] = None  # JSON string of country-specific thresholds
+
+    # IPAM per-region threshold overrides (JSON format)
+    # Example: {"region_id_1": 85, "region_id_2": 95}
+    IPAM_REGION_THRESHOLDS: Optional[str] = None  # JSON string of region-specific thresholds
+
+    # IPAM background task intervals
+    IPAM_CAPACITY_MONITORING_INTERVAL: int = 900  # 15 minutes in seconds
+    IPAM_RESERVATION_CLEANUP_INTERVAL: int = 3600  # 1 hour in seconds
+    IPAM_RESERVATION_EXPIRATION_INTERVAL: int = 3600  # 1 hour in seconds
+
+    # --- Chat System Configuration ---
+    # Chat feature toggle
+    CHAT_ENABLED: bool = True  # Enable/disable chat system
+
+    # Conversation history configuration
+    CHAT_MAX_HISTORY_LENGTH: int = 20  # Maximum messages to include in conversation context
+    CHAT_HISTORY_CACHE_TTL: int = 3600  # History cache TTL in seconds (1 hour)
+
+    # Vector search configuration
+    CHAT_DEFAULT_TOP_K: int = 5  # Default number of vector search results
+
+    # Streaming configuration
+    CHAT_STREAM_TIMEOUT: int = 300  # Streaming timeout in seconds (5 minutes)
+
+    # Rate limiting configuration
+    CHAT_ENABLE_RATE_LIMITING: bool = True  # Enable rate limiting for chat operations
+    CHAT_MESSAGE_RATE_LIMIT: int = 20  # Max messages per minute per user
+    CHAT_SESSION_CREATE_LIMIT: int = 5  # Max sessions created per hour per user
+
+    # Query caching configuration
+    CHAT_ENABLE_QUERY_CACHE: bool = True  # Enable query response caching
+    CHAT_CACHE_TTL: int = 3600  # Query cache TTL in seconds (1 hour)
+
+    # Input validation configuration
+    CHAT_TOKEN_ENCODING: str = "cl100k_base"  # Token encoding for tiktoken (GPT-4 tokenizer)
+    CHAT_MAX_QUERY_LENGTH: int = 10000  # Maximum query length in characters
+    CHAT_MAX_MESSAGE_LENGTH: int = 50000  # Maximum message content length in characters
+
+    # Error recovery configuration
+    CHAT_LLM_MAX_RETRIES: int = 3  # Maximum retries for LLM calls
+    CHAT_LLM_BACKOFF_FACTOR: float = 2.0  # Exponential backoff factor for LLM retries
+    CHAT_VECTOR_MAX_RETRIES: int = 2  # Maximum retries for vector search
+    CHAT_VECTOR_BACKOFF_FACTOR: float = 1.5  # Exponential backoff factor for vector retries
+
+    # Session management configuration
+    CHAT_AUTO_GENERATE_TITLES: bool = True  # Auto-generate session titles from first message
+    CHAT_TITLE_MAX_LENGTH: int = 50  # Maximum length for session titles
+
+    # Feedback and analytics configuration
+    CHAT_ENABLE_MESSAGE_VOTING: bool = True  # Enable message voting (upvote/downvote)
+    CHAT_ENABLE_SESSION_STATISTICS: bool = True  # Enable session statistics tracking
+
     # --- Admin/Abuse Service Constants ---
     WHITELIST_KEY: str = "abuse:reset:whitelist"
     BLOCKLIST_KEY: str = "abuse:reset:blocklist"
@@ -522,6 +607,35 @@ class Settings(BaseSettings):
         if not self.MCP_IP_WHITELIST:
             return []
         return [ip.strip() for ip in self.MCP_IP_WHITELIST.split(",") if ip.strip()]
+
+    @property
+    def ipam_notification_channels_list(self) -> list:
+        """Get list of enabled notification channels for IPAM."""
+        if not self.IPAM_NOTIFICATION_CHANNELS:
+            return ["email"]  # Default to email
+        return [channel.strip() for channel in self.IPAM_NOTIFICATION_CHANNELS.split(",") if channel.strip()]
+
+    @property
+    def ipam_country_thresholds_dict(self) -> dict:
+        """Get country-specific threshold overrides as dictionary."""
+        if not self.IPAM_COUNTRY_THRESHOLDS:
+            return {}
+        try:
+            import json
+            return json.loads(self.IPAM_COUNTRY_THRESHOLDS)
+        except Exception:
+            return {}
+
+    @property
+    def ipam_region_thresholds_dict(self) -> dict:
+        """Get region-specific threshold overrides as dictionary."""
+        if not self.IPAM_REGION_THRESHOLDS:
+            return {}
+        try:
+            import json
+            return json.loads(self.IPAM_REGION_THRESHOLDS)
+        except Exception:
+            return {}
 
 
 # Global settings instance

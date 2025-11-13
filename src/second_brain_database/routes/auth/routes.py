@@ -82,6 +82,7 @@ from second_brain_database.routes.auth.services.auth import login as login_servi
 from second_brain_database.routes.auth.services.auth.login import (  # get_user_auth_methods,
     check_auth_fallback_available,
     create_access_token,
+    create_refresh_token,  # NEW: Import refresh token function
     get_current_user,
     login_user,
     set_user_auth_preference,
@@ -647,7 +648,11 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
     try:
         issued_at = int(datetime.now(timezone.utc).timestamp())
         expires_at = issued_at + settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        token = await create_access_token({"sub": user["username"]})
+        
+        # Create both access and refresh tokens
+        access_token = await create_access_token({"sub": user["username"]})
+        refresh_token = await create_refresh_token({"sub": user["username"]})
+        
         login_log.username = user.get("username", login_log.username)
         login_log.email = user.get("email", login_log.email)
         login_log.outcome = "success"
@@ -655,19 +660,23 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
         login_log.mfa_status = user.get("two_fa_enabled", False)
         await db_manager.get_collection("logs").insert_one(login_log.model_dump())
         logger.info("User logged in: %s", login_log.username)
-        return JSONResponse(
-            {
-                "access_token": token,
-                "token_type": "bearer",
-                "client_side_encryption": user.get("client_side_encryption", False),
-                "issued_at": issued_at,
-                "expires_at": expires_at,
-                "is_verified": user.get("is_verified", False),
-                "role": user.get("role", None),
-                "username": user.get("username", None),
-                "email": user.get("email", None),
-            }
-        )
+        
+        response_data = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,  # NEW: Include refresh token
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # NEW: Expiry in seconds
+            "refresh_expires_in": settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,  # NEW: 7 days in seconds
+            "client_side_encryption": user.get("client_side_encryption", False),
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "is_verified": user.get("is_verified", False),
+            "role": user.get("role", None),
+            "username": user.get("username", None),
+            "email": user.get("email", None),
+        }
+        
+        return JSONResponse(response_data)
     except HTTPException as e:
         # Special handling for '2FA authentication required' error
         if str(e.detail) == "2FA authentication required":
@@ -734,80 +743,97 @@ async def login(request: Request, login_request: Optional[LoginRequest] = Body(N
 @router.post(
     "/refresh",
     response_model=Token,
-    summary="Refresh JWT access token",
+    summary="Refresh JWT access token using refresh token",
     description="""
-    Refresh an expired or soon-to-expire JWT access token.
+    Refresh an expired access token using a refresh token.
 
-    **Usage:**
-    - Use this endpoint when your JWT token is about to expire
-    - Requires a valid (non-expired) JWT token in Authorization header
-    - Returns a new JWT token with extended expiration time
+    **Authentication Flow:**
+    1. Login returns both `access_token` and `refresh_token`
+    2. Use `access_token` for API requests (expires in 15 minutes)
+    3. When `access_token` expires (401 error), use this endpoint with `refresh_token`
+    4. Receive new `access_token` (and optionally new `refresh_token` if rotation enabled)
+
+    **Request Body:**
+    ```json
+    {
+      "refresh_token": "your_refresh_token_here"
+    }
+    ```
+
+    **When to refresh:**
+    - After receiving 401 with `error: "token_expired"` and `action: "refresh"`
+    - Proactively before access token expires (recommended)
 
     **Security:**
+    - Refresh tokens expire in 7 days
+    - Token rotation enabled: Each refresh invalidates old refresh token
+    - Blacklisted tokens are rejected
     - Rate limited to prevent abuse
-    - Requires valid authentication
-    - Old token remains valid until natural expiration
 
-    **Best Practice:**
-    Implement automatic token refresh in your client applications
-    to maintain seamless user experience.
+    **Error Handling:**
+    - 401: Refresh token expired → Redirect to login
+    - 401: Refresh token invalid → Redirect to login
+    - 429: Rate limit exceeded → Retry after cooldown
     """,
     responses={
         200: {
             "description": "Token refreshed successfully",
             "content": {
                 "application/json": {
-                    "example": {"access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...", "token_type": "bearer"}
+                    "example": {
+                        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                        "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                        "token_type": "bearer",
+                        "expires_in": 900,
+                        "refresh_expires_in": 604800,
+                    }
                 }
             },
         },
-        401: {"description": "Invalid or expired token", "model": StandardErrorResponse},
+        401: {
+            "description": "Invalid or expired refresh token",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "expired": {
+                            "summary": "Refresh token expired",
+                            "value": {
+                                "detail": {
+                                    "error": "refresh_token_expired",
+                                    "message": "Refresh token has expired. Please login again.",
+                                    "action": "login",
+                                }
+                            },
+                        },
+                        "invalid": {
+                            "summary": "Invalid refresh token",
+                            "value": {"detail": "Invalid refresh token"},
+                        },
+                    }
+                }
+            },
+        },
         429: {"description": "Rate limit exceeded", "model": StandardErrorResponse},
-        500: {"description": "Token refresh failed", "model": StandardErrorResponse},
     },
     tags=["Authentication"],
 )
 @log_performance("token_refresh")
-async def refresh_token(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
+async def refresh_token(request: Request, refresh_token: str = Body(..., embed=True)):
     """
-    Refresh JWT access token for authenticated user.
+    Refresh access token using refresh token.
 
-    Generates a new JWT token with extended expiration time while
-    maintaining the same user session and permissions.
+    Validates the refresh token and generates new access token.
+    Optionally rotates refresh token if ENABLE_TOKEN_ROTATION is true.
     """
-    # Extract request info and set context
+    from second_brain_database.routes.auth.services.auth.refresh import refresh_access_token
+    
+    # Extract request info
     request_info = extract_request_info(request)
-    set_auth_logging_context(user_id=current_user["username"], ip_address=request_info["ip_address"])
-
+    
     await security_manager.check_rate_limit(request, "refresh-token")
-
-    try:
-        access_token = await create_access_token({"sub": current_user["username"]})
-
-        # Log successful token refresh
-        auth_logger.log_token_operation(
-            user_id=current_user["username"],
-            operation="refresh",
-            token_type="access",
-            ip_address=request_info["ip_address"],
-            success=True,
-        )
-
-        logger.info("Token refreshed for user: %s", current_user["username"])
-        return Token(access_token=access_token, token_type="bearer")
-    except (ValueError, KeyError, TypeError, RuntimeError) as e:
-        # Log failed token refresh
-        auth_logger.log_token_operation(
-            user_id=current_user["username"],
-            operation="refresh",
-            token_type="access",
-            ip_address=request_info["ip_address"],
-            success=False,
-            reason=str(e),
-        )
-
-        logger.error("Token refresh failed for user %s: %s", current_user["username"], e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Token refresh failed") from e
+    
+    # Use the refresh service
+    return await refresh_access_token(refresh_token, request_ip=request_info["ip_address"])
 
 
 # Rate limit: logout: 100 requests per 60 seconds per IP (default)

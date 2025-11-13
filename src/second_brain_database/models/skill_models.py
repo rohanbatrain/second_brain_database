@@ -28,28 +28,6 @@ class SkillMetadata(BaseModel):
     )
 
 
-class SkillDocument(BaseModel):
-    """Database document model for the user_skills collection."""
-
-    skill_id: str = Field(..., description="Unique skill identifier (user-scoped)")
-    user_id: str = Field(..., description="Owner of the skill")
-    name: str = Field(..., min_length=1, max_length=200, description="Skill name")
-    description: Optional[str] = Field(None, max_length=1000, description="Optional skill description")
-    parent_skill_ids: List[str] = Field(
-        default_factory=list, description="IDs of parent skills (multiple inheritance supported)"
-    )
-    # child_skill_ids removed - computed on-demand via queries to avoid consistency issues
-    tags: List[str] = Field(default_factory=list, description="Categorization tags")
-    metadata: SkillMetadata = Field(default_factory=SkillMetadata, description="Extensible skill metadata")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    is_active: bool = Field(True, description="Soft delete flag")
-    # EMBEDDED LOGS - No separate collection
-    logs: List[SkillLogDocument] = Field(
-        default_factory=list, description="Embedded skill log entries"
-    )
-
-
 # --- Skill Log Models ---
 
 class SkillEvidence(BaseModel):
@@ -93,6 +71,28 @@ class SkillLogDocument(BaseModel):
         default_factory=SkillLogContext, description="Situational context"
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SkillDocument(BaseModel):
+    """Database document model for the user_skills collection."""
+
+    skill_id: str = Field(..., description="Unique skill identifier (user-scoped)")
+    user_id: str = Field(..., description="Owner of the skill")
+    name: str = Field(..., min_length=1, max_length=200, description="Skill name")
+    description: Optional[str] = Field(None, max_length=1000, description="Optional skill description")
+    parent_skill_ids: List[str] = Field(
+        default_factory=list, description="IDs of parent skills (multiple inheritance supported)"
+    )
+    # child_skill_ids removed - computed on-demand via queries to avoid consistency issues
+    tags: List[str] = Field(default_factory=list, description="Categorization tags")
+    metadata: SkillMetadata = Field(default_factory=SkillMetadata, description="Extensible skill metadata")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = Field(True, description="Soft delete flag")
+    # EMBEDDED LOGS - No separate collection
+    logs: List[SkillLogDocument] = Field(
+        default_factory=list, description="Embedded skill log entries"
+    )
 
 
 # --- Analytics Models ---

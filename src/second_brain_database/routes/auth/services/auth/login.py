@@ -618,7 +618,7 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub")})
+    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub"), "type": "access"})
 
     # Add user-specific claims including token_version
     if "username" in data or "sub" in data:
@@ -643,6 +643,51 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     logger.debug(
         "JWT access token created for user: %s (auth method: %s)", data.get("username") or data.get("sub"), auth_method
     )
+
+    return encoded_jwt
+
+
+@log_performance("create_refresh_token")
+async def create_refresh_token(data: Dict[str, Any]) -> str:
+    """
+    Create a JWT refresh token with long expiry for token refresh flow.
+    
+    Refresh tokens use a separate secret key and have longer expiration.
+    They are used to obtain new access tokens without re-authentication.
+
+    Args:
+        data (Dict[str, Any]): Claims to encode in the JWT. Can include:
+            - sub: Username (required)
+
+    Returns:
+        str: Encoded JWT refresh token.
+
+    Raises:
+        RuntimeError: If the refresh token secret key is missing or invalid.
+    """
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub"), "type": "refresh"})
+
+    # Get refresh token secret key
+    refresh_secret_key = getattr(settings, "REFRESH_TOKEN_SECRET_KEY", None)
+    if hasattr(refresh_secret_key, "get_secret_value"):
+        refresh_secret_key = refresh_secret_key.get_secret_value()
+    
+    # Fallback to regular SECRET_KEY if REFRESH_TOKEN_SECRET_KEY not set (backward compatibility)
+    if not refresh_secret_key or not isinstance(refresh_secret_key, (str, bytes)):
+        logger.warning("REFRESH_TOKEN_SECRET_KEY not set, falling back to SECRET_KEY")
+        refresh_secret_key = getattr(settings, "SECRET_KEY", None)
+        if hasattr(refresh_secret_key, "get_secret_value"):
+            refresh_secret_key = refresh_secret_key.get_secret_value()
+    
+    if not isinstance(refresh_secret_key, (str, bytes)) or not refresh_secret_key:
+        logger.error("Refresh token secret key is missing or invalid.")
+        raise RuntimeError("Refresh token secret key is missing or invalid.")
+
+    encoded_jwt = jwt.encode(to_encode, refresh_secret_key, algorithm=settings.ALGORITHM)
+
+    logger.debug("JWT refresh token created for user: %s", data.get("username") or data.get("sub"))
 
     return encoded_jwt
 

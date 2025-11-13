@@ -60,6 +60,15 @@
 - **Security Decorators**: Permission-based access
 - **Performance Monitoring**: Metrics and alerting
 
+### 🌐 **IPAM (IP Address Management)**
+- **Hierarchical Allocation**: 10.X.Y.Z structured address space
+- **Auto-Allocation**: Automatic next-available IP assignment
+- **Geographic Hierarchy**: Continent → Country → Region → Host
+- **User Isolation**: Independent namespaces per user
+- **Quota Management**: Per-user allocation limits
+- **Comprehensive Audit**: Complete allocation history tracking
+- **Capacity Monitoring**: Automated threshold notifications
+
 ### ⚡ **Async & Background Processing**
 - **Celery Workers**: Background task processing with Redis queues
 - **Celery Beat**: Scheduled task execution
@@ -519,6 +528,78 @@ POST /mcp/tools                 # List available tools
 POST /mcp/tools/execute         # Execute tool
 GET  /mcp/resources             # List resources
 ```
+
+### IPAM (IP Address Management)
+```bash
+# Country Management
+POST /api/v1/ipam/countries                    # List countries
+GET  /api/v1/ipam/countries/{country}          # Get country details
+GET  /api/v1/ipam/countries/{country}/utilization  # Get utilization
+
+# Region Management
+POST /api/v1/ipam/regions                      # Create region (auto-allocates X.Y)
+GET  /api/v1/ipam/regions                      # List regions
+GET  /api/v1/ipam/regions/{id}                 # Get region details
+PATCH /api/v1/ipam/regions/{id}                # Update region
+DELETE /api/v1/ipam/regions/{id}               # Retire region
+
+# Host Management
+POST /api/v1/ipam/hosts                        # Create host (auto-allocates Z)
+POST /api/v1/ipam/hosts/batch                  # Batch create hosts
+GET  /api/v1/ipam/hosts                        # List hosts
+GET  /api/v1/ipam/hosts/by-ip/{ip}             # Lookup by IP
+PATCH /api/v1/ipam/hosts/{id}                  # Update host
+DELETE /api/v1/ipam/hosts/{id}                 # Retire host
+
+# IP Interpretation
+POST /api/v1/ipam/interpret                    # Parse IP hierarchy
+
+# Statistics & Search
+GET  /api/v1/ipam/search                       # Search allocations
+GET  /api/v1/ipam/statistics/continent/{name}  # Continent stats
+GET  /api/v1/ipam/statistics/top-utilized      # Top utilized resources
+
+# Audit & Quota
+GET  /api/v1/ipam/audit/history                # Query audit history
+GET  /api/v1/ipam/quotas/me                    # Get my quota
+```
+
+**Quick Example:**
+```bash
+# 1. Create a region in India (auto-allocates 10.X.Y.0/24)
+curl -X POST http://localhost:8000/api/v1/ipam/regions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "country": "India",
+    "region_name": "Mumbai DC1",
+    "tags": {"environment": "production"}
+  }'
+
+# Response: {"cidr": "10.0.0.0/24", "x_octet": 0, "y_octet": 0, ...}
+
+# 2. Create a host in that region (auto-allocates 10.X.Y.Z)
+curl -X POST http://localhost:8000/api/v1/ipam/hosts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "region_id": "550e8400-e29b-41d4-a716-446655440000",
+    "hostname": "web-server-01",
+    "device_type": "VM"
+  }'
+
+# Response: {"ip_address": "10.0.0.1", "z_octet": 1, ...}
+
+# 3. Interpret any IP address
+curl -X POST http://localhost:8000/api/v1/ipam/interpret \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "10.0.0.1"}'
+
+# Response: Full hierarchy from Global Root → Continent → Country → Region → Host
+```
+
+**See [IPAM API Guide](docs/IPAM_API_GUIDE.md) for complete documentation.**
 
 ---
 

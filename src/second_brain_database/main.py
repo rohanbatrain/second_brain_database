@@ -33,8 +33,15 @@ from second_brain_database.routes.auth.periodics.cleanup import (
     periodic_trusted_user_agent_lockdown_code_cleanup,
 )
 from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
+from second_brain_database.routes.ipam.periodics.capacity_monitoring import periodic_ipam_capacity_monitoring
+from second_brain_database.routes.ipam.periodics.notification_cleanup import periodic_ipam_notification_cleanup
+from second_brain_database.routes.ipam.periodics.reservation_cleanup import periodic_ipam_reservation_cleanup
+from second_brain_database.routes.ipam.periodics.reservation_expiration import periodic_ipam_reservation_expiration
+from second_brain_database.routes.ipam.periodics.share_expiration import periodic_ipam_share_expiration
+from second_brain_database.routes.ipam.periodics.webhook_delivery import periodic_ipam_webhook_delivery
 from second_brain_database.routes.avatars.routes import router as avatars_router
 from second_brain_database.routes.banners.routes import router as banners_router
+from second_brain_database.routes.chat.routes import router as chat_router
 from second_brain_database.routes.clubs import router as clubs_router
 from second_brain_database.routers.club_webrtc_router import router as club_webrtc_router
 from second_brain_database.routes.documents import router as documents_router
@@ -46,6 +53,8 @@ from second_brain_database.routes.shop.routes import router as shop_router
 from second_brain_database.routes.themes.routes import router as themes_router
 from second_brain_database.routes.websockets import router as websockets_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
+from second_brain_database.routes.skills import router as skills_router
+from second_brain_database.routes.ipam.routes import router as ipam_router
 from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
@@ -147,6 +156,48 @@ async def lifespan(_app: FastAPI):
                 {"error": str(audit_error), "audit_indexes_duration": f"{audit_indexes_duration:.3f}s"},
             )
 
+        # IPAM system initialization with performance logging
+        ipam_init_start = time.time()
+        logger.info("Initializing IPAM system...")
+
+        try:
+            from second_brain_database.migrations.ipam_collections_migration import initialize_ipam_system
+            from second_brain_database.database.ipam_indexes import create_ipam_indexes
+
+            # Initialize IPAM collections and seed continent-country mappings
+            ipam_initialized = await initialize_ipam_system()
+            
+            # Create IPAM indexes
+            ipam_indexes_created = await create_ipam_indexes()
+            
+            ipam_init_duration = time.time() - ipam_init_start
+
+            if ipam_initialized and ipam_indexes_created:
+                log_application_lifecycle(
+                    "ipam_system_ready", {"ipam_init_duration": f"{ipam_init_duration:.3f}s"}
+                )
+                logger.info("IPAM system initialized successfully")
+            else:
+                logger.warning("IPAM system initialization completed with warnings")
+                log_application_lifecycle(
+                    "ipam_system_partial",
+                    {
+                        "ipam_init_duration": f"{ipam_init_duration:.3f}s",
+                        "initialized": ipam_initialized,
+                        "indexes_created": ipam_indexes_created,
+                    },
+                )
+        except Exception as ipam_error:
+            ipam_init_duration = time.time() - ipam_init_start
+            logger.warning(
+                "Failed to initialize IPAM system: %s (duration: %.3fs)", ipam_error, ipam_init_duration
+            )
+            # Continue startup even if IPAM initialization fails
+            log_application_lifecycle(
+                "ipam_system_failed",
+                {"error": str(ipam_error), "ipam_init_duration": f"{ipam_init_duration:.3f}s"},
+            )
+
     except Exception as e:
         startup_duration = time.time() - startup_start_time
         log_application_lifecycle(
@@ -232,6 +283,12 @@ async def lifespan(_app: FastAPI):
                 "trusted_ip_cleanup": asyncio.create_task(periodic_trusted_ip_lockdown_code_cleanup()),
                 "trusted_user_agent_cleanup": asyncio.create_task(periodic_trusted_user_agent_lockdown_code_cleanup()),
                 "admin_session_cleanup": asyncio.create_task(periodic_admin_session_token_cleanup()),
+                "ipam_capacity_monitoring": asyncio.create_task(periodic_ipam_capacity_monitoring()),
+                "ipam_notification_cleanup": asyncio.create_task(periodic_ipam_notification_cleanup()),
+                "ipam_reservation_cleanup": asyncio.create_task(periodic_ipam_reservation_cleanup()),
+                "ipam_reservation_expiration": asyncio.create_task(periodic_ipam_reservation_expiration()),
+                "ipam_share_expiration": asyncio.create_task(periodic_ipam_share_expiration()),
+                "ipam_webhook_delivery": asyncio.create_task(periodic_ipam_webhook_delivery()),
             }
         )
 
@@ -397,7 +454,24 @@ app = FastAPI(
         {"name": "Shop", "description": "Digital asset and purchase management"},
         {"name": "Family", "description": "Family relationship management and shared resources"},
         {"name": "Clubs", "description": "University club management, events, and member relationships"},
+        {"name": "Chat", "description": "LangGraph-based chat system with VectorRAG and conversational AI capabilities"},
         {"name": "System", "description": "System health and monitoring endpoints"},
+        {"name": "Skills", "description": "Skill logging and management system for tracking personal development and learning progress"},
+        {"name": "IPAM", "description": "Hierarchical IP address allocation and management system"},
+        {"name": "IPAM - Countries", "description": "Country-level IP allocation management"},
+        {"name": "IPAM - Regions", "description": "Region-level IP allocation management (X.Y.0.0/24)"},
+        {"name": "IPAM - Hosts", "description": "Host-level IP allocation management (X.Y.Z.0)"},
+        {"name": "IPAM - Statistics", "description": "Statistics, analytics, and capacity forecasting"},
+        {"name": "IPAM - Search", "description": "Advanced search and discovery"},
+        {"name": "IPAM - Import/Export", "description": "CSV-based data migration and backup"},
+        {"name": "IPAM - Audit", "description": "Audit trail and history tracking"},
+        {"name": "IPAM - Admin", "description": "Administrative operations and quota management"},
+        {"name": "IPAM - Reservations", "description": "IP address reservation system"},
+        {"name": "IPAM - Preferences", "description": "User preferences and saved filters"},
+        {"name": "IPAM - Notifications", "description": "Notification system and alert rules"},
+        {"name": "IPAM - Shares", "description": "Shareable links for collaboration"},
+        {"name": "IPAM - Webhooks", "description": "Webhook integration for external systems"},
+        {"name": "IPAM - Bulk Operations", "description": "Bulk operations for efficiency"},
     ],
 )
 
@@ -442,37 +516,58 @@ def custom_openapi():
 
         # Add comprehensive security schemes
         openapi_schema["components"]["securitySchemes"] = {
-            "JWTBearer": {
+            "BearerAuth": {
                 "type": "http",
                 "scheme": "bearer",
                 "bearerFormat": "JWT",
                 "description": """
-                JWT Bearer token authentication for secure API access.
+                JWT Bearer token authentication with refresh token support.
 
-                **How to obtain a token:**
-                1. Register a new account via `POST /auth/register`
-                2. Login with your credentials via `POST /auth/login`
-                3. Use the returned `access_token` in the Authorization header
-
-                **Usage:**
-                ```
-                Authorization: Bearer <your_jwt_token>
-                ```
-
-                **Token Details:**
-                - **Expiration:** 30 minutes by default
-                - **Algorithm:** HS256
-                - **Refresh:** Use `POST /auth/refresh` to get a new token
-                - **Logout:** Use `POST /auth/logout` to invalidate the token
-
-                **Example Response:**
-                ```json
-                {
-                  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-                  "token_type": "bearer",
-                  "expires_at": 1640995200
-                }
-                ```
+                **Authentication Flow:**
+                
+                1. **Login:** POST /auth/login
+                   ```json
+                   {
+                     "username": "user",
+                     "password": "pass"
+                   }
+                   ```
+                
+                2. **Response:**
+                   ```json
+                   {
+                     "access_token": "eyJ...",
+                     "refresh_token": "eyJ...",
+                     "token_type": "bearer",
+                     "expires_in": 900,
+                     "refresh_expires_in": 604800
+                   }
+                   ```
+                
+                3. **Use Access Token:**
+                   ```
+                   Authorization: Bearer <access_token>
+                   ```
+                
+                4. **When Access Token Expires (401):**
+                   - POST /auth/refresh with refresh_token
+                   - Get new access_token (and new refresh_token if rotation enabled)
+                   - Retry original request with new access_token
+                
+                **Token Lifetimes:**
+                - Access Token: 15 minutes (short-lived for security)
+                - Refresh Token: 7 days (long-lived for UX)
+                
+                **Error Responses:**
+                - **401 with action="refresh"**: Token expired → Use refresh token
+                - **401 with action="login"**: Refresh token expired → Re-login required
+                - **403**: Insufficient permissions → Check user role
+                
+                **Security Features:**
+                - Token rotation: Refresh tokens are rotated on use
+                - Blacklist support: Tokens can be revoked
+                - Rate limiting: Prevents abuse
+                - Separate secrets: Access and refresh tokens use different keys
                 """,
             },
             "PermanentToken": {
@@ -531,7 +626,7 @@ def custom_openapi():
         }
 
         # Add global security requirements
-        openapi_schema["security"] = [{"JWTBearer": []}, {"PermanentToken": []}, {"AdminAPIKey": []}]
+        openapi_schema["security"] = [{"BearerAuth": []}, {"PermanentToken": []}, {"AdminAPIKey": []}]
 
         # Enhanced info section with additional metadata
         openapi_schema["info"].update(
@@ -710,6 +805,37 @@ def custom_openapi():
                 },
             },
             {
+                "name": "Chat",
+                "description": """
+                **LangGraph-Based Chat System with AI Capabilities**
+
+                Advanced conversational AI system powered by LangGraph workflows:
+                - **VectorRAG**: Query vector knowledge bases with semantic search
+                - **General Chat**: Natural conversations with AI assistant
+                - **Session Management**: Create and manage chat sessions
+                - **Streaming Responses**: Real-time token streaming with AI SDK protocol
+                - **Conversation History**: Context-aware responses with 20-message window
+                - **Token Tracking**: Comprehensive usage monitoring and analytics
+
+                **Features:**
+                - Ollama LLM integration for local inference
+                - Redis caching for improved performance
+                - Rate limiting and abuse protection
+                - Message voting and feedback system
+                - Session statistics and analytics
+                - Health monitoring for all dependencies
+
+                **Workflows:**
+                - **VectorRAGGraph**: Semantic search with context retrieval
+                - **GeneralResponseGraph**: Conversational AI responses
+                - **MasterWorkflowGraph**: Intelligent routing between workflows
+                """,
+                "externalDocs": {
+                    "description": "Chat System Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#chat-system",
+                },
+            },
+            {
                 "name": "System",
                 "description": """
                 **System Health & Monitoring**
@@ -719,6 +845,215 @@ def custom_openapi():
                 - Performance metrics and analytics
                 - System information and diagnostics
                 - Administrative tools and utilities
+                """,
+            },
+            {
+                "name": "IPAM",
+                "description": """
+                **IP Address Management (IPAM) System**
+
+                Comprehensive hierarchical IP address allocation and management system with:
+                - **Hierarchical Structure**: Continent → Country → Region (X.Y.0.0/24) → Host (X.Y.Z.0)
+                - **Allocation Management**: Create, update, and retire IP allocations
+                - **Utilization Tracking**: Real-time capacity monitoring and statistics
+                - **Search & Discovery**: Advanced search with filters and bulk lookups
+                - **Audit Trail**: Complete history of all allocation changes
+                - **Import/Export**: CSV-based data migration and backup
+
+                **Core Features:**
+                - Automatic continent-country mapping with 195+ countries
+                - Collision detection and validation
+                - Tag-based organization and filtering
+                - Comment system for documentation
+                - Preview next available allocations
+                - Bulk operations for efficiency
+
+                **Security:**
+                - User-isolated allocations
+                - Permission-based access control (read/allocate/update/admin)
+                - Rate limiting on all endpoints
+                - Comprehensive audit logging
+                """,
+                "externalDocs": {
+                    "description": "IPAM System Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#ipam-system",
+                },
+            },
+            {
+                "name": "IPAM - Reservations",
+                "description": """
+                **IP Address Reservation System**
+
+                Pre-allocate IP addresses or regions for future use:
+                - **Create Reservations**: Reserve specific X.Y.Z addresses before allocation
+                - **Expiration Management**: Set optional expiration dates for reservations
+                - **Conversion**: Seamlessly convert reservations to active allocations
+                - **Conflict Prevention**: Automatic validation against existing allocations
+
+                **Use Cases:**
+                - Planning special-purpose addresses
+                - Staging future deployments
+                - Coordinating with external teams
+                - Preventing accidental allocation of reserved addresses
+
+                **Features:**
+                - Support for both region and host reservations
+                - Automatic expiration handling
+                - Detailed reservation metadata and reasons
+                - List and filter reservations by status
+                """,
+            },
+            {
+                "name": "IPAM - Preferences",
+                "description": """
+                **User Preferences & Saved Filters**
+
+                Personalize your IPAM experience:
+                - **Saved Filters**: Store frequently used search criteria (max 50 per user)
+                - **Dashboard Layout**: Customize dashboard view preferences
+                - **Notification Settings**: Configure alert preferences
+                - **Theme Preferences**: Store UI customization settings
+
+                **Features:**
+                - JSON-based flexible preference storage
+                - Automatic preference merging on updates
+                - 50KB size limit per user
+                - Cross-session persistence
+                - Named filter management with metadata
+                """,
+            },
+            {
+                "name": "IPAM - Statistics",
+                "description": """
+                **Statistics, Analytics & Capacity Forecasting**
+
+                Comprehensive analytics and predictive insights:
+                - **Dashboard Statistics**: Overview metrics with 5-minute cache
+                - **Capacity Forecasting**: Predict exhaustion dates based on trends
+                - **Allocation Trends**: Historical allocation patterns and velocity
+                - **Utilization Analysis**: Resource usage across hierarchy
+                - **Top Utilized Resources**: Identify capacity constraints
+
+                **Forecasting Features:**
+                - 90-day historical analysis
+                - Daily allocation rate calculation
+                - Confidence level indicators (high/medium/low)
+                - Actionable recommendations
+                - 24-hour forecast caching
+
+                **Performance:**
+                - Dashboard stats: < 500ms response time
+                - Forecast calculation: < 1s response time
+                - Redis caching for frequently accessed data
+                """,
+            },
+            {
+                "name": "IPAM - Notifications",
+                "description": """
+                **Notification System & Alert Rules**
+
+                Stay informed about important IPAM events:
+                - **Notification Rules**: Configure conditions that trigger alerts
+                - **Event Types**: Capacity warnings, allocation events, expiration alerts
+                - **Delivery Channels**: In-app notifications (email/webhook future)
+                - **Severity Levels**: Info, warning, critical classifications
+
+                **Rule Configuration:**
+                - Utilization threshold alerts (e.g., > 80% capacity)
+                - Allocation rate monitoring
+                - Resource-specific notifications
+                - Custom event subscriptions
+
+                **Management:**
+                - Mark notifications as read/unread
+                - Delete/dismiss notifications
+                - Automatic cleanup after 90 days
+                - Unread count tracking
+                - Pagination support for large notification lists
+                """,
+            },
+            {
+                "name": "IPAM - Shares",
+                "description": """
+                **Shareable Links for Collaboration**
+
+                Generate secure, read-only links to IPAM resources:
+                - **No Authentication Required**: Share with external stakeholders
+                - **Expiration Control**: Set expiration dates (max 90 days)
+                - **View Tracking**: Monitor access count and last accessed time
+                - **Resource Types**: Share countries, regions, or hosts
+                - **Revocation**: Instantly invalidate shared links
+
+                **Security Features:**
+                - Unique UUID-based tokens
+                - Sanitized data (no sensitive information)
+                - Automatic expiration handling
+                - Access logging for audit trail
+                - Rate limiting on share creation (100/hour)
+
+                **Use Cases:**
+                - Share allocation details with external teams
+                - Provide read-only access to stakeholders
+                - Temporary access for audits or reviews
+                - Collaboration without granting full permissions
+                """,
+            },
+            {
+                "name": "IPAM - Webhooks",
+                "description": """
+                **Webhook Integration for External Systems**
+
+                Integrate IPAM events with external systems:
+                - **Event Subscriptions**: region.created, host.allocated, capacity.warning
+                - **HMAC Signatures**: Verify webhook authenticity with X-IPAM-Signature
+                - **Retry Logic**: 3 attempts with exponential backoff
+                - **Delivery History**: Track status codes and response times
+                - **Auto-Disable**: Webhooks disabled after 10 consecutive failures
+
+                **Configuration:**
+                - Custom webhook URLs
+                - Multiple event subscriptions per webhook
+                - Secret key generation for HMAC verification
+                - Optional descriptions for documentation
+
+                **Monitoring:**
+                - Delivery success/failure tracking
+                - Response time metrics
+                - Error message logging
+                - Paginated delivery history
+
+                **Rate Limiting:**
+                - 10 webhook creations per hour per user
+                - Prevents abuse and excessive external calls
+                """,
+            },
+            {
+                "name": "IPAM - Bulk Operations",
+                "description": """
+                **Bulk Operations for Efficiency**
+
+                Perform operations on multiple resources simultaneously:
+                - **Bulk Tag Updates**: Add, remove, or replace tags on up to 500 resources
+                - **Async Processing**: Operations > 100 items processed asynchronously
+                - **Job Tracking**: Monitor progress with job_id and status endpoint
+                - **Detailed Results**: Success/failure breakdown for each item
+
+                **Operations:**
+                - Add tags to multiple resources
+                - Remove tags from multiple resources
+                - Replace entire tag sets
+                - Support for both regions and hosts
+
+                **Features:**
+                - Job status tracking (pending/processing/completed/failed)
+                - Progress indicators (total/processed/successful/failed)
+                - 7-day job retention
+                - Rate limiting: 10 bulk operations per hour per user
+
+                **Performance:**
+                - Synchronous response for ≤ 100 items
+                - Asynchronous processing for > 100 items
+                - Non-blocking background execution
                 """,
             },
         ]
@@ -811,6 +1146,9 @@ routers_config = [
     ("webrtc", webrtc_router, "WebRTC signaling and real-time communication endpoints"),
     ("documents", documents_router, "Document processing and upload endpoints"),
     ("rag", rag_router, "RAG and AI-powered document search endpoints"),
+    ("chat", chat_router, "LangGraph-based chat system with VectorRAG and conversational AI"),
+    ("skills", skills_router, "Skill logging and management endpoints"),
+    ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
 ]
 
 logger.info("Including API routers...")

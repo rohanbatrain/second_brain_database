@@ -294,6 +294,12 @@ class DatabaseManager:
             # Workspace management collections indexes
             await self._create_workspace_management_indexes()
 
+            # Skills collection indexes - Skill logging and management
+            await self._create_skills_indexes()
+
+            # Chat system collections indexes
+            await self._create_chat_indexes()
+
             total_duration = time.time() - start_time
             perf_logger.info("Database index creation completed successfully in %.3fs", total_duration)
             db_logger.info("Database indexes created successfully")
@@ -656,6 +662,115 @@ class DatabaseManager:
 
         except Exception as e:
             db_logger.error("Failed to create workspace management indexes: %s", e)
+            raise
+
+    async def _create_skills_indexes(self):
+        """Create comprehensive indexes for skills collection with performance optimization"""
+        try:
+            db_logger.info("Creating indexes for skills collection")
+
+            # Skills collection indexes - Core skill management
+            skills_collection = self.get_collection("user_skills")
+            await self._create_index_if_not_exists(skills_collection, "skill_id", {"unique": True})
+            await self._create_index_if_not_exists(skills_collection, "user_id", {})
+            await self._create_index_if_not_exists(skills_collection, "parent_skill_id", {})
+            await self._create_index_if_not_exists(skills_collection, "name", {})
+            await self._create_index_if_not_exists(skills_collection, "category", {})
+            await self._create_index_if_not_exists(skills_collection, "level", {})
+            await self._create_index_if_not_exists(skills_collection, "is_active", {})
+            await self._create_index_if_not_exists(skills_collection, "created_at", {})
+            await self._create_index_if_not_exists(skills_collection, "updated_at", {})
+
+            # Compound indexes for efficient queries
+            await self._create_index_if_not_exists(skills_collection, [("user_id", 1), ("is_active", 1)], {})
+            await self._create_index_if_not_exists(skills_collection, [("user_id", 1), ("category", 1)], {})
+            await self._create_index_if_not_exists(skills_collection, [("user_id", 1), ("level", 1)], {})
+            await self._create_index_if_not_exists(skills_collection, [("user_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(skills_collection, [("parent_skill_id", 1), ("is_active", 1)], {})
+
+            # Logs subdocument indexes for efficient log queries
+            await self._create_index_if_not_exists(skills_collection, "logs.timestamp", {})
+            await self._create_index_if_not_exists(skills_collection, "logs.level", {})
+            await self._create_index_if_not_exists(skills_collection, [("user_id", 1), ("logs.timestamp", -1)], {})
+
+            db_logger.info("Skills collection indexes created successfully")
+
+        except Exception as e:
+            db_logger.error("Failed to create skills indexes: %s", e)
+            raise
+
+    async def _create_chat_indexes(self):
+        """Create comprehensive indexes for chat system collections with performance optimization"""
+        try:
+            db_logger.info("Creating indexes for chat system collections")
+
+            # Chat sessions collection indexes - Core session management
+            chat_sessions_collection = self.get_collection("chat_sessions")
+            await self._create_index_if_not_exists(chat_sessions_collection, "id", {"unique": True})
+            await self._create_index_if_not_exists(chat_sessions_collection, [("user_id", 1), ("is_active", 1)], {})
+            await self._create_index_if_not_exists(chat_sessions_collection, "session_type", {})
+            await self._create_index_if_not_exists(chat_sessions_collection, "created_at", {})
+            await self._create_index_if_not_exists(chat_sessions_collection, "updated_at", {})
+            await self._create_index_if_not_exists(chat_sessions_collection, "last_message_at", {})
+            # Compound indexes for efficient session queries
+            await self._create_index_if_not_exists(
+                chat_sessions_collection, [("user_id", 1), ("session_type", 1)], {}
+            )
+            await self._create_index_if_not_exists(
+                chat_sessions_collection, [("user_id", 1), ("created_at", -1)], {}
+            )
+            await self._create_index_if_not_exists(
+                chat_sessions_collection, [("user_id", 1), ("last_message_at", -1)], {}
+            )
+
+            # Chat messages collection indexes - Message management and retrieval
+            chat_messages_collection = self.get_collection("chat_messages")
+            await self._create_index_if_not_exists(chat_messages_collection, "id", {"unique": True})
+            await self._create_index_if_not_exists(
+                chat_messages_collection, [("session_id", 1), ("created_at", 1)], {}
+            )
+            await self._create_index_if_not_exists(chat_messages_collection, "user_id", {})
+            await self._create_index_if_not_exists(chat_messages_collection, "status", {})
+            await self._create_index_if_not_exists(chat_messages_collection, "role", {})
+            await self._create_index_if_not_exists(chat_messages_collection, "created_at", {})
+            # Compound indexes for efficient message queries
+            await self._create_index_if_not_exists(chat_messages_collection, [("user_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(
+                chat_messages_collection, [("session_id", 1), ("role", 1), ("created_at", 1)], {}
+            )
+
+            # Token usage collection indexes - Token tracking and analytics
+            token_usage_collection = self.get_collection("token_usage")
+            await self._create_index_if_not_exists(token_usage_collection, "id", {"unique": True})
+            await self._create_index_if_not_exists(token_usage_collection, "message_id", {})
+            await self._create_index_if_not_exists(token_usage_collection, "session_id", {})
+            await self._create_index_if_not_exists(token_usage_collection, [("user_id", 1), ("created_at", -1)], {})
+            await self._create_index_if_not_exists(token_usage_collection, "model", {})
+            await self._create_index_if_not_exists(token_usage_collection, "endpoint", {})
+            await self._create_index_if_not_exists(token_usage_collection, "created_at", {})
+            # Compound indexes for token usage analytics
+            await self._create_index_if_not_exists(
+                token_usage_collection, [("session_id", 1), ("created_at", -1)], {}
+            )
+            await self._create_index_if_not_exists(token_usage_collection, [("user_id", 1), ("model", 1)], {})
+
+            # Message votes collection indexes - Feedback system
+            message_votes_collection = self.get_collection("message_votes")
+            await self._create_index_if_not_exists(message_votes_collection, "id", {"unique": True})
+            await self._create_index_if_not_exists(
+                message_votes_collection, [("message_id", 1), ("user_id", 1)], {"unique": True}
+            )
+            await self._create_index_if_not_exists(message_votes_collection, "message_id", {})
+            await self._create_index_if_not_exists(message_votes_collection, "user_id", {})
+            await self._create_index_if_not_exists(message_votes_collection, "vote_type", {})
+            await self._create_index_if_not_exists(message_votes_collection, "created_at", {})
+            # Compound indexes for vote queries
+            await self._create_index_if_not_exists(message_votes_collection, [("message_id", 1), ("vote_type", 1)], {})
+
+            db_logger.info("Chat system collection indexes created successfully")
+
+        except Exception as e:
+            db_logger.error("Failed to create chat system indexes: %s", e)
             raise
 
     async def monitor_connection_pool(self):
