@@ -7,3 +7,6 @@
 [submodule "submodules/second-brain-database-chat"]
 	path = submodules/second-brain-database-chat
 	url = git@github.com:rohanbatrain/second-brain-database-chat.git
+[submodule "submodules/IPAM"]
+	path = submodules/IPAM
+	url = git@github.com:rohanbatrain/IPAM.git
