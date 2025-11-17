@@ -130,6 +130,9 @@ class TestBackwardCompatibility:
         assert "y_octet" in data
         assert "country" in data
         assert data["country"] == TEST_COUNTRY
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
         return data["region_id"]
     
     @pytest.mark.asyncio
@@ -155,6 +158,9 @@ class TestBackwardCompatibility:
         assert data["region_id"] == region_id
         assert "cidr" in data
         assert "country" in data
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
     
     @pytest.mark.asyncio
     async def test_update_region_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):
@@ -172,6 +178,9 @@ class TestBackwardCompatibility:
         assert response.status_code == 200
         data = response.json()
         assert data["description"] == new_description
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
     
     @pytest.mark.asyncio
     async def test_get_region_utilization_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):
@@ -242,6 +251,9 @@ class TestBackwardCompatibility:
         assert "ip_address" in data
         assert "hostname" in data
         assert "z_octet" in data
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
         return data["host_id"], data["ip_address"]
     
     @pytest.mark.asyncio
@@ -267,6 +279,9 @@ class TestBackwardCompatibility:
         assert data["host_id"] == host_id
         assert "ip_address" in data
         assert "hostname" in data
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
     
     @pytest.mark.asyncio
     async def test_get_host_by_ip_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):
@@ -279,6 +294,9 @@ class TestBackwardCompatibility:
         assert response.status_code == 200
         data = response.json()
         assert data["ip_address"] == ip_address
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
     
     @pytest.mark.asyncio
     async def test_update_host_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):
@@ -296,6 +314,9 @@ class TestBackwardCompatibility:
         assert response.status_code == 200
         data = response.json()
         assert data["purpose"] == new_purpose
+        # Verify new owner fields are present
+        assert "owner_name" in data
+        assert "owner_id" in data
     
     @pytest.mark.asyncio
     async def test_preview_next_host_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):
@@ -353,6 +374,10 @@ class TestBackwardCompatibility:
         assert data["status"] == "success"
         assert "hosts" in data
         assert len(data["hosts"]) == 5
+        # Verify new owner fields are present in each host
+        for host in data["hosts"]:
+            assert "owner_name" in host
+            assert "owner_id" in host
     
     @pytest.mark.asyncio
     async def test_bulk_lookup_hosts_endpoint(self, async_client: AsyncClient, auth_headers: Dict[str, str]):

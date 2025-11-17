@@ -20,6 +20,7 @@ Endpoints are organized into logical groups:
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from typing import List, Optional, Dict, Any
 
+from second_brain_database.database import db_manager
 from second_brain_database.managers.logging_manager import get_logger
 from second_brain_database.managers.ipam_manager import ipam_manager
 from second_brain_database.routes.ipam.dependencies import (
@@ -148,7 +149,7 @@ async def health_check():
 # Country and Mapping Endpoints
 # ============================================================================
 
-@router.post(
+@router.get(
     "/countries",
     summary="List all countries",
     description="""
@@ -197,7 +198,20 @@ async def list_countries(
     await check_ipam_rate_limit(user_id, "country_list", limit=500, period=3600)
     
     try:
-        countries = await ipam_manager.get_all_countries(continent_filter=continent)
+        countries = await ipam_manager.get_all_countries(continent=continent)
+        
+        # Enrich each country with allocated regions count for this user
+        regions_collection = db_manager.get_collection("ipam_regions")
+        for country in countries:
+            allocated_regions = await regions_collection.count_documents({
+                "user_id": user_id,
+                "country": country["country"]
+            })
+            country["allocated_regions"] = allocated_regions
+            
+            # Calculate utilization percentage
+            total_capacity = country.get("total_blocks", 0) * 256  # Each block is /16 = 256 /24 regions
+            country["utilization_percentage"] = round((allocated_regions / total_capacity * 100), 2) if total_capacity > 0 else 0.0
         
         logger.info(
             "User %s listed %d countries (continent_filter=%s)",
@@ -276,6 +290,18 @@ async def get_country(
                     f"Country '{country}' not found"
                 )
             )
+        
+        # Add allocated regions count for this user
+        regions_collection = db_manager.get_collection("ipam_regions")
+        allocated_regions = await regions_collection.count_documents({
+            "user_id": user_id,
+            "country": country
+        })
+        country_data["allocated_regions"] = allocated_regions
+        
+        # Calculate utilization percentage
+        total_capacity = country_data.get("total_blocks", 0) * 256  # Each block is /16 = 256 /24 regions
+        country_data["utilization_percentage"] = round((allocated_regions / total_capacity * 100), 2) if total_capacity > 0 else 0.0
         
         logger.info("User %s retrieved country details for %s", user_id, country)
         
@@ -427,7 +453,6 @@ async def create_region(
     country: str = Query(..., description="Country for region allocation"),
     region_name: str = Query(..., description="Name for the region"),
     description: Optional[str] = Query(None, description="Optional description"),
-    owner: Optional[str] = Query(None, description="Owner/team identifier"),
     tags: Optional[str] = Query(None, description="Optional tags as JSON string"),
     current_user: Dict[str, Any] = Depends(require_ipam_allocate)
 ):
@@ -445,9 +470,16 @@ async def create_region(
             country=country,
             region_name=region_name,
             description=description,
-            owner=owner,
             tags=tags or {}
         )
+        
+        # Set owner to username automatically
+        owner_name = current_user.get("username", user_id)
+        await db_manager.get_collection("ipam_regions").update_one(
+            {"_id": region["_id"]},
+            {"$set": {"owner": owner_name}}
+        )
+        region["owner"] = owner_name
         
         logger.info(
             "User %s created region %s in country %s: %s",
@@ -556,7 +588,7 @@ async def list_regions(
     request: Request,
     country: Optional[str] = Query(None, description="Filter by country"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
-    owner: Optional[str] = Query(None, description="Filter by owner"),
+    owner: Optional[str] = Query(None, description="Filter by owner (accepts owner name or owner id)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     current_user: Dict[str, Any] = Depends(require_ipam_read)
@@ -583,7 +615,7 @@ async def list_regions(
             filters["owner"] = owner
         
         # Get regions
-        regions = await ipam_manager.get_regions(
+        result = await ipam_manager.get_regions(
             user_id=user_id,
             filters=filters,
             page=page,
@@ -591,7 +623,7 @@ async def list_regions(
         )
         
         # Format response
-        formatted_regions = [format_region_response(r) for r in regions.get("items", [])]
+        formatted_regions = [format_region_response(r) for r in result.get("regions", [])]
         
         logger.info(
             "User %s listed %d regions (page=%d, filters=%s)",
@@ -605,7 +637,7 @@ async def list_regions(
             items=formatted_regions,
             page=page,
             page_size=page_size,
-            total_count=regions.get("total_count", 0)
+            total_count=result.get("pagination", {}).get("total_count", 0)
         )
         
     except ValueError as e:
@@ -701,7 +733,7 @@ async def update_region(
     region_id: str,
     region_name: Optional[str] = Query(None, description="New region name"),
     description: Optional[str] = Query(None, description="New description"),
-    owner: Optional[str] = Query(None, description="New owner"),
+    owner: Optional[str] = Query(None, description="New owner (accepts owner name or owner id)"),
     status_update: Optional[str] = Query(None, alias="status", description="New status"),
     tags: Optional[str] = Query(None, description="New tags (JSON string)"),
     current_user: Dict[str, Any] = Depends(require_ipam_update)
@@ -836,6 +868,67 @@ async def retire_region(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=format_error_response("region_retire_failed", str(e))
             )
+
+
+@router.get(
+    "/regions/{region_id}/comments",
+    summary="Get region comments",
+    description="""
+    Retrieve all comments for a region.
+    
+    **Rate Limiting:** 500 requests per hour per user
+    
+    **Required Permission:** ipam:read
+    """,
+    responses={
+        200: {"description": "Comments retrieved successfully"},
+        404: {"description": "Region not found or not owned by user"},
+        403: {"description": "Insufficient permissions"},
+        429: {"description": "Rate limit exceeded"}
+    },
+    tags=["IPAM - Regions"]
+)
+async def get_region_comments(
+    request: Request,
+    region_id: str,
+    current_user: Dict[str, Any] = Depends(require_ipam_read)
+):
+    """
+    Get comments for a region.
+    """
+    user_id = str(current_user.get("_id", current_user.get("username", "")))
+    
+    # Rate limiting
+    await check_ipam_rate_limit(user_id, "region_comments_get", limit=500, period=3600)
+    
+    try:
+        # Get region to verify ownership
+        region = await ipam_manager.get_region_by_id(user_id, region_id)
+        
+        if not region:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=format_error_response("region_not_found", f"Region '{region_id}' not found")
+            )
+        
+        # Return comments from region
+        comments = region.get("comments", [])
+        
+        logger.info("User %s retrieved %d comments for region %s", user_id, len(comments), region_id)
+        
+        return {
+            "comments": comments,
+            "total": len(comments)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get comments for region %s for user %s: %s", region_id, user_id, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error_response("comments_get_failed", "Failed to retrieve comments")
+        )
 
 
 @router.post(
@@ -1093,7 +1186,7 @@ async def create_host(
     os_type: Optional[str] = Query(None, description="Operating system type"),
     application: Optional[str] = Query(None, description="Application running on host"),
     cost_center: Optional[str] = Query(None, description="Cost center"),
-    owner: Optional[str] = Query(None, description="Owner/team identifier"),
+    owner: Optional[str] = Query(None, description="Owner/team identifier (accepts owner name or owner id)"),
     purpose: Optional[str] = Query(None, description="Purpose description"),
     tags: Optional[str] = Query(None, description="Optional tags (JSON string)"),
     notes: Optional[str] = Query(None, description="Optional notes"),
@@ -1204,7 +1297,7 @@ async def batch_create_hosts(
     count: int = Query(..., ge=1, le=100, description="Number of hosts to create"),
     hostname_prefix: str = Query(..., description="Hostname prefix (e.g., 'web-')"),
     device_type: Optional[str] = Query(None, description="Device type"),
-    owner: Optional[str] = Query(None, description="Owner/team identifier"),
+    owner: Optional[str] = Query(None, description="Owner/team identifier (accepts owner name or owner id)"),
     tags: Optional[str] = Query(None, description="Optional tags (JSON string)"),
     current_user: Dict[str, Any] = Depends(require_ipam_allocate)
 ):
@@ -1292,7 +1385,7 @@ async def list_hosts(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     hostname: Optional[str] = Query(None, description="Filter by hostname (partial match)"),
     device_type: Optional[str] = Query(None, description="Filter by device type"),
-    owner: Optional[str] = Query(None, description="Filter by owner"),
+    owner: Optional[str] = Query(None, description="Filter by owner (accepts owner name or owner id)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     current_user: Dict[str, Any] = Depends(require_ipam_read)
@@ -1547,7 +1640,7 @@ async def update_host(
     os_type: Optional[str] = Query(None, description="New OS type"),
     application: Optional[str] = Query(None, description="New application"),
     cost_center: Optional[str] = Query(None, description="New cost center"),
-    owner: Optional[str] = Query(None, description="New owner"),
+    owner: Optional[str] = Query(None, description="New owner (accepts owner name or owner id)"),
     purpose: Optional[str] = Query(None, description="New purpose"),
     status_update: Optional[str] = Query(None, alias="status", description="New status"),
     tags: Optional[str] = Query(None, description="New tags (JSON string)"),
@@ -2149,7 +2242,7 @@ async def search_allocations(
     continent: Optional[str] = Query(None, description="Filter by continent"),
     country: Optional[str] = Query(None, description="Filter by country"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
-    owner: Optional[str] = Query(None, description="Filter by owner"),
+    owner: Optional[str] = Query(None, description="Filter by owner (accepts owner name or owner id)"),
     tags: Optional[str] = Query(None, description="Filter by tags (JSON string)"),
     created_after: Optional[str] = Query(None, description="Created after date (ISO format)"),
     created_before: Optional[str] = Query(None, description="Created before date (ISO format)"),
@@ -2449,6 +2542,49 @@ async def preview_import(
 # ============================================================================
 # Audit History Endpoints
 # ============================================================================
+
+@router.get(
+    "/audit",
+    summary="Query audit history (alias)",
+    description="""
+    Query audit history with filters. This is an alias for /audit/history.
+    
+    **Rate Limiting:** 500 requests per hour per user
+    
+    **Required Permission:** ipam:read
+    """,
+    responses={
+        200: {"description": "Successfully retrieved audit history"},
+        403: {"description": "Insufficient permissions"},
+        429: {"description": "Rate limit exceeded"}
+    },
+    tags=["IPAM - Audit"]
+)
+async def get_audit(
+    request: Request,
+    action_type: Optional[str] = Query(None, description="Filter by action type"),
+    resource_type: Optional[str] = Query(None, description="Filter by resource type"),
+    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    current_user: Dict[str, Any] = Depends(require_ipam_read)
+):
+    """
+    Query audit history (alias endpoint for backward compatibility).
+    """
+    # Delegate to the main audit history endpoint
+    return await get_audit_history(
+        request=request,
+        action_type=action_type,
+        resource_type=resource_type,
+        start_date=start_date,
+        end_date=end_date,
+        page=page,
+        page_size=page_size,
+        current_user=current_user
+    )
+
 
 @router.get(
     "/audit/history",

@@ -55,6 +55,7 @@ from second_brain_database.routes.websockets import router as websockets_router
 from second_brain_database.routes.workspaces.routes import router as workspaces_router
 from second_brain_database.routes.skills import router as skills_router
 from second_brain_database.routes.ipam.routes import router as ipam_router
+from second_brain_database.routes.ipam.dashboard_routes import router as ipam_dashboard_router
 from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
@@ -114,6 +115,38 @@ async def lifespan(_app: FastAPI):
         indexes_duration = time.time() - indexes_start
 
         log_application_lifecycle("database_indexes_ready", {"indexes_duration": f"{indexes_duration:.3f}s"})
+
+        # Auto-seed IPAM country mappings if empty
+        ipam_seed_start = time.time()
+        logger.info("Checking IPAM country mappings...")
+
+        try:
+            from second_brain_database.managers.ipam_defaults import get_default_country_documents
+
+            collection = db_manager.get_collection("continent_country_mapping")
+            count = await collection.count_documents({})
+
+            if count == 0:
+                logger.info("IPAM country mappings not found. Auto-seeding with defaults...")
+                documents = get_default_country_documents()
+                await collection.insert_many(documents)
+
+                # Create indexes
+                await collection.create_index("continent")
+                await collection.create_index("country", unique=True)
+                await collection.create_index([("x_start", 1), ("x_end", 1)])
+
+                logger.info("✅ Auto-seeded %d IPAM country mappings", len(documents))
+                log_application_lifecycle(
+                    "ipam_auto_seeded", {"countries_seeded": len(documents), "duration": f"{time.time() - ipam_seed_start:.3f}s"}
+                )
+            else:
+                logger.info("IPAM country mappings already exist (%d countries)", count)
+                log_application_lifecycle("ipam_seed_skipped", {"existing_countries": count})
+
+        except Exception as ipam_error:
+            logger.warning("Failed to auto-seed IPAM country mappings: %s", ipam_error)
+            log_application_lifecycle("ipam_seed_failed", {"error": str(ipam_error)})
 
         # Auth-specific startup tasks
         auth_startup_start = time.time()
@@ -1149,6 +1182,7 @@ routers_config = [
     ("chat", chat_router, "LangGraph-based chat system with VectorRAG and conversational AI"),
     ("skills", skills_router, "Skill logging and management endpoints"),
     ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
+    ("ipam_dashboard", ipam_dashboard_router, "IPAM dashboard statistics and analytics endpoints"),
 ]
 
 logger.info("Including API routers...")

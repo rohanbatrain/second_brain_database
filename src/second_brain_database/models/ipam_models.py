@@ -379,7 +379,12 @@ class RegionResponse(BaseModel):
     cidr: str
     region_name: str
     description: Optional[str] = None
+    # Backwards-compatible: `owner` kept for older clients. New clients
+    # should use `owner_name` for the human-friendly owner string and
+    # `owner_id` for the internal identifier.
     owner: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_id: Optional[str] = None
     status: str
     tags: Dict[str, str] = {}
     comments: List[CommentResponse] = []
@@ -405,7 +410,10 @@ class HostResponse(BaseModel):
     os_type: Optional[str] = None
     application: Optional[str] = None
     cost_center: Optional[str] = None
+    # Backwards-compatible owner field plus explicit owner_name and owner_id
     owner: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_id: Optional[str] = None
     purpose: Optional[str] = None
     status: str
     tags: Dict[str, str] = {}

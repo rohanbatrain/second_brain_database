@@ -179,6 +179,30 @@ class IPAMManager:
         # Cache for frequently accessed data
         self._cache_ttl = 300  # 5 minutes default cache TTL
 
+    async def _resolve_username(self, user_id: str) -> str:
+        """
+        Try to resolve a human-friendly username for a given user identifier.
+
+        Tries to look up the `users` collection by ObjectId(_id) first, then
+        by username fallback. If not found, returns the provided user_id as-is.
+        """
+        try:
+            users_collection = self.db_manager.get_collection("users")
+            # Try by ObjectId first
+            try:
+                obj_id = ObjectId(user_id)
+                user_doc = await users_collection.find_one({"_id": obj_id}, {"username": 1})
+            except Exception:
+                user_doc = await users_collection.find_one({"username": user_id}, {"username": 1})
+
+            if user_doc and "username" in user_doc:
+                return user_doc["username"]
+        except Exception:
+            # Any error here should not block allocation; fall back to passed id
+            pass
+
+        return user_id
+
     # ==================== Country Mapping Methods ====================
 
     async def get_country_mapping(self, country: str) -> Dict[str, Any]:
@@ -883,8 +907,13 @@ class IPAMManager:
 
                     # Build region document
                     now = datetime.now(timezone.utc)
+                    # Resolve human-friendly owner name where possible
+                    owner_name = await self._resolve_username(user_id)
+
                     region_doc = {
                         "user_id": user_id,
+                        "owner_id": user_id,
+                        "owner": owner_name,
                         "country": country,
                         "continent": continent,
                         "x_octet": x_octet,
@@ -892,7 +921,6 @@ class IPAMManager:
                         "cidr": f"10.{x_octet}.{y_octet}.0/24",
                         "region_name": region_name,
                         "description": description or "",
-                        "owner": user_id,
                         "status": "Active",
                         "tags": tags or {},
                         "comments": [],
@@ -1125,8 +1153,13 @@ class IPAMManager:
 
                     # Build host document
                     now = datetime.now(timezone.utc)
+                    # Resolve human-friendly owner name where possible
+                    owner_name = await self._resolve_username(user_id)
+
                     host_doc = {
                         "user_id": user_id,
+                        "owner_id": user_id,
+                        "owner": owner_name,
                         "region_id": ObjectId(region_id),
                         "x_octet": x_octet,
                         "y_octet": y_octet,
@@ -1137,7 +1170,6 @@ class IPAMManager:
                         "os_type": os_type,
                         "application": application,
                         "cost_center": cost_center,
-                        "owner": user_id,
                         "purpose": purpose,
                         "status": "Active",
                         "tags": tags,
@@ -1396,8 +1428,13 @@ class IPAMManager:
             host_docs = []
             for i, z_octet in enumerate(z_octets):
                 hostname = f"{hostname_prefix}-{i + 1:03d}"  # e.g., "web-server-001"
+                # Resolve owner name once for the batch
+                owner_name = await self._resolve_username(user_id)
+
                 host_doc = {
                     "user_id": user_id,
+                    "owner_id": user_id,
+                    "owner": owner_name,
                     "region_id": ObjectId(region_id),
                     "x_octet": x_octet,
                     "y_octet": y_octet,
@@ -1408,7 +1445,6 @@ class IPAMManager:
                     "os_type": os_type,
                     "application": application,
                     "cost_center": cost_center,
-                    "owner": user_id,
                     "purpose": purpose,
                     "status": "Active",
                     "tags": tags,
@@ -1573,7 +1609,9 @@ class IPAMManager:
             if "status" in filters:
                 query["status"] = filters["status"]
             if "owner" in filters:
-                query["owner"] = filters["owner"]
+                # Support filtering by either human-friendly owner name or owner id
+                owner_val = filters["owner"]
+                query["$or"] = [{"owner": owner_val}, {"owner_id": owner_val}]
             if "country" in filters:
                 query["country"] = filters["country"]
             if "continent" in filters:
@@ -1604,9 +1642,21 @@ class IPAMManager:
             cursor = collection.find(query).sort("created_at", -1).skip(skip).limit(page_size)
             regions = await cursor.to_list(length=page_size)
 
-            # Convert ObjectIds to strings
+            # Enrich regions with host counts and utilization
+            hosts_collection = self.db_manager.get_collection("ipam_hosts")
             for region in regions:
                 region["_id"] = str(region["_id"])
+                region_id_obj = ObjectId(region["_id"])
+                
+                # Count allocated hosts
+                allocated_hosts = await hosts_collection.count_documents({
+                    "user_id": user_id,
+                    "region_id": region_id_obj
+                })
+                region["allocated_hosts"] = allocated_hosts
+                
+                # Calculate utilization percentage (254 usable IPs in /24)
+                region["utilization_percentage"] = round((allocated_hosts / 254) * 100, 2) if allocated_hosts > 0 else 0.0
 
             self.db_manager.log_query_success(
                 "ipam_regions", "get_regions", start_time, len(regions), f"Found {len(regions)} regions"
@@ -1665,6 +1715,15 @@ class IPAMManager:
 
             # Convert ObjectId to string
             region["_id"] = str(region["_id"])
+            
+            # Enrich with host count and utilization
+            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            allocated_hosts = await hosts_collection.count_documents({
+                "user_id": user_id,
+                "region_id": ObjectId(region_id)
+            })
+            region["allocated_hosts"] = allocated_hosts
+            region["utilization_percentage"] = round((allocated_hosts / 254) * 100, 2) if allocated_hosts > 0 else 0.0
 
             self.db_manager.log_query_success(
                 "ipam_regions", "get_region_by_id", start_time, 1, f"Found region {region_id}"
@@ -1977,7 +2036,9 @@ class IPAMManager:
             if "application" in filters:
                 query["application"] = filters["application"]
             if "owner" in filters:
-                query["owner"] = filters["owner"]
+                # Support filtering by either human-friendly owner name or owner id
+                owner_val = filters["owner"]
+                query["$or"] = [{"owner": owner_val}, {"owner_id": owner_val}]
             if "tags" in filters and isinstance(filters["tags"], dict):
                 for key, value in filters["tags"].items():
                     query[f"tags.{key}"] = value
@@ -2462,7 +2523,9 @@ class IPAMManager:
                 if "status" in search_params:
                     region_query["status"] = search_params["status"]
                 if "owner" in search_params:
-                    region_query["owner"] = search_params["owner"]
+                    # Support filtering by either human-friendly owner name or owner id
+                    owner_val = search_params["owner"]
+                    region_query["$or"] = [{"owner": owner_val}, {"owner_id": owner_val}]
                 if "region_name" in search_params:
                     # Case-insensitive partial matching
                     region_query["region_name"] = {"$regex": search_params["region_name"], "$options": "i"}
@@ -2507,7 +2570,9 @@ class IPAMManager:
                 if "status" in search_params:
                     host_query["status"] = search_params["status"]
                 if "owner" in search_params:
-                    host_query["owner"] = search_params["owner"]
+                    # Support filtering by either human-friendly owner name or owner id
+                    owner_val = search_params["owner"]
+                    host_query["$or"] = [{"owner": owner_val}, {"owner_id": owner_val}]
                 if "hostname" in search_params:
                     # Case-insensitive partial matching
                     host_query["hostname"] = {"$regex": search_params["hostname"], "$options": "i"}
@@ -3258,8 +3323,11 @@ class IPAMManager:
 
                 # Create reservation document
                 now = datetime.now(timezone.utc)
+                owner_name = await self._resolve_username(user_id)
                 reservation_doc = {
                     "user_id": user_id,
+                    "owner_id": user_id,
+                    "owner": owner_name,
                     "country": country_mapping["country"],
                     "continent": country_mapping["continent"],
                     "x_octet": x,
@@ -3267,7 +3335,6 @@ class IPAMManager:
                     "cidr": f"10.{x}.{y}.0/24",
                     "region_name": f"Reserved-{x}-{y}",
                     "description": reason or "Reserved allocation",
-                    "owner": user_id,
                     "status": "Reserved",
                     "tags": {"reservation": "true"},
                     "comments": [],
@@ -3313,8 +3380,11 @@ class IPAMManager:
 
                 # Create reservation document
                 now = datetime.now(timezone.utc)
+                owner_name = await self._resolve_username(user_id)
                 reservation_doc = {
                     "user_id": user_id,
+                    "owner_id": user_id,
+                    "owner": owner_name,
                     "region_id": region["_id"],
                     "x_octet": x,
                     "y_octet": y,
@@ -3325,7 +3395,6 @@ class IPAMManager:
                     "os_type": "",
                     "application": "",
                     "cost_center": "",
-                    "owner": user_id,
                     "purpose": reason or "Reserved allocation",
                     "status": "Reserved",
                     "tags": {"reservation": "true"},
@@ -4491,7 +4560,12 @@ class IPAMManager:
                 if "resource_id" in event:
                     event["resource_id"] = str(event["resource_id"])
 
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "find", operation_context)
+            self.db_manager.log_query_success(
+                "ipam_audit_history",
+                "find",
+                start_time,
+                result_info={"total_count": total_count, "page": page, "returned": len(audit_events)}
+            )
 
             self.logger.info(
                 "audit_history_retrieved",
@@ -4517,7 +4591,7 @@ class IPAMManager:
             }
 
         except Exception as e:
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "find", operation_context, error=str(e))
+            self.db_manager.log_query_error("ipam_audit_history", "find", start_time, e, query=query)
             self.logger.error(
                 "get_audit_history_failed",
                 extra={"user_id": user_id, "filters": filters, "error": str(e)},
@@ -4591,7 +4665,12 @@ class IPAMManager:
                 if "resource_id" in event:
                     event["resource_id"] = str(event["resource_id"])
 
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "find", operation_context)
+            self.db_manager.log_query_success(
+                "ipam_audit_history",
+                "find",
+                start_time,
+                result_info={"ip_address": ip_address, "total_count": total_count, "returned": len(audit_events)}
+            )
 
             self.logger.info(
                 "ip_audit_history_retrieved",
@@ -4616,7 +4695,7 @@ class IPAMManager:
             }
 
         except Exception as e:
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "find", operation_context, error=str(e))
+            self.db_manager.log_query_error("ipam_audit_history", "find", start_time, e, query=query)
             self.logger.error(
                 "get_ip_audit_history_failed",
                 extra={"user_id": user_id, "ip_address": ip_address, "error": str(e)},
@@ -4738,7 +4817,12 @@ class IPAMManager:
             else:  # csv
                 data = self._format_audit_history_as_csv(audit_events)
 
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "export", operation_context)
+            self.db_manager.log_query_success(
+                "ipam_audit_history",
+                "export",
+                start_time,
+                result_info={"format": format, "total_count": total_count}
+            )
 
             self.logger.info(
                 "audit_history_exported",
@@ -4761,7 +4845,7 @@ class IPAMManager:
         except ValidationError:
             raise
         except Exception as e:
-            self.db_manager.log_query_end(start_time, "ipam_audit_history", "export", operation_context, error=str(e))
+            self.db_manager.log_query_error("ipam_audit_history", "export", start_time, e, query=query)
             self.logger.error(
                 "export_audit_history_failed",
                 extra={"user_id": user_id, "format": format, "filters": filters, "error": str(e)},
@@ -5068,7 +5152,11 @@ class IPAMManager:
                     "cidr": region["cidr"],
                     "region_name": region["region_name"],
                     "description": region.get("description", ""),
+                    # legacy field kept for backward compatibility
                     "owner": region.get("owner", ""),
+                    # explicit fields introduced to disambiguate owner values
+                    "owner_name": region.get("owner", ""),
+                    "owner_id": region.get("owner_id", ""),
                     "status": region["status"],
                     "tags": json.dumps(region.get("tags", {})),
                     "created_at": region["created_at"].isoformat(),
@@ -5092,7 +5180,11 @@ class IPAMManager:
                         "device_type": host.get("device_type", ""),
                         "os_type": host.get("os_type", ""),
                         "application": host.get("application", ""),
+                        # legacy field kept for backward compatibility
                         "owner": host.get("owner", ""),
+                        # explicit fields introduced to disambiguate owner values
+                        "owner_name": host.get("owner", ""),
+                        "owner_id": host.get("owner_id", ""),
                         "purpose": host.get("purpose", ""),
                         "status": host["status"],
                         "tags": json.dumps(host.get("tags", {})),
@@ -6643,14 +6735,9 @@ class IPAMManager:
             total_regions = await regions_collection.count_documents({"user_id": user_id})
             total_hosts = await hosts_collection.count_documents({"user_id": user_id})
 
-            # Get unique countries
-            countries_pipeline = [
-                {"$match": {"user_id": user_id}},
-                {"$group": {"_id": "$country"}},
-                {"$count": "total"}
-            ]
-            countries_result = await regions_collection.aggregate(countries_pipeline).to_list(1)
-            total_countries = countries_result[0]["total"] if countries_result else 0
+            # Get total available countries from continent-country mapping
+            all_countries = await self.get_all_countries()
+            total_countries = len(all_countries)
 
             # Calculate overall utilization (simplified)
             overall_utilization = 0.0
@@ -7964,6 +8051,110 @@ class IPAMManager:
         except Exception as e:
             self.logger.error("Failed to get bulk job status: %s", e, exc_info=True)
             raise IPAMError(f"Failed to get bulk job status: {str(e)}")
+
+    async def get_top_countries_by_utilization(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get top countries ranked by utilization percentage.
+
+        Args:
+            user_id: User ID for ownership filtering
+            limit: Maximum number of countries to return
+
+        Returns:
+            List of countries with utilization metrics
+        """
+        try:
+            # Get all regions for the user (using pagination with large page size)
+            regions_result = await self.get_regions(user_id, page=1, page_size=100)
+            regions = regions_result.get("regions", [])
+            
+            # Group by country and calculate utilization
+            country_stats = {}
+            for region in regions:
+                country = region.get("country")
+                if not country:
+                    continue
+                    
+                if country not in country_stats:
+                    country_stats[country] = {
+                        "country": country,
+                        "continent": region.get("continent", "Unknown"),
+                        "total_regions": 0,
+                        "allocated_hosts": 0,
+                        "total_capacity": 0
+                    }
+                
+                country_stats[country]["total_regions"] += 1
+                country_stats[country]["allocated_hosts"] += region.get("allocated_hosts", 0)
+                country_stats[country]["total_capacity"] += region.get("total_capacity", 0)
+            
+            # Calculate utilization percentage
+            result = []
+            for country_data in country_stats.values():
+                if country_data["total_capacity"] > 0:
+                    utilization = (country_data["allocated_hosts"] / country_data["total_capacity"]) * 100
+                else:
+                    utilization = 0.0
+                    
+                country_data["utilization_percentage"] = round(utilization, 2)
+                result.append(country_data)
+            
+            # Sort by utilization and limit
+            result.sort(key=lambda x: x["utilization_percentage"], reverse=True)
+            return result[:limit]
+            
+        except Exception as e:
+            self.logger.error("Failed to get top countries by utilization: %s", e, exc_info=True)
+            raise IPAMError(f"Failed to get top countries: {str(e)}")
+
+    async def get_recent_activity(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent allocation and modification activity from audit logs.
+
+        Args:
+            user_id: User ID for ownership filtering
+            limit: Maximum number of activities to return
+
+        Returns:
+            List of recent activities
+        """
+        try:
+            # Get recent audit entries
+            audit_collection = self.db_manager.get_collection("ipam_audit")
+            
+            cursor = audit_collection.find(
+                {"user_id": user_id},
+                {
+                    "timestamp": 1,
+                    "action": 1,
+                    "resource_type": 1,
+                    "resource_id": 1,
+                    "resource_name": 1,
+                    "user_id": 1,
+                    "details": 1
+                }
+            ).sort("timestamp", -1).limit(limit)
+            
+            activities = await cursor.to_list(length=limit)
+            
+            # Format activities
+            result = []
+            for activity in activities:
+                result.append({
+                    "timestamp": activity.get("timestamp").isoformat() if activity.get("timestamp") else None,
+                    "action": activity.get("action"),
+                    "resource_type": activity.get("resource_type"),
+                    "resource_id": str(activity.get("resource_id", "")),
+                    "resource_name": activity.get("resource_name"),
+                    "user_id": activity.get("user_id"),
+                    "details": activity.get("details", {})
+                })
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error("Failed to get recent activity: %s", e, exc_info=True)
+            raise IPAMError(f"Failed to get recent activity: {str(e)}")
 
 
 # Global instance

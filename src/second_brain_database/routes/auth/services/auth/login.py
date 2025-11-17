@@ -66,7 +66,7 @@ async def get_user_auth_methods(user_id: str) -> Dict[str, Any]:
             }
 
         # Check for password authentication
-        has_password = bool(user.get("hashed_password"))
+        has_password = bool(user.get("hashed_password") or user.get("password_hash"))
 
         # Remove WebAuthn/passkey support
         has_webauthn = False
@@ -448,7 +448,8 @@ async def login_user(
     # Validate authentication method and credentials
     if authentication_method == "password":
         # Password authentication validation
-        if not password or not bcrypt.checkpw(password.encode("utf-8"), user["hashed_password"].encode("utf-8")):
+        password_hash = user.get("hashed_password") or user.get("password_hash")
+        if not password or not password_hash or not bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8")):
             logger.info("Login failed: invalid password for user %s", user_id)
 
             # Log failed login attempt and increment counter

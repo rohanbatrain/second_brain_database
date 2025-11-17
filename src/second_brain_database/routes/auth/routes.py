@@ -1476,7 +1476,7 @@ async def reset_password(payload: dict = Body(...)):
         {"_id": user["_id"]},
         {
             "$set": {"hashed_password": hashed_pw, "token_version": new_token_version},
-            "$unset": {"password_reset_token": "", "password_reset_token_expiry": ""},
+            "$unset": {"password_reset_token": "", "password_reset_token_expiry": "", "failed_login_attempts": ""},
         },
     )
     # Invalidate all existing tokens for this user in Redis (production-ready)

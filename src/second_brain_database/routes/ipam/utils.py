@@ -23,6 +23,17 @@ def format_region_response(region_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Formatted region response
     """
+    # Validate utilization_percentage
+    utilization_percentage = region_data.get("utilization_percentage", 0.0)
+    if utilization_percentage is None or not isinstance(utilization_percentage, (int, float)):
+        utilization_percentage = 0.0
+    else:
+        import math
+        if math.isnan(utilization_percentage) or math.isinf(utilization_percentage):
+            utilization_percentage = 0.0
+        elif not (0 <= utilization_percentage <= 100):
+            utilization_percentage = max(0.0, min(100.0, utilization_percentage))
+    
     return {
         "region_id": str(region_data.get("_id", "")),
         "user_id": region_data.get("user_id"),
@@ -33,8 +44,16 @@ def format_region_response(region_data: Dict[str, Any]) -> Dict[str, Any]:
         "cidr": region_data.get("cidr"),
         "region_name": region_data.get("region_name"),
         "description": region_data.get("description"),
-        "owner": region_data.get("owner"),
+    # `owner` historically held a human-friendly name in newer code but
+    # older clients sometimes expect an id. Provide both fields explicitly
+    # so frontend can always use `owner_name` while `owner_id` remains
+    # available for compatibility.
+    "owner": region_data.get("owner"),
+    "owner_name": region_data.get("owner"),
+    "owner_id": region_data.get("owner_id"),
         "status": region_data.get("status"),
+        "utilization_percentage": round(utilization_percentage, 2),
+        "allocated_hosts": region_data.get("allocated_hosts", 0),
         "tags": region_data.get("tags", {}),
         "comments": region_data.get("comments", []),
         "created_at": region_data.get("created_at"),
@@ -67,7 +86,12 @@ def format_host_response(host_data: Dict[str, Any]) -> Dict[str, Any]:
         "os_type": host_data.get("os_type"),
         "application": host_data.get("application"),
         "cost_center": host_data.get("cost_center"),
-        "owner": host_data.get("owner"),
+    # Provide owner_name and owner_id explicitly. Keep `owner` as the
+    # human-friendly owner name for backwards compatibility with UI code
+    # that expects a single `owner` field.
+    "owner": host_data.get("owner"),
+    "owner_name": host_data.get("owner"),
+    "owner_id": host_data.get("owner_id"),
         "purpose": host_data.get("purpose"),
         "status": host_data.get("status"),
         "tags": host_data.get("tags", {}),
@@ -90,13 +114,51 @@ def format_country_response(country_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Formatted country response
     """
+    # Calculate capacity (each X block has 256 Y values = 256 possible regions)
+    total_blocks = country_data.get("total_blocks", 0)
+    total_capacity = total_blocks * 256  # X blocks * Y values (regions per block)
+    
+    # Get utilization data with validation
+    allocated_regions = country_data.get("allocated_regions", 0)
+    remaining_capacity = country_data.get("remaining_capacity", total_capacity)
+    utilization_percent = country_data.get("utilization_percent", 0.0)
+    utilization_percentage = country_data.get("utilization_percentage", 0.0)
+    
+    # Ensure utilization_percentage is a valid number (not None, NaN, or Infinity)
+    if utilization_percentage is None or not isinstance(utilization_percentage, (int, float)):
+        utilization_percentage = 0.0
+    else:
+        # Check for NaN or Infinity
+        import math
+        if math.isnan(utilization_percentage) or math.isinf(utilization_percentage):
+            utilization_percentage = 0.0
+        elif not (0 <= utilization_percentage <= 100):
+            # Clamp to valid range
+            utilization_percentage = max(0.0, min(100.0, utilization_percentage))
+    
+    # Also validate utilization_percent for backward compatibility
+    if utilization_percent is None or not isinstance(utilization_percent, (int, float)):
+        utilization_percent = 0.0
+    else:
+        import math
+        if math.isnan(utilization_percent) or math.isinf(utilization_percent):
+            utilization_percent = 0.0
+        elif not (0 <= utilization_percent <= 100):
+            utilization_percent = max(0.0, min(100.0, utilization_percent))
+    
     return {
         "continent": country_data.get("continent"),
         "country": country_data.get("country"),
         "x_start": country_data.get("x_start"),
         "x_end": country_data.get("x_end"),
-        "total_blocks": country_data.get("total_blocks"),
+        "total_blocks": total_blocks,
         "is_reserved": country_data.get("is_reserved", False),
+        # Additional fields for frontend (matching expected field names)
+        "total_capacity": total_capacity,
+        "allocated_regions": allocated_regions,
+        "utilization_percentage": round(utilization_percentage, 2),
+        "utilization_percent": round(utilization_percent, 2),
+        "remaining_capacity": remaining_capacity,
     }
 
 
@@ -142,7 +204,7 @@ def format_pagination_response(
     total_pages = (total_count + page_size - 1) // page_size
     
     return {
-        "items": items,
+        "results": items,
         "pagination": {
             "page": page,
             "page_size": page_size,
