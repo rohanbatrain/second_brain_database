@@ -10,3 +10,6 @@
 [submodule "submodules/IPAM"]
 	path = submodules/IPAM
 	url = git@github.com:rohanbatrain/IPAM.git
+[submodule "submodules/sbd-landing-page"]
+	path = submodules/sbd-landing-page
+	url = git@github.com:rohanbatrain/sbd-landing-page.git
