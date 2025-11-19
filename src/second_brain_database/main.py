@@ -56,6 +56,7 @@ from second_brain_database.routes.workspaces.routes import router as workspaces_
 from second_brain_database.routes.skills import router as skills_router
 from second_brain_database.routes.ipam.routes import router as ipam_router
 from second_brain_database.routes.ipam.dashboard_routes import router as ipam_dashboard_router
+from second_brain_database.routes.langgraph_api import router as langgraph_api_router
 from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
@@ -1180,6 +1181,7 @@ routers_config = [
     ("documents", documents_router, "Document processing and upload endpoints"),
     ("rag", rag_router, "RAG and AI-powered document search endpoints"),
     ("chat", chat_router, "LangGraph-based chat system with VectorRAG and conversational AI"),
+    ("langgraph_api", langgraph_api_router, "LangGraph SDK-compatible API for chat frontend integration"),
     ("skills", skills_router, "Skill logging and management endpoints"),
     ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
     ("ipam_dashboard", ipam_dashboard_router, "IPAM dashboard statistics and analytics endpoints"),
