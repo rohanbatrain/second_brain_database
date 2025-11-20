@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [sbd-digital-shop, sbd-university-clubs-platform, sbd-blog-platform, sbd-family-hub]
+        app: [sbd-nextjs-digital-shop, sbd-nextjs-university-clubs-platform, sbd-nextjs-blog-platform, sbd-nextjs-family-hub]
     steps:
       - uses: actions/checkout@v4
       
@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [sbd-digital-shop, sbd-family-hub]
+        app: [sbd-nextjs-digital-shop, sbd-nextjs-family-hub]
     steps:
       - uses: actions/checkout@v4
       
@@ -197,7 +197,7 @@ jobs:
     strategy:
       matrix:
         app:
-          - name: sbd-digital-shop
+          - name: sbd-nextjs-digital-shop
             vercel-org: ${{ secrets.VERCEL_ORG_ID }}
             vercel-project: ${{ secrets.VERCEL_PROJECT_SHOP }}
     steps:

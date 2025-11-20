@@ -43,8 +43,8 @@ Recommended for containerized environments.
 docker build -t sbd-backend:latest .
 
 # Frontend (example for digital-shop)
-cd submodules/sbd-digital-shop
-docker build -t sbd-digital-shop:latest .
+cd submodules/sbd-nextjs-digital-shop
+docker build -t sbd-nextjs-digital-shop:latest .
 ```
 
 #### Docker Compose
@@ -82,7 +82,7 @@ services:
     restart: always
 
   digital-shop:
-    image: sbd-digital-shop:latest
+    image: sbd-nextjs-digital-shop:latest
     environment:
       NEXT_PUBLIC_API_URL: https://api.yourdomain.com
     ports:
@@ -212,7 +212,7 @@ WantedBy=multi-user.target
 #### Deploy Frontend
 
 ```bash
-cd submodules/sbd-digital-shop
+cd submodules/sbd-nextjs-digital-shop
 
 # Install dependencies
 npm install
@@ -222,7 +222,7 @@ npm run build
 
 # Serve with PM2
 npm install -g pm2
-pm2 start npm --name "sbd-digital-shop" -- start
+pm2 start npm --name "sbd-nextjs-digital-shop" -- start
 pm2 save
 pm2 startup
 ```

@@ -119,7 +119,7 @@ API documentation: `http://localhost:8000/docs`
 ### Digital Shop
 
 ```bash
-cd submodules/sbd-digital-shop
+cd submodules/sbd-nextjs-digital-shop
 npm install
 npm run dev
 ```
@@ -129,7 +129,7 @@ Available at: `http://localhost:3000`
 ### University Clubs Platform
 
 ```bash
-cd submodules/sbd-university-clubs-platform
+cd submodules/sbd-nextjs-university-clubs-platform
 npm install
 npm run dev
 ```
@@ -139,7 +139,7 @@ Available at: `http://localhost:3001`
 ### Blog Platform
 
 ```bash
-cd submodules/sbd-blog-platform
+cd submodules/sbd-nextjs-blog-platform
 npm install
 npm run dev
 ```
@@ -149,7 +149,7 @@ Available at: `http://localhost:3002`
 ### Family Hub
 
 ```bash
-cd submodules/sbd-family-hub
+cd submodules/sbd-nextjs-family-hub
 npm install
 npm run dev
 ```
@@ -174,7 +174,7 @@ uv run pytest tests/test_auth.py -v
 ### Frontend Tests
 
 ```bash
-cd submodules/sbd-digital-shop
+cd submodules/sbd-nextjs-digital-shop
 
 # Unit tests
 npm test
