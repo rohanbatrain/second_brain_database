@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Test - User 1 & User 2</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .instructions {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .instructions h2 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+        }
+
+        .instructions li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .instructions code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .users-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .user-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .user-panel.user1 {
+            border-top: 4px solid #10b981;
+        }
+
+        .user-panel.user2 {
+            border-top: 4px solid #f59e0b;
+        }
+
+        .user-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .user-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .user1 .user-indicator {
+            background: #10b981;
+        }
+
+        .user2 .user-indicator {
+            background: #f59e0b;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .user-header h2 {
+            color: #333;
+            font-size: 1.5em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .status.disconnected {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .status.connecting {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+
+        .status.connected {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .log-container {
+            background: #1f2937;
+            border-radius: 5px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .log-entry.info {
+            color: #60a5fa;
+        }
+
+        .log-entry.success {
+            color: #34d399;
+        }
+
+        .log-entry.error {
+            color: #f87171;
+        }
+
+        .log-entry.warning {
+            color: #fbbf24;
+        }
+
+        .participants {
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .participants h3 {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .participant-list {
+            list-style: none;
+        }
+
+        .participant-item {
+            padding: 5px;
+            background: white;
+            border-radius: 3px;
+            margin: 3px 0;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .video-container {
+            margin-top: 15px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .video-wrapper {
+            position: relative;
+        }
+
+        .video-wrapper h4 {
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        video {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            border-radius: 5px;
+            object-fit: cover;
+        }
+
+        @media (max-width: 1024px) {
+            .users-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 WebRTC Test Client</h1>
+
+        <div class="instructions">
+            <h2>📋 Testing Instructions</h2>
+            <ol>
+                <li>Open this file in <strong>two separate browser windows/tabs</strong></li>
+                <li>In <strong>Window 1</strong>: Use the <code>User 1 (Green)</code> panel on the left</li>
+                <li>In <strong>Window 2</strong>: Use the <code>User 2 (Orange)</code> panel on the right</li>
+                <li>For each user:
+                    <ul>
+                        <li>Enter JWT token (get from backend: <code>curl -X POST https://dev-app-sbd.rohanbatra.in/auth/login ...</code>)</li>
+                        <li>Click "Connect to Room"</li>
+                        <li>Grant camera/microphone permissions when prompted</li>
+                    </ul>
+                </li>
+                <li>Once both users connect, they should see each other in the participant list</li>
+                <li>Click "Start Call" to establish peer connection and see each other's video</li>
+            </ol>
+        </div>
+
+        <div style="margin-bottom:20px;">
+            <label style="color:white;font-weight:700;">Endpoint mode:</label>
+            <select id="endpointMode" style="padding:8px;border-radius:6px;margin-left:10px;">
+                <option value="auto">Auto (wss -> ws)</option>
+                <option value="wss">Cloudflare Tunnel (wss://dev-app-sbd.rohanbatra.in)</option>
+                <option value="ws">Plain ws (ws://dev-app-sbd.rohanbatra.in)</option>
+                <option value="local">Local (ws://127.0.0.1:8000)</option>
+            </select>
+            <small style="color:#f3f4f6; margin-left:10px;">Choose where the signaling should connect from — useful when testing behind tunnels.</small>
+        </div>
+
+        <div class="users-grid">
+            <!-- User 1 Panel -->
+            <div class="user-panel user1">
+                <div class="user-header">
+                    <div class="user-indicator"></div>
+                    <h2>User 1</h2>
+                </div>
+
+                <div class="form-group">
+                    <label for="token1">JWT Token:</label>
+                    <input type="text" id="token1" placeholder="Enter JWT token..." value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ3ZWJydGNfdXNlcjEiLCJleHAiOjE3NjI2OTI1MTQsImlhdCI6MTc2MjY5MDcxNCwidG9rZW5fdmVyc2lvbiI6MH0.YXR0s6ojY1TDo1gwfiCaU6Vi0tiZFY-iqCyCUHIAO0E">
+                </div>
+
+                <div class="form-group">
+                    <label for="room1">Room ID:</label>
+                    <input type="text" id="room1" value="test-room">
+                </div>
+
+                <div id="status1" class="status disconnected">
+                    ⭕ Disconnected
+                </div>
+
+                <button id="connect1" class="btn-primary">Connect to Room</button>
+                <button id="call1" class="btn-success" disabled>Start Call</button>
+                <button id="disconnect1" class="btn-danger" disabled>Disconnect</button>
+
+                <div class="participants">
+                    <h3>👥 Participants (<span id="count1">0</span>):</h3>
+                    <ul id="participants1" class="participant-list"></ul>
+                </div>
+
+                <div class="log-container" id="log1">
+                    <div class="log-entry info">💡 Waiting for connection...</div>
+                </div>
+
+                <div class="video-container">
+                    <div class="video-wrapper">
+                        <h4>📹 Your Video</h4>
+                        <video id="localVideo1" autoplay muted playsinline></video>
+                    </div>
+                    <div class="video-wrapper">
+                        <h4>📺 Remote Video</h4>
+                        <video id="remoteVideo1" autoplay playsinline></video>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User 2 Panel -->
+            <div class="user-panel user2">
+                <div class="user-header">
+                    <div class="user-indicator"></div>
+                    <h2>User 2</h2>
+                </div>
+
+                <div class="form-group">
+                    <label for="token2">JWT Token:</label>
+                    <input type="text" id="token2" placeholder="Enter JWT token..." value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ3ZWJydGNfdXNlcjIiLCJleHAiOjE3NjI2OTI1MTQsImlhdCI6MTc2MjY5MDcxNCwidG9rZW5fdmVyc2lvbiI6MH0.BrAwlkWKdToWWR-5jMzdHHp_v2aGPEJ0Urqj_-hSIzs">
+                </div>
+
+                <div class="form-group">
+                    <label for="room2">Room ID:</label>
+                    <input type="text" id="room2" value="test-room">
+                </div>
+
+                <div id="status2" class="status disconnected">
+                    ⭕ Disconnected
+                </div>
+
+                <button id="connect2" class="btn-primary">Connect to Room</button>
+                <button id="call2" class="btn-success" disabled>Start Call</button>
+                <button id="disconnect2" class="btn-danger" disabled>Disconnect</button>
+
+                <div class="participants">
+                    <h3>👥 Participants (<span id="count2">0</span>):</h3>
+                    <ul id="participants2" class="participant-list"></ul>
+                </div>
+
+                <div class="log-container" id="log2">
+                    <div class="log-entry info">💡 Waiting for connection...</div>
+                </div>
+
+                <div class="video-container">
+                    <div class="video-wrapper">
+                        <h4>📹 Your Video</h4>
+                        <video id="localVideo2" autoplay muted playsinline></video>
+                    </div>
+                    <div class="video-wrapper">
+                        <h4>📺 Remote Video</h4>
+                        <video id="remoteVideo2" autoplay playsinline></video>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebRTC Configuration
+        // Use the dev domain instead of localhost. We'll try wss first and fall back to ws
+        const WS_DOMAIN = 'dev-app-sbd.rohanbatra.in';
+        function makeWsBase(protocol) {
+            // protocol can be 'wss' | 'ws' or a full URL prefix (for local)
+            if (protocol.startsWith('ws://') || protocol.startsWith('wss://')) {
+                return `${protocol.replace(/\/+$/, '')}`; // trim trailing slash
+            }
+            return `${protocol}://${WS_DOMAIN}/webrtc/ws`;
+        }
+
+        function getProtocolCandidates(mode) {
+            // Returns an array of protocol strings or full URL prefixes to try
+            switch (mode) {
+                case 'wss':
+                    return ['wss'];
+                case 'ws':
+                    return ['ws'];
+                case 'local':
+                    // assume local origin where cloudflared/origin is forwarding to 127.0.0.1:8000
+                    return ['ws://127.0.0.1:8000/webrtc/ws'];
+                case 'auto':
+                default:
+                    return ['wss', 'ws', 'ws://127.0.0.1:8000/webrtc/ws'];
+            }
+        }
+
+        async function diagnoseServer() {
+            const diagLog = (msg) => {
+                // write to both client logs
+                const el1 = document.getElementById('log1');
+                const el2 = document.getElementById('log2');
+                const ts = new Date().toLocaleTimeString();
+                [el1, el2].forEach(el => {
+                    const entry = document.createElement('div');
+                    entry.className = 'log-entry warning';
+                    entry.textContent = `[${ts}] DIAG: ${msg}`;
+                    el.appendChild(entry);
+                    el.scrollTop = el.scrollHeight;
+                });
+            };
+
+            try {
+                diagLog(`Checking HTTPS endpoint https://${WS_DOMAIN}/`);
+                const res = await fetch(`https://${WS_DOMAIN}/`, { method: 'GET', mode: 'cors' });
+                diagLog(`HTTPS check status: ${res.status}`);
+                const text = await res.text().catch(() => 'response-not-text');
+                diagLog(`HTTPS response snippet: ${text.slice(0, 200).replace(/\n/g, ' ')}...`);
+            } catch (err) {
+                diagLog(`HTTPS check failed: ${err.message || err}`);
+            }
+        }
+        const ICE_SERVERS = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ];
+
+        class WebRTCClient {
+            constructor(userId) {
+                this.userId = userId;
+                this.ws = null;
+                this.pc = null;
+                this.localStream = null;
+                this.token = null;
+                this.roomId = null;
+                this.myUserId = null;
+                this.participants = new Map();
+                this.isInitiator = false;
+            }
+
+            log(message, type = 'info') {
+                const logContainer = document.getElementById(`log${this.userId}`);
+                const timestamp = new Date().toLocaleTimeString();
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+                entry.textContent = `[${timestamp}] ${message}`;
+                logContainer.appendChild(entry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            updateStatus(status, message) {
+                const statusEl = document.getElementById(`status${this.userId}`);
+                statusEl.className = `status ${status}`;
+                statusEl.textContent = message;
+            }
+
+            updateParticipants(participants) {
+                const listEl = document.getElementById(`participants${this.userId}`);
+                const countEl = document.getElementById(`count${this.userId}`);
+                
+                if (!participants || !Array.isArray(participants)) {
+                    this.log('Invalid participants data received', 'error');
+                    countEl.textContent = '0';
+                    listEl.innerHTML = '<li class="participant-item">❌ Invalid data</li>';
+                    return;
+                }
+                
+                listEl.innerHTML = '';
+                countEl.textContent = participants.length;
+
+                participants.forEach(p => {
+                    const li = document.createElement('li');
+                    li.className = 'participant-item';
+                    li.textContent = `👤 ${p.username} ${p.user_id === this.myUserId ? '(You)' : ''}`;
+                    listEl.appendChild(li);
+                    
+                    if (p.user_id !== this.myUserId) {
+                        this.participants.set(p.user_id, p);
+                    }
+                });
+            }
+
+            async connect() {
+                const token = document.getElementById(`token${this.userId}`).value.trim();
+                const room = document.getElementById(`room${this.userId}`).value.trim();
+
+                if (!token) {
+                    this.log('Please enter a JWT token', 'error');
+                    return;
+                }
+
+                this.token = token;
+                this.roomId = room;
+
+                try {
+                    this.updateStatus('connecting', '🔄 Connecting...');
+                    this.log(`Connecting to room: ${room}...`);
+
+                    // Determine candidate endpoints based on selected endpoint mode
+                    const mode = document.getElementById('endpointMode')?.value || 'auto';
+                    const protocols = getProtocolCandidates(mode);
+                    let connected = false;
+
+                    const tryConnect = (index) => {
+                        if (index >= protocols.length) {
+                            this.log('All WebSocket connection attempts failed', 'error');
+                            this.updateStatus('disconnected', '❌ Error');
+                            // Run a quick diagnostic to help debugging (TLS/CORS)
+                            diagnoseServer();
+                            return;
+                        }
+
+                        const proto = protocols[index];
+                        const wsUrl = `${makeWsBase(proto)}/${room}?token=${token}`;
+                        this.log(`Trying WebSocket URL: ${wsUrl}`, 'info');
+
+                        let ws;
+                        try {
+                            ws = new WebSocket(wsUrl);
+                        } catch (err) {
+                            this.log(`WebSocket construction failed (${proto}): ${err.message || err}`, 'error');
+                            // try next
+                            return tryConnect(index + 1);
+                        }
+
+                        // short timeout to detect immediate failures (e.g., TLS handshake failure)
+                        const failTimeout = setTimeout(() => {
+                            if (!connected) {
+                                try { ws.close(); } catch(e){}
+                                this.log(`No open event within timeout for ${proto}, trying next protocol`, 'warning');
+                                tryConnect(index + 1);
+                            }
+                        }, 4000);
+
+                        ws.onopen = () => {
+                            clearTimeout(failTimeout);
+                            connected = true;
+                            this.ws = ws;
+                            this.updateStatus('connected', '✅ Connected');
+                            this.log('WebSocket connected successfully!', 'success');
+                            document.getElementById(`connect${this.userId}`).disabled = true;
+                            document.getElementById(`call${this.userId}`).disabled = false;
+                            document.getElementById(`disconnect${this.userId}`).disabled = false;
+
+                            ws.onmessage = (event) => {
+                                try {
+                                    this.handleMessage(JSON.parse(event.data));
+                                } catch (e) {
+                                    this.log(`Failed parsing message: ${e}`, 'error');
+                                }
+                            };
+
+                            ws.onerror = (errEvent) => {
+                                this.log(`WebSocket error event: ${String(errEvent)}`, 'error');
+                                // also run diagnose to give hints
+                                diagnoseServer();
+                            };
+
+                            ws.onclose = (closeEvent) => {
+                                clearTimeout(failTimeout);
+                                const code = closeEvent.code || 'no-code';
+                                const reason = closeEvent.reason || '';
+                                this.log(`WebSocket closed (code=${code}, reason=${reason})`, 'warning');
+                                this.updateStatus('disconnected', '⭕ Disconnected');
+                                document.getElementById(`connect${this.userId}`).disabled = false;
+                                document.getElementById(`call${this.userId}`).disabled = true;
+                                document.getElementById(`disconnect${this.userId}`).disabled = true;
+                            };
+                        };
+
+                        ws.onerror = (err) => {
+                            clearTimeout(failTimeout);
+                            // if error occurs before open, try next protocol
+                            if (!connected) {
+                                this.log(`WebSocket error for ${proto}: ${String(err)} - trying next`, 'warning');
+                                try { ws.close(); } catch(e){}
+                                tryConnect(index + 1);
+                            } else {
+                                this.log(`WebSocket error after connection: ${String(err)}`, 'error');
+                            }
+                        };
+                    };
+
+                    tryConnect(0);
+                } catch (error) {
+                    this.log(`Connection failed: ${error.message}`, 'error');
+                    this.updateStatus('disconnected', '❌ Failed');
+                }
+            }
+
+            async handleMessage(message) {
+                this.log(`📨 Received: ${message.type}`, 'info');
+
+                switch (message.type) {
+                    case 'room-state':
+                        if (message.payload.participants && Array.isArray(message.payload.participants)) {
+                            this.myUserId = message.payload.participants.find(p => 
+                                message.payload.participants.length === 1 || p.username !== 'webrtc_test'
+                            )?.user_id;
+                            this.updateParticipants(message.payload.participants);
+                        } else {
+                            this.log('Room state message missing or invalid participants array', 'error');
+                        }
+                        this.log(`Room state: ${message.payload.participant_count || 'unknown'} participants`, 'success');
+                        break;
+
+                    case 'user-joined':
+                        this.log(`User joined: ${message.payload.username}`, 'success');
+                        this.updateParticipants(message.payload.participants);
+                        // If we're already in a call and someone joins, we become the initiator
+                        if (this.pc && this.pc.signalingState === 'stable') {
+                            this.isInitiator = true;
+                        }
+                        break;
+
+                    case 'user-left':
+                        this.log(`User left: ${message.payload.username}`, 'warning');
+                        this.updateParticipants(message.payload.participants);
+                        break;
+
+                    case 'offer':
+                        await this.handleOffer(message);
+                        break;
+
+                    case 'answer':
+                        await this.handleAnswer(message);
+                        break;
+
+                    case 'ice-candidate':
+                        await this.handleIceCandidate(message);
+                        break;
+
+                    default:
+                        this.log(`Unknown message type: ${message.type}`, 'warning');
+                }
+            }
+
+            async startCall() {
+                try {
+                    this.log('Starting call...', 'info');
+
+                    // Check for media devices support
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        const errMsg = 'navigator.mediaDevices.getUserMedia is not available in this context. Make sure you are running this page from https:// or from http://localhost (not file://), and that the browser supports WebRTC.';
+                        this.log(errMsg, 'error');
+                        this.updateStatus('disconnected', '❌ Media unavailable');
+                        // Add a diagnostic hint visible to the user
+                        const hint = `Hint: Serve the file via a local server (e.g. \`python3 -m http.server 8001\`) and open http://localhost:8001/webrtc_test.html or use HTTPS. If using a tunnel, ensure the page is loaded via https://${WS_DOMAIN}/webrtc_test.html or equivalent.`;
+                        this.log(hint, 'warning');
+                        return;
+                    }
+
+                    // Get local media stream
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: true
+                    });
+
+                    const localVideo = document.getElementById(`localVideo${this.userId}`);
+                    localVideo.srcObject = this.localStream;
+                    this.log('Got local media stream', 'success');
+
+                    // Create peer connection
+                    this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+                    // Add local tracks to peer connection
+                    this.localStream.getTracks().forEach(track => {
+                        this.pc.addTrack(track, this.localStream);
+                    });
+
+                    // Handle incoming tracks
+                    this.pc.ontrack = (event) => {
+                        this.log('Received remote track', 'success');
+                        const remoteVideo = document.getElementById(`remoteVideo${this.userId}`);
+                        remoteVideo.srcObject = event.streams[0];
+                    };
+
+                    // Handle ICE candidates
+                    this.pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            this.log('Sending ICE candidate', 'info');
+                            this.sendMessage({
+                                type: 'ice-candidate',
+                                payload: {
+                                    candidate: event.candidate.toJSON()
+                                }
+                            });
+                        }
+                    };
+
+                    // Handle connection state changes
+                    this.pc.onconnectionstatechange = () => {
+                        this.log(`Connection state: ${this.pc.connectionState}`, 'info');
+                    };
+
+                    // Determine if we should create offer (first person to click call)
+                    this.isInitiator = this.participants.size > 0;
+
+                    if (this.isInitiator) {
+                        this.log('Creating offer as initiator...', 'info');
+                        await this.createOffer();
+                    } else {
+                        this.log('Waiting for offer from peer...', 'info');
+                    }
+
+                    document.getElementById(`call${this.userId}`).disabled = true;
+                } catch (error) {
+                    this.log(`Failed to start call: ${error.message}`, 'error');
+                }
+            }
+
+            async createOffer() {
+                const offer = await this.pc.createOffer();
+                await this.pc.setLocalDescription(offer);
+                
+                this.log('Sending offer...', 'info');
+                this.sendMessage({
+                    type: 'offer',
+                    payload: {
+                        sdp: offer.sdp,
+                        type: offer.type
+                    }
+                });
+            }
+
+            async handleOffer(message) {
+                this.log('Received offer, creating answer...', 'info');
+
+                if (!this.pc) {
+                    // If we haven't started the call yet, do it now
+                    await this.startCall();
+                }
+
+                const offer = new RTCSessionDescription({
+                    type: 'offer',
+                    sdp: message.payload.sdp
+                });
+
+                await this.pc.setRemoteDescription(offer);
+                const answer = await this.pc.createAnswer();
+                await this.pc.setLocalDescription(answer);
+
+                this.log('Sending answer...', 'info');
+                this.sendMessage({
+                    type: 'answer',
+                    payload: {
+                        sdp: answer.sdp,
+                        type: answer.type
+                    },
+                    target_id: message.sender_id
+                });
+            }
+
+            async handleAnswer(message) {
+                this.log('Received answer', 'success');
+                const answer = new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: message.payload.sdp
+                });
+                await this.pc.setRemoteDescription(answer);
+            }
+
+            async handleIceCandidate(message) {
+                this.log('Received ICE candidate', 'info');
+                if (this.pc && message.payload.candidate) {
+                    const candidate = new RTCIceCandidate(message.payload.candidate);
+                    await this.pc.addIceCandidate(candidate);
+                }
+            }
+
+            sendMessage(message) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(message));
+                } else {
+                    this.log('Cannot send message: WebSocket not connected', 'error');
+                }
+            }
+
+            disconnect() {
+                this.log('Disconnecting...', 'warning');
+
+                if (this.pc) {
+                    this.pc.close();
+                    this.pc = null;
+                }
+
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                    this.localStream = null;
+                }
+
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+
+                document.getElementById(`localVideo${this.userId}`).srcObject = null;
+                document.getElementById(`remoteVideo${this.userId}`).srcObject = null;
+                
+                this.updateStatus('disconnected', '⭕ Disconnected');
+                document.getElementById(`connect${this.userId}`).disabled = false;
+                document.getElementById(`call${this.userId}`).disabled = true;
+                document.getElementById(`disconnect${this.userId}`).disabled = true;
+            }
+        }
+
+        // Initialize clients
+        const client1 = new WebRTCClient(1);
+        const client2 = new WebRTCClient(2);
+
+        // Setup event listeners
+        document.getElementById('connect1').addEventListener('click', () => client1.connect());
+        document.getElementById('call1').addEventListener('click', () => client1.startCall());
+        document.getElementById('disconnect1').addEventListener('click', () => client1.disconnect());
+
+        document.getElementById('connect2').addEventListener('click', () => client2.connect());
+        document.getElementById('call2').addEventListener('click', () => client2.startCall());
+        document.getElementById('disconnect2').addEventListener('click', () => client2.disconnect());
+    </script>
+</body>
+</html>

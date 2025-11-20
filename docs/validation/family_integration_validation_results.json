@@ -1,0 +1,165 @@
+{
+  "total_validations": 6,
+  "passed_validations": 5,
+  "failed_validations": 1,
+  "success_rate": 83.33333333333334,
+  "validation_results": [
+    {
+      "test_name": "API Endpoint Structure Validation",
+      "passed": true,
+      "details": "All 7 required endpoints found with proper FastAPI structure",
+      "timestamp": "2025-10-22T17:35:25.807162+00:00",
+      "data": {
+        "total_required_endpoints": 7,
+        "found_endpoints": 7,
+        "missing_endpoints": [],
+        "endpoint_details": {
+          "create_family": "found",
+          "get_my_families": "found",
+          "invite_family_member": "found",
+          "respond_to_invitation": "found",
+          "accept_invitation_by_token": "found",
+          "decline_invitation_by_token": "found",
+          "get_family_invitations": "found"
+        },
+        "fastapi_usage": {
+          "@router.post": 20,
+          "@router.get": 21,
+          "@router.delete": 3,
+          "response_model=": 26,
+          "status_code=": 204,
+          "Depends(": 47
+        }
+      }
+    },
+    {
+      "test_name": "Response Model Structure Validation",
+      "passed": false,
+      "details": "Missing 1 required models: ['FamilyMemberResponse']",
+      "timestamp": "2025-10-22T17:35:25.807476+00:00",
+      "data": {
+        "total_required_models": 6,
+        "found_models": 5,
+        "missing_models": [
+          "FamilyMemberResponse"
+        ],
+        "model_details": {
+          "FamilyResponse": "found",
+          "InvitationResponse": "found",
+          "SBDAccountResponse": "found",
+          "TokenRequestResponse": "found",
+          "NotificationListResponse": "found",
+          "FamilyMemberResponse": "missing"
+        },
+        "pydantic_usage": {
+          "from pydantic import": 1,
+          "BaseModel": 18,
+          "Field(": 344,
+          "validator": 11,
+          "root_validator": 0
+        }
+      }
+    },
+    {
+      "test_name": "Error Handling Patterns Validation",
+      "passed": true,
+      "details": "Comprehensive error handling patterns found",
+      "timestamp": "2025-10-22T17:35:25.808166+00:00",
+      "data": {
+        "error_handling_patterns": {
+          "try:": 58,
+          "except": 160,
+          "HTTPException": 181,
+          "status_code=": 204,
+          "FamilyError": 46,
+          "ValidationError": 11,
+          "InsufficientPermissions": 34,
+          "FamilyNotFound": 27
+        },
+        "error_response_patterns": {
+          "\"error\":": 176,
+          "\"message\":": 193,
+          "detail=": 180,
+          "status.HTTP_": 204
+        },
+        "has_try_except": true,
+        "has_http_exceptions": true,
+        "has_custom_errors": true
+      }
+    },
+    {
+      "test_name": "Security Integration Patterns Validation",
+      "passed": true,
+      "details": "Comprehensive security integration patterns found",
+      "timestamp": "2025-10-22T17:35:25.808754+00:00",
+      "data": {
+        "security_patterns": {
+          "Depends(": 47,
+          "enforce_all_lockdowns": 48,
+          "current_user": 107,
+          "security_manager": 51,
+          "check_rate_limit": 49,
+          "rate_limit_requests=": 49,
+          "rate_limit_period=": 49
+        },
+        "authentication_patterns": {
+          "user_id = str(current_user": 44,
+          "admin_id": 17,
+          "permissions": 66,
+          "is_admin": 6
+        },
+        "has_dependency_injection": true,
+        "has_rate_limiting": true,
+        "has_user_validation": true
+      }
+    },
+    {
+      "test_name": "Business Logic Integration Patterns Validation",
+      "passed": true,
+      "details": "Proper business logic integration patterns found",
+      "timestamp": "2025-10-22T17:35:25.809349+00:00",
+      "data": {
+        "manager_integration": {
+          "family_manager.": 56,
+          "create_family(": 2,
+          "invite_member(": 1,
+          "respond_to_invitation(": 2,
+          "get_user_families(": 1,
+          "get_family_by_id(": 0,
+          "validate_family_spending(": 0
+        },
+        "async_patterns": {
+          "async def": 49,
+          "await ": 113,
+          "asyncio": 0
+        },
+        "has_manager_calls": true,
+        "has_async_functions": true,
+        "has_await_calls": true
+      }
+    },
+    {
+      "test_name": "Documentation and OpenAPI Integration Validation",
+      "passed": true,
+      "details": "Good documentation coverage: 104.1%",
+      "timestamp": "2025-10-22T17:35:25.809973+00:00",
+      "data": {
+        "documentation_patterns": {
+          "\"\"\"": 102,
+          "response_model=": 26,
+          "status_code=": 204,
+          "tags=": 2,
+          "**Rate Limiting:**": 46,
+          "**Requirements:**": 33,
+          "**Returns:**": 45
+        },
+        "docstring_count": 51,
+        "function_count": 49,
+        "documentation_coverage": 104.08163265306123,
+        "has_response_models": true,
+        "has_status_codes": true
+      }
+    }
+  ],
+  "timestamp": "2025-10-22T17:35:25.806434+00:00"
+}

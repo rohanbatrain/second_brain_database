@@ -7,11 +7,11 @@
 
 Welcome to the **Second Brain Database**! This project is a culmination of years of learning, experimentation, and refinement in the world of personal knowledge management (PKM). After working with several tools like Notion, Obsidian, Todoist, and others, I've developed a flexible and platform-independent system that centralizes data without tying you to a single tool.
 
-## 🚀 Introduction
+## � Introduction
 
 **Second Brain Database** is designed to help you organize and centralize your personal knowledge, tasks, and thoughts in a flexible, platform-agnostic way. It empowers you to adapt your system over time without the burden of platform dependency.
 
-## 💡 Key Features
+## � Key Features
 
 - **Flexibility**: You’re not locked into any one platform or tool. Migrate and switch between different platforms while keeping your data consistent.
 - **Centralized Data**: All your data is stored in a consistent and structured manner, no matter which frontend or tool you choose to interact with.
@@ -28,7 +28,7 @@ Second Brain Database resolves this by using **MongoDB** to store data in a non-
 
 The project incorporates micro frontends to keep things modular and focused. For example, the *Emotion Capture* frontend is designed specifically to capture and store emotions without overwhelming you with other features. These small, focused frontends operate independently, interacting with the centralized MongoDB database via the Flask API.
 
-## 🚧 Project Status
+## � Project Status
 
 Second Brain Database is **still under active development**. The core functionality is in place, and a beta release is coming soon. Once the beta is ready, I'll provide more details on how you can try it out and contribute to its development.
 

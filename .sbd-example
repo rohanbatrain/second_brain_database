@@ -1,0 +1,381 @@
+# ============================================================================
+# SECOND BRAIN DATABASE - ENVIRONMENT CONFIGURATION (.sbd-example)
+# ============================================================================
+# Copy this file to .sbd and configure with your actual values
+# DO NOT commit .sbd to version control!
+# This file contains ALL possible configuration options for reference
+
+# ============================================================================
+# APPLICATION SETTINGS
+# ============================================================================
+APP_NAME=Second Brain Database
+ENVIRONMENT=development
+DEBUG=True
+LOG_LEVEL=INFO
+HOST=0.0.0.0
+PORT=8000
+BASE_URL=http://localhost:8000
+
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
+MONGODB_URL=mongodb://127.0.0.1:27017/second_brain_db
+MONGODB_DATABASE=second_brain_database
+MONGODB_MAX_POOL_SIZE=100
+MONGODB_MIN_POOL_SIZE=10
+MONGODB_MAX_IDLE_TIME_MS=45000
+MONGODB_CONNECTION_TIMEOUT=10000
+MONGODB_SERVER_SELECTION_TIMEOUT=5000
+
+# Optional MongoDB Authentication
+# MONGODB_USERNAME=your_username
+# MONGODB_PASSWORD=your_password
+
+REDIS_URL=redis://127.0.0.1:6379/0
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_MAX_CONNECTIONS=50
+REDIS_SOCKET_TIMEOUT=5
+REDIS_SOCKET_CONNECT_TIMEOUT=5
+REDIS_USERNAME=default
+# REDIS_PASSWORD=your_redis_password
+# REDIS_STORAGE_URI=redis://:PASSWORD@HOST:PORT/DB
+
+# ============================================================================
+# SECURITY & AUTHENTICATION
+# ============================================================================
+# IMPORTANT: Generate secure keys for production!
+# Generate JWT secret: openssl rand -hex 32
+JWT_SECRET_KEY=your-secret-key-here-change-in-production-use-openssl-rand-hex-32
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# Generate Fernet key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY=your-fernet-key-here
+FERNET_KEY=your-fernet-key-here
+
+# Password Policy
+PASSWORD_MIN_LENGTH=8
+PASSWORD_REQUIRE_UPPERCASE=True
+PASSWORD_REQUIRE_LOWERCASE=True
+PASSWORD_REQUIRE_DIGIT=True
+PASSWORD_REQUIRE_SPECIAL=True
+
+# Rate Limiting
+RATE_LIMIT_ENABLED=True
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_PERIOD=60
+
+# Security Features
+BLACKLIST_THRESHOLD=10
+BLACKLIST_DURATION=3600
+REPEATED_VIOLATOR_WINDOW_MINUTES=10
+REPEATED_VIOLATOR_MIN_UNIQUE_IPS=3
+BACKUP_CODES_PENDING_TIME=300
+BACKUP_CODES_CLEANUP_INTERVAL=60
+
+# Cloudflare Turnstile (Optional)
+TURNSTILE_SITEKEY=your-turnstile-site-key
+TURNSTILE_SECRET=your-turnstile-secret-key
+
+# ============================================================================
+# AI & LLM CONFIGURATION
+# ============================================================================
+# LangChain
+LANGCHAIN_ENABLED=True
+LANGCHAIN_MODEL_PROVIDER=ollama
+LANGCHAIN_DEFAULT_MODEL=gemma3:1b
+LANGCHAIN_TEMPERATURE=0.7
+LANGCHAIN_MAX_TOKENS=2048
+LANGCHAIN_MEMORY_TTL=3600
+LANGCHAIN_CONVERSATION_HISTORY_LIMIT=50
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_pt_your_langsmith_api_key_here
+LANGCHAIN_PROJECT=SecondBrainDatabase
+
+# Ollama Configuration
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2:latest
+OLLAMA_CHAT_MODEL=llama3.2:latest
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text:latest
+OLLAMA_AVAILABLE_MODELS=llama3.2:latest,gemma3:1b,deepseek-r1:1.5b
+OLLAMA_REASONING_MODEL=deepseek-r1:1.5b
+OLLAMA_FAST_MODEL=gemma3:1b
+OLLAMA_AUTO_MODEL_SELECTION=True
+OLLAMA_TIMEOUT=120
+OLLAMA_CACHE_TTL=3600
+
+# AI Agent Configuration
+AI_ENABLED=true
+AI_MODEL_POOL_SIZE=5
+AI_MAX_CONCURRENT_SESSIONS=100
+AI_SESSION_TIMEOUT=3600
+AI_MODEL_RESPONSE_TIMEOUT=120
+AI_WORKFLOW_TIMEOUT=600
+AI_MODEL_TEMPERATURE=0.7
+AI_DEFAULT_AGENT=personal
+AI_ORCHESTRATION_ENABLED=true
+
+# LangSmith Observability (Optional)
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=SecondBrainDatabase
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_TRACING=False
+
+# LangGraph Platform API Settings
+LANGGRAPH_ENABLED=true
+LANGGRAPH_API_URL=http://localhost:8000/api/v1
+LANGGRAPH_CHECKPOINTER={"class": "langgraph.checkpoint.memory.MemorySaver"}
+LANGGRAPH_DEFAULT_GRAPH=sbd_agent
+LANGGRAPH_CHECKPOINT_TTL=86400
+
+# ============================================================================
+# VECTOR SEARCH & RAG CONFIGURATION
+# ============================================================================
+# Qdrant Vector Database
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_API_KEY=
+QDRANT_HTTPS=False
+QDRANT_COLLECTION_NAME=document_embeddings
+QDRANT_VECTOR_SIZE=768
+QDRANT_DISTANCE_METRIC=Cosine
+QDRANT_SPARSE_MODEL=prithvida/Splade_PP_en_v1
+
+# LlamaIndex Configuration
+LLAMAINDEX_ENABLED=True
+LLAMAINDEX_EMBED_MODEL=local:BAAI/bge-small-en-v1.5
+LLAMAINDEX_CHUNK_SIZE=1024
+LLAMAINDEX_CHUNK_OVERLAP=200
+LLAMAINDEX_TOP_K=5
+LLAMAINDEX_SIMILARITY_CUTOFF=0.7
+LLAMAINDEX_HYBRID_SEARCH_ENABLED=True
+LLAMAINDEX_SPARSE_TOP_K=12
+LLAMAINDEX_ALPHA=0.5
+
+# Document Processing
+DOCUMENT_CHUNK_SIZE=1000
+DOCUMENT_CHUNK_OVERLAP=200
+DOCUMENT_MAX_CHUNKS=1000
+DOCUMENT_ENABLE_TABLES=True
+DOCUMENT_ENABLE_IMAGES=True
+DOCUMENT_OCR_ENABLED=True
+
+# RAG Settings
+RAG_TOP_K=5
+RAG_SIMILARITY_THRESHOLD=0.7
+RAG_MAX_CONTEXT_LENGTH=8000
+RAG_ENABLE_RERANKING=False
+
+# ============================================================================
+# VOICE & REAL-TIME COMMUNICATION
+# ============================================================================
+# LiveKit Configuration
+LIVEKIT_ENABLED=True
+LIVEKIT_API_KEY=your_livekit_api_key
+LIVEKIT_API_SECRET=your_livekit_api_secret
+LIVEKIT_URL=ws://localhost:7880
+LIVEKIT_ROOM_TIMEOUT=600
+
+# Deepgram STT/TTS (Optional - for production voice)
+DEEPGRAM_API_KEY=your_deepgram_api_key
+
+# Voice Processing Settings
+VOICE_SAMPLE_RATE=16000
+VOICE_CHUNK_SIZE=1024
+VOICE_MAX_AUDIO_LENGTH=30
+VOICE_TTS_VOICE=en
+VOICE_ENABLED=true
+VOICE_STT_ENABLED=true
+VOICE_TTS_ENABLED=true
+VOICE_REALTIME_ENABLED=true
+VOICE_COMMAND_ENABLED=true
+
+# ============================================================================
+# CELERY CONFIGURATION
+# ============================================================================
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+CELERY_TASK_SERIALIZER=json
+CELERY_ACCEPT_CONTENT=json
+CELERY_TIMEZONE=UTC
+CELERY_ENABLE_UTC=True
+
+# ============================================================================
+# MCP SERVER CONFIGURATION
+# ============================================================================
+MCP_ENABLED=True
+MCP_SERVER_NAME=SecondBrainMCP
+MCP_SERVER_VERSION=1.0.0
+MCP_DEBUG_MODE=False
+
+# Transport Configuration
+MCP_TRANSPORT=http
+MCP_HTTP_HOST=127.0.0.1
+MCP_HTTP_PORT=8001
+MCP_HTTP_CORS_ENABLED=True
+MCP_HTTP_CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+
+# Security Configuration
+MCP_SECURITY_ENABLED=True
+MCP_REQUIRE_AUTH=True
+MCP_AUTH_TOKEN=your-secure-mcp-token-here
+MCP_AUDIT_ENABLED=True
+
+# Rate Limiting
+MCP_RATE_LIMIT_ENABLED=True
+MCP_RATE_LIMIT_REQUESTS=100
+MCP_RATE_LIMIT_PERIOD=60
+MCP_RATE_LIMIT_BURST=10
+
+# Performance
+MCP_MAX_CONCURRENT_TOOLS=50
+MCP_REQUEST_TIMEOUT=30
+MCP_TOOL_EXECUTION_TIMEOUT=60
+
+# Tool Categories
+MCP_TOOLS_ENABLED=True
+MCP_RESOURCES_ENABLED=True
+MCP_PROMPTS_ENABLED=True
+
+# Tool Access Control
+MCP_FAMILY_TOOLS_ENABLED=True
+MCP_AUTH_TOOLS_ENABLED=True
+MCP_PROFILE_TOOLS_ENABLED=True
+MCP_SHOP_TOOLS_ENABLED=True
+MCP_WORKSPACE_TOOLS_ENABLED=True
+MCP_ADMIN_TOOLS_ENABLED=False
+MCP_SYSTEM_TOOLS_ENABLED=False
+
+# Monitoring
+MCP_MONITORING_ENABLED=true
+MCP_HEALTH_CHECK_ENABLED=true
+MCP_METRICS_ENABLED=true
+MCP_PERFORMANCE_MONITORING=true
+
+# Error Handling
+MCP_ERROR_RECOVERY_ENABLED=true
+MCP_CIRCUIT_BREAKER_ENABLED=true
+MCP_RETRY_ENABLED=true
+MCP_RETRY_MAX_ATTEMPTS=3
+MCP_RETRY_BACKOFF_FACTOR=2.0
+
+# Cache Configuration
+MCP_CACHE_ENABLED=true
+MCP_CACHE_TTL=300
+MCP_CONTEXT_CACHE_TTL=60
+
+# ============================================================================
+# DOCUMENT PROCESSING
+# ============================================================================
+DOCLING_ENABLED=True
+DOCLING_MAX_FILE_SIZE=52428800
+DOCLING_SUPPORTED_FORMATS=pdf,docx,pptx
+DOCLING_OCR_ENABLED=True
+
+# ============================================================================
+# API DOCUMENTATION
+# ============================================================================
+DOCS_ENABLED=True
+DOCS_URL=/docs
+DOCS_REDOC_URL=/redoc
+DOCS_CACHE_TTL=3600
+DOCS_REQUIRE_AUTH=False
+
+# Production Documentation Security
+DOCS_ALLOWED_IPS=
+DOCS_RATE_LIMIT_REQUESTS=10
+DOCS_RATE_LIMIT_PERIOD=60
+
+# ============================================================================
+# CORS CONFIGURATION
+# ============================================================================
+CORS_ENABLED=True
+CORS_ORIGINS=http://localhost:3000,http://localhost:8000,https://agentchat.vercel.app
+CORS_ALLOW_CREDENTIALS=True
+CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,PATCH
+CORS_ALLOW_HEADERS=*
+CORS_MAX_AGE=3600
+
+# ============================================================================
+# LOGGING & MONITORING
+# ============================================================================
+# Loki Integration (Optional)
+LOKI_ENABLED=False
+LOKI_URL=http://localhost:3100/loki/api/v1/push
+
+# Performance Monitoring
+PERFORMANCE_MONITORING_ENABLED=True
+METRICS_COLLECTION_INTERVAL=60
+
+# ============================================================================
+# FEATURE FLAGS
+# ============================================================================
+FEATURE_AI_AGENTS=True
+FEATURE_VOICE_PROCESSING=True
+FEATURE_DOCUMENT_PROCESSING=True
+FEATURE_MCP_SERVER=True
+FEATURE_FAMILY_MANAGEMENT=True
+FEATURE_WORKSPACE_MANAGEMENT=True
+FEATURE_SHOP=True
+
+# ============================================================================
+# ADVANCED CONFIGURATION
+# ============================================================================
+# Request/Response Limits
+MAX_REQUEST_SIZE=52428800
+MAX_UPLOAD_SIZE=52428800
+REQUEST_TIMEOUT=300
+
+# Connection Pooling
+DB_CONNECTION_POOL_SIZE=100
+REDIS_CONNECTION_POOL_SIZE=50
+
+# Retry Configuration
+MCP_RETRY_ENABLED=True
+MCP_RETRY_MAX_ATTEMPTS=3
+MCP_RETRY_INITIAL_DELAY=1.0
+MCP_RETRY_BACKOFF_FACTOR=2.0
+MCP_RETRY_MAX_DELAY=30.0
+
+# Circuit Breaker
+MCP_CIRCUIT_BREAKER_ENABLED=True
+MCP_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+MCP_CIRCUIT_BREAKER_RECOVERY_TIMEOUT=60
+
+# ============================================================================
+# PRODUCTION OVERRIDES
+# ============================================================================
+# Uncomment and configure for production deployment:
+
+# ENVIRONMENT=production
+# DEBUG=False
+# LOG_LEVEL=WARNING
+
+# Use strong secrets:
+# JWT_SECRET_KEY=<generate-with-openssl-rand-hex-32>
+# ENCRYPTION_KEY=<generate-with-fernet-key>
+# FERNET_KEY=<generate-with-fernet-key>
+
+# Production databases:
+# MONGODB_URL=mongodb://prod-host:27017/second_brain_db
+# REDIS_URL=redis://prod-host:6379/0
+
+# Restrict CORS:
+# CORS_ORIGINS=https://yourdomain.com
+
+# Tighter rate limits:
+# RATE_LIMIT_REQUESTS=50
+# RATE_LIMIT_PERIOD=60
+
+# Disable dangerous features in production:
+# MCP_ADMIN_TOOLS_ENABLED=False
+# MCP_SYSTEM_TOOLS_ENABLED=False
+# MCP_DEBUG_MODE=False
+
+# Production voice settings:
+# LIVEKIT_URL=wss://your-livekit-server.com
+# DEEPGRAM_API_KEY=your-production-deepgram-key

@@ -1,0 +1,17 @@
+{
+  "mcp.servers": {
+    "second-brain-database": {
+      "name": "Second Brain Database",
+      "command": "uv",
+      "args": ["run", "python", "start_mcp_server.py", "--transport", "stdio"],
+      "description": "Access to Second Brain Database tools and resources",
+      "capabilities": [
+        "tools",
+        "resources",
+        "prompts"
+      ]
+    }
+  },
+  "mcp.autoConnect": true,
+  "mcp.logLevel": "info"
+}

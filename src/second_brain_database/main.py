@@ -1,300 +1,1281 @@
 """
-main.py
+Main application module for Second Brain Database API.
 
-Flask application entry point for Second Brain Database. Sets up routes, middleware, rate
-limiting, and error handling.
-
-Dependencies:
-    - Flask
-    - flask_cors
-    - flask_limiter
-    - redis
-    - logging
-    - Second_Brain_Database.*
-
-Author: Rohan Batra
-Date: 2025-06-11
+This module sets up the FastAPI application with proper lifespan management,
+database connections, and routing configuration with comprehensive logging.
 """
-import logging
+
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import time
-from flask import Flask, request, abort
-from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import redis
-from second_brain_database.auth.routes import auth_bp
-from second_brain_database.admin.v1.plans.routes import plans_bp
-from second_brain_database.user.v1.emotion_tracker.routes import emotion_bp
-from second_brain_database.user.v1.notes.routes import notes_bp
-from second_brain_database.config import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_STORAGE_URI
 
-logger = logging.getLogger(__name__)
+from fastapi import FastAPI, HTTPException
+from prometheus_fastapi_instrumentator import Instrumentator
+from pymongo import ASCENDING, DESCENDING
+import uvicorn
 
-# Create Flask app
-app = Flask(__name__)
-CORS(app)
-
-# Initialize Redis for tracking abusive IPs
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
-
-# Initialize Flask-Limiter
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri=REDIS_STORAGE_URI,  # Use configurable Redis URI
-    swallow_errors=True  # Prevent Flask from logging too many limit errors
+from second_brain_database.config import settings
+from second_brain_database.database import db_manager
+from second_brain_database.docs.config import docs_config
+from second_brain_database.docs.middleware import configure_documentation_middleware
+from second_brain_database.managers.logging_manager import get_logger
+from second_brain_database.routes import auth_router, main_router
+from second_brain_database.routes.auth.periodics.cleanup import (
+    periodic_2fa_cleanup,
+    periodic_admin_session_token_cleanup,
+    periodic_avatar_rental_cleanup,
+    periodic_banner_rental_cleanup,
+    periodic_email_verification_token_cleanup,
+    periodic_session_cleanup,
+    periodic_temporary_access_tokens_cleanup,
+    periodic_trusted_ip_lockdown_code_cleanup,
+    periodic_trusted_user_agent_lockdown_code_cleanup,
+)
+from second_brain_database.routes.auth.periodics.redis_flag_sync import periodic_blocklist_whitelist_reconcile
+from second_brain_database.routes.ipam.periodics.capacity_monitoring import periodic_ipam_capacity_monitoring
+from second_brain_database.routes.ipam.periodics.notification_cleanup import periodic_ipam_notification_cleanup
+from second_brain_database.routes.ipam.periodics.reservation_cleanup import periodic_ipam_reservation_cleanup
+from second_brain_database.routes.ipam.periodics.reservation_expiration import periodic_ipam_reservation_expiration
+from second_brain_database.routes.ipam.periodics.share_expiration import periodic_ipam_share_expiration
+from second_brain_database.routes.ipam.periodics.webhook_delivery import periodic_ipam_webhook_delivery
+from second_brain_database.routes.avatars.routes import router as avatars_router
+from second_brain_database.routes.banners.routes import router as banners_router
+from second_brain_database.routes.chat.routes import router as chat_router
+from second_brain_database.routes.clubs import router as clubs_router
+from second_brain_database.routers.club_webrtc_router import router as club_webrtc_router
+from second_brain_database.routes.documents import router as documents_router
+from second_brain_database.routes.rag import router as rag_router
+from second_brain_database.routes.family.routes import router as family_router
+from second_brain_database.routes.profile.routes import router as profile_router
+from second_brain_database.routes.sbd_tokens.routes import router as sbd_tokens_router
+from second_brain_database.routes.shop.routes import router as shop_router
+from second_brain_database.routes.themes.routes import router as themes_router
+from second_brain_database.routes.websockets import router as websockets_router
+from second_brain_database.routes.workspaces.routes import router as workspaces_router
+from second_brain_database.routes.skills import router as skills_router
+from second_brain_database.routes.ipam.routes import router as ipam_router
+from second_brain_database.routes.ipam.dashboard_routes import router as ipam_dashboard_router
+from second_brain_database.routes.langgraph_api import router as langgraph_api_router
+from second_brain_database.routes.dashboard import router as dashboard_router
+from second_brain_database.webrtc import router as webrtc_router
+from second_brain_database.utils.logging_utils import (
+    RequestLoggingMiddleware,
+    log_application_lifecycle,
+    log_error_with_context,
+    log_performance,
 )
 
-# Global whitelist for IPs
-WHITELISTED_IPS = ["127.0.0.1", "localhost"]  # Replace with your list of whitelisted IPs
+logger = get_logger()
 
-@app.before_request
-def block_abusive_ips():
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     """
-    Block requests from IPs that are currently blocked in Redis.
-    Prevent blocking whitelisted IPs.
-    Raises:
-        403: If the IP is blocked.
+    Application lifespan manager with comprehensive logging.
+
+    Manages application startup and shutdown with detailed logging
+    of all lifecycle events, database connections, and background tasks.
     """
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+    startup_start_time = time.time()
 
-    if ip in WHITELISTED_IPS:
-        return  # Skip blocking and logging for whitelisted IPs
-
-    blocked = r.get(f"blocked:{ip}")
-    if blocked:
-        print(f"Blocked request from IP: {ip}")
-        abort(403, description="You are temporarily blocked.")
-
-@app.before_request
-def slow_down_attackers():
-    """
-    Introduce a delay for IPs with multiple failed attempts (tar-pitting).
-    """
-    ip = request.remote_addr
-
-    if ip in WHITELISTED_IPS:
-        return  # Skip delay for whitelisted IPs
-
-    failed_attempts = int(r.get(f"failed:{ip}") or 0)
-    if failed_attempts > 5:  # Delay only if user has failed 5+ times
-        print(f"Delaying request from IP {ip} due to {failed_attempts} failed attempts.")
-        time.sleep(2)  # 2-second delay before processing request
-
-@app.after_request
-def track_failed_attempts(response):
-    """
-    Track failed requests and block IPs after too many failures.
-    Args:
-        response (flask.Response): The response object.
-    Returns:
-        flask.Response: The response object.
-    """
-    ip = request.remote_addr
-
-    if ip in WHITELISTED_IPS:
-        return response  # Skip tracking for whitelisted IPs
-
-    if response.status_code == 429:  # Too Many Requests
-        r.incr(f"failed:{ip}")  # Increment failure count
-        attempts = int(r.get(f"failed:{ip}") or 0)
-        if attempts > 10:  # Block IP after 10 failures
-            r.setex(f"blocked:{ip}", 3600, 1)  # Block for 1 hour
-            print(f"IP {ip} blocked for 1 hour after {attempts} failures.")
-    return response
-
-@app.route("/")
-def landing_page():
-    """
-    Landing page for the application.
-    Returns:
-        str: HTML content for the landing page.
-    """
-    return """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Welcome to Second Brain Database</title>
-
-  <!-- Tailwind CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-
-  <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #0a0a0a;
-    }
-
-    .glass-bg {
-      position: fixed;
-      inset: 0;
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      animation: subtleGlow 6s ease-in-out infinite;
-    }
-
-    .glass-bg::before {
-      content: "";
-      position: absolute;
-      inset: -5px;
-      background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.05));
-      z-index: -1;
-      filter: blur(30px);
-      border-radius: inherit;
-      animation: subtleGlow 8s ease-in-out infinite;
-    }
-
-    @keyframes subtleGlow {
-      0%, 100% { opacity: 0.4; }
-      50% { opacity: 0.9; }
-    }
-  </style>
-</head>
-<body class="flex items-center justify-center min-h-screen text-white">
-
-  <!-- Fullscreen Glass Background -->
-  <div class="glass-bg z-0"></div>
-
-  <!-- Centered Content -->
-  <div class="relative z-10 text-center px-6">
-    <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight">
-      Welcome to<br>Second Brain Database API
-    </h1>
-    <p class="mt-6 text-lg text-white/70">
-      A centralized, elegant engine for personal knowledge management.
-    </p>
-  </div>
-
-</body>
-</html>
-"""
-
-@app.route("/login")
-def login_page():
-    """
-    Serve the login page.
-    Returns:
-        str: HTML content for the login page.
-    """
-    return """<html><head><title>Login</title></head><body><h1>Login Page</h1></body></html>"""
-
-@app.route("/register")
-def register_page():
-    """
-    Serve the register page.
-    Returns:
-        str: HTML content for the register page.
-    """
-    return """<html><head><title>Register</title></head>
-    <body><h1>Register Page</h1></body></html>"""
-
-@app.route("/health")
-@limiter.limit("1 per 10 seconds")
-def health_check():
-    """
-    Health check route to verify the application is running.
-    Returns:
-        str: JSON response indicating the application status.
-    """
-    return {"status": "ok", "message": "Application is healthy."}, 200
-
-@app.errorhandler(404)
-def not_found_error(error):  # pylint: disable=unused-argument
-    """
-    Handle 404 Not Found errors.
-    Args:
-        error (Exception): The error object.
-    Returns:
-        tuple: HTML content and status code.
-    """
-    return (
-        """<html><head><title>404 Not Found</title></head><body><h1>404 - Page Not Found</h1>"
-        "</body></html>""",
-        404,
+    # Log application startup initiation
+    log_application_lifecycle(
+        "startup_initiated",
+        {
+            "app_name": "Second Brain Database API",
+            "version": "1.0.0",
+            "environment": "production" if settings.is_production else "development",
+            "debug_mode": settings.DEBUG,
+        },
     )
 
-@app.errorhandler(401)
-def unauthorized_error(error):  # pylint: disable=unused-argument
-    """
-    Handle 401 Unauthorized errors.
-    Args:
-        error (Exception): The error object.
-    Returns:
-        tuple: HTML content and status code.
-    """
-    return (
-        """<html><head><title>401 Unauthorized</title></head><body><h1>401 - Unauthorized</h1>"
-        "</body></html>""",
-        401,
+    try:
+        # Database connection with performance logging
+        db_connect_start = time.time()
+        logger.info("Initiating database connection...")
+
+        await db_manager.connect()
+        db_connect_duration = time.time() - db_connect_start
+
+        log_application_lifecycle(
+            "database_connected",
+            {
+                "connection_duration": f"{db_connect_duration:.3f}s",
+                "database_name": settings.MONGODB_DATABASE,
+                "connection_url": (
+                    settings.MONGODB_URL.split("@")[-1] if "@" in settings.MONGODB_URL else settings.MONGODB_URL
+                ),
+            },
+        )
+
+        # Database indexes creation with performance logging
+        indexes_start = time.time()
+        logger.info("Creating/verifying database indexes...")
+
+        await db_manager.create_indexes()
+        indexes_duration = time.time() - indexes_start
+
+        log_application_lifecycle("database_indexes_ready", {"indexes_duration": f"{indexes_duration:.3f}s"})
+
+        # Auto-seed IPAM country mappings if empty
+        ipam_seed_start = time.time()
+        logger.info("Checking IPAM country mappings...")
+
+        try:
+            from second_brain_database.managers.ipam_defaults import get_default_country_documents
+
+            collection = db_manager.get_collection("continent_country_mapping")
+            count = await collection.count_documents({})
+
+            if count == 0:
+                logger.info("IPAM country mappings not found. Auto-seeding with defaults...")
+                documents = get_default_country_documents()
+                await collection.insert_many(documents)
+
+                # Create indexes
+                await collection.create_index("continent")
+                await collection.create_index("country", unique=True)
+                await collection.create_index([("x_start", 1), ("x_end", 1)])
+
+                logger.info("✅ Auto-seeded %d IPAM country mappings", len(documents))
+                log_application_lifecycle(
+                    "ipam_auto_seeded", {"countries_seeded": len(documents), "duration": f"{time.time() - ipam_seed_start:.3f}s"}
+                )
+            else:
+                logger.info("IPAM country mappings already exist (%d countries)", count)
+                log_application_lifecycle("ipam_seed_skipped", {"existing_countries": count})
+
+        except Exception as ipam_error:
+            logger.warning("Failed to auto-seed IPAM country mappings: %s", ipam_error)
+            log_application_lifecycle("ipam_seed_failed", {"error": str(ipam_error)})
+
+        # Auto-seed shop items if empty
+        shop_seed_start = time.time()
+        logger.info("Checking shop items...")
+
+        try:
+            from second_brain_database.routes.shop.shop_data import get_shop_items_seed_data
+
+            collection = db_manager.get_collection("shop_items")
+            count = await collection.count_documents({})
+
+            if count == 0:
+                logger.info("Shop items not found. Auto-seeding with defaults...")
+                items = get_shop_items_seed_data()
+                
+                # Upsert each item to avoid duplicates
+                for item in items:
+                    await collection.update_one(
+                        {"item_id": item["item_id"]},
+                        {"$set": item},
+                        upsert=True
+                    )
+
+                # Create indexes
+                await collection.create_index("item_id", unique=True)
+                await collection.create_index("item_type")
+                await collection.create_index("category")
+                await collection.create_index("featured")
+
+                logger.info("✅ Auto-seeded %d shop items", len(items))
+                log_application_lifecycle(
+                    "shop_auto_seeded", {"items_seeded": len(items), "duration": f"{time.time() - shop_seed_start:.3f}s"}
+                )
+            else:
+                logger.info("Shop items already exist (%d items)", count)
+                log_application_lifecycle("shop_seed_skipped", {"existing_items": count})
+
+        except Exception as shop_error:
+            logger.warning("Failed to auto-seed shop items: %s", shop_error)
+            log_application_lifecycle("shop_seed_failed", {"error": str(shop_error)})
+
+        # Auth-specific startup tasks
+        auth_startup_start = time.time()
+        logger.info("Running auth-specific startup tasks...")
+
+        # Create log indexes
+        logs = db_manager.get_collection("logs")
+        await logs.create_index([("username", ASCENDING)])
+        await logs.create_index([("timestamp", DESCENDING)])
+        await logs.create_index([("outcome", ASCENDING)])
+
+        # Reconcile blocklist/whitelist
+        from second_brain_database.routes.auth.services.abuse.management import reconcile_blocklist_whitelist
+        await reconcile_blocklist_whitelist()
+
+        auth_startup_duration = time.time() - auth_startup_start
+        log_application_lifecycle("auth_startup_complete", {"auth_startup_duration": f"{auth_startup_duration:.3f}s"})
+
+        # Family audit trail indexes creation with performance logging
+        audit_indexes_start = time.time()
+        logger.info("Creating/verifying family audit trail indexes...")
+
+        try:
+            from second_brain_database.database.family_audit_indexes import create_family_audit_indexes
+
+            await create_family_audit_indexes()
+            audit_indexes_duration = time.time() - audit_indexes_start
+
+            log_application_lifecycle(
+                "family_audit_indexes_ready", {"audit_indexes_duration": f"{audit_indexes_duration:.3f}s"}
+            )
+        except Exception as audit_error:
+            audit_indexes_duration = time.time() - audit_indexes_start
+            logger.warning(
+                "Failed to create family audit trail indexes: %s (duration: %.3fs)", audit_error, audit_indexes_duration
+            )
+            # Continue startup even if audit indexes fail
+            log_application_lifecycle(
+                "family_audit_indexes_failed",
+                {"error": str(audit_error), "audit_indexes_duration": f"{audit_indexes_duration:.3f}s"},
+            )
+
+        # IPAM system initialization with performance logging
+        ipam_init_start = time.time()
+        logger.info("Initializing IPAM system...")
+
+        try:
+            from second_brain_database.migrations.ipam_collections_migration import initialize_ipam_system
+            from second_brain_database.database.ipam_indexes import create_ipam_indexes
+
+            # Initialize IPAM collections and seed continent-country mappings
+            ipam_initialized = await initialize_ipam_system()
+            
+            # Create IPAM indexes
+            ipam_indexes_created = await create_ipam_indexes()
+            
+            ipam_init_duration = time.time() - ipam_init_start
+
+            if ipam_initialized and ipam_indexes_created:
+                log_application_lifecycle(
+                    "ipam_system_ready", {"ipam_init_duration": f"{ipam_init_duration:.3f}s"}
+                )
+                logger.info("IPAM system initialized successfully")
+            else:
+                logger.warning("IPAM system initialization completed with warnings")
+                log_application_lifecycle(
+                    "ipam_system_partial",
+                    {
+                        "ipam_init_duration": f"{ipam_init_duration:.3f}s",
+                        "initialized": ipam_initialized,
+                        "indexes_created": ipam_indexes_created,
+                    },
+                )
+        except Exception as ipam_error:
+            ipam_init_duration = time.time() - ipam_init_start
+            logger.warning(
+                "Failed to initialize IPAM system: %s (duration: %.3fs)", ipam_error, ipam_init_duration
+            )
+            # Continue startup even if IPAM initialization fails
+            log_application_lifecycle(
+                "ipam_system_failed",
+                {"error": str(ipam_error), "ipam_init_duration": f"{ipam_init_duration:.3f}s"},
+            )
+
+    except Exception as e:
+        startup_duration = time.time() - startup_start_time
+        log_application_lifecycle(
+            "startup_failed",
+            {"error": str(e), "error_type": type(e).__name__, "startup_duration": f"{startup_duration:.3f}s"},
+        )
+        log_error_with_context(e, {"operation": "application_startup", "phase": "database_connection"})
+        raise HTTPException(status_code=503, detail="Service not ready: Database connection failed") from e
+
+    # Initialize and start MCP server if enabled
+    mcp_server = None
+    if settings.MCP_ENABLED:
+        try:
+            mcp_init_start = time.time()
+            logger.info("Initializing MCP server...")
+
+            from second_brain_database.integrations.mcp.server import mcp_server_manager
+
+            # Initialize MCP server
+            await mcp_server_manager.initialize()
+
+            # Start MCP server with HTTP transport for remote connections
+            server_started = await mcp_server_manager.start_server(transport="http")
+
+            mcp_init_duration = time.time() - mcp_init_start
+
+            if server_started:
+                log_application_lifecycle(
+                    "mcp_server_ready",
+                    {
+                        "mcp_init_duration": f"{mcp_init_duration:.3f}s",
+                        "server_name": settings.MCP_SERVER_NAME,
+                        "server_port": settings.MCP_SERVER_PORT,
+                        "server_host": settings.MCP_SERVER_HOST,
+                        "tools_registered": mcp_server_manager._tool_count,
+                        "resources_registered": mcp_server_manager._resource_count,
+                        "prompts_registered": mcp_server_manager._prompt_count,
+                    },
+                )
+                logger.info(
+                    "MCP server started successfully on %s:%d", settings.MCP_SERVER_HOST, settings.MCP_SERVER_PORT
+                )
+            else:
+                logger.warning("MCP server failed to start but initialization completed")
+                log_application_lifecycle(
+                    "mcp_server_start_failed",
+                    {
+                        "mcp_init_duration": f"{mcp_init_duration:.3f}s",
+                        "server_name": settings.MCP_SERVER_NAME,
+                        "server_port": settings.MCP_SERVER_PORT,
+                    },
+                )
+
+            # Store reference for cleanup
+            _app.state.mcp_server_manager = mcp_server_manager
+
+        except Exception as mcp_error:
+            mcp_init_duration = time.time() - mcp_init_start if "mcp_init_start" in locals() else 0
+            logger.warning("Failed to initialize MCP server: %s (duration: %.3fs)", mcp_error, mcp_init_duration)
+            log_application_lifecycle(
+                "mcp_server_failed", {"error": str(mcp_error), "mcp_init_duration": f"{mcp_init_duration:.3f}s"}
+            )
+            # Continue startup even if MCP server fails
+    else:
+        logger.info("MCP server disabled in configuration")
+
+    # Start periodic cleanup tasks with logging
+    background_tasks = {}
+    task_start_time = time.time()
+
+    try:
+        logger.info("Starting background cleanup tasks...")
+
+        background_tasks.update(
+            {
+                "2fa_cleanup": asyncio.create_task(periodic_2fa_cleanup()),
+                "blocklist_reconcile": asyncio.create_task(periodic_blocklist_whitelist_reconcile()),
+                "avatar_cleanup": asyncio.create_task(periodic_avatar_rental_cleanup()),
+                "banner_cleanup": asyncio.create_task(periodic_banner_rental_cleanup()),
+                "email_verification_cleanup": asyncio.create_task(periodic_email_verification_token_cleanup()),
+                "session_cleanup": asyncio.create_task(periodic_session_cleanup()),
+                "temporary_access_cleanup": asyncio.create_task(periodic_temporary_access_tokens_cleanup()),
+                "trusted_ip_cleanup": asyncio.create_task(periodic_trusted_ip_lockdown_code_cleanup()),
+                "trusted_user_agent_cleanup": asyncio.create_task(periodic_trusted_user_agent_lockdown_code_cleanup()),
+                "admin_session_cleanup": asyncio.create_task(periodic_admin_session_token_cleanup()),
+                "ipam_capacity_monitoring": asyncio.create_task(periodic_ipam_capacity_monitoring()),
+                "ipam_notification_cleanup": asyncio.create_task(periodic_ipam_notification_cleanup()),
+                "ipam_reservation_cleanup": asyncio.create_task(periodic_ipam_reservation_cleanup()),
+                "ipam_reservation_expiration": asyncio.create_task(periodic_ipam_reservation_expiration()),
+                "ipam_share_expiration": asyncio.create_task(periodic_ipam_share_expiration()),
+                "ipam_webhook_delivery": asyncio.create_task(periodic_ipam_webhook_delivery()),
+            }
+        )
+
+        tasks_duration = time.time() - task_start_time
+        log_application_lifecycle(
+            "background_tasks_started",
+            {
+                "task_count": len(background_tasks),
+                "tasks": list(background_tasks.keys()),
+                "tasks_startup_duration": f"{tasks_duration:.3f}s",
+            },
+        )
+
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "background_tasks_startup", "tasks_attempted": list(background_tasks.keys())}
+        )
+        # Continue startup even if some background tasks fail
+        logger.warning("Some background tasks failed to start, continuing with application startup")
+
+    # Log successful startup completion
+    total_startup_duration = time.time() - startup_start_time
+    log_application_lifecycle(
+        "startup_completed",
+        {
+            "total_startup_duration": f"{total_startup_duration:.3f}s",
+            "database_ready": True,
+            "background_tasks_count": len(background_tasks),
+        },
     )
 
-@app.errorhandler(403)
-def forbidden_error(error):  # pylint: disable=unused-argument
-    """
-    Handle 403 Forbidden errors.
-    Args:
-        error (Exception): The error object.
-    Returns:
-        tuple: HTML content and status code.
-    """
-    return (
-        """
-        <html><head><title>403 Forbidden</title></head><body><h1>403 - Forbidden</h1>"
-        "</body></html>
-        """,
-        403,
+    logger.info(f"FastAPI application startup completed in {total_startup_duration:.3f}s")
+
+    yield
+
+    # Shutdown process with comprehensive logging
+    shutdown_start_time = time.time()
+    log_application_lifecycle("shutdown_initiated", {"active_background_tasks": len(background_tasks)})
+
+    # Cancel and cleanup background tasks
+    cancelled_tasks = []
+    failed_cleanups = []
+
+    logger.info("Cancelling background tasks...")
+    for task_name, task in background_tasks.items():
+        try:
+            task.cancel()
+            cancelled_tasks.append(task_name)
+            logger.info(f"Cancelled background task: {task_name}")
+        except Exception as e:
+            failed_cleanups.append({"task": task_name, "error": str(e)})
+            logger.error(f"Failed to cancel background task {task_name}: {e}")
+
+    # Wait for task cancellations with timeout
+    cleanup_start = time.time()
+    for task_name, task in background_tasks.items():
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except asyncio.CancelledError:
+            logger.info(f"Background task {task_name} cancelled successfully")
+        except asyncio.TimeoutError:
+            logger.warning(f"Background task {task_name} cancellation timed out")
+            failed_cleanups.append({"task": task_name, "error": "cancellation_timeout"})
+        except Exception as e:
+            logger.error(f"Error during {task_name} cleanup: {e}")
+            failed_cleanups.append({"task": task_name, "error": str(e)})
+
+    cleanup_duration = time.time() - cleanup_start
+
+    # MCP server cleanup
+    if hasattr(_app.state, "mcp_server_manager") and _app.state.mcp_server_manager:
+        mcp_cleanup_start = time.time()
+        try:
+            logger.info("Shutting down MCP server...")
+            await _app.state.mcp_server_manager.stop_server()
+            mcp_cleanup_duration = time.time() - mcp_cleanup_start
+
+            log_application_lifecycle("mcp_server_shutdown", {"mcp_cleanup_duration": f"{mcp_cleanup_duration:.3f}s"})
+
+        except Exception as e:
+            mcp_cleanup_duration = time.time() - mcp_cleanup_start
+            logger.error("Error during MCP server cleanup: %s", e)
+            log_error_with_context(e, {"operation": "mcp_server_cleanup"})
+
+    # AI orchestration system cleanup (removed)
+
+    # Database disconnection with logging
+    db_disconnect_start = time.time()
+    try:
+        logger.info("Disconnecting from database...")
+        await db_manager.disconnect()
+        db_disconnect_duration = time.time() - db_disconnect_start
+
+        log_application_lifecycle("database_disconnected", {"disconnect_duration": f"{db_disconnect_duration:.3f}s"})
+
+    except Exception as e:
+        log_error_with_context(e, {"operation": "database_disconnection"})
+
+    # Log shutdown completion
+    total_shutdown_duration = time.time() - shutdown_start_time
+    log_application_lifecycle(
+        "shutdown_completed",
+        {
+            "total_shutdown_duration": f"{total_shutdown_duration:.3f}s",
+            "tasks_cleanup_duration": f"{cleanup_duration:.3f}s",
+            "cancelled_tasks": cancelled_tasks,
+            "failed_cleanups": failed_cleanups,
+            "cleanup_success_rate": (
+                f"{(len(cancelled_tasks) / len(background_tasks) * 100):.1f}%" if background_tasks else "100%"
+            ),
+        },
     )
 
-@app.errorhandler(500)
-def internal_server_error(error):  # pylint: disable=unused-argument
-    """
-    Handle 500 Internal Server Error errors.
-    Args:
-        error (Exception): The error object.
-    Returns:
-        tuple: HTML content and status code.
-    """
-    return (
-        """<html><head><title>500 Internal Server Error</title>
-        </head><body><h1>500 - Internal Server Error</h1>"
-        "</body></html>""",
-        500,
-    )
+    logger.info(f"FastAPI application shutdown completed in {total_shutdown_duration:.3f}s")
 
-# Register the authentication blueprint
-app.register_blueprint(auth_bp, url_prefix="/auth")
-limiter.limit("10 per minute")(auth_bp)
 
-# /admin routes
-# v1
-# plans
-app.register_blueprint(plans_bp, url_prefix="/admin/v1/plans")
-limiter.limit("5 per minute")(plans_bp)
+# Create FastAPI app with comprehensive documentation configuration
+app = FastAPI(
+    title="Second Brain Database API",
+    description="""
+    ## Second Brain Database API
 
-# /user routes
-# v1
-# emotion tracker
-app.register_blueprint(emotion_bp, url_prefix="/user/v1/emotion_tracker/")
-limiter.limit("20 per minute")(emotion_bp)
-# notes
-app.register_blueprint(
-    notes_bp,
-    url_prefix="/user/v1/notes/"
+    A comprehensive FastAPI application for managing your second brain database -
+    a knowledge management system designed to store, organize, and retrieve information efficiently.
+
+    ### Features
+    - **User Authentication & Authorization**: Secure JWT-based authentication with 2FA support
+    - **Permanent API Tokens**: Long-lived tokens for API access and integrations
+    - **Knowledge Management**: Store and organize your personal knowledge base
+    - **Themes & Customization**: Personalize your experience with custom themes
+    - **Shop Integration**: Manage digital assets and purchases
+    - **Avatar & Banner Management**: Customize your profile appearance
+
+    ### Security
+    - JWT token authentication
+    - Rate limiting and abuse protection
+    - Redis-based session management
+    - Comprehensive audit logging
+
+    ### Getting Started
+    1. Register for an account or authenticate with existing credentials
+    2. Obtain an access token or create permanent API tokens
+    3. Start managing your knowledge base through the API endpoints
+
+    For more information, visit our [GitHub repository](https://github.com/rohanbatrain/second_brain_database).
+    """,
+    version="1.0.0",
+    contact=docs_config.contact_info,
+    license_info=docs_config.license_info,
+    servers=docs_config.servers,
+    docs_url=docs_config.docs_url,
+    redoc_url=docs_config.redoc_url,
+    openapi_url=docs_config.openapi_url,
+    lifespan=lifespan,
+    redirect_slashes=False,  # Disable automatic slash redirects to prevent POST->GET conversion on macOS
+    # Additional OpenAPI configuration
+    openapi_tags=[
+        {"name": "Authentication", "description": "User authentication, registration, and session management"},
+        {"name": "Permanent Tokens", "description": "Long-lived API tokens for integrations and automation"},
+        {"name": "Knowledge Base", "description": "Core knowledge management functionality"},
+        {"name": "User Profile", "description": "User profile management including avatars and banners"},
+        {"name": "Themes", "description": "Theme and customization management"},
+        {"name": "Shop", "description": "Digital asset and purchase management"},
+        {"name": "Family", "description": "Family relationship management and shared resources"},
+        {"name": "Clubs", "description": "University club management, events, and member relationships"},
+        {"name": "Chat", "description": "LangGraph-based chat system with VectorRAG and conversational AI capabilities"},
+        {"name": "System", "description": "System health and monitoring endpoints"},
+        {"name": "Skills", "description": "Skill logging and management system for tracking personal development and learning progress"},
+        {"name": "IPAM", "description": "Hierarchical IP address allocation and management system"},
+        {"name": "IPAM - Countries", "description": "Country-level IP allocation management"},
+        {"name": "IPAM - Regions", "description": "Region-level IP allocation management (X.Y.0.0/24)"},
+        {"name": "IPAM - Hosts", "description": "Host-level IP allocation management (X.Y.Z.0)"},
+        {"name": "IPAM - Statistics", "description": "Statistics, analytics, and capacity forecasting"},
+        {"name": "IPAM - Search", "description": "Advanced search and discovery"},
+        {"name": "IPAM - Import/Export", "description": "CSV-based data migration and backup"},
+        {"name": "IPAM - Audit", "description": "Audit trail and history tracking"},
+        {"name": "IPAM - Admin", "description": "Administrative operations and quota management"},
+        {"name": "IPAM - Reservations", "description": "IP address reservation system"},
+        {"name": "IPAM - Preferences", "description": "User preferences and saved filters"},
+        {"name": "IPAM - Notifications", "description": "Notification system and alert rules"},
+        {"name": "IPAM - Shares", "description": "Shareable links for collaboration"},
+        {"name": "IPAM - Webhooks", "description": "Webhook integration for external systems"},
+        {"name": "IPAM - Bulk Operations", "description": "Bulk operations for efficiency"},
+    ],
 )
-limiter.limit("15 per minute")(notes_bp)
 
-# Expose the Flask app as `application` for Gunicorn
-application = app
 
-# Run the application
+# Add comprehensive security schemes to OpenAPI
+@log_performance("openapi_schema_generation")
+def custom_openapi():
+    """
+    Custom OpenAPI schema generation with enhanced security documentation and comprehensive logging.
+
+    This function generates a comprehensive OpenAPI schema with detailed security
+    documentation, enhanced metadata, and environment-aware configurations.
+    All operations are logged for monitoring and debugging purposes.
+    """
+    if app.openapi_schema:
+        logger.debug("Returning cached OpenAPI schema")
+        return app.openapi_schema
+
+    from fastapi.openapi.utils import get_openapi
+
+    schema_generation_start = time.time()
+    logger.info("Generating custom OpenAPI schema...")
+
+    try:
+        # Generate base OpenAPI schema
+        logger.debug("Creating base OpenAPI schema with FastAPI utils")
+        openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+            tags=app.openapi_tags,
+            servers=app.servers,
+            terms_of_service=getattr(app, "terms_of_service", None),
+            contact=app.contact,
+            license_info=app.license_info,
+        )
+
+        # Ensure components section exists
+        if "components" not in openapi_schema:
+            openapi_schema["components"] = {}
+
+        # Add comprehensive security schemes
+        openapi_schema["components"]["securitySchemes"] = {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": """
+                JWT Bearer token authentication with refresh token support.
+
+                **Authentication Flow:**
+                
+                1. **Login:** POST /auth/login
+                   ```json
+                   {
+                     "username": "user",
+                     "password": "pass"
+                   }
+                   ```
+                
+                2. **Response:**
+                   ```json
+                   {
+                     "access_token": "eyJ...",
+                     "refresh_token": "eyJ...",
+                     "token_type": "bearer",
+                     "expires_in": 900,
+                     "refresh_expires_in": 604800
+                   }
+                   ```
+                
+                3. **Use Access Token:**
+                   ```
+                   Authorization: Bearer <access_token>
+                   ```
+                
+                4. **When Access Token Expires (401):**
+                   - POST /auth/refresh with refresh_token
+                   - Get new access_token (and new refresh_token if rotation enabled)
+                   - Retry original request with new access_token
+                
+                **Token Lifetimes:**
+                - Access Token: 15 minutes (short-lived for security)
+                - Refresh Token: 7 days (long-lived for UX)
+                
+                **Error Responses:**
+                - **401 with action="refresh"**: Token expired → Use refresh token
+                - **401 with action="login"**: Refresh token expired → Re-login required
+                - **403**: Insufficient permissions → Check user role
+                
+                **Security Features:**
+                - Token rotation: Refresh tokens are rotated on use
+                - Blacklist support: Tokens can be revoked
+                - Rate limiting: Prevents abuse
+                - Separate secrets: Access and refresh tokens use different keys
+                """,
+            },
+            "PermanentToken": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "Token",
+                "description": """
+                Permanent API token authentication for long-lived integrations and automation.
+
+                **How to obtain a permanent token:**
+                1. Authenticate with JWT token first
+                2. Create a permanent token via `POST /auth/permanent-tokens`
+                3. Use the returned token in the Authorization header
+
+                **Usage:**
+                ```
+                Authorization: Bearer <your_permanent_token>
+                ```
+
+                **Benefits:**
+                - **Long-lived:** No expiration (until manually revoked)
+                - **Perfect for integrations:** Ideal for CI/CD, scripts, and third-party apps
+                - **Individual control:** Can be revoked individually without affecting other tokens
+                - **Usage analytics:** Detailed tracking of token usage and access patterns
+                - **Security features:** IP restrictions, usage monitoring, and abuse detection
+
+                **Management:**
+                - List tokens: `GET /auth/permanent-tokens`
+                - Revoke token: `DELETE /auth/permanent-tokens/{token_id}`
+                - View analytics: Token usage statistics available in response
+                """,
+            },
+            "AdminAPIKey": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Admin-API-Key",
+                "description": """
+                Admin API key for administrative operations and system management.
+
+                **Usage:**
+                ```
+                X-Admin-API-Key: <your_admin_api_key>
+                ```
+
+                **Access Level:**
+                - Only available to users with admin role
+                - Provides access to administrative endpoints
+                - Used for system monitoring and management operations
+
+                **Security:**
+                - Separate from user authentication tokens
+                - Additional layer of security for sensitive operations
+                - Logged and monitored for security auditing
+                """,
+            },
+        }
+
+        # Add global security requirements
+        openapi_schema["security"] = [{"BearerAuth": []}, {"PermanentToken": []}, {"AdminAPIKey": []}]
+
+        # Enhanced info section with additional metadata
+        openapi_schema["info"].update(
+            {
+                "x-logo": {
+                    "url": "https://github.com/rohanbatrain/second_brain_database/raw/main/logo.png",
+                    "altText": "Second Brain Database Logo",
+                },
+                "x-api-id": "second-brain-database-api",
+                "x-audience": "developers",
+                "x-category": "knowledge-management",
+            }
+        )
+
+        # Add external documentation
+        openapi_schema["externalDocs"] = {
+            "description": "GitHub Repository & Full Documentation",
+            "url": "https://github.com/rohanbatrain/second_brain_database",
+        }
+
+        # Add comprehensive tag descriptions with enhanced metadata
+        if "tags" not in openapi_schema:
+            openapi_schema["tags"] = []
+
+        # Update existing tags with more detailed descriptions
+        enhanced_tags = [
+            {
+                "name": "Authentication",
+                "description": """
+                **User Authentication & Session Management**
+
+                Complete authentication system including:
+                - User registration and email verification
+                - Secure login with optional 2FA support
+                - JWT token management and refresh
+                - Password reset and change functionality
+                - Session management and logout
+
+                **Security Features:**
+                - Rate limiting on all auth endpoints
+                - Abuse detection for password resets
+                - CAPTCHA integration for suspicious activity
+                - Comprehensive audit logging
+                """,
+                "externalDocs": {
+                    "description": "Authentication Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#authentication",
+                },
+            },
+            {
+                "name": "Permanent Tokens",
+                "description": """
+                **Long-lived API Tokens for Integrations**
+
+                Permanent tokens provide secure, long-term API access for:
+                - CI/CD pipelines and automation scripts
+                - Third-party application integrations
+                - Server-to-server communication
+                - Background job processing
+
+                **Features:**
+                - No expiration (until manually revoked)
+                - Individual token management and revocation
+                - Usage analytics and monitoring
+                - IP-based access restrictions
+                - Abuse detection and alerting
+                """,
+                "externalDocs": {
+                    "description": "Permanent Tokens Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#permanent-tokens",
+                },
+            },
+            {
+                "name": "Knowledge Base",
+                "description": """
+                **Core Knowledge Management System**
+
+                Central functionality for managing your second brain:
+                - Document storage and organization
+                - Search and retrieval capabilities
+                - Tagging and categorization
+                - Version control and history
+
+                **Coming Soon:** Enhanced knowledge management features
+                """,
+            },
+            {
+                "name": "User Profile",
+                "description": """
+                **User Profile & Customization Management**
+
+                Comprehensive user profile system including:
+                - Avatar management and customization
+                - Banner selection and rental system
+                - Profile settings and preferences
+                - Account information management
+
+                **Features:**
+                - Asset ownership and rental tracking
+                - Multi-application avatar/banner support
+                - User preference synchronization
+                """,
+            },
+            {
+                "name": "Themes",
+                "description": """
+                **Theme & Visual Customization System**
+
+                Personalization features for user experience:
+                - Theme selection and management
+                - Custom color schemes
+                - Visual preference settings
+                - Theme rental and ownership system
+                """,
+            },
+            {
+                "name": "Shop",
+                "description": """
+                **Digital Asset & Purchase Management**
+
+                E-commerce functionality for digital assets:
+                - Avatar and banner purchases
+                - Theme and customization purchases
+                - Shopping cart management
+                - Purchase history and receipts
+                - Asset ownership tracking
+                """,
+            },
+            {
+                "name": "Family",
+                "description": """
+                **Family Relationship Management & Shared Resources**
+
+                Comprehensive family management system including:
+                - Family creation and administration
+                - Member invitations and relationship management
+                - Bidirectional family relationships
+                - Shared SBD token accounts for family finances
+                - Family limits and usage tracking
+                - Email-based invitation system
+
+                **Features:**
+                - Multi-admin support for family management
+                - Configurable family and member limits
+                - Virtual SBD accounts with spending permissions
+                - Comprehensive audit logging and notifications
+                """,
+                "externalDocs": {
+                    "description": "Family Management Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#family-management",
+                },
+            },
+            {
+                "name": "Clubs",
+                "description": """
+                **University Club Management Platform**
+
+                Comprehensive club management system for universities including:
+                - University and club creation and administration
+                - Hierarchical club structure (University → Club → Vertical → Member)
+                - Role-based permissions (Owner, Admin, Lead, Member)
+                - Member invitation and management system
+                - Event planning and WebRTC integration
+                - Club analytics and reporting
+
+                **Features:**
+                - Multi-level organizational hierarchy
+                - Secure club-scoped authentication tokens
+                - Comprehensive audit logging and notifications
+                - Event management with real-time communication
+                - Member engagement tracking and analytics
+                """,
+                "externalDocs": {
+                    "description": "Club Management Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#club-management",
+                },
+            },
+            {
+                "name": "Chat",
+                "description": """
+                **LangGraph-Based Chat System with AI Capabilities**
+
+                Advanced conversational AI system powered by LangGraph workflows:
+                - **VectorRAG**: Query vector knowledge bases with semantic search
+                - **General Chat**: Natural conversations with AI assistant
+                - **Session Management**: Create and manage chat sessions
+                - **Streaming Responses**: Real-time token streaming with AI SDK protocol
+                - **Conversation History**: Context-aware responses with 20-message window
+                - **Token Tracking**: Comprehensive usage monitoring and analytics
+
+                **Features:**
+                - Ollama LLM integration for local inference
+                - Redis caching for improved performance
+                - Rate limiting and abuse protection
+                - Message voting and feedback system
+                - Session statistics and analytics
+                - Health monitoring for all dependencies
+
+                **Workflows:**
+                - **VectorRAGGraph**: Semantic search with context retrieval
+                - **GeneralResponseGraph**: Conversational AI responses
+                - **MasterWorkflowGraph**: Intelligent routing between workflows
+                """,
+                "externalDocs": {
+                    "description": "Chat System Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#chat-system",
+                },
+            },
+            {
+                "name": "System",
+                "description": """
+                **System Health & Monitoring**
+
+                System status and monitoring endpoints:
+                - Health checks and status monitoring
+                - Performance metrics and analytics
+                - System information and diagnostics
+                - Administrative tools and utilities
+                """,
+            },
+            {
+                "name": "IPAM",
+                "description": """
+                **IP Address Management (IPAM) System**
+
+                Comprehensive hierarchical IP address allocation and management system with:
+                - **Hierarchical Structure**: Continent → Country → Region (X.Y.0.0/24) → Host (X.Y.Z.0)
+                - **Allocation Management**: Create, update, and retire IP allocations
+                - **Utilization Tracking**: Real-time capacity monitoring and statistics
+                - **Search & Discovery**: Advanced search with filters and bulk lookups
+                - **Audit Trail**: Complete history of all allocation changes
+                - **Import/Export**: CSV-based data migration and backup
+
+                **Core Features:**
+                - Automatic continent-country mapping with 195+ countries
+                - Collision detection and validation
+                - Tag-based organization and filtering
+                - Comment system for documentation
+                - Preview next available allocations
+                - Bulk operations for efficiency
+
+                **Security:**
+                - User-isolated allocations
+                - Permission-based access control (read/allocate/update/admin)
+                - Rate limiting on all endpoints
+                - Comprehensive audit logging
+                """,
+                "externalDocs": {
+                    "description": "IPAM System Guide",
+                    "url": "https://github.com/rohanbatrain/second_brain_database#ipam-system",
+                },
+            },
+            {
+                "name": "IPAM - Reservations",
+                "description": """
+                **IP Address Reservation System**
+
+                Pre-allocate IP addresses or regions for future use:
+                - **Create Reservations**: Reserve specific X.Y.Z addresses before allocation
+                - **Expiration Management**: Set optional expiration dates for reservations
+                - **Conversion**: Seamlessly convert reservations to active allocations
+                - **Conflict Prevention**: Automatic validation against existing allocations
+
+                **Use Cases:**
+                - Planning special-purpose addresses
+                - Staging future deployments
+                - Coordinating with external teams
+                - Preventing accidental allocation of reserved addresses
+
+                **Features:**
+                - Support for both region and host reservations
+                - Automatic expiration handling
+                - Detailed reservation metadata and reasons
+                - List and filter reservations by status
+                """,
+            },
+            {
+                "name": "IPAM - Preferences",
+                "description": """
+                **User Preferences & Saved Filters**
+
+                Personalize your IPAM experience:
+                - **Saved Filters**: Store frequently used search criteria (max 50 per user)
+                - **Dashboard Layout**: Customize dashboard view preferences
+                - **Notification Settings**: Configure alert preferences
+                - **Theme Preferences**: Store UI customization settings
+
+                **Features:**
+                - JSON-based flexible preference storage
+                - Automatic preference merging on updates
+                - 50KB size limit per user
+                - Cross-session persistence
+                - Named filter management with metadata
+                """,
+            },
+            {
+                "name": "IPAM - Statistics",
+                "description": """
+                **Statistics, Analytics & Capacity Forecasting**
+
+                Comprehensive analytics and predictive insights:
+                - **Dashboard Statistics**: Overview metrics with 5-minute cache
+                - **Capacity Forecasting**: Predict exhaustion dates based on trends
+                - **Allocation Trends**: Historical allocation patterns and velocity
+                - **Utilization Analysis**: Resource usage across hierarchy
+                - **Top Utilized Resources**: Identify capacity constraints
+
+                **Forecasting Features:**
+                - 90-day historical analysis
+                - Daily allocation rate calculation
+                - Confidence level indicators (high/medium/low)
+                - Actionable recommendations
+                - 24-hour forecast caching
+
+                **Performance:**
+                - Dashboard stats: < 500ms response time
+                - Forecast calculation: < 1s response time
+                - Redis caching for frequently accessed data
+                """,
+            },
+            {
+                "name": "IPAM - Notifications",
+                "description": """
+                **Notification System & Alert Rules**
+
+                Stay informed about important IPAM events:
+                - **Notification Rules**: Configure conditions that trigger alerts
+                - **Event Types**: Capacity warnings, allocation events, expiration alerts
+                - **Delivery Channels**: In-app notifications (email/webhook future)
+                - **Severity Levels**: Info, warning, critical classifications
+
+                **Rule Configuration:**
+                - Utilization threshold alerts (e.g., > 80% capacity)
+                - Allocation rate monitoring
+                - Resource-specific notifications
+                - Custom event subscriptions
+
+                **Management:**
+                - Mark notifications as read/unread
+                - Delete/dismiss notifications
+                - Automatic cleanup after 90 days
+                - Unread count tracking
+                - Pagination support for large notification lists
+                """,
+            },
+            {
+                "name": "IPAM - Shares",
+                "description": """
+                **Shareable Links for Collaboration**
+
+                Generate secure, read-only links to IPAM resources:
+                - **No Authentication Required**: Share with external stakeholders
+                - **Expiration Control**: Set expiration dates (max 90 days)
+                - **View Tracking**: Monitor access count and last accessed time
+                - **Resource Types**: Share countries, regions, or hosts
+                - **Revocation**: Instantly invalidate shared links
+
+                **Security Features:**
+                - Unique UUID-based tokens
+                - Sanitized data (no sensitive information)
+                - Automatic expiration handling
+                - Access logging for audit trail
+                - Rate limiting on share creation (100/hour)
+
+                **Use Cases:**
+                - Share allocation details with external teams
+                - Provide read-only access to stakeholders
+                - Temporary access for audits or reviews
+                - Collaboration without granting full permissions
+                """,
+            },
+            {
+                "name": "IPAM - Webhooks",
+                "description": """
+                **Webhook Integration for External Systems**
+
+                Integrate IPAM events with external systems:
+                - **Event Subscriptions**: region.created, host.allocated, capacity.warning
+                - **HMAC Signatures**: Verify webhook authenticity with X-IPAM-Signature
+                - **Retry Logic**: 3 attempts with exponential backoff
+                - **Delivery History**: Track status codes and response times
+                - **Auto-Disable**: Webhooks disabled after 10 consecutive failures
+
+                **Configuration:**
+                - Custom webhook URLs
+                - Multiple event subscriptions per webhook
+                - Secret key generation for HMAC verification
+                - Optional descriptions for documentation
+
+                **Monitoring:**
+                - Delivery success/failure tracking
+                - Response time metrics
+                - Error message logging
+                - Paginated delivery history
+
+                **Rate Limiting:**
+                - 10 webhook creations per hour per user
+                - Prevents abuse and excessive external calls
+                """,
+            },
+            {
+                "name": "IPAM - Bulk Operations",
+                "description": """
+                **Bulk Operations for Efficiency**
+
+                Perform operations on multiple resources simultaneously:
+                - **Bulk Tag Updates**: Add, remove, or replace tags on up to 500 resources
+                - **Async Processing**: Operations > 100 items processed asynchronously
+                - **Job Tracking**: Monitor progress with job_id and status endpoint
+                - **Detailed Results**: Success/failure breakdown for each item
+
+                **Operations:**
+                - Add tags to multiple resources
+                - Remove tags from multiple resources
+                - Replace entire tag sets
+                - Support for both regions and hosts
+
+                **Features:**
+                - Job status tracking (pending/processing/completed/failed)
+                - Progress indicators (total/processed/successful/failed)
+                - 7-day job retention
+                - Rate limiting: 10 bulk operations per hour per user
+
+                **Performance:**
+                - Synchronous response for ≤ 100 items
+                - Asynchronous processing for > 100 items
+                - Non-blocking background execution
+                """,
+            },
+        ]
+
+        # Replace existing tags with enhanced versions
+        openapi_schema["tags"] = enhanced_tags
+
+        # Add environment-specific information
+        if settings.is_production:
+            openapi_schema["info"]["x-environment"] = "production"
+        else:
+            openapi_schema["info"]["x-environment"] = "development"
+            openapi_schema["info"]["x-debug"] = True
+
+        logger.info("Custom OpenAPI schema generated successfully")
+
+    except Exception as e:
+        logger.error("Error generating custom OpenAPI schema: %s", e)
+        # Fallback to default schema generation
+        openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+# Set custom OpenAPI schema with logging
+app.openapi = custom_openapi
+
+# Add CORS middleware for AgentChat UI and other frontends
+from starlette.middleware.cors import CORSMiddleware
+
+# Configure CORS for production
+cors_origins = [
+    "http://localhost:3000",  # Local development
+    "http://localhost:8000",  # Same origin
+    "https://agentchat.vercel.app",  # AgentChat UI hosted version
+]
+
+# Add any additional origins from environment
+if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+    additional_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+    cors_origins.extend(additional_origins)
+
+logger.info(f"Configuring CORS with origins: {cors_origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
+)
+
+# Add comprehensive request logging middleware
+logger.info("Adding request logging middleware...")
+app.add_middleware(RequestLoggingMiddleware)
+log_application_lifecycle(
+    "middleware_configured",
+    {
+        "middleware": ["CORSMiddleware", "RequestLoggingMiddleware", "DocumentationMiddleware"],
+        "cors_origins": cors_origins,
+    },
+)
+
+# Configure documentation middleware
+configure_documentation_middleware(app)
+
+# Include routers with comprehensive logging
+routers_config = [
+    ("auth", auth_router, "Authentication and authorization endpoints"),
+    ("main", main_router, "Main application endpoints and health checks"),
+    ("sbd_tokens", sbd_tokens_router, "SBD tokens management endpoints"),
+    ("themes", themes_router, "Theme management endpoints"),
+    ("shop", shop_router, "Shop and purchase management endpoints"),
+    ("avatars", avatars_router, "Avatar management endpoints"),
+    ("banners", banners_router, "Banner management endpoints"),
+    ("profile", profile_router, "User profile management endpoints"),
+    ("family", family_router, "Family management and relationship endpoints"),
+    ("workspaces", workspaces_router, "Team and workspace management endpoints"),
+    ("clubs", clubs_router, "University club management and event endpoints"),
+    ("club_webrtc", club_webrtc_router, "Club-specific WebRTC event rooms and real-time communication"),
+    ("websockets", websockets_router, "WebSocket communication endpoints"),
+    ("webrtc", webrtc_router, "WebRTC signaling and real-time communication endpoints"),
+    ("documents", documents_router, "Document processing and upload endpoints"),
+    ("rag", rag_router, "RAG and AI-powered document search endpoints"),
+    ("chat", chat_router, "LangGraph-based chat system with VectorRAG and conversational AI"),
+    ("langgraph_api", langgraph_api_router, "LangGraph SDK-compatible API for chat frontend integration"),
+    ("skills", skills_router, "Skill logging and management endpoints"),
+    ("dashboard", dashboard_router, "Dashboard preferences and widget management endpoints"),
+    ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
+    ("ipam_dashboard", ipam_dashboard_router, "IPAM dashboard statistics and analytics endpoints"),
+]
+
+logger.info("Including API routers...")
+included_routers = []
+for router_name, router, description in routers_config:
+    try:
+        app.include_router(router)
+        included_routers.append({"name": router_name, "description": description})
+        logger.info(f"Successfully included {router_name} router: {description}")
+    except Exception as e:
+        log_error_with_context(
+            e, {"operation": "router_inclusion", "router_name": router_name, "description": description}
+        )
+        logger.error(f"Failed to include {router_name} router: {e}")
+
+log_application_lifecycle(
+    "routers_configured",
+    {"total_routers": len(routers_config), "included_routers": len(included_routers), "routers": included_routers},
+)
+
+# Configure Prometheus metrics with comprehensive logging
+logger.info("Setting up Prometheus metrics instrumentation...")
+try:
+    instrumentator = Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        should_respect_env_var=False,
+        should_instrument_requests_inprogress=True,
+    )
+
+    # Add and instrument the app
+    instrumentator.add().instrument(app).expose(app, include_in_schema=False, endpoint="/metrics")
+
+    log_application_lifecycle(
+        "prometheus_configured",
+        {
+            "metrics_endpoint": "/metrics",
+            "group_status_codes": True,
+            "ignore_untemplated": True,
+            "track_requests_in_progress": True,
+        },
+    )
+
+    logger.info("Prometheus metrics instrumentation configured successfully")
+
+except Exception as e:
+    log_error_with_context(e, {"operation": "prometheus_setup"})
+    logger.error(f"Failed to configure Prometheus metrics: {e}")
+    # Continue without metrics rather than failing startup
+
 if __name__ == "__main__":
-    application.run(host="0.0.0.0")
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG, log_level="info")

@@ -1,0 +1,34 @@
+# Streamlit RAG Application Requirements
+# 
+# This file contains the dependencies needed to run the production
+# Streamlit interface for the Second Brain RAG system.
+#
+# Install with: pip install -r streamlit_requirements.txt
+
+# Core Streamlit
+streamlit>=1.28.0
+streamlit-authenticator>=0.2.3
+
+# HTTP and API clients
+requests>=2.31.0
+httpx>=0.24.1
+
+# Data processing and visualization
+pandas>=2.1.0
+numpy>=1.24.0
+plotly>=5.15.0
+
+# File handling and utilities
+python-multipart>=0.0.6
+python-magic>=0.4.27
+
+# Date and time utilities
+python-dateutil>=2.8.2
+
+# Optional: Enhanced document processing
+# docling>=1.0.0  # Uncomment if using Docling integration
+# pypdf>=3.15.0   # PDF processing
+# python-docx>=0.8.11  # Word document processing
+
+# Development and debugging (optional)
+# streamlit-debug>=0.3.0

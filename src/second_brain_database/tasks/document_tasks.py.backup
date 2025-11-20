@@ -1,0 +1,1020 @@
+"""Celery tasks for document processing."""
+
+import base64
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+from ..services.document_service import document_service
+from ..managers.logging_manager import get_logger
+from ..managers.document_analysis_manager import document_analysis_manager
+from ..managers.document_comparison_manager import document_comparison_manager
+from ..managers.document_summarization_manager import document_summarization_manager
+from .celery_app import celery_app
+
+logger = get_logger(prefix="[DocumentTasks]")
+
+
+@celery_app.task(name="process_document_async", bind=True, max_retries=3)
+def process_document_async(
+    self, file_data_b64: str, filename: str, user_id: str, extract_images: bool = True, output_format: str = "markdown"
+) -> Dict[str, Any]:
+    """Process document asynchronously with Docling.
+
+    Args:
+        file_data_b64: Base64 encoded file data
+        filename: Original filename
+        user_id: User ID
+        extract_images: Extract images
+        output_format: Output format
+
+    Returns:
+        Processing result
+    """
+    try:
+        # Decode file data
+        file_data = base64.b64decode(file_data_b64)
+
+        # Process document
+        import asyncio
+
+        result = asyncio.run(
+            document_service.process_and_index_document(
+                file_data=file_data,
+                filename=filename,
+                user_id=user_id,
+                extract_images=extract_images,
+                output_format=output_format,
+                index_for_search=True,
+            )
+        )
+
+        logger.info(f"Processed document {filename} for user {user_id}", extra={"document_id": result["document_id"]})
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in async document processing: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=2**self.request.retries)
+
+
+@celery_app.task(name="extract_tables_async")
+def extract_tables_async(file_data_b64: str, filename: str, user_id: str) -> Dict[str, Any]:
+    """Extract tables from document asynchronously.
+
+    Args:
+        file_data_b64: Base64 encoded file
+        filename: Filename
+        user_id: User ID
+
+    Returns:
+        Extracted tables
+    """
+    try:
+        file_data = base64.b64decode(file_data_b64)
+
+        import asyncio
+
+        tables = asyncio.run(document_service.extract_tables_from_document(
+            file_data=file_data, filename=filename
+        ))
+
+        result = {"filename": filename, "user_id": user_id, "tables": tables, "table_count": len(tables)}
+
+        logger.info(f"Extracted {len(tables)} tables from {filename}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error extracting tables: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@celery_app.task(name="chunk_document_for_rag")
+def chunk_document_for_rag(document_id: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> Dict[str, Any]:
+    """Chunk document for RAG/vector search.
+
+    Args:
+        document_id: Document ID
+        chunk_size: Chunk size
+        chunk_overlap: Overlap
+
+    Returns:
+        Chunking result
+    """
+    try:
+        import asyncio
+
+        chunks = asyncio.run(
+            document_service.chunk_document_for_rag(
+                document_id=document_id, chunk_size=chunk_size, chunk_overlap=chunk_overlap, index_chunks=True
+            )
+        )
+
+        result = {
+            "document_id": document_id,
+            "chunk_count": len(chunks),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+        }
+
+        logger.info(f"Chunked document {document_id} into {len(chunks)} chunks")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error chunking document: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@celery_app.task(name="advanced_ocr_processing", bind=True, max_retries=3)
+def advanced_ocr_processing(
+    self,
+    file_data_b64: str,
+    filename: str,
+    user_id: str,
+    languages: str = "en",
+    ocr_engine: str = "tesseract",
+    resolution: int = 300,
+    force_ocr: bool = False,
+) -> Dict[str, Any]:
+    """Advanced OCR processing with configurable parameters.
+
+    Args:
+        file_data_b64: Base64 encoded file data
+        filename: Original filename
+        user_id: User ID
+        languages: OCR languages (comma-separated)
+        ocr_engine: OCR engine to use
+        resolution: OCR resolution DPI
+        force_ocr: Force OCR even if text is detected
+
+    Returns:
+        OCR processing result with confidence scores
+    """
+    try:
+        file_data = base64.b64decode(file_data_b64)
+
+        import asyncio
+
+        # Process with advanced OCR
+        result = asyncio.run(
+            document_service.process_and_index_document(
+                file_data=file_data,
+                filename=filename,
+                user_id=user_id,
+                extract_images=True,
+                output_format="markdown",
+                index_for_search=True,
+            )
+        )
+
+        # Add OCR-specific metadata using manager
+        result["ocr_metadata"] = {
+            "languages": languages,
+            "engine": ocr_engine,
+            "resolution": resolution,
+            "force_ocr": force_ocr,
+            "confidence_score": document_analysis_manager.calculate_ocr_confidence(result),
+        }
+
+        logger.info(
+            f"Advanced OCR processing completed for {filename}",
+            extra={
+                "user_id": user_id,
+                "filename": filename,
+                "languages": languages,
+                "engine": ocr_engine,
+                "confidence": result["ocr_metadata"]["confidence_score"],
+            }
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(
+            f"Error in advanced OCR processing: {e}",
+            exc_info=True,
+            extra={"filename": filename, "user_id": user_id}
+        )
+        raise self.retry(exc=e, countdown=2**self.request.retries)
+
+
+@celery_app.task(name="batch_document_processing", bind=True)
+def batch_document_processing(
+    self,
+    documents: List[Dict[str, str]],
+    user_id: str,
+    processing_options: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Process multiple documents in batch with progress tracking.
+
+    Args:
+        documents: List of dicts with 'data_b64' and 'filename' keys
+        user_id: User ID
+        processing_options: Processing options for all documents
+
+    Returns:
+        Batch processing results
+    """
+    if processing_options is None:
+        processing_options = {}
+
+    results = []
+    successful = 0
+    failed = 0
+
+    for i, doc in enumerate(documents):
+        try:
+            # Update progress
+            self.update_state(
+                state="PROGRESS",
+                meta={
+                    "current": i + 1,
+                    "total": len(documents),
+                    "successful": successful,
+                    "failed": failed,
+                }
+            )
+
+            # Process individual document
+            result = process_document_async.apply(
+                args=[
+                    doc["data_b64"],
+                    doc["filename"],
+                    user_id,
+                    processing_options.get("extract_images", True),
+                    processing_options.get("output_format", "markdown"),
+                ]
+            )
+
+            results.append({
+                "filename": doc["filename"],
+                "status": "success",
+                "result": result.get(),
+            })
+            successful += 1
+
+        except Exception as e:
+            logger.error(f"Failed to process {doc['filename']}: {e}")
+            results.append({
+                "filename": doc["filename"],
+                "status": "failed",
+                "error": str(e),
+            })
+            failed += 1
+
+    batch_result = {
+        "total_documents": len(documents),
+        "successful": successful,
+        "failed": failed,
+        "results": results,
+        "processing_options": processing_options,
+    }
+
+    logger.info(
+        f"Batch processing completed: {successful}/{len(documents)} successful",
+        extra={"user_id": user_id, "batch_size": len(documents)}
+    )
+
+    return batch_result
+
+
+@celery_app.task(name="document_layout_analysis", bind=True, max_retries=2)
+def document_layout_analysis(
+    self,
+    document_id: str,
+    user_id: str,
+    analysis_depth: str = "detailed",
+) -> Dict[str, Any]:
+    """Perform detailed layout analysis on a processed document.
+
+    Args:
+        document_id: MongoDB document ID
+        user_id: User ID
+        analysis_depth: Analysis depth ('basic', 'detailed', 'comprehensive')
+
+    Returns:
+        Layout analysis results
+    """
+    try:
+        import asyncio
+
+        # Get document content
+        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        if not doc_content:
+            raise ValueError(f"Document {document_id} not found")
+
+        # Perform layout analysis using manager
+        structure = asyncio.run(
+            document_analysis_manager.analyze_layout(doc_content, analysis_depth)
+        )
+
+        analysis_result = {
+            "document_id": document_id,
+            "analysis_depth": analysis_depth,
+            "structure": structure,
+        }
+
+        # Add elements for detailed/comprehensive analysis
+        if analysis_depth in ["detailed", "comprehensive"]:
+            analysis_result["elements"] = document_analysis_manager.extract_layout_elements(doc_content)
+
+        # Add relationships for comprehensive analysis
+        if analysis_depth == "comprehensive":
+            analysis_result["relationships"] = document_analysis_manager.analyze_element_relationships(doc_content)
+
+        # Store analysis results
+        asyncio.run(
+            document_analysis_manager.store_analysis(document_id, analysis_result, "layout")
+        )
+
+        logger.info(
+            f"Layout analysis completed for document {document_id}",
+            extra={"user_id": user_id, "document_id": document_id, "depth": analysis_depth}
+        )
+
+        return analysis_result
+
+    except Exception as e:
+        logger.error(
+            f"Error in layout analysis: {e}",
+            exc_info=True,
+            extra={"document_id": document_id, "user_id": user_id}
+        )
+        raise self.retry(exc=e, countdown=2**self.request.retries)
+
+
+def _basic_layout_analysis(doc_content: Dict[str, Any]) -> Dict[str, Any]:
+    """Basic layout analysis."""
+    content = doc_content.get("content", "")
+    metadata = doc_content.get("metadata", {})
+
+    return {
+        "page_count": metadata.get("page_count", 1),
+        "has_tables": metadata.get("has_tables", False),
+        "has_images": metadata.get("has_images", False),
+        "content_length": len(content),
+        "estimated_reading_time": len(content.split()) // 200,  # ~200 words per minute
+    }
+
+
+def _detailed_layout_analysis(doc_content: Dict[str, Any]) -> Dict[str, Any]:
+    """Detailed layout analysis."""
+    content = doc_content.get("content", "")
+    lines = content.split('\n')
+
+    analysis = _basic_layout_analysis(doc_content)
+    analysis.update({
+        "line_count": len(lines),
+        "avg_line_length": sum(len(line) for line in lines) / len(lines) if lines else 0,
+        "heading_count": sum(1 for line in lines if line.strip().startswith('#')),
+        "list_items": sum(1 for line in lines if line.strip().startswith(('- ', '* ', '1. '))),
+        "code_blocks": content.count('```'),
+        "links": content.count('[') // 2,  # Approximate link count
+    })
+
+    return analysis
+
+
+def _comprehensive_layout_analysis(doc_content: Dict[str, Any]) -> Dict[str, Any]:
+    """Comprehensive layout analysis."""
+    analysis = _detailed_layout_analysis(doc_content)
+    content = doc_content.get("content", "")
+
+    # Advanced analysis
+    analysis.update({
+        "paragraph_count": len([p for p in content.split('\n\n') if p.strip()]),
+        "sentence_count": len(content.split('.')),
+        "word_count": len(content.split()),
+        "unique_words": len(set(content.lower().split())),
+        "complexity_score": _calculate_complexity_score(content),
+    })
+
+    return analysis
+
+
+def _extract_layout_elements(doc_content: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract layout elements from document."""
+    content = doc_content.get("content", "")
+    lines = content.split('\n')
+
+    elements = []
+    current_element = None
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+
+        # Detect headings
+        if line.startswith('#'):
+            if current_element:
+                elements.append(current_element)
+            current_element = {
+                "type": "heading",
+                "level": len(line) - len(line.lstrip('#')),
+                "content": line.lstrip('#').strip(),
+                "line_number": i + 1,
+            }
+
+        # Detect lists
+        elif line.startswith(('- ', '* ', '1. ')):
+            if current_element and current_element["type"] != "list":
+                elements.append(current_element)
+            if not current_element or current_element["type"] != "list":
+                current_element = {
+                    "type": "list",
+                    "items": [],
+                    "line_number": i + 1,
+                }
+            current_element["items"].append(line)
+
+        # Detect code blocks
+        elif line.startswith('```'):
+            if current_element:
+                elements.append(current_element)
+            current_element = {
+                "type": "code_block",
+                "language": line.replace('```', '').strip(),
+                "content": "",
+                "line_number": i + 1,
+            }
+
+        # Detect paragraphs
+        elif line and not current_element:
+            current_element = {
+                "type": "paragraph",
+                "content": line,
+                "line_number": i + 1,
+            }
+
+    if current_element:
+        elements.append(current_element)
+
+    return elements
+
+
+def _analyze_element_relationships(doc_content: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze relationships between layout elements."""
+    elements = _extract_layout_elements(doc_content)
+
+    relationships = {
+        "heading_hierarchy": [],
+        "list_groupings": [],
+        "code_paragraph_associations": [],
+    }
+
+    # Analyze heading hierarchy
+    current_hierarchy = []
+    for elem in elements:
+        if elem["type"] == "heading":
+            level = elem["level"]
+            while len(current_hierarchy) >= level:
+                current_hierarchy.pop()
+            current_hierarchy.append(elem["content"])
+            relationships["heading_hierarchy"].append(current_hierarchy.copy())
+
+    return relationships
+
+
+def _calculate_complexity_score(content: str) -> float:
+    """Calculate document complexity score."""
+    words = content.split()
+    sentences = content.split('.')
+
+    if not words or not sentences:
+        return 0.0
+
+    avg_words_per_sentence = len(words) / len(sentences)
+    unique_word_ratio = len(set(words)) / len(words)
+
+    # Complexity based on sentence length and vocabulary diversity
+    complexity = (avg_words_per_sentence * 0.6) + (unique_word_ratio * 0.4)
+
+    return min(1.0, complexity)
+
+
+async def _store_layout_analysis(document_id: str, analysis: Dict[str, Any]):
+    """Store layout analysis results in database."""
+    try:
+        from src.second_brain_database.database import db_manager
+
+        collection = db_manager.get_collection("document_layout_analysis")
+
+        analysis["document_id"] = document_id
+        analysis["created_at"] = datetime.now(timezone.utc)
+
+        await collection.insert_one(analysis)
+
+    except Exception as e:
+        logger.error(f"Failed to store layout analysis: {e}")
+
+
+@celery_app.task(name="document_quality_analysis", bind=True, max_retries=2)
+def document_quality_analysis(
+    self,
+    document_id: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Analyze document quality including OCR confidence and content integrity.
+
+    Args:
+        document_id: MongoDB document ID
+        user_id: User ID
+
+    Returns:
+        Quality analysis results
+    """
+    try:
+        import asyncio
+
+        # Get document content
+        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        if not doc_content:
+            raise ValueError(f"Document {document_id} not found")
+
+        quality_scores = {
+            "document_id": document_id,
+            "overall_score": 0.0,
+            "ocr_confidence": 0.0,
+            "content_integrity": 0.0,
+            "structure_quality": 0.0,
+            "readability_score": 0.0,
+            "issues": [],
+        }
+
+        # OCR Quality Analysis
+        quality_scores["ocr_confidence"] = _analyze_ocr_quality(doc_content)
+
+        # Content Integrity Analysis
+        quality_scores["content_integrity"] = _analyze_content_integrity(doc_content)
+
+        # Structure Quality Analysis
+        quality_scores["structure_quality"] = _analyze_structure_quality(doc_content)
+
+        # Readability Analysis
+        quality_scores["readability_score"] = _analyze_readability(doc_content)
+
+        # Calculate overall score
+        quality_scores["overall_score"] = (
+            quality_scores["ocr_confidence"] * 0.3 +
+            quality_scores["content_integrity"] * 0.3 +
+            quality_scores["structure_quality"] * 0.2 +
+            quality_scores["readability_score"] * 0.2
+        )
+
+        # Identify issues
+        quality_scores["issues"] = _identify_quality_issues(quality_scores)
+
+        # Store results
+        asyncio.run(_store_quality_analysis(document_id, quality_scores))
+
+        logger.info(
+            f"Quality analysis completed for document {document_id}: {quality_scores['overall_score']:.2f}",
+            extra={"user_id": user_id, "score": quality_scores["overall_score"]}
+        )
+
+        return quality_scores
+
+    except Exception as e:
+        logger.error(f"Error in quality analysis: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=5)
+
+
+def _analyze_ocr_quality(doc_content: Dict[str, Any]) -> float:
+    """Analyze OCR quality."""
+    metadata = doc_content.get("metadata", {})
+    content = doc_content.get("content", "")
+
+    score = 0.8  # Base score
+
+    # Check if OCR was performed
+    if metadata.get("processing_options", {}).get("ocr_enabled"):
+        score += 0.1
+
+    # Check for OCR artifacts
+    artifacts = ["|", "_", "•", "·", "€", "™"]
+    artifact_ratio = sum(content.count(a) for a in artifacts) / len(content) if content else 0
+
+    if artifact_ratio > 0.005:  # More than 0.5% artifacts
+        score -= min(0.3, artifact_ratio * 50)
+
+    return max(0.0, min(1.0, score))
+
+
+def _analyze_content_integrity(doc_content: Dict[str, Any]) -> float:
+    """Analyze content integrity."""
+    content = doc_content.get("content", "")
+    metadata = doc_content.get("metadata", {})
+
+    score = 1.0
+
+    # Check for truncated content
+    if len(content) < 100 and metadata.get("page_count", 1) > 1:
+        score -= 0.3
+
+    # Check for empty pages
+    if content.strip() == "":
+        score -= 0.5
+
+    # Check for encoding issues
+    if "�" in content:  # Replacement character
+        score -= 0.2
+
+    return max(0.0, score)
+
+
+def _analyze_structure_quality(doc_content: Dict[str, Any]) -> float:
+    """Analyze document structure quality."""
+    content = doc_content.get("content", "")
+    metadata = doc_content.get("metadata", {})
+
+    score = 0.7
+
+    # Check for tables
+    if metadata.get("has_tables"):
+        score += 0.2
+
+    # Check for headings
+    if content.count('#') > 0:
+        score += 0.1
+
+    # Check for lists
+    list_markers = content.count('- ') + content.count('* ') + content.count('1. ')
+    if list_markers > 0:
+        score += 0.1
+
+    return min(1.0, score)
+
+
+def _analyze_readability(doc_content: Dict[str, Any]) -> float:
+    """Analyze document readability."""
+    content = doc_content.get("content", "")
+
+    if not content:
+        return 0.0
+
+    words = content.split()
+    sentences = [s.strip() for s in content.split('.') if s.strip()]
+
+    if not words or not sentences:
+        return 0.0
+
+    # Average words per sentence
+    avg_words_per_sentence = len(words) / len(sentences)
+
+    # Ideal range: 10-20 words per sentence
+    if 10 <= avg_words_per_sentence <= 20:
+        readability = 1.0
+    elif avg_words_per_sentence < 10:
+        readability = 0.8  # Too simple
+    else:
+        readability = max(0.3, 1.0 - (avg_words_per_sentence - 20) * 0.05)
+
+    return readability
+
+
+def _identify_quality_issues(quality_scores: Dict[str, Any]) -> List[str]:
+    """Identify specific quality issues."""
+    issues = []
+
+    if quality_scores["ocr_confidence"] < 0.7:
+        issues.append("Low OCR confidence - document may have scanning artifacts")
+
+    if quality_scores["content_integrity"] < 0.8:
+        issues.append("Content integrity issues - possible truncation or encoding problems")
+
+    if quality_scores["structure_quality"] < 0.6:
+        issues.append("Poor document structure - limited formatting detected")
+
+    if quality_scores["readability_score"] < 0.7:
+        issues.append("Low readability - sentences may be too long or complex")
+
+    if quality_scores["overall_score"] < 0.6:
+        issues.append("Overall document quality is poor")
+
+    return issues
+
+
+async def _store_quality_analysis(document_id: str, analysis: Dict[str, Any]):
+    """Store quality analysis results in database."""
+    try:
+        from src.second_brain_database.database import db_manager
+
+        collection = db_manager.get_collection("document_quality_analysis")
+
+        analysis["document_id"] = document_id
+        analysis["created_at"] = datetime.now(timezone.utc)
+
+        await collection.insert_one(analysis)
+
+    except Exception as e:
+        logger.error(f"Failed to store quality analysis: {e}")
+
+
+@celery_app.task(name="document_summarization", bind=True, max_retries=2)
+def document_summarization(
+    self,
+    document_id: str,
+    user_id: str,
+    summary_type: str = "extractive",
+    max_length: int = 300,
+) -> Dict[str, Any]:
+    """Generate document summary using extracted content.
+
+    Args:
+        document_id: MongoDB document ID
+        user_id: User ID
+        summary_type: Type of summarization ('extractive', 'abstractive')
+        max_length: Maximum summary length in words
+
+    Returns:
+        Summarization results
+    """
+    try:
+        import asyncio
+
+        # Get document content
+        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        if not doc_content:
+            raise ValueError(f"Document {document_id} not found")
+
+        content = doc_content.get("content", "")
+        metadata = doc_content.get("metadata", {})
+
+        summary_result = {
+            "document_id": document_id,
+            "summary_type": summary_type,
+            "original_length": len(content.split()),
+            "summary_length": 0,
+            "summary": "",
+            "key_points": [],
+            "compression_ratio": 0.0,
+        }
+
+        if summary_type == "extractive":
+            summary, key_points = _extractive_summarization(content, max_length)
+        elif summary_type == "abstractive":
+            summary, key_points = _abstractive_summarization(content, max_length)
+        else:
+            raise ValueError(f"Unsupported summary type: {summary_type}")
+
+        summary_result["summary"] = summary
+        summary_result["key_points"] = key_points
+        summary_result["summary_length"] = len(summary.split())
+        summary_result["compression_ratio"] = summary_result["summary_length"] / summary_result["original_length"]
+
+        # Store summary
+        asyncio.run(_store_document_summary(document_id, summary_result))
+
+        logger.info(
+            f"Document summarization completed for {document_id}: {summary_result['compression_ratio']:.2f} compression",
+            extra={"user_id": user_id, "type": summary_type}
+        )
+
+        return summary_result
+
+    except Exception as e:
+        logger.error(f"Error in document summarization: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=5)
+
+
+def _extractive_summarization(content: str, max_length: int) -> tuple[str, List[str]]:
+    """Extractive summarization using key sentences."""
+    sentences = [s.strip() for s in content.split('.') if s.strip()]
+
+    if not sentences:
+        return content[:max_length * 5], []  # Fallback
+
+    # Score sentences based on position and length
+    scored_sentences = []
+    for i, sentence in enumerate(sentences):
+        # Position score (prefer first and last sentences)
+        position_score = 1.0
+        if i == 0 or i == len(sentences) - 1:
+            position_score = 1.5
+
+        # Length score (prefer medium-length sentences)
+        word_count = len(sentence.split())
+        length_score = 1.0
+        if 5 <= word_count <= 20:
+            length_score = 1.2
+
+        # Keyword score (sentences with important words)
+        keywords = ["important", "key", "summary", "conclusion", "result"]
+        keyword_score = 1.0 + sum(sentence.lower().count(kw) * 0.1 for kw in keywords)
+
+        total_score = position_score * length_score * keyword_score
+        scored_sentences.append((sentence, total_score))
+
+    # Sort by score and select top sentences
+    scored_sentences.sort(key=lambda x: x[1], reverse=True)
+
+    selected_sentences = []
+    current_length = 0
+
+    for sentence, _ in scored_sentences:
+        sentence_length = len(sentence.split())
+        if current_length + sentence_length <= max_length:
+            selected_sentences.append(sentence)
+            current_length += sentence_length
+        else:
+            break
+
+    # Sort selected sentences by original order
+    original_order = []
+    for sentence in sentences:
+        if sentence in selected_sentences:
+            original_order.append(sentence)
+
+    summary = '. '.join(original_order)
+    key_points = [s[:100] + "..." if len(s) > 100 else s for s in original_order[:5]]
+
+    return summary, key_points
+
+
+def _abstractive_summarization(content: str, max_length: int) -> tuple[str, List[str]]:
+    """Abstractive summarization (simplified version)."""
+    # For now, use extractive as fallback since we don't have LLM integration
+    # In a real implementation, this would use an LLM for abstractive summarization
+    return _extractive_summarization(content, max_length)
+
+
+async def _store_document_summary(document_id: str, summary: Dict[str, Any]):
+    """Store document summary in database."""
+    try:
+        from src.second_brain_database.database import db_manager
+
+        collection = db_manager.get_collection("document_summaries")
+
+        summary["document_id"] = document_id
+        summary["created_at"] = datetime.now(timezone.utc)
+
+        await collection.insert_one(summary)
+
+    except Exception as e:
+        logger.error(f"Failed to store document summary: {e}")
+
+
+@celery_app.task(name="document_comparison", bind=True, max_retries=2)
+def document_comparison(
+    self,
+    document_id_1: str,
+    document_id_2: str,
+    user_id: str,
+    comparison_type: str = "content",
+) -> Dict[str, Any]:
+    """Compare two documents and identify differences.
+
+    Args:
+        document_id_1: First document ID
+        document_id_2: Second document ID
+        user_id: User ID
+        comparison_type: Type of comparison ('content', 'structure', 'both')
+
+    Returns:
+        Comparison results
+    """
+    try:
+        import asyncio
+
+        # Get both documents
+        doc1 = asyncio.run(document_service.get_document_content(document_id_1))
+        doc2 = asyncio.run(document_service.get_document_content(document_id_2))
+
+        if not doc1 or not doc2:
+            raise ValueError("One or both documents not found")
+
+        comparison_result = {
+            "document_1": {
+                "id": document_id_1,
+                "filename": doc1.get("filename"),
+            },
+            "document_2": {
+                "id": document_id_2,
+                "filename": doc2.get("filename"),
+            },
+            "comparison_type": comparison_type,
+            "similarity_score": 0.0,
+            "differences": [],
+            "common_elements": [],
+        }
+
+        if comparison_type in ["content", "both"]:
+            content_similarity, content_diffs = _compare_content(doc1, doc2)
+            comparison_result["content_similarity"] = content_similarity
+            comparison_result["content_differences"] = content_diffs
+
+        if comparison_type in ["structure", "both"]:
+            structure_similarity, structure_diffs = _compare_structure(doc1, doc2)
+            comparison_result["structure_similarity"] = structure_similarity
+            comparison_result["structure_differences"] = structure_diffs
+
+        # Calculate overall similarity
+        if comparison_type == "both":
+            comparison_result["similarity_score"] = (
+                comparison_result["content_similarity"] * 0.7 +
+                comparison_result["structure_similarity"] * 0.3
+            )
+        else:
+            similarity_key = f"{comparison_type}_similarity"
+            comparison_result["similarity_score"] = comparison_result.get(similarity_key, 0.0)
+
+        # Store comparison results
+        asyncio.run(_store_document_comparison(comparison_result))
+
+        logger.info(
+            f"Document comparison completed: {comparison_result['similarity_score']:.2f} similarity",
+            extra={"user_id": user_id, "doc1": document_id_1, "doc2": document_id_2}
+        )
+
+        return comparison_result
+
+    except Exception as e:
+        logger.error(f"Error in document comparison: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=5)
+
+
+def _compare_content(doc1: Dict[str, Any], doc2: Dict[str, Any]) -> tuple[float, List[str]]:
+    """Compare document content."""
+    content1 = doc1.get("content", "").lower()
+    content2 = doc2.get("content", "").lower()
+
+    # Simple similarity based on common words
+    words1 = set(content1.split())
+    words2 = set(content2.split())
+
+    if not words1 or not words2:
+        return 0.0, ["One document is empty"]
+
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+
+    similarity = len(intersection) / len(union) if union else 0.0
+
+    # Find key differences
+    differences = []
+    unique_to_1 = words1 - words2
+    unique_to_2 = words2 - words1
+
+    if unique_to_1:
+        differences.append(f"Words only in {doc1.get('filename')}: {list(unique_to_1)[:10]}")
+    if unique_to_2:
+        differences.append(f"Words only in {doc2.get('filename')}: {list(unique_to_2)[:10]}")
+
+    return similarity, differences
+
+
+def _compare_structure(doc1: Dict[str, Any], doc2: Dict[str, Any]) -> tuple[float, List[str]]:
+    """Compare document structure."""
+    metadata1 = doc1.get("metadata", {})
+    metadata2 = doc2.get("metadata", {})
+
+    # Compare basic structure elements
+    structure_score = 0.0
+    total_elements = 0
+    differences = []
+
+    # Compare page count
+    pages1 = metadata1.get("page_count", 1)
+    pages2 = metadata2.get("page_count", 1)
+    if pages1 == pages2:
+        structure_score += 1
+    else:
+        differences.append(f"Different page counts: {pages1} vs {pages2}")
+    total_elements += 1
+
+    # Compare table presence
+    tables1 = metadata1.get("has_tables", False)
+    tables2 = metadata2.get("has_tables", False)
+    if tables1 == tables2:
+        structure_score += 1
+    else:
+        differences.append(f"Table presence differs: {tables1} vs {tables2}")
+    total_elements += 1
+
+    # Compare image presence
+    images1 = metadata1.get("has_images", False)
+    images2 = metadata2.get("has_images", False)
+    if images1 == images2:
+        structure_score += 1
+    else:
+        differences.append(f"Image presence differs: {images1} vs {images2}")
+    total_elements += 1
+
+    similarity = structure_score / total_elements if total_elements > 0 else 0.0
+
+    return similarity, differences
+
+
+async def _store_document_comparison(comparison: Dict[str, Any]):
+    """Store document comparison results in database."""
+    try:
+        from src.second_brain_database.database import db_manager
+
+        collection = db_manager.get_collection("document_comparisons")
+
+        comparison["created_at"] = datetime.now(timezone.utc)
+
+        await collection.insert_one(comparison)
+
+    except Exception as e:
+        logger.error(f"Failed to store document comparison: {e}")
