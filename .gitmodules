@@ -4,12 +4,12 @@
 [submodule "submodules/emotion_tracker"]
 	path = submodules/emotion_tracker
 	url = git@github.com:rohanbatrain/emotion_tracker.git
-[submodule "submodules/second-brain-database-chat"]
-	path = submodules/second-brain-database-chat
-	url = git@github.com:rohanbatrain/second-brain-database-chat.git
-[submodule "submodules/IPAM"]
-	path = submodules/IPAM
-	url = git@github.com:rohanbatrain/IPAM.git
+[submodule "submodules/sbd-chat"]
+	path = submodules/sbd-chat
+	url = git@github.com:rohanbatrain/sbd-chat.git
+[submodule "submodules/sbd-ipam"]
+	path = submodules/sbd-ipam
+	url = git@github.com:rohanbatrain/sbd-ipam.git
 [submodule "submodules/sbd-landing-page"]
 	path = submodules/sbd-landing-page
 	url = git@github.com:rohanbatrain/sbd-landing-page.git
