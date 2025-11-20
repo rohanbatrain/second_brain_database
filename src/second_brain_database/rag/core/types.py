@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 import uuid
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 # Enums
@@ -47,13 +47,13 @@ class BaseRAGModel(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True
-        validate_assignment = True
-        json_encoders = {
+    model_config = ConfigDict(
+        use_enum_values=True,
+        validate_assignment=True,
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
 
 
 # Document Models
@@ -102,7 +102,8 @@ class DocumentChunk(BaseModel):
     # Metadata
     metadata: Dict[str, Any] = Field(default_factory=dict)
     
-    @validator('content')
+    @field_validator('content')
+    @classmethod
     def validate_content(cls, v):
         """Validate that content is not empty."""
         if not v or not v.strip():
@@ -133,7 +134,8 @@ class Document(BaseRAGModel):
     vector_store_id: Optional[str] = None
     collection_name: Optional[str] = None
     
-    @validator('filename')
+    @field_validator('filename')
+    @classmethod
     def validate_filename(cls, v):
         """Validate filename."""
         if not v or not v.strip():
@@ -197,7 +199,8 @@ class QueryRequest(BaseModel):
     context: QueryContext
     query_type: QueryType = QueryType.HYBRID
     
-    @validator('query')
+    @field_validator('query')
+    @classmethod
     def validate_query(cls, v):
         """Validate query is not empty."""
         if not v or not v.strip():
@@ -288,7 +291,8 @@ class Conversation(BaseRAGModel):
     # Status
     is_active: bool = True
     
-    @validator('messages')
+    @field_validator('messages')
+    @classmethod
     def validate_messages_order(cls, v):
         """Validate messages are in chronological order."""
         if len(v) > 1:

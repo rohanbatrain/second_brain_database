@@ -13,7 +13,7 @@ This module contains request and response models for IPAM backend enhancements i
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from bson import ObjectId
 
 
@@ -70,8 +70,8 @@ class ReservationResponse(BaseModel):
     created_by: str = Field(..., description="Username of creator")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "reservation_id": "550e8400-e29b-41d4-a716-446655440000",
                 "user_id": "user_123",
@@ -88,6 +88,7 @@ class ReservationResponse(BaseModel):
                 "metadata": {}
             }
         }
+    )
 
 
 class ReservationConvertRequest(BaseModel):
@@ -125,8 +126,8 @@ class ShareResponse(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp")
     is_active: bool = Field(default=True, description="Whether share is active")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "share_id": "660e8400-e29b-41d4-a716-446655440001",
                 "share_token": "abc123def456",
@@ -140,6 +141,7 @@ class ShareResponse(BaseModel):
                 "is_active": True
             }
         }
+    )
 
 
 class ShareAccessResponse(BaseModel):
@@ -279,8 +281,8 @@ class DashboardStatsResponse(BaseModel):
     capacity_warnings: int = Field(..., ge=0, description="Number of capacity warnings")
     cached_at: Optional[datetime] = Field(None, description="Cache timestamp")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_countries": 15,
                 "total_regions": 250,
@@ -295,6 +297,7 @@ class DashboardStatsResponse(BaseModel):
                 "cached_at": "2025-11-12T10:00:00Z"
             }
         }
+    )
 
 
 class ForecastResponse(BaseModel):
@@ -309,8 +312,8 @@ class ForecastResponse(BaseModel):
     data_points: int = Field(..., ge=0, description="Number of data points used")
     forecast_period_days: int = Field(..., ge=0, description="Forecast period in days")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "resource_type": "region",
                 "resource_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -323,6 +326,7 @@ class ForecastResponse(BaseModel):
                 "forecast_period_days": 90
             }
         }
+    )
 
 
 class TrendDataPoint(BaseModel):

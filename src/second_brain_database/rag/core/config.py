@@ -9,7 +9,7 @@ LLM providers, and query engine parameters.
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from second_brain_database.config import settings
 
@@ -105,11 +105,12 @@ class VectorStoreConfig(BaseModel):
     # Index settings
     index_settings: Dict[str, Any] = Field(default_factory=dict)
     
-    @validator('url')
-    def set_default_url(cls, v, values):
+    @field_validator('url')
+    @classmethod
+    def set_default_url(cls, v, info):
         """Set default URL based on provider."""
         if v is None:
-            provider = values.get('provider')
+            provider = info.data.get('provider')
             if provider == VectorStoreProvider.QDRANT:
                 return getattr(settings, 'QDRANT_URL', 'http://localhost:6333')
             elif provider == VectorStoreProvider.CHROMA:
@@ -141,11 +142,12 @@ class LLMConfig(BaseModel):
     system_prompt: Optional[str] = None
     custom_prompts: Dict[str, str] = Field(default_factory=dict)
     
-    @validator('base_url')
-    def set_default_base_url(cls, v, values):
+    @field_validator('base_url')
+    @classmethod
+    def set_default_base_url(cls, v, info):
         """Set default base URL based on provider."""
         if v is None:
-            provider = values.get('provider')
+            provider = info.data.get('provider')
             if provider == LLMProvider.OLLAMA:
                 return getattr(settings, 'OLLAMA_HOST', 'http://localhost:11434')
             elif provider == LLMProvider.OPENAI:
@@ -227,10 +229,10 @@ class RAGConfig(BaseModel):
     llamaindex_enabled: bool = True
     mcp_integration: bool = True
     
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True
-        validate_assignment = True
+    model_config = ConfigDict(
+        use_enum_values=True,
+        validate_assignment=True
+    )
         
     @classmethod
     def from_settings(cls, custom_config: Optional[Dict[str, Any]] = None) -> 'RAGConfig':

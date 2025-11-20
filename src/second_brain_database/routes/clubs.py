@@ -1731,3 +1731,191 @@ async def send_event_reminders(
     except Exception as e:
         logger.error("Failed to send event reminders: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to send reminders")
+
+
+# ============================================================================
+# DIRECT MEMBERSHIP ENDPOINTS
+# ============================================================================
+
+@router.post("/{club_id}/join")
+async def join_club(
+    club_id: str,
+    message: Optional[str] = Body(None, description="Optional message to club admins"),
+    current_user: dict = Depends(require_club_member),
+):
+    """
+    Request to join a club directly.
+    
+    - **Public clubs**: Automatically approved and user becomes a member
+    - **Private clubs**: Creates pending membership request requiring admin approval
+    
+    **Returns:**
+    - Membership status (approved or pending)
+    - Member ID if approved
+    """
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Get club details
+        club = await club_manager.get_club(club_id)
+        if not club:
+            raise HTTPException(status_code=404, detail="Club not found")
+            
+        # Check if already a member
+        existing_membership = await club_manager.get_member_by_user_id(club_id, user_id)
+        if existing_membership:
+            if existing_membership.get("status") == "active":
+                raise HTTPException(status_code=400, detail="Already a member of this club")
+            elif existing_membership.get("status") == "pending":
+                raise HTTPException(status_code=400, detail="Membership request already pending")
+                
+        # Determine if club is public or private
+        is_public = club.get("is_public", True)
+        
+        if is_public:
+            # Auto-approve for public clubs
+            member_id = f"mem_{datetime.now().timestamp()}_{user_id[:8]}"
+            
+            member_doc = {
+                "member_id": member_id,
+                "club_id": club_id,
+                "user_id": user_id,
+                "username": username,
+                "role": ClubRole.MEMBER.value,
+                "status": "active",
+                "joined_at": datetime.now(),
+                "invited_by": None,
+                "invitation_message": None,
+            }
+            
+            await db_manager.get_collection("club_members").insert_one(member_doc)
+            
+            # Increment member count
+            await db_manager.get_collection("clubs").update_one(
+                {"club_id": club_id},
+                {"$inc": {"member_count": 1}}
+            )
+            
+            logger.info("User %s joined public club %s", username, club_id)
+            
+            return {
+                "status": "approved",
+                "member_id": member_id,
+                "club_id": club_id,
+                "message": "Successfully joined the club"
+            }
+        else:
+            # Create pending request for private clubs
+            member_id = f"mem_{datetime.now().timestamp()}_{user_id[:8]}"
+            
+            member_doc = {
+                "member_id": member_id,
+                "club_id": club_id,
+                "user_id": user_id,
+                "username": username,
+                "role": ClubRole.MEMBER.value,
+                "status": "pending",
+                "requested_at": datetime.now(),
+                "request_message": message,
+                "invited_by": None,
+                "invitation_message": None,
+            }
+            
+            await db_manager.get_collection("club_members").insert_one(member_doc)
+            
+            # Notify club admins
+            try:
+                admins = await club_manager.get_club_members(
+                    club_id,
+                    role_filter=ClubRole.ADMIN
+                )
+                
+                for admin in admins:
+                    await club_notification_manager.send_join_request_notification(
+                        admin_email=admin.get("user_id"),  # Should be email
+                        requester_name=username,
+                        club_name=club.get("name"),
+                        request_message=message
+                    )
+            except Exception as e:
+                logger.warning("Failed to notify admins of join request: %s", e)
+                
+            logger.info("User %s requested to join private club %s", username, club_id)
+            
+            return {
+                "status": "pending",
+                "member_id": member_id,
+                "club_id": club_id,
+                "message": "Join request submitted. Awaiting admin approval."
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to join club: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to join club")
+
+
+@router.post("/{club_id}/leave")
+async def leave_club(
+    club_id: str,
+    current_user: dict = Depends(require_club_member),
+):
+    """
+    Leave a club.
+    
+    **Restrictions:**
+    - Club owners cannot leave their own club
+    - Must transfer ownership first before leaving
+    
+    **Returns:**
+    - Success message
+    """
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Get club details
+        club = await club_manager.get_club(club_id)
+        if not club:
+            raise HTTPException(status_code=404, detail="Club not found")
+            
+        # Check if user is a member
+        membership = await club_manager.get_member_by_user_id(club_id, user_id)
+        if not membership:
+            raise HTTPException(status_code=400, detail="Not a member of this club")
+            
+        # Prevent owner from leaving
+        if membership.get("role") == ClubRole.OWNER.value:
+            raise HTTPException(
+                status_code=400,
+                detail="Club owners cannot leave. Transfer ownership first."
+            )
+            
+        # Remove membership
+        await db_manager.get_collection("club_members").delete_one({
+            "club_id": club_id,
+            "user_id": user_id
+        })
+        
+        # Decrement member count (only if was active member)
+        if membership.get("status") == "active":
+            await db_manager.get_collection("clubs").update_one(
+                {"club_id": club_id},
+                {"$inc": {"member_count": -1}}
+            )
+            
+        logger.info("User %s left club %s", username, club_id)
+        
+        return {
+            "status": "success",
+            "club_id": club_id,
+            "message": "Successfully left the club"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to leave club: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to leave club")

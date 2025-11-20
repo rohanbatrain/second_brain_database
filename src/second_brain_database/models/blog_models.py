@@ -31,12 +31,26 @@ class CommentStatus(str, Enum):
     SPAM = "spam"
 
 
+
 class WebsiteRole(str, Enum):
     OWNER = "owner"
     ADMIN = "admin"
     EDITOR = "editor"
     AUTHOR = "author"
     VIEWER = "viewer"
+
+
+class BlogVersion(BaseModel):
+    """Model for a blog post version."""
+    version_id: str
+    post_id: str
+    title: str
+    content: str
+    excerpt: Optional[str]
+    created_at: datetime
+    created_by: str
+    change_summary: Optional[str]
+
 
 
 # Request Models
@@ -87,6 +101,7 @@ class CreateBlogPostRequest(BaseModel):
     seo_title: Optional[str] = Field(None, max_length=60, description="SEO title")
     seo_description: Optional[str] = Field(None, max_length=160, description="SEO description")
     seo_keywords: List[str] = Field(default_factory=list, max_items=10, description="SEO keywords")
+    social_image: Optional[str] = Field(None, description="Social media preview image URL")
     is_featured: bool = Field(default=False, description="Whether post is featured")
     is_pinned: bool = Field(default=False, description="Whether post is pinned")
 
@@ -122,6 +137,7 @@ class UpdateBlogPostRequest(BaseModel):
     seo_title: Optional[str] = Field(None, max_length=60, description="SEO title")
     seo_description: Optional[str] = Field(None, max_length=160, description="SEO description")
     seo_keywords: Optional[List[str]] = Field(None, max_items=10, description="SEO keywords")
+    social_image: Optional[str] = Field(None, description="Social media preview image URL")
     is_featured: Optional[bool] = Field(None, description="Whether post is featured")
     is_pinned: Optional[bool] = Field(None, description="Whether post is pinned")
 
@@ -218,6 +234,43 @@ class ModerateCommentRequest(BaseModel):
         return v
 
 
+class AutoSavePostRequest(BaseModel):
+    """Request model for auto-saving a post draft."""
+
+    content: str = Field(..., min_length=1, description="Post content to auto-save")
+    title: Optional[str] = Field(None, description="Post title")
+
+
+class RestoreVersionRequest(BaseModel):
+    """Request model for restoring a post version."""
+
+    version_id: str = Field(..., description="Version ID to restore")
+
+
+class NewsletterSubscribeRequest(BaseModel):
+    """Request model for newsletter subscription."""
+
+    email: EmailStr = Field(..., description="Email address for newsletter")
+    name: Optional[str] = Field(None, max_length=100, description="Subscriber name")
+
+
+class TrackAnalyticsRequest(BaseModel):
+    """Request model for tracking analytics events."""
+
+    event_type: str = Field(..., description="Type of event: 'view', 'like', 'share', 'bookmark'")
+    post_id: Optional[str] = Field(None, description="Post ID if applicable")
+    referrer: Optional[str] = Field(None, description="Referrer URL")
+    device_type: Optional[str] = Field(None, description="Device type: 'desktop', 'mobile', 'tablet'")
+
+    @field_validator("event_type")
+    @classmethod
+    def validate_event_type(cls, v):
+        valid_types = ["view", "like", "share", "bookmark"]
+        if v not in valid_types:
+            raise ValueError(f"Event type must be one of: {', '.join(valid_types)}")
+        return v
+
+
 # Response Models
 class BlogWebsiteResponse(BaseModel):
     """Response model for blog website information."""
@@ -263,6 +316,7 @@ class BlogPostResponse(BaseModel):
     seo_title: Optional[str]
     seo_description: Optional[str]
     seo_keywords: List[str]
+    social_image: Optional[str]
     reading_time: int
     word_count: int
     view_count: int
@@ -271,6 +325,7 @@ class BlogPostResponse(BaseModel):
     is_featured: bool
     is_pinned: bool
     scheduled_publish_at: Optional[datetime]
+    versions: List[BlogVersion] = []
 
 
 class BlogCategoryResponse(BaseModel):
@@ -350,6 +405,31 @@ class BlogFeedResponse(BaseModel):
     language: str
     last_build_date: datetime
     items: List[Dict[str, Any]]
+
+
+class NewsletterSubscriberResponse(BaseModel):
+    """Response model for newsletter subscriber."""
+
+    subscriber_id: str
+    website_id: str
+    email: str
+    name: Optional[str]
+    is_active: bool
+    subscribed_at: datetime
+
+
+class EngagementMetricsResponse(BaseModel):
+    """Response model for reader engagement metrics."""
+
+    post_id: str
+    views: int
+    unique_views: int
+    avg_time_on_page: float
+    bounce_rate: float
+    shares: Dict[str, int]
+    bookmarks: int
+    comments: int
+    likes: int
 
 
 # Pagination Models
@@ -455,6 +535,7 @@ class BlogPostDocument(BaseModel):
     seo_title: Optional[str]
     seo_description: Optional[str]
     seo_keywords: List[str] = []
+    social_image: Optional[str] = None
     reading_time: int = 0
     word_count: int = 0
     view_count: int = 0
@@ -463,7 +544,9 @@ class BlogPostDocument(BaseModel):
     is_featured: bool = False
     is_pinned: bool = False
     scheduled_publish_at: Optional[datetime] = None
-    revision_history: List[Dict[str, Any]] = []
+    auto_save_content: Optional[str] = None
+    auto_save_at: Optional[datetime] = None
+    revision_history: List[BlogVersion] = []
 
     class Config:
         json_schema_extra = {
@@ -614,6 +697,18 @@ class BlogAnalyticsDocument(BaseModel):
     device_types: Dict[str, int] = {}
     countries: Dict[str, int] = {}
     top_pages: List[str] = []
+
+
+class NewsletterSubscriberDocument(BaseModel):
+    """Database document model for blog_newsletter_subscribers collection."""
+
+    subscriber_id: str
+    website_id: str
+    email: str
+    name: Optional[str]
+    is_active: bool = True
+    subscribed_at: datetime
+    unsubscribed_at: Optional[datetime] = None
 
     class Config:
         json_schema_extra = {

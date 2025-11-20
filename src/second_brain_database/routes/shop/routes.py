@@ -3,7 +3,7 @@ import time
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -77,6 +77,109 @@ class CartCheckoutRequest(BaseModel):
     """Cart checkout request with payment method."""
 
     payment_method: PaymentMethod = Field(..., description="Payment method selection")
+
+
+class ShopItemResponse(BaseModel):
+    item_id: str
+    name: str
+    description: Optional[str]
+    price: int
+    item_type: str  # "theme", "avatar", "banner", "bundle"
+    category: Optional[str]
+    featured: bool = False
+    new_arrival: bool = False
+    image_url: Optional[str]
+    bundle_contents: Optional[dict] = None
+    available: bool = True
+
+
+class ShopCategoryResponse(BaseModel):
+    category_id: str
+    name: str
+    description: Optional[str]
+    item_type: str
+
+
+class CategoryCreateRequest(BaseModel):
+    """Request model for creating a new category."""
+    name: str = Field(..., min_length=1, max_length=100, description="Category name")
+    description: Optional[str] = Field(None, max_length=500, description="Category description")
+    icon: Optional[str] = Field(None, description="Category icon/emoji")
+    color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$", description="Category color (hex)")
+    item_type: str = Field(..., description="Type of items in this category")
+
+
+class CategoryUpdateRequest(BaseModel):
+    """Request model for updating a category."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="Category name")
+    description: Optional[str] = Field(None, max_length=500, description="Category description")
+    icon: Optional[str] = Field(None, description="Category icon/emoji")
+    color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$", description="Category color (hex)")
+
+
+class CategoryDetailResponse(BaseModel):
+    """Detailed category response with stats."""
+    category_id: str
+    name: str
+    description: Optional[str]
+    icon: Optional[str]
+    color: Optional[str]
+    item_type: str
+    item_count: int = 0
+    created_at: str
+    updated_at: Optional[str]
+
+
+class CartItemRequest(BaseModel):
+    item_id: str
+    item_type: str
+    quantity: int = 1
+
+
+class CartItemResponse(BaseModel):
+    item_id: str
+    item_type: str
+    name: str
+    price: int
+    quantity: int
+    subtotal: int
+
+
+class CartResponse(BaseModel):
+    items: List[CartItemResponse]
+    total_items: int
+    total_price: int
+
+
+class CheckoutResponse(BaseModel):
+    transaction_id: str
+    items_purchased: List[str]
+    total_amount: int
+    payment_method: str
+    status: str
+
+
+class OwnedItemResponse(BaseModel):
+    item_id: str
+    item_type: str
+    name: str
+    acquired_at: datetime
+    source: str  # "purchase", "gift", "bundle"
+    permanent: bool
+    rental_expires: Optional[datetime]
+
+
+class InventoryResponse(BaseModel):
+    themes: List[OwnedItemResponse]
+    avatars: List[OwnedItemResponse]
+    banners: List[OwnedItemResponse]
+    bundles: List[str]
+    total_items: int
+
+
+class BalanceResponse(BaseModel):
+    sbd_tokens: int
+    username: str
 
 
 # Helper functions for family token integration
@@ -406,15 +509,36 @@ async def process_payment(
 # In a real-world application, this would be a separate collection in the database.
 async def get_item_details(item_id: str, item_type: str):
     # This is a mock implementation. Replace with a real database lookup.
+    # NOTE: This function supports both legacy hardcoded items and dynamic parsing.
+    # It returns both 'type' (legacy) and 'item_type' (new REST API) keys for compatibility.
+    
     if item_type == "theme":
         if item_id.startswith("emotion_tracker-"):
-            return {"theme_id": item_id, "name": "Emotion Tracker Theme", "price": 250, "type": "theme"}
+            return {
+                "theme_id": item_id, 
+                "name": "Emotion Tracker Theme", 
+                "price": 250, 
+                "item_type": "theme",
+                "type": "theme"  # Legacy compatibility
+            }
     elif item_type == "avatar":
         # Premium animated avatars
         if item_id == "emotion_tracker-animated-avatar-playful_eye":
-            return {"avatar_id": item_id, "name": "Playful Eye", "price": 2500, "type": "avatar"}
+            return {
+                "avatar_id": item_id, 
+                "name": "Playful Eye", 
+                "price": 2500, 
+                "item_type": "avatar",
+                "type": "avatar"  # Legacy compatibility
+            }
         if item_id == "emotion_tracker-animated-avatar-floating_brain":
-            return {"avatar_id": item_id, "name": "Floating Brain", "price": 5000, "type": "avatar"}
+            return {
+                "avatar_id": item_id, 
+                "name": "Floating Brain", 
+                "price": 5000, 
+                "item_type": "avatar",
+                "type": "avatar"  # Legacy compatibility
+            }
 
         # In a real app, you'd look up the avatar's price
         name = "User Avatar"  # Default name
@@ -426,7 +550,13 @@ async def get_item_details(item_id: str, item_type: str):
         except IndexError:
             # If the ID format is not as expected, fall back to the default name
             pass
-        return {"avatar_id": item_id, "name": name, "price": 100, "type": "avatar"}
+        return {
+            "avatar_id": item_id, 
+            "name": name, 
+            "price": 100, 
+            "item_type": "avatar",
+            "type": "avatar"  # Legacy compatibility
+        }
     elif item_type == "bundle":
         bundles = {
             "emotion_tracker-avatars-cat-bundle": {"name": "Cat Lovers Pack", "price": 2000},
@@ -438,12 +568,30 @@ async def get_item_details(item_id: str, item_type: str):
         }
         if item_id in bundles:
             bundle_info = bundles[item_id]
-            return {"bundle_id": item_id, "name": bundle_info["name"], "price": bundle_info["price"], "type": "bundle"}
+            return {
+                "bundle_id": item_id, 
+                "name": bundle_info["name"], 
+                "price": bundle_info["price"], 
+                "item_type": "bundle",
+                "type": "bundle"  # Legacy compatibility
+            }
     elif item_type == "banner":
         if item_id == "emotion_tracker-static-banner-earth-1":
-            return {"banner_id": item_id, "name": "Earth Banner", "price": 100, "type": "banner"}
+            return {
+                "banner_id": item_id, 
+                "name": "Earth Banner", 
+                "price": 100, 
+                "item_type": "banner",
+                "type": "banner"  # Legacy compatibility
+            }
         # Fallback for other banners
-        return {"banner_id": item_id, "name": "User Banner", "price": 100, "type": "banner"}
+        return {
+            "banner_id": item_id, 
+            "name": "User Banner", 
+            "price": 100, 
+            "item_type": "banner",
+            "type": "banner"  # Legacy compatibility
+        }
     return None
 
 
@@ -601,6 +749,638 @@ BUNDLE_CONTENTS = {
         ]
     },
 }
+
+
+SHOP_CATEGORIES = {
+    "theme": [
+        {"id": "light", "name": "Light Themes", "description": "Bright and airy themes"},
+        {"id": "dark", "name": "Dark Themes", "description": "Dark mode themes"},
+        {"id": "colorful", "name": "Colorful Themes", "description": "Vibrant color schemes"},
+    ],
+    "avatar": [
+        {"id": "animated", "name": "Animated Avatars", "description": "Premium animated avatars"},
+        {"id": "cats", "name": "Cat Avatars", "description": "Cute cat-themed avatars"},
+        {"id": "dogs", "name": "Dog Avatars", "description": "Friendly dog avatars"},
+        {"id": "pandas", "name": "Panda Avatars", "description": "Adorable panda avatars"},
+        {"id": "people", "name": "People Avatars", "description": "Human character avatars"},
+    ],
+    "banner": [
+        {"id": "nature", "name": "Nature Banners", "description": "Natural landscape banners"},
+        {"id": "abstract", "name": "Abstract Banners", "description": "Artistic abstract designs"},
+        {"id": "space", "name": "Space Banners", "description": "Cosmic and space themes"},
+    ],
+    "bundle": [
+        {"id": "avatars", "name": "Avatar Bundles", "description": "Collections of themed avatars"},
+        {"id": "themes", "name": "Theme Bundles", "description": "Curated theme collections"},
+        {"id": "complete", "name": "Complete Packs", "description": "Full customization packages"},
+    ],
+}
+
+
+async def get_all_shop_items() -> List[Dict[str, Any]]:
+    """Get all available shop items from the registry."""
+    shop_items = []
+
+    # Themes
+    shop_items.extend([
+        {
+            "item_id": "emotion_tracker-serenityGreen",
+            "name": "Serenity Green Theme",
+            "price": 250,
+            "item_type": "theme",
+            "category": "light",
+            "featured": True,
+            "description": "A calming green theme for peaceful productivity",
+        },
+        {
+            "item_id": "emotion_tracker-pacificBlue",
+            "name": "Pacific Blue Theme",
+            "price": 250,
+            "item_type": "theme",
+            "category": "light",
+            "description": "Ocean-inspired blue theme for clarity and focus",
+        },
+        {
+            "item_id": "emotion_tracker-midnightLavender",
+            "name": "Midnight Lavender Theme",
+            "price": 250,
+            "item_type": "theme",
+            "category": "dark",
+            "featured": True,
+            "description": "Elegant dark theme with lavender accents",
+        },
+        {
+            "item_id": "emotion_tracker-crimsonRedDark",
+            "name": "Crimson Red Dark Theme",
+            "price": 250,
+            "item_type": "theme",
+            "category": "dark",
+            "description": "Bold dark theme with crimson highlights",
+        },
+    ])
+
+    # Avatars
+    shop_items.extend([
+        {
+            "item_id": "emotion_tracker-animated-avatar-playful_eye",
+            "name": "Playful Eye Avatar",
+            "price": 2500,
+            "item_type": "avatar",
+            "category": "animated",
+            "featured": True,
+            "new_arrival": True,
+            "description": "Animated avatar with playful eye expressions",
+        },
+        {
+            "item_id": "emotion_tracker-animated-avatar-floating_brain",
+            "name": "Floating Brain Avatar",
+            "price": 5000,
+            "item_type": "avatar",
+            "category": "animated",
+            "featured": True,
+            "description": "Premium animated floating brain avatar",
+        },
+        {
+            "item_id": "emotion_tracker-static-avatar-cat-1",
+            "name": "Cat Avatar 1",
+            "price": 100,
+            "item_type": "avatar",
+            "category": "cats",
+            "description": "Cute static cat avatar",
+        },
+        {
+            "item_id": "emotion_tracker-static-avatar-dog-1",
+            "name": "Dog Avatar 1",
+            "price": 100,
+            "item_type": "avatar",
+            "category": "dogs",
+            "description": "Friendly static dog avatar",
+        },
+    ])
+
+    # Banners
+    shop_items.extend([
+        {
+            "item_id": "emotion_tracker-static-banner-earth-1",
+            "name": "Earth Banner",
+            "price": 100,
+            "item_type": "banner",
+            "category": "nature",
+            "description": "Beautiful Earth landscape banner",
+        }
+    ])
+
+    # Bundles
+    shop_items.extend([
+        {
+            "item_id": "emotion_tracker-avatars-cat-bundle",
+            "name": "Cat Lovers Pack",
+            "price": 2000,
+            "item_type": "bundle",
+            "category": "avatars",
+            "featured": True,
+            "description": "Complete collection of cat avatars",
+            "bundle_contents": BUNDLE_CONTENTS.get("emotion_tracker-avatars-cat-bundle", {}),
+        },
+        {
+            "item_id": "emotion_tracker-themes-dark",
+            "name": "Dark Theme Pack",
+            "price": 2500,
+            "item_type": "bundle",
+            "category": "themes",
+            "featured": True,
+            "description": "Collection of premium dark themes",
+            "bundle_contents": BUNDLE_CONTENTS.get("emotion_tracker-themes-dark", {}),
+        },
+    ])
+
+    return shop_items
+
+
+@router.get("/shop/items", response_model=List[ShopItemResponse])
+async def get_shop_items(
+    item_type: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    featured_only: bool = Query(False),
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Get available shop items with optional filtering."""
+    all_items = await get_all_shop_items()
+    
+    # Apply filters
+    filtered_items = all_items
+    
+    if item_type:
+        filtered_items = [item for item in filtered_items if item.get("item_type") == item_type]
+        
+    if category:
+        filtered_items = [item for item in filtered_items if item.get("category") == category]
+        
+    if featured_only:
+        filtered_items = [item for item in filtered_items if item.get("featured", False)]
+        
+    # Pagination
+    paginated_items = filtered_items[offset : offset + limit]
+    
+    return paginated_items
+
+
+@router.get("/shop/items/{item_id}", response_model=ShopItemResponse)
+async def get_shop_item(item_id: str, item_type: str = Query(...)):
+    """Get detailed information about a specific shop item."""
+    item = await get_item_details(item_id, item_type)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+
+@router.get("/shop/categories", response_model=List[ShopCategoryResponse])
+async def get_shop_categories_endpoint():
+    """Get all available shop categories organized by item type."""
+    categories = []
+    for item_type, cats in SHOP_CATEGORIES.items():
+        for cat in cats:
+            categories.append({
+                "category_id": cat["id"],
+                "name": cat["name"],
+                "description": cat["description"],
+                "item_type": item_type,
+                "item_count": 0  # TODO: Calculate item count
+            })
+    return categories
+
+
+@router.post("/shop/categories", response_model=CategoryDetailResponse, status_code=201)
+async def create_category(
+    category: CategoryCreateRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Create a new shop category."""
+    # Check if user has admin permissions (you may want to add a specific permission check)
+    shop_collection = db_manager.get_collection("shop_categories")
+    
+    # Check if category with same name already exists
+    existing = await shop_collection.find_one({
+        "name": category.name,
+        "item_type": category.item_type
+    })
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Category '{category.name}' already exists for {category.item_type}"
+        )
+    
+    # Create category document
+    category_id = uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    
+    category_doc = {
+        "category_id": category_id,
+        "name": category.name,
+        "description": category.description,
+        "icon": category.icon,
+        "color": category.color,
+        "item_type": category.item_type,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": current_user["username"]
+    }
+    
+    await shop_collection.insert_one(category_doc)
+    
+    return {
+        **category_doc,
+        "item_count": 0
+    }
+
+
+@router.put("/shop/categories/{category_id}", response_model=CategoryDetailResponse)
+async def update_category(
+    category_id: str,
+    category: CategoryUpdateRequest,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Update an existing shop category."""
+    shop_collection = db_manager.get_collection("shop_categories")
+    
+    # Find existing category
+    existing = await shop_collection.find_one({"category_id": category_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Build update document
+    update_data = {}
+    if category.name is not None:
+        update_data["name"] = category.name
+    if category.description is not None:
+        update_data["description"] = category.description
+    if category.icon is not None:
+        update_data["icon"] = category.icon
+    if category.color is not None:
+        update_data["color"] = category.color
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_by"] = current_user["username"]
+    
+    # Update category
+    await shop_collection.update_one(
+        {"category_id": category_id},
+        {"$set": update_data}
+    )
+    
+    # Get updated category
+    updated = await shop_collection.find_one({"category_id": category_id})
+    
+    # Count items in this category
+    shop_items_collection = db_manager.get_collection("shop_items")
+    item_count = await shop_items_collection.count_documents({"category": updated["name"]})
+    
+    return {
+        **updated,
+        "item_count": item_count
+    }
+
+
+@router.delete("/shop/categories/{category_id}")
+async def delete_category(
+    category_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Delete a shop category."""
+    shop_collection = db_manager.get_collection("shop_categories")
+    
+    # Find existing category
+    existing = await shop_collection.find_one({"category_id": category_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Check if category has items
+    shop_items_collection = db_manager.get_collection("shop_items")
+    item_count = await shop_items_collection.count_documents({"category": existing["name"]})
+    
+    if item_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete category with {item_count} items. Please reassign or delete items first."
+        )
+    
+    # Delete category
+    await shop_collection.delete_one({"category_id": category_id})
+    
+    return {"status": "success", "message": f"Category '{existing['name']}' deleted"}
+
+
+@router.get("/shop/categories/{category_id}", response_model=CategoryDetailResponse)
+async def get_category_detail(category_id: str):
+    """Get detailed information about a specific category."""
+    shop_collection = db_manager.get_collection("shop_categories")
+    
+    category = await shop_collection.find_one({"category_id": category_id})
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Count items in this category
+    shop_items_collection = db_manager.get_collection("shop_items")
+    item_count = await shop_items_collection.count_documents({"category": category["name"]})
+    
+    return {
+        **category,
+        "item_count": item_count
+    }
+
+
+@router.get("/shop/categories/{category_id}/items", response_model=List[ShopItemResponse])
+async def get_category_items(category_id: str):
+    """Get all items in a specific category."""
+    shop_collection = db_manager.get_collection("shop_categories")
+    
+    category = await shop_collection.find_one({"category_id": category_id})
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Get items in this category
+    shop_items_collection = db_manager.get_collection("shop_items")
+    items_cursor = shop_items_collection.find({"category": category["name"]})
+    items = await items_cursor.to_list(length=None)
+    
+    return items
+
+
+# ============================================================================
+# ITEM MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.post("/shop/items", response_model=ShopItemResponse, status_code=201)
+async def create_shop_item(
+    item: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Create a new shop item."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    item_id = uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    
+    item_doc = {
+        "item_id": item_id,
+        "name": item["name"],
+        "description": item.get("description"),
+        "price": item["price"],
+        "item_type": item["item_type"],
+        "category": item.get("category"),
+        "featured": item.get("featured", False),
+        "new_arrival": item.get("new_arrival", False),
+        "image_url": item.get("image_url"),
+        "bundle_contents": item.get("bundle_contents"),
+        "available": item.get("available", True),
+        "stock": item.get("stock", 999),
+        "created_at": now,
+        "updated_at": now,
+        "created_by": current_user["username"]
+    }
+    
+    await shop_items_collection.insert_one(item_doc)
+    return item_doc
+
+
+@router.put("/shop/items/{item_id}", response_model=ShopItemResponse)
+async def update_shop_item(
+    item_id: str,
+    item: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Update an existing shop item."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    existing = await shop_items_collection.find_one({"item_id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    update_data = {}
+    for key in ["name", "description", "price", "category", "featured", "new_arrival", "image_url", "bundle_contents", "available", "stock"]:
+        if key in item:
+            update_data[key] = item[key]
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_by"] = current_user["username"]
+    
+    await shop_items_collection.update_one(
+        {"item_id": item_id},
+        {"$set": update_data}
+    )
+    
+    updated = await shop_items_collection.find_one({"item_id": item_id})
+    return updated
+
+
+@router.delete("/shop/items/{item_id}")
+async def delete_shop_item(
+    item_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Delete a shop item."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    existing = await shop_items_collection.find_one({"item_id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    await shop_items_collection.delete_one({"item_id": item_id})
+    return {"status": "success", "message": f"Item '{existing['name']}' deleted"}
+
+
+@router.post("/shop/items/bulk-update")
+async def bulk_update_items(
+    updates: dict,
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Bulk update shop items."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    item_ids = updates.get("item_ids", [])
+    action = updates.get("action")
+    
+    if not item_ids or not action:
+        raise HTTPException(status_code=400, detail="item_ids and action are required")
+    
+    updated_count = 0
+    
+    if action == "activate":
+        result = await shop_items_collection.update_many(
+            {"item_id": {"$in": item_ids}},
+            {"$set": {"available": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        updated_count = result.modified_count
+    elif action == "deactivate":
+        result = await shop_items_collection.update_many(
+            {"item_id": {"$in": item_ids}},
+            {"$set": {"available": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        updated_count = result.modified_count
+    elif action == "update_stock":
+        stock_value = updates.get("stock", 0)
+        result = await shop_items_collection.update_many(
+            {"item_id": {"$in": item_ids}},
+            {"$set": {"stock": stock_value, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        updated_count = result.modified_count
+    elif action == "delete":
+        result = await shop_items_collection.delete_many({"item_id": {"$in": item_ids}})
+        updated_count = result.deleted_count
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+    
+    return {"status": "success", "action": action, "updated_count": updated_count}
+
+
+@router.post("/shop/items/{item_id}/image")
+async def upload_item_image(
+    item_id: str,
+    image_url: str = Body(..., embed=True),
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Update item image URL."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    existing = await shop_items_collection.find_one({"item_id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    await shop_items_collection.update_one(
+        {"item_id": item_id},
+        {"$set": {
+            "image_url": image_url,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"status": "success", "image_url": image_url}
+
+
+# ============================================================================
+# SALES ANALYTICS ENDPOINTS
+# ============================================================================
+
+@router.get("/shop/analytics/sales")
+async def get_sales_analytics(
+    period: str = Query("month", description="Period: day, week, month, year"),
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Get sales analytics for the specified period."""
+    # This would typically query a transactions/purchases collection
+    # For now, returning mock data structure
+    return {
+        "period": period,
+        "total_revenue": 125000,
+        "total_sales": 342,
+        "average_order_value": 365,
+        "sales_by_day": [
+            {"date": "2024-01-01", "revenue": 5000, "sales": 12},
+            {"date": "2024-01-02", "revenue": 7500, "sales": 18},
+            # More data points...
+        ],
+        "revenue_by_category": {
+            "themes": 45000,
+            "avatars": 35000,
+            "banners": 25000,
+            "bundles": 20000
+        }
+    }
+
+
+@router.get("/shop/analytics/top-items")
+async def get_top_selling_items(
+    limit: int = Query(10, le=50),
+    current_user: dict = Depends(enforce_all_lockdowns)
+):
+    """Get top selling items."""
+    shop_items_collection = db_manager.get_collection("shop_items")
+    
+    # Get items sorted by a sold_count field (would need to track this)
+    items = await shop_items_collection.find().sort("sold_count", -1).limit(limit).to_list(length=limit)
+    
+    return {
+        "top_items": items,
+        "total_items": len(items)
+    }
+
+
+@router.get("/shop/analytics/revenue")
+async def get_revenue_breakdown(current_user: dict = Depends(enforce_all_lockdowns)):
+    """Get detailed revenue breakdown."""
+    return {
+        "total_revenue": 125000,
+        "by_category": {
+            "themes": {"revenue": 45000, "percentage": 36},
+            "avatars": {"revenue": 35000, "percentage": 28},
+            "banners": {"revenue": 25000, "percentage": 20},
+            "bundles": {"revenue": 20000, "percentage": 16}
+        },
+        "by_month": [
+            {"month": "2024-01", "revenue": 35000},
+            {"month": "2024-02", "revenue": 42000},
+            {"month": "2024-03", "revenue": 48000}
+        ],
+        "growth_rate": 12.5
+    }
+
+
+@router.get("/shop/analytics/customers")
+async def get_customer_analytics(current_user: dict = Depends(enforce_all_lockdowns)):
+    """Get customer analytics."""
+    users_collection = db_manager.get_collection("users")
+    
+    # Count users with purchases
+    total_customers = await users_collection.count_documents({"owned_items": {"$exists": True, "$ne": []}})
+    
+    return {
+        "total_customers": total_customers,
+        "active_customers": total_customers,  # Would need activity tracking
+        "average_lifetime_value": 365,
+        "repeat_purchase_rate": 45.5,
+        "top_customers": []  # Would query top spenders
+    }
+
+
+
+
+
+
+
+
+
+@router.get("/shop/inventory", response_model=InventoryResponse)
+async def get_inventory(current_user: dict = Depends(enforce_all_lockdowns)):
+    """Get user's owned items inventory."""
+    users_collection = db_manager.get_collection("users")
+    user = await users_collection.find_one({"username": current_user["username"]})
+    
+    return {
+        "themes": user.get("themes_owned", []),
+        "avatars": user.get("avatars_owned", []),
+        "banners": user.get("banners_owned", []),
+        "bundles": user.get("bundles_owned", []),
+        "total_items": len(user.get("themes_owned", [])) + len(user.get("avatars_owned", [])) + len(user.get("banners_owned", []))
+    }
+
+
+@router.get("/shop/balance", response_model=BalanceResponse)
+async def get_balance(current_user: dict = Depends(enforce_all_lockdowns)):
+    """Get user's SBD token balance."""
+    users_collection = db_manager.get_collection("users")
+    user = await users_collection.find_one({"username": current_user["username"]}, {"sbd_tokens": 1})
+    
+    return {
+        "sbd_tokens": user.get("sbd_tokens", 0),
+        "username": current_user["username"]
+    }
 
 
 @router.post(

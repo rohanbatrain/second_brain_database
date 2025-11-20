@@ -57,6 +57,7 @@ from second_brain_database.routes.skills import router as skills_router
 from second_brain_database.routes.ipam.routes import router as ipam_router
 from second_brain_database.routes.ipam.dashboard_routes import router as ipam_dashboard_router
 from second_brain_database.routes.langgraph_api import router as langgraph_api_router
+from second_brain_database.routes.dashboard import router as dashboard_router
 from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
@@ -148,6 +149,46 @@ async def lifespan(_app: FastAPI):
         except Exception as ipam_error:
             logger.warning("Failed to auto-seed IPAM country mappings: %s", ipam_error)
             log_application_lifecycle("ipam_seed_failed", {"error": str(ipam_error)})
+
+        # Auto-seed shop items if empty
+        shop_seed_start = time.time()
+        logger.info("Checking shop items...")
+
+        try:
+            from second_brain_database.routes.shop.shop_data import get_shop_items_seed_data
+
+            collection = db_manager.get_collection("shop_items")
+            count = await collection.count_documents({})
+
+            if count == 0:
+                logger.info("Shop items not found. Auto-seeding with defaults...")
+                items = get_shop_items_seed_data()
+                
+                # Upsert each item to avoid duplicates
+                for item in items:
+                    await collection.update_one(
+                        {"item_id": item["item_id"]},
+                        {"$set": item},
+                        upsert=True
+                    )
+
+                # Create indexes
+                await collection.create_index("item_id", unique=True)
+                await collection.create_index("item_type")
+                await collection.create_index("category")
+                await collection.create_index("featured")
+
+                logger.info("✅ Auto-seeded %d shop items", len(items))
+                log_application_lifecycle(
+                    "shop_auto_seeded", {"items_seeded": len(items), "duration": f"{time.time() - shop_seed_start:.3f}s"}
+                )
+            else:
+                logger.info("Shop items already exist (%d items)", count)
+                log_application_lifecycle("shop_seed_skipped", {"existing_items": count})
+
+        except Exception as shop_error:
+            logger.warning("Failed to auto-seed shop items: %s", shop_error)
+            log_application_lifecycle("shop_seed_failed", {"error": str(shop_error)})
 
         # Auth-specific startup tasks
         auth_startup_start = time.time()
@@ -1183,6 +1224,7 @@ routers_config = [
     ("chat", chat_router, "LangGraph-based chat system with VectorRAG and conversational AI"),
     ("langgraph_api", langgraph_api_router, "LangGraph SDK-compatible API for chat frontend integration"),
     ("skills", skills_router, "Skill logging and management endpoints"),
+    ("dashboard", dashboard_router, "Dashboard preferences and widget management endpoints"),
     ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
     ("ipam_dashboard", ipam_dashboard_router, "IPAM dashboard statistics and analytics endpoints"),
 ]

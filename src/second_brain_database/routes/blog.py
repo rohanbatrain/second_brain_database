@@ -28,7 +28,10 @@ from second_brain_database.managers.blog_security import (
     blog_xss_protection,
 )
 from second_brain_database.managers.logging_manager import get_logger
+
+
 from second_brain_database.models.blog_models import (
+    AutoSavePostRequest,
     CreateBlogCategoryRequest,
     BlogCategoryResponse,
     UpdateBlogCategoryRequest,
@@ -42,41 +45,12 @@ from second_brain_database.models.blog_models import (
     BlogWebsiteResponse,
     UpdateBlogWebsiteRequest,
     WebsiteRole,
-)
-
-from datetime import datetime
-from typing import List, Optional
-from uuid import uuid4
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-
-from second_brain_database.managers.blog_auth_manager import (
-    blog_auth_manager,
-    require_website_admin,
-    require_website_author,
-    require_website_editor,
-    require_website_owner,
-    require_website_viewer,
-)
-from second_brain_database.managers.blog_manager import (
-    BlogContentService,
-    BlogWebsiteManager,
-)
-from second_brain_database.managers.logging_manager import get_logger
-from second_brain_database.models.blog_models import (
-    CreateBlogCategoryRequest,
-    BlogCategoryResponse,
-    UpdateBlogCategoryRequest,
-    CreateBlogCommentRequest,
-    BlogCommentResponse,
-    UpdateBlogCommentRequest,
-    CreateBlogPostRequest,
-    BlogPostResponse,
-    UpdateBlogPostRequest,
-    CreateBlogWebsiteRequest,
-    BlogWebsiteResponse,
-    UpdateBlogWebsiteRequest,
-    WebsiteRole,
+    RestoreVersionRequest,
+    NewsletterSubscribeRequest,
+    TrackAnalyticsRequest,
+    NewsletterSubscriberResponse,
+    EngagementMetricsResponse,
+    BlogVersion,
 )
 
 logger = get_logger(prefix="[Blog Routes]")
@@ -231,6 +205,10 @@ async def create_post(
         if request.featured_image and not blog_xss_protection.validate_url(request.featured_image):
             raise HTTPException(status_code=400, detail="Invalid featured image URL")
 
+        # Calculate reading time (average 200 words per minute)
+        word_count = len(sanitized_content.split())
+        reading_time = max(1, word_count // 200)
+
         post = await content_service.create_post(
             website_id=website_id,
             author_id=current_user["_id"],
@@ -244,6 +222,28 @@ async def create_post(
             seo_description=request.seo_description,
             seo_keywords=request.seo_keywords,
             status=request.status
+        )
+
+        # Create initial version
+        initial_version = BlogVersion(
+            version_id=f"version_{uuid4().hex[:16]}",
+            post_id=post.post_id,
+            title=sanitized_title,
+            content=sanitized_content,
+            excerpt=sanitized_excerpt,
+            created_at=datetime.utcnow(),
+            created_by=current_user["_id"],
+            change_summary="Initial version",
+        )
+
+        # Update post with reading time and initial version
+        from second_brain_database.database import db_manager
+        await db_manager.get_collection("blog_posts").update_one(
+            {"post_id": post.post_id},
+            {
+                "$set": {"reading_time": reading_time, "word_count": word_count},
+                "$push": {"revision_history": initial_version.model_dump()},
+            },
         )
 
         # Audit log
@@ -376,12 +376,37 @@ async def update_post(
         if "featured_image" in update_data and update_data["featured_image"] and not blog_xss_protection.validate_url(update_data["featured_image"]):
             raise HTTPException(status_code=400, detail="Invalid featured image URL")
 
+        # Save version if content changed
+        version_update = {}
+        if "content" in update_data or "title" in update_data:
+            new_version = BlogVersion(
+                version_id=f"version_{uuid4().hex[:16]}",
+                post_id=post_id,
+                title=post_doc["title"],
+                content=post_doc["content"],
+                excerpt=post_doc.get("excerpt"),
+                created_at=datetime.utcnow(),
+                created_by=current_user["_id"],
+                change_summary=f"Update by {current_user.get('username', 'user')}",
+            )
+            version_update["$push"] = {"revision_history": new_version.model_dump()}
+
+            # Recalculate reading time if content changed
+            if "content" in update_data:
+                word_count = len(update_data["content"].split())
+                update_data["reading_time"] = max(1, word_count // 200)
+                update_data["word_count"] = word_count
+
         # Update post
         update_data["updated_at"] = datetime.utcnow()
 
+        update_operations = {"$set": update_data}
+        if version_update:
+            update_operations.update(version_update)
+
         result = await db_manager.get_collection("blog_posts").update_one(
             {"post_id": post_id, "website_id": website_id},
-            {"$set": update_data}
+            update_operations
         )
 
         if result.modified_count == 0:

@@ -4464,3 +4464,591 @@ async def verify_audit_trail_integrity(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "INTERNAL_SERVER_ERROR", "message": "Failed to verify audit trail integrity"},
         )
+
+
+# ============================================================================
+# CALENDAR ENDPOINTS
+# ============================================================================
+
+from second_brain_database.routes.family.calendar_tasks_models import (
+    CalendarEventCreate,
+    CalendarEventUpdate,
+    CalendarEventResponse,
+    TaskCreate,
+    TaskUpdate,
+    TaskResponse,
+)
+
+
+@router.get("/calendar/events", response_model=List[CalendarEventResponse])
+async def get_calendar_events(
+    request: Request,
+    family_id: str = Query(...),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    event_type: Optional[str] = Query(None, pattern="^(family|personal|task)$"),
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Get calendar events for a family.
+    
+    **Filters:**
+    - start_date: Events starting after this date
+    - end_date: Events starting before this date
+    - event_type: Filter by type (family, personal, task)
+    """
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": family_id})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        # Check if user is a member
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # Query calendar events
+        calendar_collection = db_manager.get_collection("calendar_events")
+        query = {"family_id": family_id}
+        
+        if start_date:
+            query["start_time"] = {"$gte": start_date}
+        if end_date:
+            query.setdefault("start_time", {})["$lte"] = end_date
+        if event_type:
+            query["event_type"] = event_type
+            
+        events = await calendar_collection.find(query).sort("start_time", 1).to_list(length=1000)
+        
+        # Enrich with creator names
+        users_collection = db_manager.get_collection("users")
+        for event in events:
+            creator = await users_collection.find_one({"_id": event["created_by"]}, {"username": 1})
+            event["created_by_name"] = creator.get("username") if creator else None
+            
+        logger.info("User %s retrieved %d calendar events for family %s", username, len(events), family_id)
+        
+        return events
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get calendar events: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve calendar events")
+
+
+@router.post("/calendar/events", response_model=CalendarEventResponse)
+async def create_calendar_event(
+    request: Request,
+    event: CalendarEventCreate,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Create a new calendar event."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": event.family_id})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # Validate times
+        if event.end_time <= event.start_time:
+            raise HTTPException(status_code=400, detail="End time must be after start time")
+            
+        # Create event
+        event_id = f"evt_{uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        
+        event_doc = {
+            "event_id": event_id,
+            "family_id": event.family_id,
+            "title": event.title,
+            "description": event.description,
+            "start_time": event.start_time,
+            "end_time": event.end_time,
+            "event_type": event.event_type,
+            "location": event.location,
+            "reminder_minutes": event.reminder_minutes,
+            "created_by": user_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        calendar_collection = db_manager.get_collection("calendar_events")
+        await calendar_collection.insert_one(event_doc)
+        
+        # Add creator name
+        event_doc["created_by_name"] = username
+        
+        logger.info("User %s created calendar event %s for family %s", username, event_id, event.family_id)
+        
+        return event_doc
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to create calendar event: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to create calendar event")
+
+
+@router.put("/calendar/events/{event_id}", response_model=CalendarEventResponse)
+async def update_calendar_event(
+    request: Request,
+    event_id: str,
+    event: CalendarEventUpdate,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Update an existing calendar event."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        calendar_collection = db_manager.get_collection("calendar_events")
+        existing_event = await calendar_collection.find_one({"event_id": event_id})
+        
+        if not existing_event:
+            raise HTTPException(status_code=404, detail="Event not found")
+            
+        # Verify user is family member and event creator or admin
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": existing_event["family_id"]})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_creator = existing_event["created_by"] == user_id
+        is_admin = any(
+            member.get("user_id") == user_id and member.get("role") == "admin"
+            for member in family.get("members", [])
+        )
+        
+        if not (is_creator or is_admin):
+            raise HTTPException(status_code=403, detail="Not authorized to update this event")
+            
+        # Build update
+        update_data = {"updated_at": datetime.now(timezone.utc)}
+        
+        if event.title is not None:
+            update_data["title"] = event.title
+        if event.description is not None:
+            update_data["description"] = event.description
+        if event.start_time is not None:
+            update_data["start_time"] = event.start_time
+        if event.end_time is not None:
+            update_data["end_time"] = event.end_time
+        if event.event_type is not None:
+            update_data["event_type"] = event.event_type
+        if event.location is not None:
+            update_data["location"] = event.location
+        if event.reminder_minutes is not None:
+            update_data["reminder_minutes"] = event.reminder_minutes
+            
+        # Validate times if both are being updated
+        if "start_time" in update_data and "end_time" in update_data:
+            if update_data["end_time"] <= update_data["start_time"]:
+                raise HTTPException(status_code=400, detail="End time must be after start time")
+                
+        await calendar_collection.update_one({"event_id": event_id}, {"$set": update_data})
+        
+        updated_event = await calendar_collection.find_one({"event_id": event_id})
+        
+        # Add creator name
+        users_collection = db_manager.get_collection("users")
+        creator = await users_collection.find_one({"_id": updated_event["created_by"]}, {"username": 1})
+        updated_event["created_by_name"] = creator.get("username") if creator else None
+        
+        logger.info("User %s updated calendar event %s", username, event_id)
+        
+        return updated_event
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update calendar event: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update calendar event")
+
+
+@router.delete("/calendar/events/{event_id}")
+async def delete_calendar_event(
+    request: Request,
+    event_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Delete a calendar event."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        calendar_collection = db_manager.get_collection("calendar_events")
+        existing_event = await calendar_collection.find_one({"event_id": event_id})
+        
+        if not existing_event:
+            raise HTTPException(status_code=404, detail="Event not found")
+            
+        # Verify user is family member and event creator or admin
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": existing_event["family_id"]})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_creator = existing_event["created_by"] == user_id
+        is_admin = any(
+            member.get("user_id") == user_id and member.get("role") == "admin"
+            for member in family.get("members", [])
+        )
+        
+        if not (is_creator or is_admin):
+            raise HTTPException(status_code=403, detail="Not authorized to delete this event")
+            
+        await calendar_collection.delete_one({"event_id": event_id})
+        
+        logger.info("User %s deleted calendar event %s", username, event_id)
+        
+        return {"status": "success", "message": "Event deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to delete calendar event: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete calendar event")
+
+
+# ============================================================================
+# TASKS ENDPOINTS
+# ============================================================================
+
+@router.get("/tasks", response_model=List[TaskResponse])
+async def get_tasks(
+    request: Request,
+    family_id: str = Query(...),
+    status: Optional[str] = Query(None, pattern="^(pending|in_progress|completed)$"),
+    assigned_to: Optional[str] = Query(None),
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """
+    Get family tasks with optional filters.
+    
+    **Filters:**
+    - status: Filter by task status
+    - assigned_to: Filter by assigned user ID
+    """
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": family_id})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # Query tasks
+        tasks_collection = db_manager.get_collection("family_tasks")
+        query = {"family_id": family_id}
+        
+        if status:
+            query["status"] = status
+        if assigned_to:
+            query["assigned_to"] = assigned_to
+            
+        tasks = await tasks_collection.find(query).sort("created_at", -1).to_list(length=1000)
+        
+        # Enrich with user names
+        users_collection = db_manager.get_collection("users")
+        for task in tasks:
+            # Creator name
+            creator = await users_collection.find_one({"_id": task["created_by"]}, {"username": 1})
+            task["created_by_name"] = creator.get("username") if creator else None
+            
+            # Assigned to name
+            if task.get("assigned_to"):
+                assigned_user = await users_collection.find_one({"_id": task["assigned_to"]}, {"username": 1})
+                task["assigned_to_name"] = assigned_user.get("username") if assigned_user else None
+            else:
+                task["assigned_to_name"] = None
+                
+            # Completed by name
+            if task.get("completed_by"):
+                completed_user = await users_collection.find_one({"_id": task["completed_by"]}, {"username": 1})
+                task["completed_by_name"] = completed_user.get("username") if completed_user else None
+            else:
+                task["completed_by_name"] = None
+            
+        logger.info("User %s retrieved %d tasks for family %s", username, len(tasks), family_id)
+        
+        return tasks
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get tasks: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve tasks")
+
+
+@router.post("/tasks", response_model=TaskResponse)
+async def create_task(
+    request: Request,
+    task: TaskCreate,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Create a new family task."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": task.family_id})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # If assigned_to is provided, verify they are a family member
+        if task.assigned_to:
+            assigned_is_member = any(
+                member.get("user_id") == task.assigned_to
+                for member in family.get("members", [])
+            )
+            if not assigned_is_member:
+                raise HTTPException(status_code=400, detail="Assigned user is not a family member")
+                
+        # Create task
+        task_id = f"task_{uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        
+        task_doc = {
+            "task_id": task_id,
+            "family_id": task.family_id,
+            "title": task.title,
+            "description": task.description,
+            "assigned_to": task.assigned_to,
+            "due_date": task.due_date,
+            "priority": task.priority,
+            "status": "pending",
+            "created_by": user_id,
+            "created_at": now,
+            "completed_at": None,
+            "completed_by": None,
+        }
+        
+        tasks_collection = db_manager.get_collection("family_tasks")
+        await tasks_collection.insert_one(task_doc)
+        
+        # Add names
+        task_doc["created_by_name"] = username
+        
+        if task.assigned_to:
+            users_collection = db_manager.get_collection("users")
+            assigned_user = await users_collection.find_one({"_id": task.assigned_to}, {"username": 1})
+            task_doc["assigned_to_name"] = assigned_user.get("username") if assigned_user else None
+        else:
+            task_doc["assigned_to_name"] = None
+            
+        task_doc["completed_by_name"] = None
+        
+        logger.info("User %s created task %s for family %s", username, task_id, task.family_id)
+        
+        return task_doc
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to create task: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to create task")
+
+
+@router.put("/tasks/{task_id}", response_model=TaskResponse)
+async def update_task(
+    request: Request,
+    task_id: str,
+    task: TaskUpdate,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Update a task."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        tasks_collection = db_manager.get_collection("family_tasks")
+        existing_task = await tasks_collection.find_one({"task_id": task_id})
+        
+        if not existing_task:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": existing_task["family_id"]})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # Build update
+        update_data = {}
+        
+        if task.title is not None:
+            update_data["title"] = task.title
+        if task.description is not None:
+            update_data["description"] = task.description
+        if task.assigned_to is not None:
+            # Verify assigned user is family member
+            assigned_is_member = any(
+                member.get("user_id") == task.assigned_to
+                for member in family.get("members", [])
+            )
+            if not assigned_is_member:
+                raise HTTPException(status_code=400, detail="Assigned user is not a family member")
+            update_data["assigned_to"] = task.assigned_to
+        if task.due_date is not None:
+            update_data["due_date"] = task.due_date
+        if task.priority is not None:
+            update_data["priority"] = task.priority
+        if task.status is not None:
+            update_data["status"] = task.status
+            
+        await tasks_collection.update_one({"task_id": task_id}, {"$set": update_data})
+        
+        updated_task = await tasks_collection.find_one({"task_id": task_id})
+        
+        # Add names
+        users_collection = db_manager.get_collection("users")
+        creator = await users_collection.find_one({"_id": updated_task["created_by"]}, {"username": 1})
+        updated_task["created_by_name"] = creator.get("username") if creator else None
+        
+        if updated_task.get("assigned_to"):
+            assigned_user = await users_collection.find_one({"_id": updated_task["assigned_to"]}, {"username": 1})
+            updated_task["assigned_to_name"] = assigned_user.get("username") if assigned_user else None
+        else:
+            updated_task["assigned_to_name"] = None
+            
+        if updated_task.get("completed_by"):
+            completed_user = await users_collection.find_one({"_id": updated_task["completed_by"]}, {"username": 1})
+            updated_task["completed_by_name"] = completed_user.get("username") if completed_user else None
+        else:
+            updated_task["completed_by_name"] = None
+        
+        logger.info("User %s updated task %s", username, task_id)
+        
+        return updated_task
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update task: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update task")
+
+
+@router.post("/tasks/{task_id}/complete", response_model=TaskResponse)
+async def complete_task(
+    request: Request,
+    task_id: str,
+    current_user: dict = Depends(enforce_all_lockdowns),
+):
+    """Mark a task as completed."""
+    user_id = str(current_user["_id"])
+    username = current_user["username"]
+    
+    try:
+        tasks_collection = db_manager.get_collection("family_tasks")
+        existing_task = await tasks_collection.find_one({"task_id": task_id})
+        
+        if not existing_task:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        # Verify user is family member
+        family_collection = db_manager.get_collection("families")
+        family = await family_collection.find_one({"family_id": existing_task["family_id"]})
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+            
+        is_member = any(
+            member.get("user_id") == user_id or member.get("username") == username
+            for member in family.get("members", [])
+        )
+        
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a family member")
+            
+        # Mark as completed
+        now = datetime.now(timezone.utc)
+        await tasks_collection.update_one(
+            {"task_id": task_id},
+            {"$set": {
+                "status": "completed",
+                "completed_at": now,
+                "completed_by": user_id,
+            }}
+        )
+        
+        updated_task = await tasks_collection.find_one({"task_id": task_id})
+        
+        # Add names
+        users_collection = db_manager.get_collection("users")
+        creator = await users_collection.find_one({"_id": updated_task["created_by"]}, {"username": 1})
+        updated_task["created_by_name"] = creator.get("username") if creator else None
+        
+        if updated_task.get("assigned_to"):
+            assigned_user = await users_collection.find_one({"_id": updated_task["assigned_to"]}, {"username": 1})
+            updated_task["assigned_to_name"] = assigned_user.get("username") if assigned_user else None
+        else:
+            updated_task["assigned_to_name"] = None
+            
+        updated_task["completed_by_name"] = username
+        
+        logger.info("User %s completed task %s", username, task_id)
+        
+        return updated_task
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to complete task: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to complete task")

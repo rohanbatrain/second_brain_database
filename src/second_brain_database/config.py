@@ -565,15 +565,6 @@ class Settings(BaseSettings):
             raise ValueError("MCP_RETRY_BACKOFF_FACTOR must be between 1.0 and 10.0")
         return factor
 
-    @field_validator("MCP_RATE_LIMIT_REQUESTS", "MCP_MAX_CONCURRENT_TOOLS", mode="before")
-    @classmethod
-    def validate_positive_integers(cls, v, info):
-        """Validate that MCP numeric settings are positive."""
-        value = int(v)
-        if value <= 0:
-            raise ValueError(f"{info.field_name} must be a positive integer")
-        return value
-
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
