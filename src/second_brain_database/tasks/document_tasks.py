@@ -33,6 +33,7 @@ def process_document_async(
     user_id: str,
     extract_images: bool = True,
     output_format: str = "markdown",
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Process document asynchronously with Docling.
 
@@ -57,6 +58,7 @@ def process_document_async(
                 extract_images=extract_images,
                 output_format=output_format,
                 index_for_search=True,
+                tenant_id=tenant_id,
             )
         )
 
@@ -81,7 +83,7 @@ def process_document_async(
 
 
 @celery_app.task(name="extract_tables_async")
-def extract_tables_async(file_data_b64: str, filename: str, user_id: str) -> Dict[str, Any]:
+def extract_tables_async(file_data_b64: str, filename: str, user_id: str, tenant_id: str = None) -> Dict[str, Any]:
     """Extract tables from document asynchronously.
 
     Args:
@@ -96,7 +98,7 @@ def extract_tables_async(file_data_b64: str, filename: str, user_id: str) -> Dic
         file_data = base64.b64decode(file_data_b64)
 
         tables = asyncio.run(
-            document_service.extract_tables_from_document(file_data=file_data, filename=filename)
+            document_service.extract_tables_from_document(file_data=file_data, filename=filename, tenant_id=tenant_id)
         )
 
         result = {
@@ -127,6 +129,7 @@ def chunk_document_for_rag(
     document_id: str,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Chunk document for RAG/vector search.
 
@@ -145,6 +148,7 @@ def chunk_document_for_rag(
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 index_chunks=True,
+                tenant_id=tenant_id,
             )
         )
 
@@ -181,6 +185,7 @@ def advanced_ocr_processing(
     ocr_engine: str = "tesseract",
     resolution: int = 300,
     force_ocr: bool = False,
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Advanced OCR processing with configurable parameters.
 
@@ -208,6 +213,7 @@ def advanced_ocr_processing(
                 extract_images=True,
                 output_format="markdown",
                 index_for_search=True,
+                tenant_id=tenant_id,
             )
         )
 
@@ -248,6 +254,7 @@ def batch_document_processing(
     documents: List[Dict[str, str]],
     user_id: str,
     processing_options: Dict[str, Any] = None,
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Process multiple documents in batch with progress tracking.
 
@@ -287,6 +294,7 @@ def batch_document_processing(
                     user_id,
                     processing_options.get("extract_images", True),
                     processing_options.get("output_format", "markdown"),
+                    tenant_id,
                 ]
             )
 
@@ -331,6 +339,7 @@ def document_layout_analysis(
     document_id: str,
     user_id: str,
     analysis_depth: str = "detailed",
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Perform detailed layout analysis on a processed document.
 
@@ -344,7 +353,7 @@ def document_layout_analysis(
     """
     try:
         # Get document content
-        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        doc_content = asyncio.run(document_service.get_document_content(document_id, tenant_id=tenant_id))
         if not doc_content:
             raise ValueError(f"Document {document_id} not found")
 
@@ -397,6 +406,7 @@ def document_quality_analysis(
     self,
     document_id: str,
     user_id: str,
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Analyze document quality including OCR confidence and content integrity.
 
@@ -409,7 +419,7 @@ def document_quality_analysis(
     """
     try:
         # Get document content
-        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        doc_content = asyncio.run(document_service.get_document_content(document_id, tenant_id=tenant_id))
         if not doc_content:
             raise ValueError(f"Document {document_id} not found")
 
@@ -450,6 +460,7 @@ def document_summarization(
     user_id: str,
     summary_type: str = "extractive",
     max_length: int = 300,
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Generate document summary using extracted content.
 
@@ -464,7 +475,7 @@ def document_summarization(
     """
     try:
         # Get document content
-        doc_content = asyncio.run(document_service.get_document_content(document_id))
+        doc_content = asyncio.run(document_service.get_document_content(document_id, tenant_id=tenant_id))
         if not doc_content:
             raise ValueError(f"Document {document_id} not found")
 
@@ -513,6 +524,7 @@ def document_comparison(
     document_id_2: str,
     user_id: str,
     comparison_type: str = "content",
+    tenant_id: str = None,
 ) -> Dict[str, Any]:
     """Compare two documents and identify differences.
 
@@ -527,8 +539,8 @@ def document_comparison(
     """
     try:
         # Get both documents
-        doc1 = asyncio.run(document_service.get_document_content(document_id_1))
-        doc2 = asyncio.run(document_service.get_document_content(document_id_2))
+        doc1 = asyncio.run(document_service.get_document_content(document_id_1, tenant_id=tenant_id))
+        doc2 = asyncio.run(document_service.get_document_content(document_id_2, tenant_id=tenant_id))
 
         if not doc1 or not doc2:
             raise ValueError("One or both documents not found")

@@ -499,7 +499,7 @@ class FamilyManager:
                 family_doc = await self._build_family_document(family_id, name, user_id, sbd_account_username, now)
 
                 # Insert family document within transaction
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.insert_one(family_doc, session=session)
 
                 # Create virtual SBD account within transaction
@@ -829,7 +829,7 @@ class FamilyManager:
                 )
 
                 # Insert invitation within transaction
-                invitations_collection = self.db_manager.get_collection("family_invitations")
+                invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
                 await invitations_collection.insert_one(invitation_data["document"], session=session)
 
                 # Send invitation email (outside transaction to avoid rollback on email failure)
@@ -1527,7 +1527,7 @@ class FamilyManager:
             )
 
             # 3. Insert into DB
-            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            purchase_requests_collection = self.db_manager.get_tenant_collection("family_purchase_requests")
             await purchase_requests_collection.insert_one(purchase_request_doc.model_dump(by_alias=True))
 
             # 4. Send notification to family admins
@@ -1575,7 +1575,7 @@ class FamilyManager:
             family = await self._get_family_by_id(family_id)
             is_admin = user_id in family.get("admin_user_ids", [])
 
-            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            purchase_requests_collection = self.db_manager.get_tenant_collection("family_purchase_requests")
 
             query = {"family_id": family_id}
             if not is_admin:
@@ -1614,7 +1614,7 @@ class FamilyManager:
             metadata={"request_id": request_id},
         )
         try:
-            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            purchase_requests_collection = self.db_manager.get_tenant_collection("family_purchase_requests")
 
             # 1. Get the purchase request
             purchase_request = await purchase_requests_collection.find_one({"request_id": request_id})
@@ -1714,7 +1714,7 @@ class FamilyManager:
             metadata={"request_id": request_id, "reason": reason},
         )
         try:
-            purchase_requests_collection = self.db_manager.get_collection("family_purchase_requests")
+            purchase_requests_collection = self.db_manager.get_tenant_collection("family_purchase_requests")
 
             # 1. Get the purchase request
             purchase_request = await purchase_requests_collection.find_one({"request_id": request_id})
@@ -2272,7 +2272,7 @@ class FamilyManager:
         Non-transactional fallback for family creation. Performs operations in order and cleans up on failure.
         This is intended for local/dev environments where MongoDB transactions are not available.
         """
-        families_collection = self.db_manager.get_collection("families")
+        families_collection = self.db_manager.get_tenant_collection("families")
         now = datetime.now(timezone.utc)
         family_doc = await self._build_family_document(family_id, name, user_id, sbd_account_username, now)
 
@@ -2518,7 +2518,7 @@ class FamilyManager:
                 constraint="not_already_member",
             )
 
-        invitations_collection = self.db_manager.get_collection("family_invitations")
+        invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
         now = datetime.now(timezone.utc)
 
         # Check for pending invitations (not expired)
@@ -3059,7 +3059,7 @@ class FamilyManager:
         Non-transactional invitation creation for environments without transaction support.
         Inserts invitation, attempts to send email, and updates the invitation document accordingly.
         """
-        invitations_collection = self.db_manager.get_collection("family_invitations")
+        invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
         family = await self._get_family_by_id(family_id)
 
         invitation_data = await self._generate_secure_invitation(family_id, inviter_id, invitee_user, relationship_type)
@@ -3500,7 +3500,7 @@ class FamilyManager:
             Family ID if found, None otherwise
         """
         try:
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             family = await families_collection.find_one({"sbd_account.account_username": sbd_username})
 
             if family:
@@ -4566,7 +4566,7 @@ class FamilyManager:
             }
 
             # Update family document
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             await families_collection.update_one(
                 {"family_id": family_id},
                 {
@@ -4719,7 +4719,7 @@ class FamilyManager:
             }
 
             # Insert request
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
             await requests_collection.insert_one(request_doc)
 
             # If auto-approved, process immediately
@@ -4819,7 +4819,7 @@ class FamilyManager:
                 raise ValidationError("Action must be 'approve' or 'deny'", field="action", value=action)
 
             # Get token request
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
             request_doc = await requests_collection.find_one({"request_id": request_id})
 
             if not request_doc:
@@ -4958,7 +4958,7 @@ class FamilyManager:
                 raise InsufficientPermissions("Only family admins can view pending token requests")
 
             # Get pending requests
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
             cursor = requests_collection.find(
                 {"family_id": family_id, "status": "pending", "expires_at": {"$gt": datetime.now(timezone.utc)}}
             ).sort("created_at", 1)
@@ -5041,7 +5041,7 @@ class FamilyManager:
                 raise InsufficientPermissions("You must be a family member to view token requests")
 
             # Get user's requests
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
             cursor = (
                 requests_collection.find({"family_id": family_id, "requester_user_id": user_id})
                 .sort("created_at", -1)
@@ -5112,7 +5112,7 @@ class FamilyManager:
 
         try:
             now = datetime.now(timezone.utc)
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
 
             # Find expired pending requests
             expired_requests = await requests_collection.find(
@@ -5185,7 +5185,7 @@ class FamilyManager:
         """
         try:
             # Get request details
-            requests_collection = self.db_manager.get_collection("family_token_requests")
+            requests_collection = self.db_manager.get_tenant_collection("family_token_requests")
             request_doc = await requests_collection.find_one({"request_id": request_id})
 
             if not request_doc:
@@ -5530,7 +5530,7 @@ class FamilyManager:
             }
 
             # Insert notification
-            notifications_collection = self.db_manager.get_collection("family_notifications")
+            notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
             await notifications_collection.insert_one(notification_doc)
 
             # Update notification status to sent
@@ -5796,7 +5796,7 @@ class FamilyManager:
             now = datetime.now(timezone.utc)
             freeze_data = {"is_frozen": True, "frozen_by": admin_id, "frozen_at": now, "freeze_reason": reason}
 
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             await families_collection.update_one(
                 {"family_id": family_id},
                 {
@@ -5873,7 +5873,7 @@ class FamilyManager:
                 "unfrozen_at": now,
             }
 
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             await families_collection.update_one(
                 {"family_id": family_id},
                 {
@@ -6498,7 +6498,7 @@ class FamilyManager:
             Dict containing family information or None if not found
         """
         try:
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             family = await families_collection.find_one({"sbd_account.account_username": account_username})
 
             if not family:
@@ -6606,7 +6606,7 @@ class FamilyManager:
         start_time = self.db_manager.log_query_start("family_invitations", "cleanup_expired", cleanup_context)
 
         try:
-            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
             now = datetime.now(timezone.utc)
 
             # Find expired pending invitations
@@ -6717,7 +6717,7 @@ class FamilyManager:
                 query["status"] = status_filter
 
             # Use aggregation to populate inviter and invitee usernames and family name atomically.
-            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
 
             pipeline = [
                 {"$match": query},
@@ -6845,7 +6845,7 @@ class FamilyManager:
             if status_filter:
                 query["status"] = status_filter
 
-            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
 
             pipeline = [
                 {"$match": query},
@@ -6958,7 +6958,7 @@ class FamilyManager:
 
         try:
             # Get invitation
-            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
             invitation = await invitations_collection.find_one({"invitation_id": invitation_id})
 
             if not invitation:
@@ -7051,7 +7051,7 @@ class FamilyManager:
 
         try:
             # Get invitation
-            invitations_collection = self.db_manager.get_collection("family_invitations")
+            invitations_collection = self.db_manager.get_tenant_collection("family_invitations")
             invitation = await invitations_collection.find_one({"invitation_id": invitation_id})
 
             if not invitation:
@@ -7190,7 +7190,7 @@ class FamilyManager:
                 self.logger.warning("Could not determine replica set status: %s", e)
 
             now = datetime.now(timezone.utc)
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             users_collection = self.db_manager.get_collection("users")
 
             if is_replica_set:
@@ -7480,7 +7480,7 @@ class FamilyManager:
                 self.logger.warning("Could not determine replica set status: %s", e)
 
             now = datetime.now(timezone.utc)
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             users_collection = self.db_manager.get_collection("users")
 
             if is_replica_set:
@@ -7776,7 +7776,7 @@ class FamilyManager:
                 now = datetime.now(timezone.utc)
 
                 # Update family succession plan
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -7948,7 +7948,7 @@ class FamilyManager:
                 now = datetime.now(timezone.utc)
 
                 # Update family succession plan
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -8091,7 +8091,7 @@ class FamilyManager:
                 )
 
             # Get admin actions log
-            admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+            admin_actions_collection = self.db_manager.get_tenant_collection("family_admin_actions")
 
             # Get total count
             total_count = await admin_actions_collection.count_documents({"family_id": family_id})
@@ -8205,7 +8205,7 @@ class FamilyManager:
     ) -> None:
         """Log admin action for audit trail."""
         try:
-            admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+            admin_actions_collection = self.db_manager.get_tenant_collection("family_admin_actions")
 
             action_id = f"act_{uuid.uuid4().hex[:16]}"
             now = datetime.now(timezone.utc)
@@ -8371,7 +8371,7 @@ class FamilyManager:
     ) -> None:
         """Create a family notification."""
         try:
-            notifications_collection = self.db_manager.get_collection("family_notifications")
+            notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
 
             notification_id = f"notif_{uuid.uuid4().hex[:16]}"
             now = datetime.now(timezone.utc)
@@ -8468,7 +8468,7 @@ class FamilyManager:
                     query["status"] = status_filter
 
             # Get notifications with pagination
-            notifications_collection = self.db_manager.get_collection("family_notifications")
+            notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
 
             # Get total count
             total_count = await notifications_collection.count_documents(query)
@@ -8564,7 +8564,7 @@ class FamilyManager:
                 return {"marked_count": 0, "updated_notifications": []}
 
             # Update notifications
-            notifications_collection = self.db_manager.get_collection("family_notifications")
+            notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
             now = datetime.now(timezone.utc)
 
             # Mark notifications as read
@@ -8634,7 +8634,7 @@ class FamilyManager:
             await self._verify_family_membership(family_id, user_id)
 
             # Update all unread notifications
-            notifications_collection = self.db_manager.get_collection("family_notifications")
+            notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
             now = datetime.now(timezone.utc)
 
             result = await notifications_collection.update_many(
@@ -8954,7 +8954,7 @@ class FamilyManager:
                 unread_count = force_count
             else:
                 # Calculate actual unread count
-                notifications_collection = self.db_manager.get_collection("family_notifications")
+                notifications_collection = self.db_manager.get_tenant_collection("family_notifications")
                 unread_count = await notifications_collection.count_documents(
                     {"family_id": family_id, "recipient_user_ids": user_id, f"read_by.{user_id}": {"$exists": False}}
                 )
@@ -9084,7 +9084,7 @@ class FamilyManager:
 
                 # Remove from family admin list if admin
                 if member_id in family["admin_user_ids"]:
-                    families_collection = self.db_manager.get_collection("families")
+                    families_collection = self.db_manager.get_tenant_collection("families")
                     await families_collection.update_one(
                         {"family_id": family_id}, {"$pull": {"admin_user_ids": member_id}}, session=session
                     )
@@ -9236,7 +9236,7 @@ class FamilyManager:
             update_doc["updated_at"] = datetime.now(timezone.utc)
 
             # Perform update
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             result = await families_collection.update_one({"family_id": family_id}, {"$set": update_doc})
 
             if result.matched_count == 0:
@@ -9328,7 +9328,7 @@ class FamilyManager:
                 now = datetime.now(timezone.utc)
 
                 # Update family document with backup admin
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -9484,7 +9484,7 @@ class FamilyManager:
                 now = datetime.now(timezone.utc)
 
                 # Update family document to remove backup admin
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -9919,7 +9919,7 @@ class FamilyManager:
 
         try:
             # Find all families where the deleted user was an admin
-            families_collection = self.db_manager.get_collection("families")
+            families_collection = self.db_manager.get_tenant_collection("families")
             affected_families = await families_collection.find(
                 {"admin_user_ids": deleted_admin_id, "is_active": True}
             ).to_list(None)
@@ -9987,7 +9987,7 @@ class FamilyManager:
                 now = datetime.now(timezone.utc)
 
                 # Promote backup admin to full admin
-                families_collection = self.db_manager.get_collection("families")
+                families_collection = self.db_manager.get_tenant_collection("families")
                 await families_collection.update_one(
                     {"family_id": family_id},
                     {
@@ -10130,7 +10130,7 @@ class FamilyManager:
         now = datetime.now(timezone.utc)
 
         # Update family document
-        families_collection = self.db_manager.get_collection("families")
+        families_collection = self.db_manager.get_tenant_collection("families")
         await families_collection.update_one(
             {"family_id": family_id},
             {
@@ -10201,7 +10201,7 @@ class FamilyManager:
         session: ClientSession = None,
     ) -> None:
         """Log admin actions for audit trail."""
-        admin_actions_collection = self.db_manager.get_collection("family_admin_actions")
+        admin_actions_collection = self.db_manager.get_tenant_collection("family_admin_actions")
 
         action_doc = {
             "action_id": f"act_{uuid.uuid4().hex[:16]}",
@@ -10246,7 +10246,7 @@ class FamilyManager:
 
     async def _deactivate_family(self, family_id: str, reason: str) -> None:
         """Deactivate a family when no members remain."""
-        families_collection = self.db_manager.get_collection("families")
+        families_collection = self.db_manager.get_tenant_collection("families")
         await families_collection.update_one(
             {"family_id": family_id},
             {"$set": {"is_active": False, "deactivated_at": datetime.now(timezone.utc), "deactivation_reason": reason}},

@@ -58,6 +58,8 @@ from second_brain_database.routes.ipam.routes import router as ipam_router
 from second_brain_database.routes.ipam.dashboard_routes import router as ipam_dashboard_router
 from second_brain_database.routes.langgraph_api import router as langgraph_api_router
 from second_brain_database.routes.dashboard import router as dashboard_router
+from second_brain_database.routes.anki import router as anki_router
+from second_brain_database.routes.tenants import router as tenants_router
 from second_brain_database.webrtc import router as webrtc_router
 from second_brain_database.utils.logging_utils import (
     RequestLoggingMiddleware,
@@ -1227,6 +1229,8 @@ routers_config = [
     ("dashboard", dashboard_router, "Dashboard preferences and widget management endpoints"),
     ("ipam", ipam_router, "IPAM hierarchical IP allocation management endpoints"),
     ("ipam_dashboard", ipam_dashboard_router, "IPAM dashboard statistics and analytics endpoints"),
+    ("anki", anki_router, "MemEx Spaced Repetition System endpoints"),
+    ("tenants", tenants_router, "Multi-tenancy management endpoints"),
 ]
 
 logger.info("Including API routers...")

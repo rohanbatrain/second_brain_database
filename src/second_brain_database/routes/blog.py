@@ -121,7 +121,7 @@ async def get_website(
         if not website:
             # Try as ID
             from second_brain_database.database import db_manager
-            website_doc = await db_manager.get_collection("blog_websites").find_one({"website_id": website_id})
+            website_doc = await db_manager.get_tenant_collection("blog_websites").find_one({"website_id": website_id})
             if website_doc:
                 website = BlogWebsiteResponse(**website_doc)
 
@@ -156,7 +156,7 @@ async def update_website(
         update_data = request.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.utcnow()
 
-        result = await db_manager.get_collection("blog_websites").update_one(
+        result = await db_manager.get_tenant_collection("blog_websites").update_one(
             {"website_id": website_id},
             {"$set": update_data}
         )
@@ -165,7 +165,7 @@ async def update_website(
             raise HTTPException(status_code=404, detail="Website not found")
 
         # Get updated website
-        website_doc = await db_manager.get_collection("blog_websites").find_one({"website_id": website_id})
+        website_doc = await db_manager.get_tenant_collection("blog_websites").find_one({"website_id": website_id})
         website = BlogWebsiteResponse(**website_doc)
 
         # Clear cache
@@ -238,7 +238,7 @@ async def create_post(
 
         # Update post with reading time and initial version
         from second_brain_database.database import db_manager
-        await db_manager.get_collection("blog_posts").update_one(
+        await db_manager.get_tenant_collection("blog_posts").update_one(
             {"post_id": post.post_id},
             {
                 "$set": {"reading_time": reading_time, "word_count": word_count},
@@ -344,7 +344,7 @@ async def update_post(
 
         # Check if user can edit this post (owner or editor+)
         from second_brain_database.database import db_manager
-        post_doc = await db_manager.get_collection("blog_posts").find_one({
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one({
             "post_id": post_id,
             "website_id": website_id
         })
@@ -404,7 +404,7 @@ async def update_post(
         if version_update:
             update_operations.update(version_update)
 
-        result = await db_manager.get_collection("blog_posts").update_one(
+        result = await db_manager.get_tenant_collection("blog_posts").update_one(
             {"post_id": post_id, "website_id": website_id},
             update_operations
         )
@@ -413,7 +413,7 @@ async def update_post(
             raise HTTPException(status_code=404, detail="Post not found")
 
         # Get updated post
-        updated_post_doc = await db_manager.get_collection("blog_posts").find_one({
+        updated_post_doc = await db_manager.get_tenant_collection("blog_posts").find_one({
             "post_id": post_id, "website_id": website_id
         })
         post = BlogPostResponse(**updated_post_doc)
@@ -459,7 +459,7 @@ async def delete_post(
         from second_brain_database.database import db_manager
 
         # Check if post exists
-        post_doc = await db_manager.get_collection("blog_posts").find_one({
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one({
             "post_id": post_id,
             "website_id": website_id
         })
@@ -468,7 +468,7 @@ async def delete_post(
             raise HTTPException(status_code=404, detail="Post not found")
 
         # Delete post
-        result = await db_manager.get_collection("blog_posts").delete_one({
+        result = await db_manager.get_tenant_collection("blog_posts").delete_one({
             "post_id": post_id,
             "website_id": website_id
         })
@@ -477,7 +477,7 @@ async def delete_post(
             raise HTTPException(status_code=404, detail="Post not found")
 
         # Update website post count
-        await db_manager.get_collection("blog_websites").update_one(
+        await db_manager.get_tenant_collection("blog_websites").update_one(
             {"website_id": website_id},
             {"$inc": {"post_count": -1}}
         )
@@ -513,7 +513,7 @@ async def create_category(
         from datetime import datetime
 
         # Check if slug is unique within website
-        existing = await db_manager.get_collection("blog_categories").find_one({
+        existing = await db_manager.get_tenant_collection("blog_categories").find_one({
             "website_id": website_id,
             "slug": request.slug
         })
@@ -531,7 +531,7 @@ async def create_category(
             "updated_at": datetime.utcnow()
         }
 
-        await db_manager.get_collection("blog_categories").insert_one(category_doc)
+        await db_manager.get_tenant_collection("blog_categories").insert_one(category_doc)
 
         # Clear cache
         await content_service._clear_website_cache(website_id)
@@ -560,7 +560,7 @@ async def get_website_categories(
         from second_brain_database.database import db_manager
 
         categories = []
-        async for cat in db_manager.get_collection("blog_categories").find({"website_id": website_id}):
+        async for cat in db_manager.get_tenant_collection("blog_categories").find({"website_id": website_id}):
             categories.append(BlogCategoryResponse(**cat))
 
         return categories
@@ -592,7 +592,7 @@ async def create_comment(
         from datetime import datetime
 
         # Check if post exists and allows comments
-        post_doc = await db_manager.get_collection("blog_posts").find_one({
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one({
             "post_id": post_id,
             "website_id": website_id
         })
@@ -601,7 +601,7 @@ async def create_comment(
             raise HTTPException(status_code=404, detail="Post not found")
 
         # Check if website allows comments
-        website_doc = await db_manager.get_collection("blog_websites").find_one({"website_id": website_id})
+        website_doc = await db_manager.get_tenant_collection("blog_websites").find_one({"website_id": website_id})
         if not website_doc or not website_doc.get("allow_comments", True):
             raise HTTPException(status_code=403, detail="Comments are disabled for this website")
 
@@ -635,10 +635,10 @@ async def create_comment(
             "updated_at": datetime.utcnow()
         }
 
-        await db_manager.get_collection("blog_comments").insert_one(comment_doc)
+        await db_manager.get_tenant_collection("blog_comments").insert_one(comment_doc)
 
         # Update post comment count
-        await db_manager.get_collection("blog_posts").update_one(
+        await db_manager.get_tenant_collection("blog_posts").update_one(
             {"post_id": post_id, "website_id": website_id},
             {"$inc": {"comment_count": 1}}
         )
@@ -693,7 +693,7 @@ async def get_post_comments(
             query["status"] = "approved"
 
         comments = []
-        async for comment in db_manager.get_collection("blog_comments").find(query).sort("created_at", 1):
+        async for comment in db_manager.get_tenant_collection("blog_comments").find(query).sort("created_at", 1):
             comments.append(BlogCommentResponse(**comment))
 
         return comments

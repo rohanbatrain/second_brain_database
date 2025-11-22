@@ -90,6 +90,7 @@ class RAGVectorStoreService:
     async def index_document(
         self,
         document: Document,
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -113,9 +114,9 @@ class RAGVectorStoreService:
         
         try:
             if self.manager_type == "llamaindex":
-                return await self._index_with_llamaindex(document, **kwargs)
+                return await self._index_with_llamaindex(document, tenant_id=tenant_id, **kwargs)
             else:
-                return await self._index_with_qdrant(document, **kwargs)
+                return await self._index_with_qdrant(document, tenant_id=tenant_id, **kwargs)
                 
         except Exception as e:
             processing_time = time.time() - start_time
@@ -127,6 +128,7 @@ class RAGVectorStoreService:
     async def _index_with_llamaindex(
         self,
         document: Document,
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Index document using LlamaIndex vector manager."""
@@ -174,6 +176,7 @@ class RAGVectorStoreService:
     async def _index_with_qdrant(
         self,
         document: Document,
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Index document using Qdrant vector manager."""
@@ -209,7 +212,8 @@ class RAGVectorStoreService:
             document_id=str(document.id),
             chunks=chunk_texts,
             metadata=doc_metadata,
-            user_id=document.user_id
+            user_id=document.user_id,
+            tenant_id=tenant_id
         )
         
         processing_time = time.time() - time.time()
@@ -231,6 +235,7 @@ class RAGVectorStoreService:
         limit: Optional[int] = None,
         score_threshold: Optional[float] = None,
         filters: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -262,11 +267,11 @@ class RAGVectorStoreService:
         try:
             if self.manager_type == "llamaindex":
                 return await self._search_with_llamaindex(
-                    query, user_id, limit, score_threshold, filters, **kwargs
+                    query, user_id, limit, score_threshold, filters, tenant_id=tenant_id, **kwargs
                 )
             else:
                 return await self._search_with_qdrant(
-                    query, user_id, limit, score_threshold, filters, **kwargs
+                    query, user_id, limit, score_threshold, filters, tenant_id=tenant_id, **kwargs
                 )
                 
         except Exception as e:
@@ -281,6 +286,7 @@ class RAGVectorStoreService:
         limit: int,
         score_threshold: float,
         filters: Optional[Dict[str, Any]],
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """Search using LlamaIndex vector manager."""
@@ -329,6 +335,7 @@ class RAGVectorStoreService:
         limit: int,
         score_threshold: float,
         filters: Optional[Dict[str, Any]],
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """Search using Qdrant vector manager."""
@@ -337,7 +344,8 @@ class RAGVectorStoreService:
             user_id=user_id,
             limit=limit,
             score_threshold=score_threshold,
-            include_metadata=True
+            include_metadata=True,
+            tenant_id=tenant_id
         )
         
         # Convert to RAG format
@@ -364,6 +372,7 @@ class RAGVectorStoreService:
     async def delete_document(
         self,
         document_id: str,
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> bool:
         """
@@ -391,7 +400,7 @@ class RAGVectorStoreService:
                 return await self.manager.delete_documents([document_id])
             else:
                 # For Qdrant, delete by document ID filter
-                return await self.manager.delete_document_vectors(document_id)
+                return await self.manager.delete_document_vectors(document_id, tenant_id=tenant_id)
                 
         except Exception as e:
             logger.error(f"Failed to delete document vectors: {e}")

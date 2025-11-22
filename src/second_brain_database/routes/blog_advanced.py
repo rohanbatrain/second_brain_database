@@ -43,7 +43,7 @@ async def autosave_post(
         from second_brain_database.database import db_manager
 
         # Update auto-save content
-        result = await db_manager.get_collection("blog_posts").update_one(
+        result = await db_manager.get_tenant_collection("blog_posts").update_one(
             {"post_id": post_id, "website_id": website_id, "author_id": current_user["_id"]},
             {
                 "$set": {
@@ -80,7 +80,7 @@ async def get_post_versions(
 
         from second_brain_database.database import db_manager
 
-        post_doc = await db_manager.get_collection("blog_posts").find_one(
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one(
             {"post_id": post_id, "website_id": website_id}
         )
 
@@ -112,7 +112,7 @@ async def restore_post_version(
         from second_brain_database.database import db_manager
 
         # Get the post and find the version
-        post_doc = await db_manager.get_collection("blog_posts").find_one(
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one(
             {"post_id": post_id, "website_id": website_id}
         )
 
@@ -142,7 +142,7 @@ async def restore_post_version(
         )
 
         # Restore the version
-        result = await db_manager.get_collection("blog_posts").update_one(
+        result = await db_manager.get_tenant_collection("blog_posts").update_one(
             {"post_id": post_id, "website_id": website_id},
             {
                 "$set": {
@@ -177,7 +177,7 @@ async def get_sitemap(website_id: str):
 
         # Get all published posts
         posts = []
-        async for post in db_manager.get_collection("blog_posts").find(
+        async for post in db_manager.get_tenant_collection("blog_posts").find(
             {"website_id": website_id, "status": "published"}
         ).sort("updated_at", -1):
             posts.append(post)
@@ -210,14 +210,14 @@ async def get_rss_feed(website_id: str):
         from second_brain_database.database import db_manager
 
         # Get website info
-        website_doc = await db_manager.get_collection("blog_websites").find_one({"website_id": website_id})
+        website_doc = await db_manager.get_tenant_collection("blog_websites").find_one({"website_id": website_id})
         if not website_doc:
             raise HTTPException(status_code=404, detail="Website not found")
 
         # Get recent published posts
         posts = []
         async for post in (
-            db_manager.get_collection("blog_posts")
+            db_manager.get_tenant_collection("blog_posts")
             .find({"website_id": website_id, "status": "published"})
             .sort("published_at", -1)
             .limit(20)
@@ -263,7 +263,7 @@ async def subscribe_to_newsletter(
         from second_brain_database.database import db_manager
 
         # Check if already subscribed
-        existing = await db_manager.get_collection("blog_newsletter_subscribers").find_one(
+        existing = await db_manager.get_tenant_collection("blog_newsletter_subscribers").find_one(
             {"website_id": website_id, "email": request.email}
         )
 
@@ -272,7 +272,7 @@ async def subscribe_to_newsletter(
                 raise HTTPException(status_code=400, detail="Already subscribed")
             else:
                 # Reactivate subscription
-                await db_manager.get_collection("blog_newsletter_subscribers").update_one(
+                await db_manager.get_tenant_collection("blog_newsletter_subscribers").update_one(
                     {"_id": existing["_id"]}, {"$set": {"is_active": True, "unsubscribed_at": None}}
                 )
                 return NewsletterSubscriberResponse(**existing)
@@ -287,7 +287,7 @@ async def subscribe_to_newsletter(
             "subscribed_at": datetime.utcnow(),
         }
 
-        await db_manager.get_collection("blog_newsletter_subscribers").insert_one(subscriber_doc)
+        await db_manager.get_tenant_collection("blog_newsletter_subscribers").insert_one(subscriber_doc)
 
         logger.info("New newsletter subscriber: %s for website %s", request.email, website_id)
         return NewsletterSubscriberResponse(**subscriber_doc)
@@ -325,16 +325,16 @@ async def track_analytics(
             "created_at": datetime.utcnow(),
         }
 
-        await db_manager.get_collection("blog_analytics_events").insert_one(event_doc)
+        await db_manager.get_tenant_collection("blog_analytics_events").insert_one(event_doc)
 
         # Update post counters
         if request.post_id:
             if request.event_type == "view":
-                await db_manager.get_collection("blog_posts").update_one(
+                await db_manager.get_tenant_collection("blog_posts").update_one(
                     {"post_id": request.post_id}, {"$inc": {"view_count": 1}}
                 )
             elif request.event_type == "like":
-                await db_manager.get_collection("blog_posts").update_one(
+                await db_manager.get_tenant_collection("blog_posts").update_one(
                     {"post_id": request.post_id}, {"$inc": {"like_count": 1}}
                 )
 
@@ -359,7 +359,7 @@ async def get_engagement_metrics(
         from second_brain_database.database import db_manager
 
         # Get post
-        post_doc = await db_manager.get_collection("blog_posts").find_one(
+        post_doc = await db_manager.get_tenant_collection("blog_posts").find_one(
             {"post_id": post_id, "website_id": website_id}
         )
 
@@ -372,7 +372,7 @@ async def get_engagement_metrics(
         shares = {"twitter": 0, "facebook": 0, "linkedin": 0}
         bookmarks = 0
 
-        async for event in db_manager.get_collection("blog_analytics_events").find({"post_id": post_id}):
+        async for event in db_manager.get_tenant_collection("blog_analytics_events").find({"post_id": post_id}):
             if event["event_type"] == "view":
                 total_views += 1
                 unique_ips.add(event.get("ip_address", "unknown"))

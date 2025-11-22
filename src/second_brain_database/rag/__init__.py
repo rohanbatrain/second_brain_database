@@ -119,6 +119,7 @@ class RAGSystem:
         file_data, 
         filename: str, 
         user_id: str, 
+        tenant_id: str = None,
         **kwargs
     ) -> dict:
         """
@@ -128,6 +129,7 @@ class RAGSystem:
             file_data: Binary file data or file-like object
             filename: Name of the file
             user_id: ID of the user uploading the document
+            tenant_id: ID of the tenant
             **kwargs: Additional processing options
         
         Returns:
@@ -139,12 +141,14 @@ class RAGSystem:
                 file_data=file_data,
                 filename=filename,
                 user_id=user_id,
+                tenant_id=tenant_id,
                 **kwargs
             )
             
             # Step 2: Index in vector store
             indexing_result = await self.vector_store_service.index_document(
                 document=document,
+                tenant_id=tenant_id,
                 **kwargs
             )
             
@@ -175,6 +179,7 @@ class RAGSystem:
         user_id: str,
         use_llm: bool = True,
         streaming: bool = False,
+        tenant_id: str = None,
         **kwargs
     ) -> dict:
         """
@@ -185,6 +190,7 @@ class RAGSystem:
             user_id: User ID
             use_llm: Whether to use LLM for answer generation
             streaming: Whether to use streaming response
+            tenant_id: Tenant ID
             **kwargs: Additional query options
             
         Returns:
@@ -194,6 +200,7 @@ class RAGSystem:
         
         context = QueryContext(
             user_id=user_id,
+            tenant_id=tenant_id,
             conversation_id=kwargs.get('conversation_id'),
             top_k=kwargs.get('top_k', 5),
             use_llm=use_llm,

@@ -94,6 +94,7 @@ class DocumentProcessor:
         user_id: str,
         extract_images: bool = None,
         output_format: str = None,
+        tenant_id: str = None,
     ) -> Dict[str, Any]:
         """Process document and extract structured content.
 
@@ -191,6 +192,7 @@ class DocumentProcessor:
                 content=content,
                 metadata=metadata,
                 images=images,
+                tenant_id=tenant_id,
             )
 
             # Cleanup temp file
@@ -226,6 +228,7 @@ class DocumentProcessor:
         content: Any,
         metadata: Dict[str, Any],
         images: List[Dict[str, Any]],
+        tenant_id: str = None,
     ) -> Any:
         """Store processed document in MongoDB.
 
@@ -235,11 +238,12 @@ class DocumentProcessor:
             content: Extracted content
             metadata: Document metadata
             images: Extracted images
+            tenant_id: Tenant ID
 
         Returns:
             MongoDB document ID
         """
-        collection = db_manager.get_collection("processed_documents")
+        collection = db_manager.get_tenant_collection("processed_documents", tenant_id=tenant_id)
 
         doc = {
             "user_id": user_id,
@@ -297,11 +301,12 @@ class DocumentProcessor:
             logger.error(f"Error extracting tables: {e}", exc_info=True)
             return []
 
-    async def get_document_content(self, document_id: str) -> Optional[Dict[str, Any]]:
+    async def get_document_content(self, document_id: str, tenant_id: str = None) -> Optional[Dict[str, Any]]:
         """Retrieve processed document content from database.
 
         Args:
             document_id: MongoDB document ID
+            tenant_id: Tenant ID
 
         Returns:
             Document content and metadata, or None if not found
@@ -309,7 +314,7 @@ class DocumentProcessor:
         try:
             from bson import ObjectId
 
-            collection = db_manager.get_collection("processed_documents")
+            collection = db_manager.get_tenant_collection("processed_documents", tenant_id=tenant_id)
             doc = await collection.find_one({"_id": ObjectId(document_id)})
 
             if not doc:

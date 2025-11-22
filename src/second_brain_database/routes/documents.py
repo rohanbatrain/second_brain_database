@@ -64,6 +64,7 @@ async def upload_document(
     """
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
 
         # Read file data
         file_data = await file.read()
@@ -93,6 +94,7 @@ async def upload_document(
                 user_id=user_id,
                 extract_images=extract_images,
                 output_format=output_format,
+                tenant_id=tenant_id,
             )
 
             logger.info(
@@ -115,6 +117,7 @@ async def upload_document(
                 extract_images=extract_images,
                 output_format=output_format,
                 index_for_search=True,
+                tenant_id=tenant_id,
             )
 
             return DocumentUploadResponse(
@@ -172,12 +175,13 @@ async def extract_tables(file: UploadFile = File(...), current_user: dict = Depe
     """
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
 
         file_data = await file.read()
         file_data_b64 = base64.b64encode(file_data).decode()
 
         # Process async
-        task = extract_tables_async.delay(file_data_b64=file_data_b64, filename=file.filename, user_id=user_id)
+        task = extract_tables_async.delay(file_data_b64=file_data_b64, filename=file.filename, user_id=user_id, tenant_id=tenant_id)
 
         logger.info(f"Queued table extraction for {file.filename}", extra={"user_id": user_id, "task_id": task.id})
 
@@ -198,6 +202,7 @@ async def list_documents(limit: int = 50, skip: int = 0, current_user: dict = De
     """
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
 
         # Use document service to get document list
         documents = await document_service.get_document_list(
@@ -205,10 +210,11 @@ async def list_documents(limit: int = 50, skip: int = 0, current_user: dict = De
             limit=limit,
             offset=skip,
             include_content=False,
+            tenant_id=tenant_id,
         )
 
         # Get total count
-        collection = db_manager.get_collection("processed_documents")
+        collection = db_manager.get_tenant_collection("processed_documents")
         total = await collection.count_documents({"user_id": user_id})
 
         return {"documents": documents, "total": total, "limit": limit, "skip": skip}
@@ -226,9 +232,10 @@ async def get_document(document_id: str, current_user: dict = Depends(get_curren
     """
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
 
         # Use document service to get document content
-        doc = await document_service.get_document_content(document_id)
+        doc = await document_service.get_document_content(document_id, tenant_id=tenant_id)
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -272,16 +279,17 @@ async def chunk_document(
         from bson import ObjectId
 
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
 
         # Verify ownership
-        collection = db_manager.get_collection("processed_documents")
+        collection = db_manager.get_tenant_collection("processed_documents")
         doc = await collection.find_one({"_id": ObjectId(document_id), "user_id": user_id})
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Queue chunking task
-        task = chunk_document_for_rag.delay(document_id=document_id, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        task = chunk_document_for_rag.delay(document_id=document_id, chunk_size=chunk_size, chunk_overlap=chunk_overlap, tenant_id=tenant_id)
 
         logger.info(f"Queued chunking for document {document_id}", extra={"user_id": user_id, "task_id": task.id})
 
@@ -306,14 +314,14 @@ async def delete_document(document_id: str, current_user: dict = Depends(get_cur
         user_id = str(current_user["_id"])
 
         # Delete document
-        collection = db_manager.get_collection("processed_documents")
+        collection = db_manager.get_tenant_collection("processed_documents")
         result = await collection.delete_one({"_id": ObjectId(document_id), "user_id": user_id})
 
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Delete chunks
-        chunks_collection = db_manager.get_collection("document_chunks")
+        chunks_collection = db_manager.get_tenant_collection("document_chunks")
         await chunks_collection.delete_many({"document_id": document_id})
 
         logger.info(f"Deleted document {document_id}", extra={"user_id": user_id})

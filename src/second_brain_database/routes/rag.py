@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from ..managers.logging_manager import get_logger
+from ..database import db_manager
 # Lazy import to avoid loading embedding model at startup
 # from ..rag import RAGSystem
 from ..rag.core.types import DocumentStatus, QueryType
@@ -245,6 +246,7 @@ async def upload_document(
         start_time = time.time()
         document_id = f"doc_{uuid.uuid4().hex[:8]}"
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
         
         logger.info(
             f"Document upload requested",
@@ -266,7 +268,8 @@ async def upload_document(
                     "filename": request.filename,
                     "content_type": request.content_type,
                     "metadata": request.metadata
-                }
+                },
+                tenant_id=tenant_id,
             )
             
             return DocumentUploadResponse(
@@ -318,7 +321,7 @@ async def upload_document(
             )
             
             # Index document
-            result = await rag_system.vector_store_service.index_document(document)
+            result = await rag_system.vector_store_service.index_document(document, tenant_id=tenant_id)
             
             processing_time = time.time() - start_time
             
@@ -378,6 +381,7 @@ async def upload_file(
         start_time = time.time()
         document_id = f"doc_{uuid.uuid4().hex[:8]}"
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
         
         # Read file content
         file_content = await file.read()
@@ -407,7 +411,8 @@ async def upload_file(
                 file_data=file_data,
                 filename=filename,
                 user_id=user_id,
-                content_type=content_type
+                content_type=content_type,
+                tenant_id=tenant_id,
             )
             
             processing_time = time.time() - start_time
@@ -502,6 +507,7 @@ async def query_documents(
     
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
         query_id = f"query_{uuid.uuid4().hex[:8]}"
         
         logger.info(
@@ -521,6 +527,7 @@ async def query_documents(
             user_id=user_id,
             conversation_id=request.conversation_id,
             use_llm=request.use_llm,
+            tenant_id=tenant_id,
         )
         
         core_request = CoreQueryRequest(
@@ -541,6 +548,7 @@ async def query_documents(
             include_metadata=request.include_metadata,
             model=request.model,
             temperature=request.temperature,
+            tenant_id=tenant_id,
         )
         
         # Calculate processing time
@@ -629,6 +637,7 @@ async def batch_process_documents_endpoint(
     """
     try:
         user_id = str(current_user["_id"])
+        tenant_id = db_manager.get_tenant_id_from_context()
         batch_id = f"batch_{uuid.uuid4().hex[:8]}"
         
         logger.info(
@@ -645,7 +654,8 @@ async def batch_process_documents_endpoint(
         task = batch_process_documents_for_rag.delay(
             document_ids=request.document_ids,
             user_id=user_id,
-            processing_options=request.processing_options
+            processing_options=request.processing_options,
+            tenant_id=tenant_id,
         )
         
         # Estimate processing time (rough calculation)
@@ -1160,7 +1170,7 @@ async def get_rag_status(
         try:
             from ..database import db_manager
             await db_manager.connect()
-            collection = db_manager.get_collection("documents")
+            collection = db_manager.get_tenant_collection("processed_documents")
             doc_count = await collection.count_documents({"user_id": user_id})
         except Exception:
             doc_count = 0
@@ -1250,7 +1260,7 @@ async def list_indexed_documents(
         # Get total count
         try:
             from ..database import db_manager
-            collection = db_manager.get_collection("processed_documents")
+            collection = db_manager.get_tenant_collection("processed_documents")
             total = await collection.count_documents({"user_id": user_id})
         except Exception:
             total = len(documents)

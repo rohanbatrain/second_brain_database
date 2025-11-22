@@ -124,6 +124,7 @@ class DatabaseManagerProtocol(Protocol):
     """Protocol for database manager dependency injection."""
 
     def get_collection(self, collection_name: str) -> Any: ...
+    def get_tenant_collection(self, collection_name: str) -> Any: ...
     def log_query_start(self, collection: str, operation: str, context: Dict[str, Any]) -> float: ...
     def log_query_success(
         self, collection: str, operation: str, start_time: float, count: int, info: str = None
@@ -454,7 +455,7 @@ class IPAMManager:
             # Query database if not cached
             if allocated_y_set is None:
                 try:
-                    collection = self.db_manager.get_collection("ipam_regions")
+                    collection = self.db_manager.get_tenant_collection("ipam_regions")
                     cursor = collection.find(
                         {"user_id": user_id, "x_octet": x_octet}, {"y_octet": 1, "_id": 0}
                     )
@@ -548,7 +549,7 @@ class IPAMManager:
         self.logger.debug("Finding next Z for user %s in region %s", user_id, region_id)
 
         try:
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
 
             # Query allocated Z octets
             cursor = collection.find(
@@ -721,7 +722,7 @@ class IPAMManager:
         start_time = self.db_manager.log_query_start("ipam_user_quotas", "get_user_quota", {"user_id": user_id})
 
         try:
-            collection = self.db_manager.get_collection("ipam_user_quotas")
+            collection = self.db_manager.get_tenant_collection("ipam_user_quotas")
             quota_doc = await collection.find_one({"user_id": user_id})
 
             if not quota_doc:
@@ -775,7 +776,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_user_quotas")
+            collection = self.db_manager.get_tenant_collection("ipam_user_quotas")
 
             # Determine field to update
             if resource_type == "region":
@@ -890,7 +891,7 @@ class IPAMManager:
             continent = mapping["continent"]
 
             # Check for duplicate region name
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             existing = await collection.find_one({"user_id": user_id, "country": country, "region_name": region_name})
             if existing:
                 raise DuplicateAllocation(
@@ -1109,7 +1110,7 @@ class IPAMManager:
             self.logger.debug("Quota check passed for user %s: %s", user_id, quota_info)
 
             # Get and validate region
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await regions_collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
@@ -1124,7 +1125,7 @@ class IPAMManager:
             y_octet = region["y_octet"]
 
             # Check for duplicate hostname
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             existing = await hosts_collection.find_one(
                 {"user_id": user_id, "region_id": ObjectId(region_id), "hostname": hostname}
             )
@@ -1365,7 +1366,7 @@ class IPAMManager:
                 )
 
             # Get and validate region
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await regions_collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
@@ -1380,7 +1381,7 @@ class IPAMManager:
             y_octet = region["y_octet"]
 
             # Get currently allocated Z octets
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             cursor = hosts_collection.find(
                 {"user_id": user_id, "region_id": ObjectId(region_id)}, {"z_octet": 1, "_id": 0}
             )
@@ -1631,7 +1632,7 @@ class IPAMManager:
                     query["created_at"] = date_query
 
             # Get total count
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             total_count = await collection.count_documents(query)
 
             # Calculate pagination
@@ -1643,7 +1644,7 @@ class IPAMManager:
             regions = await cursor.to_list(length=page_size)
 
             # Enrich regions with host counts and utilization
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             for region in regions:
                 region["_id"] = str(region["_id"])
                 region_id_obj = ObjectId(region["_id"])
@@ -1700,7 +1701,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
@@ -1717,7 +1718,7 @@ class IPAMManager:
             region["_id"] = str(region["_id"])
             
             # Enrich with host count and utilization
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             allocated_hosts = await hosts_collection.count_documents({
                 "user_id": user_id,
                 "region_id": ObjectId(region_id)
@@ -1779,7 +1780,7 @@ class IPAMManager:
 
         try:
             # Get existing region with ownership validation
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
@@ -1923,7 +1924,7 @@ class IPAMManager:
             region["_id"] = str(region["_id"])
 
             # Get host count for this region
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host_count = await hosts_collection.count_documents(
                 {"user_id": user_id, "region_id": ObjectId(region_id)}
             )
@@ -1960,7 +1961,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             cursor = collection.find({"user_id": user_id, "country": country}).sort("created_at", -1)
             regions = await cursor.to_list(length=None)
 
@@ -2054,7 +2055,7 @@ class IPAMManager:
                     query["created_at"] = date_query
 
             # Get total count
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             total_count = await collection.count_documents(query)
 
             # Calculate pagination
@@ -2112,7 +2113,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host = await collection.find_one({"_id": ObjectId(host_id), "user_id": user_id})
 
             if not host:
@@ -2168,7 +2169,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             cursor = collection.find({"user_id": user_id, "region_id": ObjectId(region_id)}).sort("z_octet", 1)
             hosts = await cursor.to_list(length=None)
 
@@ -2213,7 +2214,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host = await collection.find_one({"user_id": user_id, "ip_address": ip_address})
 
             if not host:
@@ -2343,7 +2344,7 @@ class IPAMManager:
                 return result
 
             # Look up region
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await regions_collection.find_one({"user_id": user_id, "x_octet": x_octet, "y_octet": y_octet})
 
             if not region:
@@ -2375,7 +2376,7 @@ class IPAMManager:
             }
 
             # Look up host
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host = await hosts_collection.find_one(
                 {"user_id": user_id, "x_octet": x_octet, "y_octet": y_octet, "z_octet": z_octet}
             )
@@ -2548,7 +2549,7 @@ class IPAMManager:
                     region_query["cidr"] = {"$regex": search_params["cidr"], "$options": "i"}
 
                 # Query regions
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 region_count = await regions_collection.count_documents(region_query)
                 skip = (page - 1) * page_size
 
@@ -2601,7 +2602,7 @@ class IPAMManager:
                     host_query["ip_address"] = {"$regex": search_params["ip_address"], "$options": "i"}
 
                 # Query hosts
-                hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                 host_count = await hosts_collection.count_documents(host_query)
                 skip = (page - 1) * page_size
 
@@ -2692,7 +2693,7 @@ class IPAMManager:
 
         try:
             # Get existing host with ownership validation
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host = await collection.find_one({"_id": ObjectId(host_id), "user_id": user_id})
 
             if not host:
@@ -2902,7 +2903,7 @@ class IPAMManager:
             # Handle region retirement with cascade
             if resource_type == "region" and cascade:
                 # Get all child hosts
-                hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                 cursor = hosts_collection.find({"user_id": user_id, "region_id": ObjectId(resource_id)})
                 child_hosts = await cursor.to_list(length=None)
 
@@ -3071,7 +3072,7 @@ class IPAMManager:
             if not reason or len(reason.strip()) == 0:
                 raise ValidationError("Reason is required for bulk release", field="reason", value=reason)
 
-            collection = self.db_manager.get_collection("ipam_hosts")
+            collection = self.db_manager.get_tenant_collection("ipam_hosts")
             success_results = []
             failure_results = []
 
@@ -3368,7 +3369,7 @@ class IPAMManager:
                     )
 
                 # Check if region exists
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 region = await regions_collection.find_one({"user_id": user_id, "x_octet": x, "y_octet": y})
 
                 if not region:
@@ -3788,7 +3789,7 @@ class IPAMManager:
             total_capacity = x_range_size * 256
 
             # Count allocated regions within user's namespace
-            collection = self.db_manager.get_collection("ipam_regions")
+            collection = self.db_manager.get_tenant_collection("ipam_regions")
             allocated_count = await collection.count_documents({"user_id": user_id, "country": country})
 
             # Compute utilization percentage
@@ -3899,14 +3900,14 @@ class IPAMManager:
 
         try:
             # Get and validate region
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await regions_collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
                 raise RegionNotFound(f"Region not found or not accessible: {region_id}", region_id=region_id)
 
             # Count allocated hosts (max 254 usable per region)
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             allocated_count = await hosts_collection.count_documents(
                 {"user_id": user_id, "region_id": ObjectId(region_id)}
             )
@@ -4084,7 +4085,7 @@ class IPAMManager:
 
         try:
             # Get all user's regions
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             cursor = regions_collection.find({"user_id": user_id})
             regions = await cursor.to_list(length=None)
 
@@ -4199,14 +4200,14 @@ class IPAMManager:
             start_date = now - timedelta(days=days)
 
             # Query regions created in time range
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region_cursor = regions_collection.find(
                 {"user_id": user_id, "created_at": {"$gte": start_date}}
             ).sort("created_at", 1)
             regions = await region_cursor.to_list(length=None)
 
             # Query hosts created in time range
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             host_cursor = hosts_collection.find(
                 {"user_id": user_id, "created_at": {"$gte": start_date}}
             ).sort("created_at", 1)
@@ -4368,7 +4369,7 @@ class IPAMManager:
 
         try:
             # Get and validate region
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             region = await regions_collection.find_one({"_id": ObjectId(region_id), "user_id": user_id})
 
             if not region:
@@ -4545,7 +4546,7 @@ class IPAMManager:
                 query["metadata.hostname"] = {"$regex": filters["hostname"], "$options": "i"}
 
             # Get collection
-            collection = self.db_manager.get_collection("ipam_audit_history")
+            collection = self.db_manager.get_tenant_collection("ipam_audit_history")
 
             # Get total count
             total_count = await collection.count_documents(query)
@@ -4650,7 +4651,7 @@ class IPAMManager:
             # Build query for specific IP
             query = {"user_id": user_id, "ip_address": ip_address}
 
-            collection = self.db_manager.get_collection("ipam_audit_history")
+            collection = self.db_manager.get_tenant_collection("ipam_audit_history")
 
             # Get total count
             total_count = await collection.count_documents(query)
@@ -4794,7 +4795,7 @@ class IPAMManager:
                 query["metadata.country"] = filters["country"]
 
             # Get collection
-            collection = self.db_manager.get_collection("ipam_audit_history")
+            collection = self.db_manager.get_tenant_collection("ipam_audit_history")
 
             # Get all matching records (sorted by timestamp)
             cursor = collection.find(query).sort("timestamp", -1)
@@ -4947,7 +4948,7 @@ class IPAMManager:
             ip_address: IP address for hosts
         """
         try:
-            collection = self.db_manager.get_collection("ipam_audit_history")
+            collection = self.db_manager.get_tenant_collection("ipam_audit_history")
 
             # Prepare snapshot (remove _id for storage)
             snapshot_copy = dict(snapshot)
@@ -5044,7 +5045,7 @@ class IPAMManager:
 
             # Create export job record
             job_id = str(ObjectId())
-            collection = self.db_manager.get_collection("ipam_export_jobs")
+            collection = self.db_manager.get_tenant_collection("ipam_export_jobs")
 
             job_doc = {
                 "_id": ObjectId(job_id),
@@ -5136,12 +5137,12 @@ class IPAMManager:
                     query["continent"] = filters["continent"]
 
             # Fetch regions
-            regions_collection = self.db_manager.get_collection("ipam_regions")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
             regions_cursor = regions_collection.find(query)
             regions = await regions_cursor.to_list(length=None)
 
             # Fetch hosts for each region
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
             for region in regions:
                 region_dict = {
                     "region_id": str(region["_id"]),
@@ -5201,7 +5202,7 @@ class IPAMManager:
 
             # Store export content (in production, upload to S3 or similar)
             # For now, store in database
-            jobs_collection = self.db_manager.get_collection("ipam_export_jobs")
+            jobs_collection = self.db_manager.get_tenant_collection("ipam_export_jobs")
             download_url = f"/api/v1/ipam/export/{job_id}/download"
             expires_at = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)  # End of day
 
@@ -5232,7 +5233,7 @@ class IPAMManager:
 
             # Update job status to failed
             try:
-                jobs_collection = self.db_manager.get_collection("ipam_export_jobs")
+                jobs_collection = self.db_manager.get_tenant_collection("ipam_export_jobs")
                 await jobs_collection.update_one(
                     {"_id": ObjectId(job_id)},
                     {
@@ -5410,7 +5411,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_export_jobs")
+            collection = self.db_manager.get_tenant_collection("ipam_export_jobs")
             job = await collection.find_one({"_id": ObjectId(job_id), "user_id": user_id})
 
             if not job:
@@ -5465,7 +5466,7 @@ class IPAMManager:
         )
 
         try:
-            collection = self.db_manager.get_collection("ipam_export_jobs")
+            collection = self.db_manager.get_tenant_collection("ipam_export_jobs")
             job = await collection.find_one({"_id": ObjectId(job_id), "user_id": user_id})
 
             if not job:
@@ -5748,7 +5749,7 @@ class IPAMManager:
 
                 # Check for existing allocation (conflict)
                 if mode == "manual" and not row_errors:
-                    regions_collection = self.db_manager.get_collection("ipam_regions")
+                    regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                     existing = await regions_collection.find_one({
                         "user_id": user_id,
                         "country": country,
@@ -5792,7 +5793,7 @@ class IPAMManager:
 
                 # Check for existing allocation (conflict)
                 if mode == "manual" and ip_address and not row_errors:
-                    hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                    hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                     existing = await hosts_collection.find_one({
                         "user_id": user_id,
                         "ip_address": ip_address,
@@ -5954,7 +5955,7 @@ class IPAMManager:
                 elif is_host:
                     # Import host
                     # First, find the region by name
-                    regions_collection = self.db_manager.get_collection("ipam_regions")
+                    regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                     region = await regions_collection.find_one({
                         "user_id": user_id,
                         "region_name": row.get("region_name"),
@@ -6084,7 +6085,7 @@ class IPAMManager:
         try:
             if z_octet is not None:
                 # Host reservation - check if already allocated
-                hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                 existing_host = await hosts_collection.find_one({
                     "user_id": user_id,
                     "x_octet": x_octet,
@@ -6100,7 +6101,7 @@ class IPAMManager:
                     )
             else:
                 # Region reservation - check if already allocated
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 existing_region = await regions_collection.find_one({
                     "user_id": user_id,
                     "x_octet": x_octet,
@@ -6115,7 +6116,7 @@ class IPAMManager:
                     )
 
             # Check if already reserved
-            reservations_collection = self.db_manager.get_collection("ipam_reservations")
+            reservations_collection = self.db_manager.get_tenant_collection("ipam_reservations")
             existing_reservation = await reservations_collection.find_one({
                 "user_id": user_id,
                 "x_octet": x_octet,
@@ -6197,7 +6198,7 @@ class IPAMManager:
             }
 
             # Insert reservation
-            collection = self.db_manager.get_collection("ipam_reservations")
+            collection = self.db_manager.get_tenant_collection("ipam_reservations")
             result = await collection.insert_one(reservation_doc)
             reservation_doc["_id"] = result.inserted_id
 
@@ -6248,7 +6249,7 @@ class IPAMManager:
                 query["resource_type"] = filters["resource_type"]
 
             # Get total count
-            collection = self.db_manager.get_collection("ipam_reservations")
+            collection = self.db_manager.get_tenant_collection("ipam_reservations")
             total_count = await collection.count_documents(query)
 
             # Calculate pagination
@@ -6296,7 +6297,7 @@ class IPAMManager:
             IPAMError: If reservation not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_reservations")
+            collection = self.db_manager.get_tenant_collection("ipam_reservations")
             reservation = await collection.find_one({"_id": ObjectId(reservation_id), "user_id": user_id})
 
             if not reservation:
@@ -6370,7 +6371,7 @@ class IPAMManager:
                 country = country_mapping["country"]
 
                 # Create region with specific X.Y
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 now = datetime.now(timezone.utc)
                 
                 region_doc = {
@@ -6405,7 +6406,7 @@ class IPAMManager:
                     raise ValidationError("hostname is required for host conversion", field="hostname")
 
                 # Find region for this X.Y
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 region = await regions_collection.find_one({
                     "user_id": user_id,
                     "x_octet": x_octet,
@@ -6417,7 +6418,7 @@ class IPAMManager:
                     raise IPAMError(f"No active region found for 10.{x_octet}.{y_octet}.0/24")
 
                 # Create host with specific Z
-                hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                 now = datetime.now(timezone.utc)
                 
                 metadata = metadata or {}
@@ -6455,7 +6456,7 @@ class IPAMManager:
                 allocation = host_doc
 
             # Mark reservation as converted
-            reservations_collection = self.db_manager.get_collection("ipam_reservations")
+            reservations_collection = self.db_manager.get_tenant_collection("ipam_reservations")
             await reservations_collection.update_one(
                 {"_id": ObjectId(reservation_id)},
                 {"$set": {"status": "converted", "converted_at": datetime.now(timezone.utc)}}
@@ -6502,7 +6503,7 @@ class IPAMManager:
             IPAMError: If reservation not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_reservations")
+            collection = self.db_manager.get_tenant_collection("ipam_reservations")
             result = await collection.delete_one({"_id": ObjectId(reservation_id), "user_id": user_id})
 
             if result.deleted_count == 0:
@@ -6529,7 +6530,7 @@ class IPAMManager:
             Dict containing user preferences
         """
         try:
-            collection = self.db_manager.get_collection("ipam_user_preferences")
+            collection = self.db_manager.get_tenant_collection("ipam_user_preferences")
             preferences = await collection.find_one({"user_id": user_id})
 
             if not preferences:
@@ -6572,7 +6573,7 @@ class IPAMManager:
             Dict containing updated preferences
         """
         try:
-            collection = self.db_manager.get_collection("ipam_user_preferences")
+            collection = self.db_manager.get_tenant_collection("ipam_user_preferences")
             
             # Build update document
             update_doc = {"$set": {"updated_at": datetime.now(timezone.utc)}}
@@ -6621,7 +6622,7 @@ class IPAMManager:
         try:
             import uuid
             
-            collection = self.db_manager.get_collection("ipam_user_preferences")
+            collection = self.db_manager.get_tenant_collection("ipam_user_preferences")
             preferences = await self.get_user_preferences(user_id)
 
             # Check filter limit
@@ -6685,7 +6686,7 @@ class IPAMManager:
             IPAMError: If filter not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_user_preferences")
+            collection = self.db_manager.get_tenant_collection("ipam_user_preferences")
             result = await collection.update_one(
                 {"user_id": user_id},
                 {"$pull": {"saved_filters": {"filter_id": filter_id}}}
@@ -6729,8 +6730,8 @@ class IPAMManager:
             from datetime import timedelta
             
             # Get total counts
-            regions_collection = self.db_manager.get_collection("ipam_regions")
-            hosts_collection = self.db_manager.get_collection("ipam_hosts")
+            regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
+            hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
 
             total_regions = await regions_collection.count_documents({"user_id": user_id})
             total_hosts = await hosts_collection.count_documents({"user_id": user_id})
@@ -6886,7 +6887,7 @@ class IPAMManager:
             # Get historical allocations (last 90 days)
             ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
             
-            audit_collection = self.db_manager.get_collection("ipam_audit_history")
+            audit_collection = self.db_manager.get_tenant_collection("ipam_audit_history")
             
             # Build query based on resource type
             if resource_type == "country":
@@ -6936,7 +6937,7 @@ class IPAMManager:
             # Get current utilization
             if resource_type == "country":
                 # Count regions in country
-                regions_collection = self.db_manager.get_collection("ipam_regions")
+                regions_collection = self.db_manager.get_tenant_collection("ipam_regions")
                 allocated = await regions_collection.count_documents({
                     "user_id": user_id,
                     "country": resource_id
@@ -6948,7 +6949,7 @@ class IPAMManager:
                 
             else:  # region
                 # Count hosts in region
-                hosts_collection = self.db_manager.get_collection("ipam_hosts")
+                hosts_collection = self.db_manager.get_tenant_collection("ipam_hosts")
                 allocated = await hosts_collection.count_documents({
                     "user_id": user_id,
                     "region_id": ObjectId(resource_id)
@@ -7058,7 +7059,7 @@ class IPAMManager:
                 raise ValidationError("Invalid group_by value", field="group_by", value=group_by)
 
             # Aggregate allocations and releases
-            audit_collection = self.db_manager.get_collection("ipam_audit_history")
+            audit_collection = self.db_manager.get_tenant_collection("ipam_audit_history")
             
             pipeline = [
                 {"$match": query},
@@ -7165,7 +7166,7 @@ class IPAMManager:
                 "updated_at": now
             }
 
-            collection = self.db_manager.get_collection("ipam_notification_rules")
+            collection = self.db_manager.get_tenant_collection("ipam_notification_rules")
             result = await collection.insert_one(rule_doc)
             rule_doc["_id"] = str(result.inserted_id)
 
@@ -7192,7 +7193,7 @@ class IPAMManager:
             List of created notifications
         """
         try:
-            collection = self.db_manager.get_collection("ipam_notification_rules")
+            collection = self.db_manager.get_tenant_collection("ipam_notification_rules")
             rules = await collection.find({"user_id": user_id, "is_active": True}).to_list(None)
 
             created_notifications = []
@@ -7288,7 +7289,7 @@ class IPAMManager:
                 "expires_at": expires_at
             }
 
-            collection = self.db_manager.get_collection("ipam_notifications")
+            collection = self.db_manager.get_tenant_collection("ipam_notifications")
             result = await collection.insert_one(notification_doc)
             notification_doc["_id"] = str(result.inserted_id)
 
@@ -7327,7 +7328,7 @@ class IPAMManager:
             if "severity" in filters:
                 query["severity"] = filters["severity"]
 
-            collection = self.db_manager.get_collection("ipam_notifications")
+            collection = self.db_manager.get_tenant_collection("ipam_notifications")
             total_count = await collection.count_documents(query)
 
             skip = (page - 1) * page_size
@@ -7372,7 +7373,7 @@ class IPAMManager:
             IPAMError: If notification not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_notifications")
+            collection = self.db_manager.get_tenant_collection("ipam_notifications")
             result = await collection.update_one(
                 {"_id": ObjectId(notification_id), "user_id": user_id},
                 {"$set": {"is_read": is_read, "read_at": datetime.now(timezone.utc) if is_read else None}}
@@ -7401,7 +7402,7 @@ class IPAMManager:
             IPAMError: If notification not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_notifications")
+            collection = self.db_manager.get_tenant_collection("ipam_notifications")
             result = await collection.delete_one({"_id": ObjectId(notification_id), "user_id": user_id})
 
             if result.deleted_count == 0:
@@ -7475,7 +7476,7 @@ class IPAMManager:
                 "description": description
             }
 
-            collection = self.db_manager.get_collection("ipam_shares")
+            collection = self.db_manager.get_tenant_collection("ipam_shares")
             result = await collection.insert_one(share_doc)
             share_doc["_id"] = str(result.inserted_id)
 
@@ -7505,7 +7506,7 @@ class IPAMManager:
             IPAMError: If share not found or expired
         """
         try:
-            collection = self.db_manager.get_collection("ipam_shares")
+            collection = self.db_manager.get_tenant_collection("ipam_shares")
             share = await collection.find_one({"share_token": share_token, "is_active": True})
 
             if not share:
@@ -7585,7 +7586,7 @@ class IPAMManager:
             List of shares
         """
         try:
-            collection = self.db_manager.get_collection("ipam_shares")
+            collection = self.db_manager.get_tenant_collection("ipam_shares")
             cursor = collection.find({"user_id": user_id, "is_active": True}).sort("created_at", -1)
             shares = await cursor.to_list(None)
 
@@ -7611,7 +7612,7 @@ class IPAMManager:
             IPAMError: If share not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_shares")
+            collection = self.db_manager.get_tenant_collection("ipam_shares")
             result = await collection.update_one(
                 {"_id": ObjectId(share_id), "user_id": user_id},
                 {"$set": {"is_active": False}}
@@ -7670,7 +7671,7 @@ class IPAMManager:
                 "updated_at": now
             }
 
-            collection = self.db_manager.get_collection("ipam_webhooks")
+            collection = self.db_manager.get_tenant_collection("ipam_webhooks")
             result = await collection.insert_one(webhook_doc)
             webhook_doc["_id"] = str(result.inserted_id)
 
@@ -7701,7 +7702,7 @@ class IPAMManager:
             import json
             import httpx
             
-            collection = self.db_manager.get_collection("ipam_webhooks")
+            collection = self.db_manager.get_tenant_collection("ipam_webhooks")
             webhook = await collection.find_one({"_id": webhook_id})
 
             if not webhook or not webhook["is_active"]:
@@ -7737,7 +7738,7 @@ class IPAMManager:
                     response_time_ms = int((time.time() - start_time) * 1000)
 
                     # Log delivery
-                    deliveries_collection = self.db_manager.get_collection("ipam_webhook_deliveries")
+                    deliveries_collection = self.db_manager.get_tenant_collection("ipam_webhook_deliveries")
                     await deliveries_collection.insert_one({
                         "webhook_id": webhook_id,
                         "event_type": event_type,
@@ -7761,7 +7762,7 @@ class IPAMManager:
                     self.logger.error("Webhook delivery failed (attempt %d): %s", attempt, e)
                     
                     # Log failed delivery
-                    deliveries_collection = self.db_manager.get_collection("ipam_webhook_deliveries")
+                    deliveries_collection = self.db_manager.get_tenant_collection("ipam_webhook_deliveries")
                     await deliveries_collection.insert_one({
                         "webhook_id": webhook_id,
                         "event_type": event_type,
@@ -7805,7 +7806,7 @@ class IPAMManager:
             List of webhooks (without secret keys)
         """
         try:
-            collection = self.db_manager.get_collection("ipam_webhooks")
+            collection = self.db_manager.get_tenant_collection("ipam_webhooks")
             cursor = collection.find({"user_id": user_id}).sort("created_at", -1)
             webhooks = await cursor.to_list(None)
 
@@ -7832,7 +7833,7 @@ class IPAMManager:
             IPAMError: If webhook not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_webhooks")
+            collection = self.db_manager.get_tenant_collection("ipam_webhooks")
             result = await collection.delete_one({"_id": ObjectId(webhook_id), "user_id": user_id})
 
             if result.deleted_count == 0:
@@ -7867,14 +7868,14 @@ class IPAMManager:
         """
         try:
             # Verify webhook ownership
-            webhooks_collection = self.db_manager.get_collection("ipam_webhooks")
+            webhooks_collection = self.db_manager.get_tenant_collection("ipam_webhooks")
             webhook = await webhooks_collection.find_one({"_id": ObjectId(webhook_id), "user_id": user_id})
             
             if not webhook:
                 raise IPAMError(f"Webhook not found: {webhook_id}")
 
             # Get deliveries
-            deliveries_collection = self.db_manager.get_collection("ipam_webhook_deliveries")
+            deliveries_collection = self.db_manager.get_tenant_collection("ipam_webhook_deliveries")
             query = {"webhook_id": ObjectId(webhook_id)}
             
             total_count = await deliveries_collection.count_documents(query)
@@ -7954,7 +7955,7 @@ class IPAMManager:
                     "completed_at": None
                 }
 
-                jobs_collection = self.db_manager.get_collection("ipam_bulk_jobs")
+                jobs_collection = self.db_manager.get_tenant_collection("ipam_bulk_jobs")
                 await jobs_collection.insert_one(job_doc)
 
                 # Process async (would be handled by background worker)
@@ -8030,7 +8031,7 @@ class IPAMManager:
             IPAMError: If job not found
         """
         try:
-            collection = self.db_manager.get_collection("ipam_bulk_jobs")
+            collection = self.db_manager.get_tenant_collection("ipam_bulk_jobs")
             job = await collection.find_one({"job_id": job_id, "user_id": user_id})
 
             if not job:
@@ -8120,7 +8121,7 @@ class IPAMManager:
         """
         try:
             # Get recent audit entries
-            audit_collection = self.db_manager.get_collection("ipam_audit")
+            audit_collection = self.db_manager.get_tenant_collection("ipam_audit")
             
             cursor = audit_collection.find(
                 {"user_id": user_id},

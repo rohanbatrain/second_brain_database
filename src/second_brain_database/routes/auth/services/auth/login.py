@@ -605,11 +605,12 @@ async def login_user(
 async def create_access_token(data: Dict[str, Any]) -> str:
     """
     Create a JWT access token with short expiry and required claims.
-    Includes token_version for stateless invalidation.
+    Includes token_version for stateless invalidation and tenant information for multi-tenancy.
 
     Args:
         data (Dict[str, Any]): Claims to encode in the JWT. Can include:
             - sub: Username (required)
+            - user_id: User ID (optional, will be fetched if not provided)
 
     Returns:
         str: Encoded JWT access token.
@@ -621,7 +622,7 @@ async def create_access_token(data: Dict[str, Any]) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": datetime.utcnow(), "sub": data.get("sub"), "type": "access"})
 
-    # Add user-specific claims including token_version
+    # Add user-specific claims including token_version and tenant information
     if "username" in data or "sub" in data:
         username = data.get("username") or data.get("sub")
         user = None
@@ -630,6 +631,20 @@ async def create_access_token(data: Dict[str, Any]) -> str:
         if user:
             token_version = user.get("token_version", 0)
             to_encode["token_version"] = token_version
+            to_encode["user_id"] = str(user.get("_id"))
+            
+            # Add tenant information for multi-tenancy
+            to_encode["primary_tenant_id"] = user.get("primary_tenant_id", settings.DEFAULT_TENANT_ID)
+            
+            # Include tenant memberships (limited to tenant_id and role for JWT size)
+            tenant_memberships = user.get("tenant_memberships", [])
+            to_encode["tenant_memberships"] = [
+                {
+                    "tenant_id": membership.get("tenant_id"),
+                    "role": membership.get("role")
+                }
+                for membership in tenant_memberships
+            ]
 
     secret_key = getattr(settings, "SECRET_KEY", None)
     if hasattr(secret_key, "get_secret_value"):
@@ -642,7 +657,10 @@ async def create_access_token(data: Dict[str, Any]) -> str:
 
     auth_method = "password"
     logger.debug(
-        "JWT access token created for user: %s (auth method: %s)", data.get("username") or data.get("sub"), auth_method
+        "JWT access token created for user: %s (auth method: %s, tenant: %s)", 
+        data.get("username") or data.get("sub"), 
+        auth_method,
+        to_encode.get("primary_tenant_id")
     )
 
     return encoded_jwt

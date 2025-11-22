@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 
 from second_brain_database.managers.club_auth_manager import (
     club_auth_manager,
@@ -115,7 +115,7 @@ async def get_approved_universities(
             ]
 
         universities = []
-        async for uni in db_manager.get_collection("universities").find(query).limit(limit):
+        async for uni in db_manager.get_tenant_collection("universities").find(query).limit(limit):
             universities.append(UniversityResponse(**uni))
 
         return universities
@@ -134,7 +134,7 @@ async def get_university(
     try:
         from second_brain_database.database import db_manager
 
-        university_doc = await db_manager.get_collection("universities").find_one({
+        university_doc = await db_manager.get_tenant_collection("universities").find_one({
             "university_id": university_id,
             "admin_approved": True
         })
@@ -236,7 +236,7 @@ async def get_clubs(
             ]
 
         clubs = []
-        async for club in db_manager.get_collection("clubs").find(query).limit(limit):
+        async for club in db_manager.get_tenant_collection("clubs").find(query).limit(limit):
             clubs.append(ClubResponse(**club))
 
         return clubs
@@ -278,7 +278,7 @@ async def search_clubs(
         skip = (request.page - 1) * request.limit
 
         clubs = []
-        async for club in db_manager.get_collection("clubs").find(query).skip(skip).limit(request.limit):
+        async for club in db_manager.get_tenant_collection("clubs").find(query).skip(skip).limit(request.limit):
             clubs.append(ClubResponse(**club))
 
         return clubs
@@ -298,7 +298,7 @@ async def get_popular_clubs(
         from second_brain_database.database import db_manager
 
         clubs = []
-        async for club in db_manager.get_collection("clubs").find({"is_active": True}).sort("member_count", -1).limit(limit):
+        async for club in db_manager.get_tenant_collection("clubs").find({"is_active": True}).sort("member_count", -1).limit(limit):
             clubs.append(ClubResponse(**club))
 
         return clubs
@@ -319,7 +319,7 @@ async def get_recommended_clubs(
         from second_brain_database.database import db_manager
 
         clubs = []
-        async for club in db_manager.get_collection("clubs").aggregate([
+        async for club in db_manager.get_tenant_collection("clubs").aggregate([
             {"$match": {"is_active": True}},
             {"$sort": {"member_count": -1}},
             {"$limit": limit}
@@ -351,7 +351,7 @@ async def get_club(
 
         from second_brain_database.database import db_manager
 
-        club_doc = await db_manager.get_collection("clubs").find_one({
+        club_doc = await db_manager.get_tenant_collection("clubs").find_one({
             "club_id": club_id,
             "is_active": True
         })
@@ -386,7 +386,7 @@ async def update_club(
         update_data = request.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.now()
 
-        result = await db_manager.get_collection("clubs").update_one(
+        result = await db_manager.get_tenant_collection("clubs").update_one(
             {"club_id": club_id},
             {"$set": update_data}
         )
@@ -395,7 +395,7 @@ async def update_club(
             raise HTTPException(status_code=404, detail="Club not found")
 
         # Get updated club
-        club_doc = await db_manager.get_collection("clubs").find_one({"club_id": club_id})
+        club_doc = await db_manager.get_tenant_collection("clubs").find_one({"club_id": club_id})
         club = ClubResponse(**club_doc)
 
         # Clear cache
@@ -425,7 +425,7 @@ async def deactivate_club(
         from second_brain_database.database import db_manager
 
         # Deactivate club
-        result = await db_manager.get_collection("clubs").update_one(
+        result = await db_manager.get_tenant_collection("clubs").update_one(
             {"club_id": club_id},
             {"$set": {"is_active": False, "updated_at": datetime.now()}}
         )
@@ -496,7 +496,7 @@ async def get_club_verticals(
         from second_brain_database.database import db_manager
 
         verticals = []
-        async for vert in db_manager.get_collection("club_verticals").find({
+        async for vert in db_manager.get_tenant_collection("club_verticals").find({
             "club_id": club_id,
             "is_active": True
         }):
@@ -520,7 +520,7 @@ async def get_vertical(
     try:
         from second_brain_database.database import db_manager
 
-        vertical_doc = await db_manager.get_collection("club_verticals").find_one({
+        vertical_doc = await db_manager.get_tenant_collection("club_verticals").find_one({
             "vertical_id": vertical_id,
             "is_active": True
         })
@@ -557,7 +557,7 @@ async def update_vertical(
         from second_brain_database.database import db_manager
 
         # Get vertical to check club access
-        vertical_doc = await db_manager.get_collection("club_verticals").find_one({
+        vertical_doc = await db_manager.get_tenant_collection("club_verticals").find_one({
             "vertical_id": vertical_id,
             "is_active": True
         })
@@ -573,7 +573,7 @@ async def update_vertical(
         update_data = request.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.now()
 
-        result = await db_manager.get_collection("club_verticals").update_one(
+        result = await db_manager.get_tenant_collection("club_verticals").update_one(
             {"vertical_id": vertical_id},
             {"$set": update_data}
         )
@@ -582,7 +582,7 @@ async def update_vertical(
             raise HTTPException(status_code=404, detail="Vertical not found")
 
         # Get updated vertical
-        updated_doc = await db_manager.get_collection("club_verticals").find_one({"vertical_id": vertical_id})
+        updated_doc = await db_manager.get_tenant_collection("club_verticals").find_one({"vertical_id": vertical_id})
         vertical = VerticalResponse(**updated_doc)
 
         logger.info("Updated vertical: %s", vertical_id)
@@ -606,7 +606,7 @@ async def assign_vertical_lead(
         from second_brain_database.database import db_manager
 
         # Get vertical
-        vertical_doc = await db_manager.get_collection("club_verticals").find_one({
+        vertical_doc = await db_manager.get_tenant_collection("club_verticals").find_one({
             "vertical_id": vertical_id,
             "is_active": True
         })
@@ -619,7 +619,7 @@ async def assign_vertical_lead(
             raise HTTPException(status_code=403, detail="Access denied to this club")
 
         # Verify lead is club member
-        member = await db_manager.get_collection("club_members").find_one({
+        member = await db_manager.get_tenant_collection("club_members").find_one({
             "club_id": vertical_doc["club_id"],
             "user_id": lead_id,
             "is_active": True
@@ -629,7 +629,7 @@ async def assign_vertical_lead(
             raise HTTPException(status_code=400, detail="Lead must be an active club member")
 
         # Update vertical lead
-        result = await db_manager.get_collection("club_verticals").update_one(
+        result = await db_manager.get_tenant_collection("club_verticals").update_one(
             {"vertical_id": vertical_id},
             {"$set": {"lead_id": lead_id, "updated_at": datetime.now()}}
         )
@@ -657,7 +657,7 @@ async def remove_vertical(
         from second_brain_database.database import db_manager
 
         # Get vertical
-        vertical_doc = await db_manager.get_collection("club_verticals").find_one({
+        vertical_doc = await db_manager.get_tenant_collection("club_verticals").find_one({
             "vertical_id": vertical_id,
             "is_active": True
         })
@@ -670,7 +670,7 @@ async def remove_vertical(
             raise HTTPException(status_code=403, detail="Access denied to this club")
 
         # Deactivate vertical
-        result = await db_manager.get_collection("club_verticals").update_one(
+        result = await db_manager.get_tenant_collection("club_verticals").update_one(
             {"vertical_id": vertical_id},
             {"$set": {"is_active": False, "updated_at": datetime.now()}}
         )
@@ -679,7 +679,7 @@ async def remove_vertical(
             raise HTTPException(status_code=404, detail="Vertical not found")
 
         # Update club vertical count
-        await db_manager.get_collection("clubs").update_one(
+        await db_manager.get_tenant_collection("clubs").update_one(
             {"club_id": vertical_doc["club_id"]},
             {"$inc": {"vertical_count": -1}}
         )
@@ -802,7 +802,7 @@ async def update_member_role(
         from second_brain_database.database import db_manager
 
         # Get member to check club access
-        member_doc = await db_manager.get_collection("club_members").find_one({
+        member_doc = await db_manager.get_tenant_collection("club_members").find_one({
             "member_id": member_id,
             "is_active": True
         })
@@ -821,7 +821,7 @@ async def update_member_role(
             "updated_at": datetime.now()
         }
 
-        result = await db_manager.get_collection("club_members").update_one(
+        result = await db_manager.get_tenant_collection("club_members").update_one(
             {"member_id": member_id},
             {"$set": update_data}
         )
@@ -830,7 +830,7 @@ async def update_member_role(
             raise HTTPException(status_code=404, detail="Member not found")
 
         # Get updated member
-        updated_doc = await db_manager.get_collection("club_members").find_one({"member_id": member_id})
+        updated_doc = await db_manager.get_tenant_collection("club_members").find_one({"member_id": member_id})
         member = ClubMemberResponse(**updated_doc)
 
         logger.info("Updated role for member %s to %s", member_id, request.role.value)
@@ -854,7 +854,7 @@ async def transfer_member(
         from second_brain_database.database import db_manager
 
         # Get member
-        member_doc = await db_manager.get_collection("club_members").find_one({
+        member_doc = await db_manager.get_tenant_collection("club_members").find_one({
             "member_id": member_id,
             "is_active": True
         })
@@ -868,7 +868,7 @@ async def transfer_member(
 
         # If assigning to vertical, verify it exists
         if request.vertical_id:
-            vertical = await db_manager.get_collection("club_verticals").find_one({
+            vertical = await db_manager.get_tenant_collection("club_verticals").find_one({
                 "vertical_id": request.vertical_id,
                 "club_id": member_doc["club_id"],
                 "is_active": True
@@ -882,7 +882,7 @@ async def transfer_member(
             "updated_at": datetime.now()
         }
 
-        result = await db_manager.get_collection("club_members").update_one(
+        result = await db_manager.get_tenant_collection("club_members").update_one(
             {"member_id": member_id},
             {"$set": update_data}
         )
@@ -891,7 +891,7 @@ async def transfer_member(
             raise HTTPException(status_code=404, detail="Member not found")
 
         # Get updated member
-        updated_doc = await db_manager.get_collection("club_members").find_one({"member_id": member_id})
+        updated_doc = await db_manager.get_tenant_collection("club_members").find_one({"member_id": member_id})
         member = ClubMemberResponse(**updated_doc)
 
         logger.info("Transferred member %s to vertical %s", member_id, request.vertical_id)
@@ -914,7 +914,7 @@ async def mark_member_alumni(
         from second_brain_database.database import db_manager
 
         # Get member
-        member_doc = await db_manager.get_collection("club_members").find_one({
+        member_doc = await db_manager.get_tenant_collection("club_members").find_one({
             "member_id": member_id,
             "is_active": True
         })
@@ -932,7 +932,7 @@ async def mark_member_alumni(
             "updated_at": datetime.now()
         }
 
-        result = await db_manager.get_collection("club_members").update_one(
+        result = await db_manager.get_tenant_collection("club_members").update_one(
             {"member_id": member_id},
             {"$set": update_data}
         )
@@ -941,7 +941,7 @@ async def mark_member_alumni(
             raise HTTPException(status_code=404, detail="Member not found")
 
         # Get updated member
-        updated_doc = await db_manager.get_collection("club_members").find_one({"member_id": member_id})
+        updated_doc = await db_manager.get_tenant_collection("club_members").find_one({"member_id": member_id})
         member = ClubMemberResponse(**updated_doc)
 
         logger.info("Marked member %s as alumni", member_id)
@@ -964,7 +964,7 @@ async def remove_member(
         from second_brain_database.database import db_manager
 
         # Get member
-        member_doc = await db_manager.get_collection("club_members").find_one({
+        member_doc = await db_manager.get_tenant_collection("club_members").find_one({
             "member_id": member_id,
             "is_active": True
         })
@@ -981,7 +981,7 @@ async def remove_member(
             raise HTTPException(status_code=400, detail="Cannot remove club owner")
 
         # Deactivate membership
-        result = await db_manager.get_collection("club_members").update_one(
+        result = await db_manager.get_tenant_collection("club_members").update_one(
             {"member_id": member_id},
             {"$set": {"is_active": False, "updated_at": datetime.now()}}
         )
@@ -990,21 +990,21 @@ async def remove_member(
             raise HTTPException(status_code=404, detail="Member not found")
 
         # Update club member count
-        await db_manager.get_collection("clubs").update_one(
+        await db_manager.get_tenant_collection("clubs").update_one(
             {"club_id": member_doc["club_id"]},
             {"$inc": {"member_count": -1}}
         )
 
         # Update university member count
-        club = await db_manager.get_collection("clubs").find_one({"club_id": member_doc["club_id"]})
-        await db_manager.get_collection("universities").update_one(
+        club = await db_manager.get_tenant_collection("clubs").find_one({"club_id": member_doc["club_id"]})
+        await db_manager.get_tenant_collection("universities").update_one(
             {"university_id": club["university_id"]},
             {"$inc": {"total_members": -1}}
         )
 
         # Update vertical member count if assigned
         if member_doc.get("vertical_id"):
-            await db_manager.get_collection("club_verticals").update_one(
+            await db_manager.get_tenant_collection("club_verticals").update_one(
                 {"vertical_id": member_doc["vertical_id"]},
                 {"$inc": {"member_count": -1}}
             )
@@ -1056,7 +1056,7 @@ async def get_club_members(
             query["is_alumni"] = False
 
         members = []
-        async for member in db_manager.get_collection("club_members").find(query):
+        async for member in db_manager.get_tenant_collection("club_members").find(query):
             members.append(ClubMemberResponse(**member))
 
         return members
@@ -1200,7 +1200,7 @@ async def create_club_event(
         )
 
         # Save to database
-        await db_manager.get_collection("club_events").insert_one(event_doc.model_dump())
+        await db_manager.get_tenant_collection("club_events").insert_one(event_doc.model_dump())
 
         # Send event announcement notification
         try:
@@ -1265,7 +1265,7 @@ async def get_club_events(
 
         # Get events
         events = []
-        async for event_doc in db_manager.get_collection("club_events").find(query).sort("start_time", 1).limit(limit):
+        async for event_doc in db_manager.get_tenant_collection("club_events").find(query).sort("start_time", 1).limit(limit):
             events.append(EventResponse(**event_doc))
 
         return events
@@ -1327,7 +1327,7 @@ async def search_events(
         skip = (request.page - 1) * request.limit
 
         events = []
-        async for event_doc in db_manager.get_collection("club_events").find(query).sort("start_time", 1).skip(skip).limit(request.limit):
+        async for event_doc in db_manager.get_tenant_collection("club_events").find(query).sort("start_time", 1).skip(skip).limit(request.limit):
             # Check access to each event's club
             membership = await club_manager.check_club_access(
                 current_user.get("_id", current_user.get("user_id")),
@@ -1353,7 +1353,7 @@ async def get_event(
     try:
         from second_brain_database.database import db_manager
 
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1387,7 +1387,7 @@ async def update_event(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1408,7 +1408,7 @@ async def update_event(
         update_data = request.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.now()
 
-        result = await db_manager.get_collection("club_events").update_one(
+        result = await db_manager.get_tenant_collection("club_events").update_one(
             {"event_id": event_id},
             {"$set": update_data}
         )
@@ -1417,7 +1417,7 @@ async def update_event(
             raise HTTPException(status_code=404, detail="Event not found")
 
         # Get updated event
-        updated_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        updated_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
         event = EventResponse(**updated_doc)
 
         logger.info("Updated event: %s", event_id)
@@ -1440,7 +1440,7 @@ async def delete_event(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1465,10 +1465,10 @@ async def delete_event(
                 logger.warning("Failed to delete WebRTC room %s: %s", event_doc["webrtc_room_id"], e)
 
         # Delete event
-        await db_manager.get_collection("club_events").delete_one({"event_id": event_id})
+        await db_manager.get_tenant_collection("club_events").delete_one({"event_id": event_id})
 
         # Delete all attendee records
-        await db_manager.get_collection("event_attendees").delete_many({"event_id": event_id})
+        await db_manager.get_tenant_collection("event_attendees").delete_many({"event_id": event_id})
 
         logger.info("Deleted event: %s", event_id)
         return {"message": "Event deleted successfully"}
@@ -1491,7 +1491,7 @@ async def register_for_event(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1510,7 +1510,7 @@ async def register_for_event(
             raise HTTPException(status_code=400, detail="Event is full")
 
         # Check if already registered
-        existing = await db_manager.get_collection("event_attendees").find_one({
+        existing = await db_manager.get_tenant_collection("event_attendees").find_one({
             "event_id": event_id,
             "user_id": current_user.get("_id", current_user.get("user_id"))
         })
@@ -1527,10 +1527,10 @@ async def register_for_event(
             notes=request.notes if request else None
         )
 
-        await db_manager.get_collection("event_attendees").insert_one(attendee_doc.model_dump())
+        await db_manager.get_tenant_collection("event_attendees").insert_one(attendee_doc.model_dump())
 
         # Update event attendee count
-        await db_manager.get_collection("club_events").update_one(
+        await db_manager.get_tenant_collection("club_events").update_one(
             {"event_id": event_id},
             {"$inc": {"attendee_count": 1}}
         )
@@ -1555,7 +1555,7 @@ async def unregister_from_event(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1563,7 +1563,7 @@ async def unregister_from_event(
         user_id = current_user.get("_id", current_user.get("user_id"))
 
         # Delete attendee record
-        result = await db_manager.get_collection("event_attendees").delete_one({
+        result = await db_manager.get_tenant_collection("event_attendees").delete_one({
             "event_id": event_id,
             "user_id": user_id
         })
@@ -1572,7 +1572,7 @@ async def unregister_from_event(
             raise HTTPException(status_code=404, detail="Not registered for this event")
 
         # Update event attendee count
-        await db_manager.get_collection("club_events").update_one(
+        await db_manager.get_tenant_collection("club_events").update_one(
             {"event_id": event_id},
             {"$inc": {"attendee_count": -1}}
         )
@@ -1597,7 +1597,7 @@ async def get_event_attendees(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1616,7 +1616,7 @@ async def get_event_attendees(
 
         # Get attendees
         attendees = []
-        async for attendee_doc in db_manager.get_collection("event_attendees").find({"event_id": event_id}):
+        async for attendee_doc in db_manager.get_tenant_collection("event_attendees").find({"event_id": event_id}):
             attendees.append(EventAttendeeResponse(**attendee_doc))
 
         return attendees
@@ -1639,7 +1639,7 @@ async def mark_attendee_attended(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1657,7 +1657,7 @@ async def mark_attendee_attended(
                 raise HTTPException(status_code=403, detail="Access denied")
 
         # Mark as attended
-        result = await db_manager.get_collection("event_attendees").update_one(
+        result = await db_manager.get_tenant_collection("event_attendees").update_one(
             {"attendee_id": attendee_id, "event_id": event_id},
             {"$set": {"attended_at": datetime.now(), "status": "attended"}}
         )
@@ -1685,7 +1685,7 @@ async def send_event_reminders(
         from second_brain_database.database import db_manager
 
         # Get event
-        event_doc = await db_manager.get_collection("club_events").find_one({"event_id": event_id})
+        event_doc = await db_manager.get_tenant_collection("club_events").find_one({"event_id": event_id})
 
         if not event_doc:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -1704,7 +1704,7 @@ async def send_event_reminders(
 
         # Get all registered attendees
         attendees = []
-        async for attendee_doc in db_manager.get_collection("event_attendees").find({"event_id": event_id}):
+        async for attendee_doc in db_manager.get_tenant_collection("event_attendees").find({"event_id": event_id}):
             attendees.append(attendee_doc)
 
         # Send reminders
@@ -1789,10 +1789,10 @@ async def join_club(
                 "invitation_message": None,
             }
             
-            await db_manager.get_collection("club_members").insert_one(member_doc)
+            await db_manager.get_tenant_collection("club_members").insert_one(member_doc)
             
             # Increment member count
-            await db_manager.get_collection("clubs").update_one(
+            await db_manager.get_tenant_collection("clubs").update_one(
                 {"club_id": club_id},
                 {"$inc": {"member_count": 1}}
             )
@@ -1822,7 +1822,7 @@ async def join_club(
                 "invitation_message": None,
             }
             
-            await db_manager.get_collection("club_members").insert_one(member_doc)
+            await db_manager.get_tenant_collection("club_members").insert_one(member_doc)
             
             # Notify club admins
             try:
@@ -1894,14 +1894,14 @@ async def leave_club(
             )
             
         # Remove membership
-        await db_manager.get_collection("club_members").delete_one({
+        await db_manager.get_tenant_collection("club_members").delete_one({
             "club_id": club_id,
             "user_id": user_id
         })
         
         # Decrement member count (only if was active member)
         if membership.get("status") == "active":
-            await db_manager.get_collection("clubs").update_one(
+            await db_manager.get_tenant_collection("clubs").update_one(
                 {"club_id": club_id},
                 {"$inc": {"member_count": -1}}
             )

@@ -10,6 +10,7 @@ This module provides REST API endpoints for family management including:
 All endpoints require authentication and follow the established security patterns.
 """
 
+from datetime import datetime
 from typing import List, Optional
 import uuid
 
@@ -4502,7 +4503,7 @@ async def get_calendar_events(
     
     try:
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": family_id})
         
         if not family:
@@ -4518,7 +4519,7 @@ async def get_calendar_events(
             raise HTTPException(status_code=403, detail="Not a family member")
             
         # Query calendar events
-        calendar_collection = db_manager.get_collection("calendar_events")
+        calendar_collection = db_manager.get_tenant_collection("calendar_events")
         query = {"family_id": family_id}
         
         if start_date:
@@ -4559,7 +4560,7 @@ async def create_calendar_event(
     
     try:
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": event.family_id})
         
         if not family:
@@ -4596,7 +4597,7 @@ async def create_calendar_event(
             "updated_at": now,
         }
         
-        calendar_collection = db_manager.get_collection("calendar_events")
+        calendar_collection = db_manager.get_tenant_collection("calendar_events")
         await calendar_collection.insert_one(event_doc)
         
         # Add creator name
@@ -4625,14 +4626,14 @@ async def update_calendar_event(
     username = current_user["username"]
     
     try:
-        calendar_collection = db_manager.get_collection("calendar_events")
+        calendar_collection = db_manager.get_tenant_collection("calendar_events")
         existing_event = await calendar_collection.find_one({"event_id": event_id})
         
         if not existing_event:
             raise HTTPException(status_code=404, detail="Event not found")
             
         # Verify user is family member and event creator or admin
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": existing_event["family_id"]})
         
         if not family:
@@ -4701,14 +4702,14 @@ async def delete_calendar_event(
     username = current_user["username"]
     
     try:
-        calendar_collection = db_manager.get_collection("calendar_events")
+        calendar_collection = db_manager.get_tenant_collection("calendar_events")
         existing_event = await calendar_collection.find_one({"event_id": event_id})
         
         if not existing_event:
             raise HTTPException(status_code=404, detail="Event not found")
             
         # Verify user is family member and event creator or admin
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": existing_event["family_id"]})
         
         if not family:
@@ -4760,7 +4761,7 @@ async def get_tasks(
     
     try:
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": family_id})
         
         if not family:
@@ -4775,7 +4776,7 @@ async def get_tasks(
             raise HTTPException(status_code=403, detail="Not a family member")
             
         # Query tasks
-        tasks_collection = db_manager.get_collection("family_tasks")
+        tasks_collection = db_manager.get_tenant_collection("family_tasks")
         query = {"family_id": family_id}
         
         if status:
@@ -4829,7 +4830,7 @@ async def create_task(
     
     try:
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": task.family_id})
         
         if not family:
@@ -4871,7 +4872,7 @@ async def create_task(
             "completed_by": None,
         }
         
-        tasks_collection = db_manager.get_collection("family_tasks")
+        tasks_collection = db_manager.get_tenant_collection("family_tasks")
         await tasks_collection.insert_one(task_doc)
         
         # Add names
@@ -4909,14 +4910,14 @@ async def update_task(
     username = current_user["username"]
     
     try:
-        tasks_collection = db_manager.get_collection("family_tasks")
+        tasks_collection = db_manager.get_tenant_collection("family_tasks")
         existing_task = await tasks_collection.find_one({"task_id": task_id})
         
         if not existing_task:
             raise HTTPException(status_code=404, detail="Task not found")
             
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": existing_task["family_id"]})
         
         if not family:
@@ -4996,14 +4997,14 @@ async def complete_task(
     username = current_user["username"]
     
     try:
-        tasks_collection = db_manager.get_collection("family_tasks")
+        tasks_collection = db_manager.get_tenant_collection("family_tasks")
         existing_task = await tasks_collection.find_one({"task_id": task_id})
         
         if not existing_task:
             raise HTTPException(status_code=404, detail="Task not found")
             
         # Verify user is family member
-        family_collection = db_manager.get_collection("families")
+        family_collection = db_manager.get_tenant_collection("families")
         family = await family_collection.find_one({"family_id": existing_task["family_id"]})
         
         if not family:

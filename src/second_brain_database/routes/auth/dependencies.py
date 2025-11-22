@@ -24,15 +24,48 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 async def get_current_user_dep(token: str = Depends(oauth2_scheme)):
     """
     Dependency function to retrieve the current authenticated user, augmented with
-    their workspace memberships and roles.
+    their workspace memberships, roles, and tenant context.
+    
+    This function also sets the tenant context for automatic tenant filtering in database operations.
     """
     from second_brain_database.routes.auth.services.auth.login import get_current_user
+    from second_brain_database.middleware.tenant_context import set_tenant_context, get_current_tenant_id
+    from jose import jwt
+    from second_brain_database.config import settings
 
     # 1. Get the core user object
     user = await get_current_user(token)
 
     if user:
-        # 2. Augment the user object with their workspace data
+        # 2. Extract tenant information from JWT token
+        try:
+            secret_key = getattr(settings, "SECRET_KEY", None)
+            if hasattr(secret_key, "get_secret_value"):
+                secret_key = secret_key.get_secret_value()
+            
+            payload = jwt.decode(token, secret_key, algorithms=[settings.ALGORITHM])
+            primary_tenant_id = payload.get("primary_tenant_id", settings.DEFAULT_TENANT_ID)
+            tenant_memberships = payload.get("tenant_memberships", [])
+            
+            # Add tenant information to user object
+            user["primary_tenant_id"] = primary_tenant_id
+            user["tenant_memberships"] = tenant_memberships
+            user["current_tenant_id"] = get_current_tenant_id() or primary_tenant_id
+            
+            # Set tenant context if not already set (e.g., by middleware)
+            if not get_current_tenant_id():
+                set_tenant_context(primary_tenant_id)
+                logger.debug(f"Set tenant context to primary tenant: {primary_tenant_id}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract tenant info from JWT for user {user.get('_id')}: {e}")
+            # Fallback to default tenant
+            user["primary_tenant_id"] = settings.DEFAULT_TENANT_ID
+            user["tenant_memberships"] = []
+            user["current_tenant_id"] = settings.DEFAULT_TENANT_ID
+            set_tenant_context(settings.DEFAULT_TENANT_ID)
+        
+        # 3. Augment the user object with their workspace data (tenant-scoped)
         try:
             user_id = str(user["_id"])
             user_workspaces = await workspace_manager.get_workspaces_for_user(user_id)

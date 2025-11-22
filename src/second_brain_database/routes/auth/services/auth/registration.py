@@ -131,6 +131,10 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
     logger.debug("Creating user document for username: %s", user.username)
     hashed_pw = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     verification_token = secrets.token_urlsafe(32)
+    
+    # Import settings for default tenant
+    from second_brain_database.config import settings
+    
     user_doc = {
         "username": user.username,
         "email": user.email,
@@ -145,6 +149,15 @@ async def register_user(user: UserIn) -> Tuple[Dict[str, Any], str]:
         "team": user.team,
         "role": user.role,
         "client_side_encryption": user.client_side_encryption,
+        # Multi-tenancy fields
+        "primary_tenant_id": settings.DEFAULT_TENANT_ID,
+        "tenant_memberships": [
+            {
+                "tenant_id": settings.DEFAULT_TENANT_ID,
+                "role": "member",
+                "joined_at": datetime.utcnow(),
+            }
+        ],
         # User Agent lockdown fields (default disabled)
         "trusted_user_agent_lockdown": False,
         "trusted_user_agents": [],

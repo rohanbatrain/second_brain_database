@@ -58,6 +58,7 @@ class RAGService:
         use_llm: bool = True,
         model: Optional[str] = None,
         temperature: float = 0.7,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query documents using RAG.
 
@@ -101,6 +102,7 @@ class RAGService:
                     user_id=user_id,
                     limit=top_k,
                     score_threshold=self.similarity_threshold,
+                    tenant_id=tenant_id,
                 )
 
             # Extract chunks and metadata
@@ -175,6 +177,7 @@ class RAGService:
         model: Optional[str] = None,
         temperature: float = 0.7,
         stream: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any] | AsyncGenerator[str, None]:
         """Multi-turn chat with document context.
 
@@ -206,6 +209,7 @@ class RAGService:
                 document_id=document_id,
                 user_id=user_id,
                 use_llm=False,  # Don't generate answer yet
+                tenant_id=tenant_id,
             )
 
             context = self._build_context(query_result["chunks"])
@@ -275,6 +279,7 @@ class RAGService:
         analysis_type: str = "summary",
         model: Optional[str] = None,
         temperature: float = 0.7,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Analyze document using LLM.
 
@@ -292,7 +297,7 @@ class RAGService:
         """
         try:
             # Get document content
-            collection = db_manager.get_collection("documents")
+            collection = db_manager.get_tenant_collection("processed_documents", tenant_id=tenant_id)
             doc = await collection.find_one({"_id": document_id})
 
             if not doc:

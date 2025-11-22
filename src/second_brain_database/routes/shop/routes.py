@@ -597,7 +597,7 @@ async def get_item_details(item_id: str, item_type: str):
 
 # Utility to get or create a user's shop doc
 async def get_or_create_shop_doc(username):
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     doc = await shop_collection.find_one({"username": username})
     if not doc:
         doc = {"username": username, "carts": {}}
@@ -958,7 +958,7 @@ async def create_category(
 ):
     """Create a new shop category."""
     # Check if user has admin permissions (you may want to add a specific permission check)
-    shop_collection = db_manager.get_collection("shop_categories")
+    shop_collection = db_manager.get_tenant_collection("shop_categories")
     
     # Check if category with same name already exists
     existing = await shop_collection.find_one({
@@ -1002,7 +1002,7 @@ async def update_category(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Update an existing shop category."""
-    shop_collection = db_manager.get_collection("shop_categories")
+    shop_collection = db_manager.get_tenant_collection("shop_categories")
     
     # Find existing category
     existing = await shop_collection.find_one({"category_id": category_id})
@@ -1036,7 +1036,7 @@ async def update_category(
     updated = await shop_collection.find_one({"category_id": category_id})
     
     # Count items in this category
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     item_count = await shop_items_collection.count_documents({"category": updated["name"]})
     
     return {
@@ -1051,7 +1051,7 @@ async def delete_category(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Delete a shop category."""
-    shop_collection = db_manager.get_collection("shop_categories")
+    shop_collection = db_manager.get_tenant_collection("shop_categories")
     
     # Find existing category
     existing = await shop_collection.find_one({"category_id": category_id})
@@ -1059,7 +1059,7 @@ async def delete_category(
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Check if category has items
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     item_count = await shop_items_collection.count_documents({"category": existing["name"]})
     
     if item_count > 0:
@@ -1077,14 +1077,14 @@ async def delete_category(
 @router.get("/shop/categories/{category_id}", response_model=CategoryDetailResponse)
 async def get_category_detail(category_id: str):
     """Get detailed information about a specific category."""
-    shop_collection = db_manager.get_collection("shop_categories")
+    shop_collection = db_manager.get_tenant_collection("shop_categories")
     
     category = await shop_collection.find_one({"category_id": category_id})
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Count items in this category
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     item_count = await shop_items_collection.count_documents({"category": category["name"]})
     
     return {
@@ -1096,14 +1096,14 @@ async def get_category_detail(category_id: str):
 @router.get("/shop/categories/{category_id}/items", response_model=List[ShopItemResponse])
 async def get_category_items(category_id: str):
     """Get all items in a specific category."""
-    shop_collection = db_manager.get_collection("shop_categories")
+    shop_collection = db_manager.get_tenant_collection("shop_categories")
     
     category = await shop_collection.find_one({"category_id": category_id})
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Get items in this category
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     items_cursor = shop_items_collection.find({"category": category["name"]})
     items = await items_cursor.to_list(length=None)
     
@@ -1120,7 +1120,7 @@ async def create_shop_item(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Create a new shop item."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     item_id = uuid4().hex
     now = datetime.now(timezone.utc).isoformat()
@@ -1154,7 +1154,7 @@ async def update_shop_item(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Update an existing shop item."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     existing = await shop_items_collection.find_one({"item_id": item_id})
     if not existing:
@@ -1186,7 +1186,7 @@ async def delete_shop_item(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Delete a shop item."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     existing = await shop_items_collection.find_one({"item_id": item_id})
     if not existing:
@@ -1202,7 +1202,7 @@ async def bulk_update_items(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Bulk update shop items."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     item_ids = updates.get("item_ids", [])
     action = updates.get("action")
@@ -1247,7 +1247,7 @@ async def upload_item_image(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Update item image URL."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     existing = await shop_items_collection.find_one({"item_id": item_id})
     if not existing:
@@ -1301,7 +1301,7 @@ async def get_top_selling_items(
     current_user: dict = Depends(enforce_all_lockdowns)
 ):
     """Get top selling items."""
-    shop_items_collection = db_manager.get_collection("shop_items")
+    shop_items_collection = db_manager.get_tenant_collection("shop_items")
     
     # Get items sorted by a sold_count field (would need to track this)
     items = await shop_items_collection.find().sort("sold_count", -1).limit(limit).to_list(length=limit)
@@ -2471,7 +2471,7 @@ async def add_to_cart(request: Request, data: dict = Body(...), current_user: di
     Returns:
         dict: A dictionary confirming the successful addition of the item to the cart.
     """
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     item_id = data.get("item_id")
@@ -2527,7 +2527,7 @@ async def remove_from_cart(
     Returns:
         dict: A dictionary confirming the successful removal of the item from the cart.
     """
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     username = current_user["username"]
     item_id = data.get("item_id")
     item_type = data.get("item_type")
@@ -2561,7 +2561,7 @@ async def clear_cart(request: Request, current_user: dict = Depends(enforce_all_
     """
     Clears items from a user's shopping cart for a specific app, identified by user-agent.
     """
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     username = current_user["username"]
     user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split("/")[0].strip() if user_agent and "/" in user_agent else user_agent
@@ -2585,7 +2585,7 @@ async def clear_cart(request: Request, current_user: dict = Depends(enforce_all_
 
 @router.get("/shop/cart", tags=["shop"], summary="Get a specific app cart")
 async def get_cart(request: Request, current_user: dict = Depends(enforce_all_lockdowns)):
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     username = current_user["username"]
     user_agent = request.headers.get("user-agent", "").lower()
     app_name = user_agent.split("/")[0].strip() if user_agent and "/" in user_agent else user_agent
@@ -2636,7 +2636,7 @@ async def checkout_cart(request: Request, data: dict = Body({}), current_user: d
         dict: A dictionary confirming the successful checkout, or a pending approval status
               if purchase requests were created.
     """
-    shop_collection = db_manager.get_collection(SHOP_COLLECTION)
+    shop_collection = db_manager.get_tenant_collection(SHOP_COLLECTION)
     users_collection = db_manager.get_collection("users")
     username = current_user["username"]
     user_id = str(current_user["_id"])

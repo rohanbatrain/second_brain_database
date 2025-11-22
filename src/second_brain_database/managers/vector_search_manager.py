@@ -243,6 +243,7 @@ class VectorSearchManager:
         chunks: List[str],
         metadata: Dict[str, Any],
         user_id: str,
+        tenant_id: str = None,
     ) -> List[Dict[str, Any]]:
         """Index document chunks in the vector database.
 
@@ -251,6 +252,7 @@ class VectorSearchManager:
             chunks: List of text chunks to index
             metadata: Document metadata
             user_id: User who owns the document
+            tenant_id: Tenant ID for multi-tenancy
 
         Returns:
             List of indexed chunk information
@@ -282,6 +284,7 @@ class VectorSearchManager:
                             "chunk_index": i,
                             "text": chunk_text,
                             "user_id": user_id,
+                            "tenant_id": tenant_id,
                             "filename": metadata.get("filename", ""),
                             "format": metadata.get("format", ""),
                             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -296,6 +299,7 @@ class VectorSearchManager:
                     "text": chunk_text,
                     "embedding": embedding,  # Store locally for backup
                     "user_id": user_id,
+                    "tenant_id": tenant_id,
                     "metadata": metadata,
                     "created_at": datetime.now(timezone.utc),
                 })
@@ -324,6 +328,7 @@ class VectorSearchManager:
         limit: int = None,
         score_threshold: float = None,
         include_metadata: bool = True,
+        tenant_id: str = None,
     ) -> List[Dict[str, Any]]:
         """Perform semantic vector search.
 
@@ -333,6 +338,7 @@ class VectorSearchManager:
             limit: Maximum results to return
             score_threshold: Minimum similarity score
             include_metadata: Whether to include document metadata
+            tenant_id: Tenant ID to filter results
 
         Returns:
             List of search results with scores
@@ -360,7 +366,12 @@ class VectorSearchManager:
                             key="user_id",
                             match=models.MatchValue(value=user_id),
                         )
-                    ]
+                    ] + ([
+                        models.FieldCondition(
+                            key="tenant_id",
+                            match=models.MatchValue(value=tenant_id),
+                        )
+                    ] if tenant_id else [])
                 ),
                 limit=limit,
                 score_threshold=score_threshold,
@@ -394,7 +405,7 @@ class VectorSearchManager:
             logger.error(f"Failed to perform semantic search: {e}")
             raise
 
-    async def delete_document_vectors(self, document_id: str) -> bool:
+    async def delete_document_vectors(self, document_id: str, tenant_id: str = None) -> bool:
         """Delete all vector embeddings for a document.
 
         Args:
@@ -417,7 +428,12 @@ class VectorSearchManager:
                                 key="document_id",
                                 match=models.MatchValue(value=document_id),
                             )
-                        ]
+                        ] + ([
+                            models.FieldCondition(
+                                key="tenant_id",
+                                match=models.MatchValue(value=tenant_id),
+                            )
+                        ] if tenant_id else [])
                     )
                 )
             )

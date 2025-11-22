@@ -83,8 +83,13 @@ class WorkspaceManager:
 
     @property
     def workspaces_collection(self):
-        """Lazy-loads the workspaces collection to ensure DB is connected."""
-        return self.db.get_collection("workspaces")
+        """
+        Lazy-loads the workspaces collection with automatic tenant filtering.
+        
+        Uses get_tenant_collection to ensure workspace data is isolated by tenant.
+        The tenant context is automatically set by get_current_user_dep dependency.
+        """
+        return self.db.get_tenant_collection("workspaces")
 
     # --- Public Methods (API Facing) ---
 

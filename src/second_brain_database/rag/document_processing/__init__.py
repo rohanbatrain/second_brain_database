@@ -58,6 +58,7 @@ class RAGDocumentService:
         file_data: BinaryIO,
         filename: str,
         user_id: str = "",
+        tenant_id: Optional[str] = None,
         **kwargs
     ) -> Document:
         """
@@ -67,6 +68,7 @@ class RAGDocumentService:
             file_data: Binary file data
             filename: Name of the file
             user_id: User ID for processing context
+            tenant_id: Tenant ID for multi-tenancy
             **kwargs: Additional processing options
             
         Returns:
@@ -96,12 +98,13 @@ class RAGDocumentService:
                 file_data=file_bytes,
                 filename=filename,
                 user_id=user_id or "rag_system",
+                tenant_id=tenant_id,
                 extract_images=kwargs.get('extract_images', True),
                 output_format=kwargs.get('output_format', 'markdown')
             )
             
             # Convert to RAG Document format
-            document = self._convert_to_rag_document(processor_result, filename, user_id)
+            document = self._convert_to_rag_document(processor_result, filename, user_id, tenant_id)
             
             processing_time = time.time() - start_time
             logger.info(
@@ -130,7 +133,8 @@ class RAGDocumentService:
         self,
         processor_result: Dict[str, Any],
         filename: str,
-        user_id: str
+        user_id: str,
+        tenant_id: Optional[str] = None
     ) -> Document:
         """
         Convert DocumentProcessor result to RAG Document format.
@@ -139,6 +143,7 @@ class RAGDocumentService:
             processor_result: Result from DocumentProcessor
             filename: Original filename
             user_id: User ID
+            tenant_id: Tenant ID
             
         Returns:
             RAG Document with chunks
@@ -174,13 +179,14 @@ class RAGDocumentService:
         document_id = processor_result.get("document_id") or f"doc_{uuid.uuid4().hex[:8]}"
         
         # Create document chunks with document_id
-        chunks = self._create_chunks(content, metadata_dict, document_id)
+        chunks = self._create_chunks(content, metadata_dict, document_id, tenant_id)
         
         # Create RAG document
         document = Document(
             id=document_id,
             filename=filename,
             user_id=user_id,
+            tenant_id=tenant_id,
             content=content if isinstance(content, str) else str(content),
             chunks=chunks,
             status=DocumentStatus.INDEXED,
@@ -193,7 +199,8 @@ class RAGDocumentService:
         self,
         content: Any,
         metadata: Dict[str, Any],
-        document_id: str = None
+        document_id: str = None,
+        tenant_id: Optional[str] = None
     ) -> List[DocumentChunk]:
         """
         Create document chunks from processed content.
@@ -219,18 +226,19 @@ class RAGDocumentService:
         
         # Use configured chunking strategy
         if self.config.chunk_strategy == "fixed":
-            return self._create_fixed_chunks(content, metadata, document_id)
+            return self._create_fixed_chunks(content, metadata, document_id, tenant_id)
         elif self.config.chunk_strategy == "recursive":
-            return self._create_recursive_chunks(content, metadata, document_id)
+            return self._create_recursive_chunks(content, metadata, document_id, tenant_id)
         else:
             # Default to fixed chunking
-            return self._create_fixed_chunks(content, metadata, document_id)
+            return self._create_fixed_chunks(content, metadata, document_id, tenant_id)
     
     def _create_fixed_chunks(
         self,
         content: str,
         metadata: Dict[str, Any],
-        document_id: str
+        document_id: str,
+        tenant_id: Optional[str] = None
     ) -> List[DocumentChunk]:
         """Create fixed-size chunks."""
         chunks = []
@@ -255,6 +263,7 @@ class RAGDocumentService:
             
             chunk = DocumentChunk(
                 document_id=document_id,
+                tenant_id=tenant_id,
                 chunk_index=chunk_index,
                 content=chunk_text.strip(),
                 start_char=start,
@@ -282,7 +291,8 @@ class RAGDocumentService:
         self,
         content: str,
         metadata: Dict[str, Any],
-        document_id: str
+        document_id: str,
+        tenant_id: Optional[str] = None
     ) -> List[DocumentChunk]:
         """Create recursive chunks that respect document structure."""
         chunks = []
@@ -303,6 +313,7 @@ class RAGDocumentService:
                 # Create chunk from current content
                 chunk = DocumentChunk(
                     document_id=document_id,
+                    tenant_id=tenant_id,
                     chunk_index=chunk_index,
                     content=current_chunk.strip(),
                     start_char=start_char,
@@ -340,6 +351,7 @@ class RAGDocumentService:
         if current_chunk.strip():
             chunk = DocumentChunk(
                 document_id=document_id,
+                tenant_id=tenant_id,
                 chunk_index=chunk_index,
                 content=current_chunk.strip(),
                 start_char=start_char,

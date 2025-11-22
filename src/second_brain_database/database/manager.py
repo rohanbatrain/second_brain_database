@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
@@ -209,20 +209,58 @@ class DatabaseManager:
             return False
 
     def get_collection(self, collection_name: str) -> AsyncIOMotorCollection:
-        """Get a collection from the database"""
-        db_logger.debug("Requesting collection: %s", collection_name)
+        """
+        Get a MongoDB collection by name.
 
-        if self.database is None:
-            db_logger.error("Cannot get collection '%s': Database not connected", collection_name)
-            raise RuntimeError("Database not connected")
+        Args:
+            collection_name (str): Name of the collection to retrieve
 
-        try:
-            collection = self.database[collection_name]
-            db_logger.debug("Successfully retrieved collection: %s", collection_name)
+        Returns:
+            AsyncIOMotorCollection: The requested collection
+
+        Raises:
+            ConnectionError: If database is not connected
+        """
+        if not self.database:
+            db_logger.error("Attempted to get collection '%s' without database connection", collection_name)
+            raise ConnectionError("Database not connected. Call connect() first.")
+
+        db_logger.debug("Retrieving collection: %s", collection_name)
+        return self.database[collection_name]
+
+    def get_tenant_collection(
+        self, collection_name: str, tenant_id: Optional[str] = None
+    ) -> Union[AsyncIOMotorCollection, "TenantAwareCollection"]:
+        """
+        Get a collection with automatic tenant filtering.
+
+        Args:
+            collection_name: Name of the collection
+            tenant_id: Tenant ID (uses context if not provided)
+
+        Returns:
+            TenantAwareCollection if tenant_id is available, otherwise regular collection
+
+        Raises:
+            ConnectionError: If database is not connected
+        """
+        from second_brain_database.config import settings
+        from second_brain_database.database.tenant_collection import TenantAwareCollection
+        from second_brain_database.middleware.tenant_context import get_current_tenant_id
+
+        collection = self.get_collection(collection_name)
+
+        # Determine effective tenant ID
+        effective_tenant_id = tenant_id or get_current_tenant_id()
+
+        # If multi-tenancy is disabled or no tenant context, return regular collection
+        if not settings.MULTI_TENANCY_ENABLED or not effective_tenant_id:
+            db_logger.debug("Returning regular collection for %s (no tenant context)", collection_name)
             return collection
-        except Exception as e:
-            db_logger.error("Failed to get collection '%s': %s", collection_name, e)
-            raise
+
+        # Return tenant-aware collection
+        db_logger.debug("Returning tenant-aware collection for %s (tenant: %s)", collection_name, effective_tenant_id)
+        return TenantAwareCollection(collection, effective_tenant_id)
 
     async def create_indexes(self):
         """Create database indexes for better performance"""
@@ -299,6 +337,9 @@ class DatabaseManager:
 
             # Chat system collections indexes
             await self._create_chat_indexes()
+
+            # Tenant management collections indexes
+            await self._create_tenant_indexes()
 
             total_duration = time.time() - start_time
             perf_logger.info("Database index creation completed successfully in %.3fs", total_duration)
@@ -771,6 +812,45 @@ class DatabaseManager:
 
         except Exception as e:
             db_logger.error("Failed to create chat system indexes: %s", e)
+            raise
+
+    async def _create_tenant_indexes(self):
+        """Create comprehensive indexes for tenant management collections with performance optimization"""
+        try:
+            db_logger.info("Creating indexes for tenant management collections")
+
+            # Tenants collection indexes - Core tenant management
+            tenants_collection = self.get_collection("tenants")
+            await self._create_index_if_not_exists(tenants_collection, "tenant_id", {"unique": True})
+            await self._create_index_if_not_exists(tenants_collection, "slug", {"unique": True})
+            await self._create_index_if_not_exists(tenants_collection, "owner_user_id", {})
+            await self._create_index_if_not_exists(tenants_collection, "plan", {})
+            await self._create_index_if_not_exists(tenants_collection, "status", {})
+            await self._create_index_if_not_exists(tenants_collection, "created_at", {})
+            await self._create_index_if_not_exists(tenants_collection, "settings.custom_domain", {"sparse": True})
+            # Compound indexes for efficient queries
+            await self._create_index_if_not_exists(tenants_collection, [("owner_user_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(tenants_collection, [("plan", 1), ("status", 1)], {})
+
+            # Tenant memberships collection indexes - Membership management
+            memberships_collection = self.get_collection("tenant_memberships")
+            await self._create_index_if_not_exists(memberships_collection, "membership_id", {"unique": True})
+            await self._create_index_if_not_exists(memberships_collection, "tenant_id", {})
+            await self._create_index_if_not_exists(memberships_collection, "user_id", {})
+            await self._create_index_if_not_exists(memberships_collection, "role", {})
+            await self._create_index_if_not_exists(memberships_collection, "status", {})
+            await self._create_index_if_not_exists(memberships_collection, "created_at", {})
+            # Compound indexes for efficient membership queries
+            await self._create_index_if_not_exists(
+                memberships_collection, [("tenant_id", 1), ("user_id", 1)], {"unique": True}
+            )
+            await self._create_index_if_not_exists(memberships_collection, [("user_id", 1), ("status", 1)], {})
+            await self._create_index_if_not_exists(memberships_collection, [("tenant_id", 1), ("role", 1)], {})
+
+            db_logger.info("Tenant management collection indexes created successfully")
+
+        except Exception as e:
+            db_logger.error("Failed to create tenant management indexes: %s", e)
             raise
 
     async def monitor_connection_pool(self):

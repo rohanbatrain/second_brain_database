@@ -201,7 +201,7 @@ async def list_countries(
         countries = await ipam_manager.get_all_countries(continent=continent)
         
         # Enrich each country with allocated regions count for this user
-        regions_collection = db_manager.get_collection("ipam_regions")
+        regions_collection = db_manager.get_tenant_collection("ipam_regions")
         for country in countries:
             allocated_regions = await regions_collection.count_documents({
                 "user_id": user_id,
@@ -292,7 +292,7 @@ async def get_country(
             )
         
         # Add allocated regions count for this user
-        regions_collection = db_manager.get_collection("ipam_regions")
+        regions_collection = db_manager.get_tenant_collection("ipam_regions")
         allocated_regions = await regions_collection.count_documents({
             "user_id": user_id,
             "country": country
@@ -475,7 +475,7 @@ async def create_region(
         
         # Set owner to username automatically
         owner_name = current_user.get("username", user_id)
-        await db_manager.get_collection("ipam_regions").update_one(
+        await db_manager.get_tenant_collection("ipam_regions").update_one(
             {"_id": region["_id"]},
             {"$set": {"owner": owner_name}}
         )
@@ -3475,7 +3475,7 @@ async def list_notification_rules(
     user_id = str(current_user.get("_id", current_user.get("username", "")))
     
     try:
-        collection = ipam_manager.db_manager.get_collection("ipam_notification_rules")
+        collection = ipam_manager.db_manager.get_tenant_collection("ipam_notification_rules")
         cursor = collection.find({"user_id": user_id}).sort("created_at", -1)
         rules = await cursor.to_list(None)
         
@@ -3505,7 +3505,7 @@ async def update_notification_rule(
     
     try:
         from bson import ObjectId
-        collection = ipam_manager.db_manager.get_collection("ipam_notification_rules")
+        collection = ipam_manager.db_manager.get_tenant_collection("ipam_notification_rules")
         
         updates = {}
         if is_active is not None:
@@ -3541,7 +3541,7 @@ async def delete_notification_rule(
     
     try:
         from bson import ObjectId
-        collection = ipam_manager.db_manager.get_collection("ipam_notification_rules")
+        collection = ipam_manager.db_manager.get_tenant_collection("ipam_notification_rules")
         await collection.delete_one({"_id": ObjectId(rule_id), "user_id": user_id})
         return {"status": "success", "message": "Rule deleted"}
     except Exception as e:

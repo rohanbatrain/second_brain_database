@@ -240,13 +240,24 @@ class Settings(BaseSettings):
     CORS_ENABLED: bool = True  # Enable CORS for the entire API
     CORS_ORIGINS: str = "http://localhost:3000,https://agentchat.vercel.app"  # Comma-separated allowed origins
 
-    # Celery Settings
-    CELERY_BROKER_URL: str = ""  # Defaults to REDIS_URL
-    CELERY_RESULT_BACKEND: str = ""  # Defaults to REDIS_URL
-    CELERY_TASK_SERIALIZER: str = "json"
-    CELERY_ACCEPT_CONTENT: List[str] = ["json"]
-    CELERY_TIMEZONE: str = "UTC"
-    CELERY_ENABLE_UTC: bool = True
+    # Multi-tenancy configuration
+    MULTI_TENANCY_ENABLED: bool = True  # Enable/disable multi-tenancy
+    DEFAULT_TENANT_ID: str = "tenant_default"  # Default tenant for backward compatibility
+    TENANT_ISOLATION_MODE: str = "strict"  # strict, permissive
+    ALLOW_CROSS_TENANT_QUERIES: bool = False  # For admin operations only
+
+    # Tenant plan limits
+    FREE_PLAN_MAX_USERS: int = 5  # Maximum users for free plan
+    FREE_PLAN_MAX_STORAGE_GB: int = 10  # Maximum storage for free plan
+    PRO_PLAN_MAX_USERS: int = 50  # Maximum users for pro plan
+    PRO_PLAN_MAX_STORAGE_GB: int = 100  # Maximum storage for pro plan
+    ENTERPRISE_PLAN_MAX_USERS: int = -1  # Unlimited users for enterprise
+    ENTERPRISE_PLAN_MAX_STORAGE_GB: int = -1  # Unlimited storage for enterprise
+
+    # Tenant rate limiting
+    TENANT_CREATE_RATE_LIMIT: int = 2  # Max tenants created per hour per user
+    TENANT_INVITE_RATE_LIMIT: int = 20  # Max invitations sent per hour per user
+
 
     # LangSmith Observability
     LANGSMITH_API_KEY: Optional[str] = None
