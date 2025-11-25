@@ -39,4 +39,4 @@
 	url = https://github.com/rohanbatrain/sbd-mkdocs
 [submodule "submodules/sbd-nextjs-cluster-dashboard"]
 	path = submodules/sbd-nextjs-cluster-dashboard
-	url = git@github.com:rohanbatrain/sbd-nextjs-cluster-dashboard.gitjs-cluster-dashboard.git
+	url = git@github.com:rohanbatrain/sbd-nextjs-cluster-dashboard.git
