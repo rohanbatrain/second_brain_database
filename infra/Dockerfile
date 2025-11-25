@@ -1,18 +1,21 @@
 # syntax=docker/dockerfile:1
 
 # Builder stage
-FROM python:3.11-slim as builder
+# Builder stage
+FROM python:3.11-slim AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install system dependencies and uv
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 ENV PATH="/root/.cargo/bin:$PATH"
 
@@ -25,7 +28,7 @@ COPY config/pyproject.toml config/uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # Runtime stage
-FROM python:3.11-slim as runtime
+FROM python:3.11-slim AS runtime
 
 # Add labels for better container management
 LABEL maintainer="Rohan Batra <contact@rohanbatra.in>"
