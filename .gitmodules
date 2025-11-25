@@ -36,7 +36,7 @@
 	url = git@github.com:rohanbatrain/sbd-nextjs-raunak-ai.git
 [submodule "submodules/sbd-mkdocs"]
 	path = submodules/sbd-mkdocs
-	url = https://github.com/rohanbatrain/sbd-mkdocs
+	url = git@github.com:rohanbatrain/sbd-mkdocs.git
 [submodule "submodules/sbd-nextjs-cluster-dashboard"]
 	path = submodules/sbd-nextjs-cluster-dashboard
 	url = git@github.com:rohanbatrain/sbd-nextjs-cluster-dashboard.git
