@@ -18,6 +18,14 @@ jobs:
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Ensure Docker Compose plugin is installed
+        run: |
+          # Install docker compose plugin on ubuntu runners so 'docker compose' works reliably
+          if ! command -v docker-compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+          fi
       
       - name: Create .env file
         run: |
@@ -28,22 +36,22 @@ jobs:
         run: |
           echo "Validating base configuration..."
           cd infra
-          docker-compose -f docker-compose.yml config > /dev/null
+          docker compose -f docker-compose.yml config > /dev/null
           
           echo "Validating dev configuration..."
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null
           
           echo "✓ All configurations valid"
       
       - name: Build Docker images
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache
       
       - name: Start services
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d mongo redis qdrant api
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d mongo redis qdrant api
           echo "Services started"
       
       - name: Wait for services to be healthy
@@ -66,7 +74,7 @@ jobs:
       - name: Show service status
         run: |
           cd infra
-          docker-compose ps
+          docker compose ps
       
       - name: Test API health endpoint
         run: |
@@ -95,17 +103,17 @@ jobs:
         run: |
           cd infra
           echo "=== API Logs ==="
-          docker-compose logs --tail=100 api
+          docker compose logs --tail=100 api
           echo "=== MongoDB Logs ==="
-          docker-compose logs --tail=50 mongo
+          docker compose logs --tail=50 mongo
           echo "=== Redis Logs ==="
-          docker-compose logs --tail=50 redis
+          docker compose logs --tail=50 redis
           echo "=== Qdrant Logs ==="
-          docker-compose logs --tail=50 qdrant
+          docker compose logs --tail=50 qdrant
       
       - name: Cleanup
         if: always()
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml down -v --remove-orphans
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v --remove-orphans
           docker system prune -f

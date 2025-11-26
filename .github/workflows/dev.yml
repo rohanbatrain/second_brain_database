@@ -20,7 +20,7 @@ jobs:
         run: |
           cp .env.development.example .env
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null
           echo "✓ Docker Compose configuration valid"
 
       - name: Login to Docker Hub

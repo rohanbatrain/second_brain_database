@@ -29,7 +29,7 @@ jobs:
         run: |
           cd infra
           # This will warn about missing env vars but should not fail
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null 2>&1 || true
           echo "✓ Production configuration validated"
 
   build:

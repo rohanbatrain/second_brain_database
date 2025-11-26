@@ -1,0 +1,98 @@
+name: PR Auto-Labeler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label based on branch name
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const branchName = context.payload.pull_request.head.ref;
+            
+            // Define label mappings
+            const labelMap = {
+              'feat/': 'feature',
+              'fix/': 'bug',
+              'perf/': 'performance',
+              'refactor/': 'refactor',
+              'docs/': 'documentation',
+              'chore/': 'chore',
+              'hotfix/': 'hotfix',
+              'release/': 'release'
+            };
+            
+            // Remove existing type labels
+            const existingLabels = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+            
+            const typeLabels = Object.values(labelMap);
+            const labelsToRemove = existingLabels.data
+              .filter(label => typeLabels.includes(label.name))
+              .map(label => label.name);
+            
+            for (const label of labelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: label
+              }).catch(() => {}); // Ignore errors if label doesn't exist
+            }
+            
+            // Add new label based on branch prefix
+            for (const [prefix, label] of Object.entries(labelMap)) {
+              if (branchName.startsWith(prefix)) {
+                // Ensure label exists
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label
+                }).catch(async () => {
+                  // Create label if it doesn't exist
+                  const colors = {
+                    'feature': '0366d6',
+                    'bug': 'd73a4a',
+                    'performance': 'fbca04',
+                    'refactor': 'c5def5',
+                    'documentation': '0075ca',
+                    'chore': 'fef2c0',
+                    'hotfix': 'b60205',
+                    'release': '00ff00'
+                  };
+                  
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label,
+                    color: colors[label] || 'ededed',
+                    description: `Automatically added for ${prefix}* branches`
+                  });
+                });
+                
+                // Add the label
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: [label]
+                });
+                
+                console.log(`✅ Added label: ${label}`);
+                break;
+              }
+            }

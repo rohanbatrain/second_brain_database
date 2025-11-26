@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, gh-pages]
+  push:
+    branches: [main, gh-pages]
+
+jobs:
+  validate-branch:
+    name: Validate Branch Name
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate branch name
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          PATTERN="^(feat|fix|perf|refactor|docs|chore|hotfix|release)\/[a-z0-9._-]+$"
+          
+          if [[ ! $BRANCH_NAME =~ $PATTERN ]]; then
+            echo "❌ Invalid branch name: $BRANCH_NAME"
+            exit 1
+          fi
+
+  validate-pr-title:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Validate PR title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PATTERN="^(feat|fix|perf|refactor|docs|chore|hotfix|release)(\(.+\))?: .+$"
+          
+          if [[ ! $PR_TITLE =~ $PATTERN ]]; then
+            echo "❌ Invalid PR title: $PR_TITLE"
+            exit 1
+          fi
+
+  lint:
+    name: Lint Markdown & YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: yamllint -c .yamllint.yaml .
+        continue-on-error: true
+
+      - name: Setup Node.js for markdownlint
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli
+
+      - name: Lint Markdown files
+        run: markdownlint docs/
+
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material
+          pip install -r requirements.txt
+        if: hashFiles('requirements.txt') != ''
+
+      - name: Build MkDocs site
+        run: mkdocs build --strict
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site/
