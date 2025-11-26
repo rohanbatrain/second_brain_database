@@ -38,18 +38,18 @@ jobs:
       - name: Validate test configuration
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.test.yml config > /dev/null
+          docker compose -f docker-compose.yml -f docker-compose.test.yml config > /dev/null
           echo "✓ Test configuration valid"
       
       - name: Build Docker images
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.test.yml build
+          docker compose -f docker-compose.yml -f docker-compose.test.yml build
       
       - name: Start services
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d
+          docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
           echo "Services started"
       
       - name: Wait for services to be healthy
@@ -99,20 +99,20 @@ jobs:
         run: |
           cd infra
           echo "=== Service Status ==="
-          docker-compose ps
+          docker compose ps
           echo ""
           echo "=== API Logs ==="
-          docker-compose logs --tail=100 api
+          docker compose logs --tail=100 api
           echo ""
           echo "=== Celery Worker Logs ==="
-          docker-compose logs --tail=50 celery-worker
+          docker compose logs --tail=50 celery-worker
           echo ""
           echo "=== MongoDB Logs ==="
-          docker-compose logs --tail=50 mongo
+          docker compose logs --tail=50 mongo
       
       - name: Cleanup
         if: always()
         run: |
           cd infra
-          docker-compose -f docker-compose.yml -f docker-compose.test.yml down -v --remove-orphans
+          docker compose -f docker-compose.yml -f docker-compose.test.yml down -v --remove-orphans
           docker system prune -f
