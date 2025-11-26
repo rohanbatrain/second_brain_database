@@ -1,0 +1,22 @@
+# Validate branch name
+BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+PATTERN="^(feat|fix|perf|refactor|docs|chore|hotfix|release)\/[a-z0-9._-]+$"
+
+if [[ ! $BRANCH_NAME =~ $PATTERN ]]; then
+    echo "❌ ERROR: Invalid branch name: '$BRANCH_NAME'"
+    echo ""
+    echo "Branch names must follow: <type>/<name>"
+    echo "Allowed types: feat, fix, perf, refactor, docs, chore, hotfix, release"
+    echo ""
+    exit 1
+fi
+
+# Run type check
+echo "🔍 Running TypeScript type check..."
+npm run type-check || exit 1
+
+# Run lint check
+echo "🔍 Running ESLint..."
+npm run lint || exit 1
+
+echo "✅ Pre-push checks passed!"
