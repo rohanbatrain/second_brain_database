@@ -24,6 +24,11 @@ WORKDIR /app
 # Copy dependency files
 COPY config/pyproject.toml config/uv.lock ./
 
+# Copy package source and project metadata so the builder can build the package
+# (pyproject.toml references README.md and the package uses a src/ layout)
+COPY src/ ./src/
+COPY README.md ./
+
 # Install dependencies (including voice extras for production)
 RUN uv sync --frozen --no-dev
 
