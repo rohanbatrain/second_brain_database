@@ -112,7 +112,7 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
     
     # Install dependencies
     echo "📦 Installing dependencies..."
-    npm install
+    npm install --legacy-peer-deps
     
     # Initialize Husky
     echo "🎣 Initializing Husky..."
