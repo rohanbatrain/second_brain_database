@@ -18,6 +18,14 @@ jobs:
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Ensure Docker Compose plugin is installed
+        run: |
+          # Install docker compose plugin on ubuntu runners so 'docker compose' works reliably
+          if ! command -v docker-compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+          fi
       
       - name: Create .env file
         run: |
