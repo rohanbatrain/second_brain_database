@@ -32,7 +32,7 @@ dependencies = [
     # Authentication and Security
     "python-jose[cryptography]>=3.3.0,<4.0.0", # JWT handling
     "bcrypt>=4.0.0,<5.0.0", # Password hashing
-    "cryptography>=41.0.0,<42.0.0", # Cryptographic operations
+    "cryptography>=41.0.0,<45.0.0", # Cryptographic operations
     "pyotp>=2.8.0,<3.0.0", # TOTP/HOTP library for 2FA
     # HTTP Client
     "httpx>=0.25.0,<1.0.0", # HTTP client for external API calls
